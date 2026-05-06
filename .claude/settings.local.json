@@ -4,7 +4,8 @@
       "Bash(grep -oE '\\\\.[^.]+$')",
       "Bash(Remove-Item -Recurse -Force \"C:\\\\ClaudeCode\\\\SD81-Booster\\\\flash\")",
       "Bash(Remove-Item -Recurse -Force \"C:\\\\ClaudeCode\\\\SD81-Booster\\\\V2\\\\CPLD\")",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "PowerShell(winget --version 2>$null)"
     ]
   }
 }

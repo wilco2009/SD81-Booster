@@ -185,13 +185,13 @@ Al abrir la caja del SD81 Booster encontrarás:
 
 ## 4. Instalación
 
-### 3.1 Antes de conectar el interface
+### 4.1 Antes de conectar el interface
 
 - Asegúrate de que el ZX81 está **apagado** antes de conectar o desconectar el interface.
 - El SD81 Booster se conecta al **puerto de expansión trasero** del ZX81.
 - El interface no es compatible con dispositivos que reemplacen la ROM interna del ZX81.
 
-### 3.2 Conexión
+### 4.2 Conexión
 
 1. Apaga el ZX81.
 2. Alinea el conector del SD81 Booster con el puerto de expansión trasero del ZX81. Asegúrate de que los pines están correctamente alineados.
@@ -201,7 +201,7 @@ Al abrir la caja del SD81 Booster encontrarás:
 
 > ⚠️ **Atención:** Conectar o desconectar el interface con el ZX81 encendido puede dañar tanto el interface como el ordenador.
 
-### 3.3 Comprobación de la instalación
+### 4.3 Comprobación de la instalación
 
 Al encender el ZX81 con el SD81 Booster correctamente instalado, el ordenador debe arrancar con normalidad mostrando el cursor `K` habitual. El interface no modifica el arranque del sistema.
 
@@ -219,7 +219,7 @@ Si el ordenador se queda bloqueado o no arranca correctamente, desconecta el int
 
 ## 5. Preparación de la tarjeta microSD
 
-### 4.1 Formato de la tarjeta
+### 5.1 Formato de la tarjeta
 
 El SD81 Booster requiere una tarjeta microSD formateada en **FAT32**. La tarjeta incluida en la caja ya viene formateada y preparada correctamente.
 
@@ -232,7 +232,7 @@ Si utilizas una tarjeta propia, sigue estos pasos:
 
 > ⚠️ **Importante:** El interface **no soporta** el formato exFAT ni NTFS. La carpeta **SYS es imprescindible**: contiene los archivos de ROM necesarios para el arranque del interface. Sin ella, el interface no funcionará.
 
-### 4.2 Caracteres permitidos en nombres de archivo
+### 5.2 Caracteres permitidos en nombres de archivo
 
 Debido a las limitaciones del teclado del ZX81, solo se pueden usar los siguientes caracteres en los nombres de archivo y carpeta:
 
@@ -243,7 +243,7 @@ Debido a las limitaciones del teclado del ZX81, solo se pueden usar los siguient
 
 > **Consejo:** Evita terminar un nombre de archivo con un espacio o un punto, ya que algunos sistemas operativos podrían tener problemas para leer ese archivo desde el ordenador.
 
-### 4.3 Estructura de carpetas recomendada
+### 5.3 Estructura de carpetas recomendada
 
 El interface buscará en la raíz de la tarjeta SD por defecto. Puedes organizar tus programas en carpetas. Se recomienda la siguiente estructura:
 
@@ -257,7 +257,7 @@ El interface buscará en la raíz de la tarjeta SD por defecto. Puedes organizar
 └── SYS/              ← Carpeta del sistema (obligatoria, no modificar)
 ```
 
-### 4.4 El programa AUTOEXEC
+### 5.4 El programa AUTOEXEC
 
 Si existe un archivo llamado `AUTOEXEC.P` en la raíz de la SD, este se cargará y ejecutará automáticamente al escribir el comando `RUN` en un ZX81 sin ningún programa cargado. Es útil para crear menús de inicio personalizados.
 
@@ -265,7 +265,7 @@ Si existe un archivo llamado `AUTOEXEC.P` en la raíz de la SD, este se cargará
 
 ## 6. Primeros pasos
 
-### 5.1 Modos de carga: SD o cinta
+### 6.1 Modos de carga: SD o cinta
 
 Por defecto, los comandos `LOAD` y `SAVE` del BASIC funcionan con la **cinta**, exactamente igual que en un ZX81 sin interface. Esto garantiza la compatibilidad total con el software original en cinta.
 
@@ -297,7 +297,7 @@ LOAD SLOW
 
 Puedes forzar la carga desde SD en cualquier momento sin cambiar el modo por defecto, añadiendo `FAST` al comando de carga (ver sección 6).
 
-### 5.2 Cargando tu primer programa desde la SD
+### 6.2 Cargando tu primer programa desde la SD
 
 Sigue estos pasos para cargar un programa desde la SD por primera vez:
 
@@ -323,7 +323,7 @@ LOAD FAST "PACMAN"
 
 ## 7. Carga y guardado desde la SD
 
-### 6.1 Cargar un programa
+### 7.1 Cargar un programa
 
 Para cargar un archivo desde la SD:
 
@@ -353,7 +353,7 @@ LOAD FAST "NOMBRE" THEN STOP
 
 > **Nota:** `THEN`, `GOTO` y `STOP` son tokens del BASIC del ZX81, no se escriben letra a letra.
 
-### 6.2 Guardar un programa
+### 7.2 Guardar un programa
 
 Para guardar el programa actual en la SD:
 
@@ -365,7 +365,7 @@ El interface añadirá automáticamente la extensión `.P` al archivo guardado. 
 
 > ⚠️ **Atención:** Si ya existe un archivo con ese nombre, será sobreescrito sin aviso previo.
 
-### 6.3 Cargar y guardar bloques de memoria (código máquina)
+### 7.3 Cargar y guardar bloques de memoria (código máquina)
 
 Para cargar un bloque de datos en una dirección de memoria específica:
 
@@ -385,7 +385,7 @@ SAVE FAST "NOMBRE" CODE 30000,2048
 
 Donde `30000` es la dirección de inicio y `2048` es la longitud en bytes.
 
-### 6.4 Cargar siempre desde cinta (independientemente del modo)
+### 7.4 Cargar siempre desde cinta (independientemente del modo)
 
 Si el modo SD está activo pero quieres cargar desde cinta:
 
@@ -393,7 +393,7 @@ Si el modo SD está activo pero quieres cargar desde cinta:
 LOAD SLOW "NOMBRE"
 ```
 
-### 6.5 Notas sobre compatibilidad de juegos
+### 7.5 Notas sobre compatibilidad de juegos
 
 Algunos juegos y programas necesitan una inicialización especial antes de ser cargados. La lista de compatibilidad incluida con el interface (archivo `SD81 Booster compatibility list`) indica los pasos necesarios para cada programa. Los casos más comunes son:
 
@@ -402,7 +402,7 @@ Algunos juegos y programas necesitan una inicialización especial antes de ser c
 
 ---
 
-### 6.6 Formatos de archivo reconocidos
+### 7.6 Formatos de archivo reconocidos
 
 El comando `LOAD FAST` detecta automáticamente el tipo de archivo por su extensión y actúa de forma diferente según el caso:
 
@@ -421,7 +421,7 @@ El comando `LOAD FAST` detecta automáticamente el tipo de archivo por su extens
 
 ## 8. Gestión de archivos y directorios
 
-### 7.1 Ver el contenido de la SD
+### 8.1 Ver el contenido de la SD
 
 Para listar los archivos del directorio actual:
 
@@ -449,7 +449,7 @@ LOAD *DIR "*.P"
 
 Si el listado no cabe en pantalla, aparecerá `...` en la línea inferior. Pulsa cualquier tecla para continuar, o `SPACE` para cancelar.
 
-### 7.2 Cambiar de directorio
+### 8.2 Cambiar de directorio
 
 ```
 LOAD *CD "JUEGOS"
@@ -467,7 +467,7 @@ Para ver en qué directorio estás actualmente:
 LOAD *PWD
 ```
 
-### 7.3 Crear y eliminar carpetas
+### 8.3 Crear y eliminar carpetas
 
 Crear una carpeta nueva en el directorio actual:
 
@@ -481,7 +481,7 @@ Eliminar una carpeta (debe estar vacía):
 LOAD *RD "CARPETAVACIA"
 ```
 
-### 7.4 Borrar, renombrar y copiar archivos
+### 8.4 Borrar, renombrar y copiar archivos
 
 Borrar un archivo:
 
@@ -507,7 +507,7 @@ LOAD *CP "ORIGEN.P" TO "DESTINO.P"
 >
 > **Nota:** La fecha y hora del archivo de destino no se preserva; el archivo copiado tendrá la fecha y hora del momento de la copia.
 
-### 7.5 Espacio libre en la SD
+### 8.5 Espacio libre en la SD
 
 Para ver el espacio disponible en la tarjeta:
 
@@ -519,7 +519,7 @@ LOAD *FREE
 
 ---
 
-### 7.6 Directorios T81 *(función en fase alfa)*
+### 8.6 Directorios T81 *(función en fase alfa)*
 
 > ⚠️ **Aviso:** Esta funcionalidad está actualmente en **fase alfa**. Puede contener errores y su comportamiento o interfaz podría cambiar en versiones futuras. No se recomienda su uso en entornos de producción.
 
@@ -545,7 +545,7 @@ LOAD *CD "/"
 
 ## 9. Funciones adicionales
 
-### 8.1 Reproducción de archivos WAV
+### 9.1 Reproducción de archivos WAV
 
 El interface puede reproducir archivos de audio en formato **WAV sin comprimir** directamente desde la tarjeta SD, simplemente cargándolos con el comando habitual:
 
@@ -559,7 +559,7 @@ Si el archivo tiene extensión `.WAV`, el interface lo detecta automáticamente 
 
 ---
 
-### 8.2 Reloj en tiempo real — Comando RTC
+### 9.2 Reloj en tiempo real — Comando RTC
 
 El SD81 Booster incorpora un **reloj en tiempo real (RTC)** con batería de reserva. El comando `LOAD *RTC` permite consultar y ajustar la hora y la fecha desde BASIC.
 
@@ -609,7 +609,7 @@ LOAD *RTC="18:30:00"
 
 ---
 
-### 8.3 Estado de la batería del RTC — Comando BAT
+### 9.3 Estado de la batería del RTC — Comando BAT
 
 El SD81 Booster incorpora una **pila botón CR2032** que mantiene el reloj en hora cuando el ZX81 está apagado. Esta pila viene preinstalada de fábrica y tiene una vida útil estimada de varios años en condiciones normales de uso. Cuando se agote, puede sustituirse por cualquier pila CR2032 estándar disponible en comercios de electrónica.
 
@@ -631,7 +631,7 @@ LOAD *BAT TO B$
 
 ---
 
-### 8.4 Modo RAM extendida — Comando RAM48
+### 9.4 Modo RAM extendida — Comando RAM48
 
 El comando `LOAD *RAM48` activa el modo de RAM extendida de 48 KB, que amplía la memoria disponible para programas BASIC y datos más allá de los límites habituales.
 
@@ -651,7 +651,7 @@ LOAD *RAM48 STOP
 
 ---
 
-### 8.5 Visualización de archivos de texto — Comando THEN PRINT
+### 9.5 Visualización de archivos de texto — Comando THEN PRINT
 
 El comando `LOAD THEN PRINT` es el equivalente al comando `TYPE` de MS-DOS o `cat` de Linux: muestra el contenido de un archivo de texto directamente en la pantalla del ZX81.
 
@@ -734,7 +734,7 @@ El SD81 Booster incorpora un emulador del chip de sonido **AY-3-8910/12**, el mi
 
 ---
 
-### 9.1 Comando PLAY — Música con el chip AY
+### 10.1 Comando PLAY — Música con el chip AY
 
 El comando `PLAY` permite reproducir música directamente desde BASIC mediante una cadena de texto que describe las notas, la duración, el tempo y otros parámetros. Admite hasta tres voces simultáneas (canales A, B y C del AY).
 
@@ -750,7 +750,7 @@ Cada cadena corresponde a una voz. Pueden usarse de una a tres cadenas simultán
 **Ejemplo sencillo — melodía en una sola voz:**
 
 ```
-LOAD *PLAY "T120 O4 5C 5E 5G 9C"
+LOAD *PLAY "T120O45C5E5G9C"
 ```
 
 Esto toca las notas Do, Mi, Sol y Do (acorde de Do mayor) a 120 pulsaciones por minuto en la octava 4.
@@ -788,7 +788,7 @@ Un número del 1 al 12 antes de una nota establece su duración desde ese punto 
 `T<número>` establece el tempo en pulsaciones por minuto (bpm), entre 60 y 240. El valor por defecto es 120. Solo tiene efecto en la primera voz.
 
 ```
-LOAD *PLAY "T180 5C 5E 5G"
+LOAD *PLAY "T1805C5E5G"
 ```
 
 **Octava**
@@ -796,7 +796,7 @@ LOAD *PLAY "T180 5C 5E 5G"
 `O<número>` selecciona la octava, de 0 (muy grave) a 8 (muy agudo). La octava por defecto es 4.
 
 ```
-LOAD *PLAY "O3 5C O4 5C O5 5C"
+LOAD *PLAY "O35CO45CO55C"
 ```
 
 **Repeticiones**
@@ -806,7 +806,7 @@ LOAD *PLAY "O3 5C O4 5C O5 5C"
 - `H` detiene el comando PLAY aunque haya voces en bucle infinito.
 
 ```
-LOAD *PLAY "(5C 5E 5G) H",")"
+LOAD *PLAY "(5C5E5G)H",")"
 ```
 
 **Efectos de volumen (envolvente)**
@@ -817,7 +817,7 @@ LOAD *PLAY "(5C 5E 5G) H",")"
 
 ---
 
-### 9.2 Reproductor VGM — Música en segundo plano
+### 10.2 Reproductor VGM — Música en segundo plano
 
 El SD81 Booster puede reproducir archivos en formato **VGM** (*Video Game Music*) en segundo plano mientras el ZX81 ejecuta cualquier otro programa. Esto permite añadir música a tus propios programas BASIC sin consumir tiempo de CPU.
 
@@ -881,7 +881,7 @@ LOAD *VGMLOOP STOP
 
 ---
 
-### 9.3 Generador de efectos PEG — Efectos de sonido programables
+### 10.3 Generador de efectos PEG — Efectos de sonido programables
 
 El **PEG** (*Programmable Effects Generator*) es una pequeña máquina virtual integrada en el interface que puede ejecutar programas de efectos de sonido de forma completamente independiente al Z80, sin consumir tiempo de CPU del ZX81.
 
@@ -938,7 +938,7 @@ Este ejemplo carga el archivo `EFECT.PEB` en la memoria PEG a partir de la posic
 > ```
 > Esto genera el archivo `efect.peb` listo para copiar a la SD.
 
-### 9.4 Síntesis de voz — Comando SAY
+### 10.4 Síntesis de voz — Comando SAY
 
 El SD81 Booster incorpora un sintetizador de voz que permite reproducir frases en inglés directamente desde BASIC. El sintetizador se basa en los fonemas del chip **SP0256**, un sintetizador de voz ampliamente utilizado en la época que formaba parte de interfaces clásicos como el **Currah MicroSpeech** para el ZX Spectrum o **The Voice** para el Videopac G7000/Odyssey 2. Las muestras de audio de los fonemas están almacenadas en la memoria interna del microcontrolador, por lo que no se necesita ningún archivo adicional en la SD.
 

@@ -157,6 +157,10 @@ CmdTHEN:	rst	NEXT_CHAR	; Skip THEN token
 		jr	z,CmdPOKE	; Process 16-bit POKE command if so
 		cp	.CLEAR		; was the command a POKE?
 		jr	z,CmdCLEAR	; Process 16-bit POKE command if so
+		cp	.PRINT
+		jp	z,CmdPRINT
+		cp	.LPRINT
+		jp	z,CmdLPRINT
 ReportC6:	rst	ERROR_1
 		db	$0B		; REPORT-C
 

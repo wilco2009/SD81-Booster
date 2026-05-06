@@ -8,7 +8,7 @@
 
 		db	.S,.D,.8,.1	; "SD81" interface signature
 ; 8196 ($2004)
-VERSION:	db	$12		; ROM version 1.2
+VERSION:	db	$13		; ROM version 1.3
 
 ; 8197 ($2005)
 		pop	hl		; utility for finding your address
@@ -70,6 +70,7 @@ CMD_move	equ	0x07
 CMD_copy	equ	0x08
 CMD_load	equ	0x09
 CMD_save	equ	0x0A
+CMD_printfile	equ	0x0B
 CMD_dir		equ	0x0C
 CMD_nextch	equ	0x0D
 CMD_free_txt	equ	0x0E
@@ -79,6 +80,7 @@ CMD_getrowlen	equ	0x11
 CMD_getrow	equ	0x12
 CMD_mc45_on	equ	0x13
 CMD_mc45_off	equ	0x14
+CMD_joy		equ	0x15
 CMD_talk	equ	0x17
 CMD_aysend	equ	0x18
 CMD_ayread	equ	0x19
@@ -102,6 +104,10 @@ CMD_contPEG	equ	0x2C
 CMD_loadPEB	equ	0x2D
 CMD_ichr_on	equ	0x2E
 CMD_ichr_off	equ	0x2F
+CMD_std48k_on	equ	0x30
+CMD_std48k_off	equ	0x31
+CMD_rtc		equ	0x32
+CMD_batt	equ	0x34
 
 ; ROM restart routines
 ERROR_1		equ	08H
@@ -144,6 +150,7 @@ STK_FETCH	equ	L13F8
 STACK_BC	equ	L1520
 FP_TO_A		equ	L15CD
 REPORT_A	equ	L1CAF
+PR_STR_x	equ	L0B6B+$000A	; This entry point has no label.
 
 ; System variables
 ERR_NR		equ	$4000
@@ -623,6 +630,7 @@ SkipHandlerPtr:	inc	de
 ReportC1:	rst	ERROR_1
 		db	$0B		; REPORT-C
 
+; LOAD *VER
 CmdVER:
 		call	MustBeEOL	; command must end here
 
@@ -665,28 +673,31 @@ VerFromBCD:
 Hex1:
 		and	$0F
 		add	a,.0
+Print_A_ret:
 		rst	PRINT_A
 		ret
 
+; LOAD *DIR
+; LOAD *DIR <string>
 CmdDIR:
 		ld	bc,0		; length 0
 		cp	.nl
 		jr	z,GotStrDir
-		call	NAME_2
+		call	NAME_2		; get filename expression
 		rst	GET_CHAR
-		call	MustBeEOL	; expect end of line here
-GotStrDir:
-		call	SyntaxDone	; Return if checking syntax
+GotStrDir:	call	MustBeEOL	; expect end of line here
 
+		; Similar to BC_1_255 but BC can be 0 too
 		ld	a,b
 		or	a		; Length > 255?
 		jp	nz,REPORT_F	; Error F if so
 		ld	b,c
 
-		in	a,(ClkPort)
-		ld	c,a		; Set bit 7 of C to current clock
-
 		ld	a,CMD_dir
+PrintFileEntry:
+		ld	c,ClkPort
+		in	c,(c)		; Set bit 7 of C to current clock
+
 		call	OutWaitDiff	; Send cmd, wait until different
 
 		call	SendString	; SendString requires different and
@@ -694,10 +705,12 @@ GotStrDir:
 
 		jr	PrintCmdOutput
 
+; LOAD *PWD
 CmdPWD:
 		ld	b,CMD_pwd
 		jr	PrintOnlyCmd
 
+; LOAD *FREE
 CmdFREE:
 		ld	b,CMD_free_txt
 PrintOnlyCmd:
@@ -726,7 +739,7 @@ PrintCmdOutput:
 		call	WaitClkEq
 
 		ld	a,b
-		inc	a		; terminator?
+		cp	$6F		; terminator?
 		jp	z,ReportStatus	; NOTE: inverts the phase!
 		call	PrintBPaged	; Print value in B with paging
 		jr	PrintCmdOutput	; Loop until finished
@@ -780,7 +793,12 @@ WaitPress:	ld	hl,(LAST_K)
 		pop	bc
 
 OkToPrint:	ld	a,b
-		rst	PRINT_A		; print character and loop
+		cp	.nl
+		jp	z,Print_A_ret
+		push	bc
+		ld	bc,0
+		call	PR_STR_x	; print character and loop
+		pop	bc
 		ret
 
 D_ReFast:	bit	6,c		; was FAST mode active?
@@ -788,18 +806,23 @@ D_ReFast:	bit	6,c		; was FAST mode active?
 		rst	ERROR_1
 		db	$0C		; REPORT-D
 
+; LOAD *MD <string>
 CmdMD:		ld	a,CMD_mkdir
 		jr	SendCmdAndStr
 
+; LOAD *RD <string>
 CmdRD:		ld	a,CMD_rmdir
 		jr	SendCmdAndStr
 
+; LOAD *CD <string>
 CmdCD:		ld	a,CMD_cd
 		jr	SendCmdAndStr
 
+; LOAD *OPENDIR <string>
 CmdOPENDIR:	ld	a,CMD_opendir
 		jr	SendCmdAndStr
 
+; LOAD *DEL <string>
 CmdDEL:
 		ld	a,CMD_del
 SendCmdAndStr:
@@ -823,9 +846,11 @@ SkipChkLen:
 		jp	ReportStatus	; read status and take approp. action
 
 
+; LOAD *COPY <string> TO <string>
 CmdCOPY:	ld	a,CMD_copy
 		jr	SendStrToStr
 
+; LOAD *MOVE <string> TO <string>
 CmdMOVE:	ld	a,CMD_move
 SendStrToStr:	push	af		; Save command code
 
@@ -880,6 +905,7 @@ ActualCopyMove:
 		call	SendString	; send second string
 		jp	ReportStatus	; retrieve status and exit
 
+GetStrExpr:	call	SCANNING	; Read an expression
 MustBeString:	bit	6,(iy+iyFLAGS)	; Test if string type
 		ret	z		; Return if string
 
@@ -891,6 +917,7 @@ MustBeComma:	cp	.comma
 		rst	NEXT_CHAR
 		ret
 
+; LOAD *ROW <number> TO <string-variable>
 CmdROW:		call	CLASS_6		; Read row number
 		cp	.TO		; must be followed by token "TO"
 		jr	nz,ReportC2
@@ -949,6 +976,8 @@ GotRow:		call	ReportStatus	; retrieve status, err if not zero
 					; parameters were fetched before, and
 					; return through LET
 
+; LOAD *MAP <number> TO <numeric-variable>
+; LOAD *MAP <number>,<number>
 CmdPAGE:	call	CLASS_6		; Read block number
 		cp	.TO		; LOAD *MAP block TO var?
 		jr	z,MapRead	; Handle that case elsewhere
@@ -1006,6 +1035,10 @@ ReportC3:	rst	ERROR_1
 CmdICHR:	ld	bc,CMD_ichr_on*256 + CMD_ichr_off
 		jr	CMD_ONOFF_BC
 
+; LOAD *RAM48 [STOP]
+CmdRAM48:	ld	bc,CMD_std48k_on*256 + CMD_std48k_off
+		jr	CMD_ONOFF_BC
+
 ; LOAD *MC45 [STOP]
 CmdMC45ONOFF:	ld	bc,CMD_mc45_on*256 + CMD_mc45_off
 CMD_ONOFF_BC:	cp	.STOP		; Token STOP?
@@ -1040,58 +1073,74 @@ MapRead:	rst	NEXT_CHAR	; Skip TO
 
 
 ; LOAD *64C
-Cmd64C:		call	MustBeEOL	; Check if EOL and end syntax check
-		in	a,(ClkPort)
-		ld	c,a		; Read current clock into bit 7 of C
-		ld	a,CMD_chars64
-		call	OutWaitDiff	; Set normal 64-char mode
-		ld	a,$1E
-		ld	i,a		; Set I to point to the ROM charset
-		ret
+Cmd64C:		ld	bc,$1E00+CMD_chars64	; Set normal 64-char mode
+		jr	Common64_128C
 
 ; LOAD *128C
-Cmd128C:	call	MustBeEOL	; Check if EOL and end syntax check
+Cmd128C:	ld	bc,$3C00+CMD_chars128	; Set extended 128-char mode
+Common64_128C:	cp	.nl
+		jr	z,chEol
+		push	bc		; Preserve command in C
+		call	CLASS_6		; Parse or evaluate numeric expression
+		call	SYNTAX_Z	; Checking syntax?
+		jr	z,chEol2	; Skip fetching number if so
+		call	FP_TO_A		; Fetch expression value
+		jr	c,ReportB	; Error if out of range
+		jr	z,chEol2	; If positive value, all good
+		neg			; Negate
+chEol2:		pop	bc		; restore command in C
+		ld	b,a		; Set charset addr to argument
+		rst	GET_CHAR
+
+chEol:		call	MustBeEOL	; Check if EOL and end syntax check
+		ld	h,c		; Save command
 		in	a,(ClkPort)
 		ld	c,a		; Read current clock into bit 7 of C
-		ld	a,CMD_chars128
-		call	OutWaitDiff	; Set extended 128-char mode
-		ld	a,$3C
-		ld	i,a		; Set I to point to the extended
-		ret			;  character set in RAM
+		ld	a,h		; Restore saved command
+		call	OutWaitDiff	; Send command to set the char mode
+		ld	a,b
+		ld	i,a		; Set I to point to the high byte
+		ret
+
+; LOAD *JOY <string>
+CmdJOY:		call	GetStrExpr	; Read a string expression
+		call	MustBeEOL	; The line must end after the expr.
+		call	ExpectShortStr	; Fetch and check string length
+					; (returns B = length)
+
+		in	a,(ClkPort)	; Read clock phase
+		ld	c,a		; Store in C (required by OutWaitDiff)
+
+		ld	a,CMD_joy	; Send CMD_joy command
+		call	OutWaitDiff
+		call	SendString	; Send the string
+		jp	ReportStatus	; Exit with status report
+
 
 ; LOAD *PLAY <string>[,<string>[,<string>]]
-CmdPLAY:	in	a,(ClkPort)
-		ld	c,a
-		call	SCANNING	; Get expression
-		call	MustBeString	; Expect string expression
+CmdPLAY:	call	GetStrExpr	; Read string expression
 		cp	.nl
 		jr	z,playOneOnly	; 1 string arg only
 		call	MustBeComma	; Expect a comma and skip it
-		call	SCANNING	; Next expression
-		call	MustBeString	; Expect it to be a string
+		call	GetStrExpr	; Read another string expression
 		cp	.nl
 		jr	z,playTwoOnly	; exactly 2 string args
 		call	MustBeComma	; Expect and skip another comma
-		call	SCANNING	; last string
-		call	MustBeString
+		call	GetStrExpr	; Read last string expression
 		call	MustBeEOL	; Check if EOL and end syntax checking
 
-		call	STK_FETCH	; Fetch from calculator stack
 		call	ExpectShortStr	; String must be <= 255 chars
 
 Entry2params:	push	bc		; Push to machine stack
 		push	de
 
-		call	STK_FETCH
 		call	ExpectShortStr	; <= 255 chars
 
 Entry1param:	push	bc		; Push to machine stack
 		push	de
 
-		call	STK_FETCH
 		call	ExpectShortStr
 
-		ld	b,c
 		in	a,(ClkPort)
 		ld	c,a
 
@@ -1104,7 +1153,6 @@ Entry1param:	push	bc		; Push to machine stack
 		cpl			; invert bit 7 of clock
 		pop	de		; next string
 		pop	bc
-		ld	b,c		; length in B
 		ld	c,a
 
 		call	SendString
@@ -1113,7 +1161,7 @@ Entry1param:	push	bc		; Push to machine stack
 		; send to be waited for with the possibility of a break.
 
 		pop	de
-		pop	hl		; length in L
+		pop	hl		; length in H and L
 
 		ld	a,l		; send length
 PlayNextSend:
@@ -1137,9 +1185,11 @@ PlayWaitBreak:	call	WaitDiffBrk
 		ld	c,a
 		jp	ReportStatus
 
-ExpectShortStr:	ld	a,b
+ExpectShortStr:	call	STK_FETCH	; Pop params from calculator stack
+		ld	a,b
 		or	a
-		ret	z
+		ld	b,c
+		ret	z		; If high byte is 0, OK; else error
 
 ReportA:	rst	ERROR_1
 		db	$09		; REPORT-A
@@ -1155,39 +1205,27 @@ playOneOnly:	call	SyntaxDone
 		jr	Entry1param
 
 ; LOAD *SAY <string>
-CmdSAY:		call	SCANNING	; get string expression
-		call	MustBeString	; must be a string
-		call	MustBeEOL	; command must end here
-		call	STK_FETCH	; retrieve string parameters
-		srl	b
-		jr	nz,ReportA	; max 511 chars
-		rr	c
-		jr	c,ReportA	; length must be even
-		ld	b,c
-		in	a,(ClkPort)
-		ld	c,a
-		ld	a,CMD_talk
+; TODO: maybe join it with LOAD *JOY since the args are the same
+CmdSAY:		call	GetStrExpr	; Read a string expression
+		call	MustBeEOL	; The line must end after the expr.
+		call	ExpectShortStr	; Fetch and check string length
+					; (returns B = length)
+
+		in	a,(ClkPort)	; Read clock phase
+		ld	c,a		; Store in C (required by OutWaitDiff)
+
+		ld	a,CMD_talk	; Send CMD_talk command
 		call	OutWaitDiff
-		ex	de,hl		; string addr to HL
-		call	SendHexStr
-		jp	ReportStatus
+		call	SendString	; Send the string
+		jp	ReportStatus	; Exit with status report
 
 ; VGM play/loop/stop/pause/resume
 ; LOAD *VGM <filename>
 ; LOAD *VGM THEN <RUN|CONT|PAUSE|STOP>
 CmdVGM:		cp	.THEN		; LOAD *VGM THEN <command>
 		jr	z,VGMThen
-		call	SCANNING	; Read expression
-		call	MustBeString	; Expect string expression
-		call	MustBeEOL	; Command must end here
-		call	STK_FETCH	; Get string ptr/len
-		call	BC_1_255	; Check length
-		in	a,(ClkPort)
-		ld	c,a
 		ld	a,CMD_loadVGM
-		call	OutWaitDiff
-		call	SendString
-		jp	ReportStatus
+		jp	SendCmdAndStr
 
 VGMThen:	rst	NEXT_CHAR	; skip THEN token
 		ld	b,CMD_pauseVGM
@@ -1236,10 +1274,9 @@ ReportC4:	rst	ERROR_1
 ;   LOAD *PEG THEN CONT thread
 CmdPEG:		cp	.THEN
 		jr	z,PEGThen
-		call	CLASS_6		; Get number
+		call	CLASS_6		; Get numeric expression
 		call	MustBeComma	; Expect a comma and skip it
-		call	SCANNING	; get string
-		call	MustBeString	; but make sure it's a string
+		call	GetStrExpr	; Read a string expression
 		call	MustBeEOL	; line must end here, and syntax check
 		call	STK_FETCH	; get string parameters
 		srl	b
@@ -1315,8 +1352,7 @@ DoPEG:		rst	NEXT_CHAR	; skip token
 ; LOAD *PEB <addr>,<filename>
 CmdPEB:		call	CLASS_6		; parse address
 		call	MustBeComma
-		call	SCANNING	; parse filename
-		call	MustBeString
+		call	GetStrExpr	; Read a string expression
 		call	MustBeEOL	; end of command
 		call	STK_FETCH	; fetch filename
 		call	BC_1_255	; check filename validity
@@ -1408,6 +1444,133 @@ SendHexLoopW:	in	a,(ClkPort)
 		jp	m,SendHexLoopW	; wait until equal
 		djnz	SendHexLoop	; keep sending until length exhausted
 		ret
+
+; LOAD *BAT [ TO <string-var>]
+CmdBAT:		set	6,(iy+iyFLAGX)	; Abuse bit 6 of FLAGX (whether INPUT
+					; is numeric or string) to indicate
+					; whether to print or to store
+		cp	.TO
+		jr	nz,JustPrintBatt
+		rst	NEXT_CHAR	; skip TO
+		call	CLASS_1		; get variable details; clears FLAGX
+		call	MustBeString	; error if numeric variable
+		rst	GET_CHAR	; we should be at EOL now
+JustPrintBatt:	call	MustBeEOL	; end syntax chk if so, else error
+		; Syntax check passed, now we can take action
+		ld	bc,5		; reserve 5 bytes in the workspace
+		rst	BC_SPACES	; (may cause OOM)
+
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_batt
+		call	OutWaitDiff
+		xor	c
+		ld	c,a		; make bit 7 of C == clock again
+
+		ld	b,5		; length of batt voltage string
+		push	de		; save pointer to start of workspace
+
+BattRead:	in	a,(DataPort)
+		ld	(de),a		; store next character in workspace
+		inc	de
+		call	WaitClkDiff
+		xor	c
+		ld	c,a		; make bit 7 of C == clock again
+		djnz	BattRead
+
+		call	ReportStatus	; retrieve status byte
+
+		pop	de		; restore pointer to workspace
+
+		bit	6,(iy+iyFLAGX)	; Are we printing or storing?
+		jr	nz,BattPrint	; jump if printing
+		ld	bc,5		; length of string
+
+		; Store string into the calc. stack with DE=pointer, BC=length
+BattStore:	call	STK_STO_s
+		jp	LET		; Store stack into the variable whose
+					; parameters were fetched before, and
+					; return through LET
+
+BattPrint:	ld	b,5		; 5 bytes
+BattPrintNext:	ld	a,(de)
+		inc	de
+		rst	PRINT_A		; Print each
+		djnz	BattPrintNext
+		ret
+
+; LOAD THEN PRINT <filename-str>
+CmdPRINT:	res	1,(iy+iyFLAGS)	; Printer flag
+		; fall through
+
+; LOAD THEN LPRINT <filename-str>
+CmdLPRINT:	rst	NEXT_CHAR	; Skip over PRINT or LPRINT
+		call	NAME_2		; fetch filename, BC=length, DE=addr
+		rst	GET_CHAR
+		call	MustBeEOL
+
+		call	BC_1_255	; check validity of filename
+		ld	a,CMD_printfile
+		jp	PrintFileEntry
+
+
+; LOAD *RTC [ = <string> | TO <string-var>]
+CmdRTC:
+		cp	.equal		; LOAD *RTC=string ?
+		jr	z,DateSet
+		set	6,(iy+iyFLAGX)	; Flag "Display it, don't store it"
+		cp	.TO		; LOAD *RTC TO strvar ?
+		jr	nz,DateDisplay
+		rst	NEXT_CHAR	; skip TO
+		call	CLASS_1		; Get variable details; clears FLAGX
+		call	MustBeString	; Error if numeric var
+		rst	GET_CHAR	; Retrieve character again
+DateDisplay:	call	MustBeEOL	; Line must end here; end syntax check
+		ld	bc,22		; length("YYYY-MM-DD hh:mm:ss.cc")
+		rst	BC_SPACES	; make room for 22 chars
+
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_rtc
+		call	OutWaitDiff
+		xor	a
+		call	OutWaitEq	; Send 0 for string to set datetime
+		ld	b,22
+		push	de
+
+DateRead:	in	a,(DataPort)
+		ld	(de),a		; store next character in workspace
+		inc	de
+		call	WaitClkDiff
+		xor	c
+		ld	c,a		; make bit 7 of C == clock again
+		djnz	DateRead
+
+		call	ReportStatus	; retrieve status byte
+
+		pop	de		; restore pointer to workspace
+
+		bit	6,(iy+iyFLAGX)	; Are we printing or storing?
+		jr	nz,DatePrint	; jump if printing
+		ld	bc,22		; length of string
+		jr	BattStore	; fetch calc and execute LET command
+
+DatePrint:	ld	b,22		; 22 bytes
+		jr	BattPrintNext
+
+DateSet:	rst	NEXT_CHAR	; Skip = sign
+		call	GetStrExpr	; Read string expression
+		call	MustBeEOL	; Line ends here; end of syntax check
+		call	ExpectShortStr	; Fetch and check string length
+
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_rtc
+		call	OutWaitDiff
+
+		call	SendString	; Send from DE for B bytes
+		jp	ReportStatus
+
 
 SD_RESET:	ld	a,$F7		; Check keyboard row 1-5
 		in	a,($FE)
@@ -1553,6 +1716,9 @@ CmdList:
 		db	.M,.A,.P + $80
 		dw	CmdPAGE
 
+		db	.R,.A,.M,.4,.8 + $80
+		dw	CmdRAM48
+
 		include	"extracmdlist.inc.asm"
 
 		db	.P,.L,.A,.Y + $80
@@ -1621,6 +1787,15 @@ CmdList:
 		db	.I,.C,.H,.R + $80
 		dw	CmdICHR
 
+		db	.J,.O,.Y + $80
+		dw	CmdJOY
+
+		db	.B,.A,.T + $80
+		dw	CmdBAT
+
+		db	.R,.T,.C + $80
+		dw	CmdRTC
+
 		db	$FF
 
 SlashSysSlash:	db	.slash,.S,.Y,.S,.slash
@@ -1644,6 +1819,7 @@ ErrMsgLen	equ	$ - ErrMsgAdr
 .qm		equ	15
 .lp		equ	16
 .rp		equ	17
+.equal		equ	20
 .star		equ	23
 .slash		equ	24
 .comma		equ	26
@@ -1703,5 +1879,6 @@ ErrMsgLen	equ	$ - ErrMsgAdr
 .GOTO		equ	236
 .PAUSE		equ	242
 .POKE		equ	244
+.PRINT		equ	245
 .RUN		equ	247
 .CLEAR		equ	253

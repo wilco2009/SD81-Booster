@@ -263,13 +263,42 @@ For some high-resolution games to work, the internal character generator must be
 
 The syntax for enabling/disabling this mode is:
 
-     LOAD *ICHR
-     LOAD *ICHR STOP
+    LOAD *ICHR
+    LOAD *ICHR STOP
 
 where STOP is the token. The first version enables the internal character generator, the second one disables it and allows using user-defined characters.
 
 
+### Joystick Mapping
+
+The joystick port is a standard Atari port with one fire button. The joystick actions emulate keypresses, and the keys can be configured with this command:
+
+    LOAD *JOY <string>
+
+The string must have 5 characters, and they are the keys that the interface will press for the following joystick actions in order:
+
+- Up
+- Down
+- Left
+- Right
+- Fire button
+
+The Shift key is represented by an Asterisk character (`*`), and the Enter key by a Less Than symbol (`<`). The space (` `) and the period (`.`) represent themselves. All alphanumeric characters are permitted. Other codes, including inverses, are illegal and will cause an error. The string must have at least 5 characters.
+
+For example, for configuring the direction keys for movement and `0` for fire, you would use this command:
+
+    LOAD *JOY "76580"
+
+Or for the classic Q up, A down, O left, P right, M fire:
+
+    LOAD *JOY "QAOPM"
+
+The joystick configuration is not persistent. You need to enter one every time you boot the interface. A suggestion for running specific games with different joystick setups is to write a short BASIC program that configures the joystick and loads the game, and load that instead of the game.
+
+
 ### Memory management
+
+The memory address space is organized in 8 blocks of 8 kbytes, and the RAM is organized in 64 pages of 8 kbytes. You can make visible any RAM page at any block; see section MEMORY PAGING below for details.
 
 To change the page for a certain block of memory, use this command:
 
@@ -282,6 +311,21 @@ To read the currently selected page for a certain block:
     LOAD *MAP <block> TO <variable>
 
 The `<block>` should be between 0 and 7. The `<variable>` will be set to the page number assigned to that block, between 0 and 63.
+
+
+### Compatibility with 48K RAM expansions
+
+The interface has a powerful paging system with 8 KB granularity that allows you to use up to 512 KB of RAM. However, some 48 KB expansions operate in a slightly different way. By default, in this interface, if you place usable RAM in blocks 6 or 7 (the 48-56K or 56-64K areas respectively), you can run machine code in these pages, provided that bit 6 of each opcode is 1.
+
+When using the available 48K memory expansions, on the other hand, attempting to execute code at these addresses forces the opcodes to be read from block 2 or 3 (16-24K or 24-32K respectively). This is how they allow the screen to continue to be drawn even when there is RAM in that area. However, that's not how this interface behaves by default. For that reason, there is a command that enables or disables a mode that enables compatibility with these expansions:
+
+    LOAD *RAM48
+
+enables compatibility with 48K memory expansions; the following command:
+
+    LOAD *RAM48 STOP
+
+(STOP is the token, as usual) disables it. This mode persists after reset and power-off, because it's stored in battery-backed SRAM. When the computer boots with RAM48 mode active, blocks 6 and 7 are initialized with pages 6 and 7 respectively; when it boots in normal mode, blocks 6 and 7 are assigned pages 2 and 3 respectively on boot. Of course you can change the pages at will; see the Memory Paging section.
 
 
 ### Execution of machine code on blocks 4 and 5
@@ -326,9 +370,9 @@ To execute a machine code routine, you don't need to use `RAND USR <number>`; yo
 
     LOAD USR <number>
 
-This has three advantages. First, the random number generator is not messed with. Second, machine code routines invoked this way are called from the top level of BASIC, instead of being called from an expression handler. This leaves the extra set of registers `BC'`, `DE'` and `HL'` available, and both the machine stack and the calculator stack are clean when the routine is entered. Finally, the rest of the command after the numeric expression is not parsed, therefore the called routine can perform its own parsing via `RST 18h` and `RST 20h`. Note however that expressions or subexpressions containing number literals won't work when calling the `SCANNING` ROM routine, because numbers in numeric expressions need to be converted (by appending the number indicator, which is character 126, and the binary floating-point version of the number) during the syntax checking phase, and that can't be done. However, expressions containing workarounds such as `VAL "number"` or `CODE "character"` can be parsed by the `SCANNING` ROM routine.
+This has three advantages. First, the random number generator is not messed with. Second, machine code routines invoked this way are called from the top level of BASIC, instead of being called from the calculator. This leaves the extra set of registers `BC'`, `DE'` and `HL'` available, and both the machine stack and the calculator stack are clean when the routine is entered. Finally, the rest of the command after the numeric expression is not parsed, therefore the called routine can perform its own parsing via `RST 18h` and `RST 20h`. Note however that expressions or subexpressions containing number literals won't work when calling the `SCANNING` ROM routine, because numbers in numeric expressions need to be converted (by appending the number indicator, which is character 126, and the binary floating-point version of the number) during the syntax checking phase, and that can't be done. However, expressions containing workarounds such as `VAL "number"` or `CODE "character"` can be parsed by the `SCANNING` ROM routine.
 
-As with normal USR, on entry to the routine, `BC` will contain the address called.
+As with normal USR, on entry to the routine, `BC` will contain the address called. Unlike normal USR, everything to the right of the USR will be treated as the address to call, so for example `LOAD USR 1+1` is the same as `LOAD USR 2` instead of calculating USR 1 and then adding 1 to the return value.
 
 You can use IN and OUT from BASIC, just like in the Spectrum, with the difference that IN is not a function, but a command that sets a variable:
 

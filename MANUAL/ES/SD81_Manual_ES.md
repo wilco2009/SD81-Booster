@@ -290,6 +290,8 @@ LOAD SLOW
 
 > **Nota:** `SLOW` se obtiene con `SHIFT + D`. A partir de ese momento todos los `LOAD` y `SAVE` vuelven a usar la cinta por defecto, y para cargar desde SD habrá que añadir `FAST` explícitamente.
 
+> **Nota:** El modo SD/cinta también puede cambiarse usando `SAVE FAST` o `SAVE SLOW` sin nombre de archivo, de la misma manera que `LOAD FAST` y `LOAD SLOW`. Ambos comandos son equivalentes para activar o desactivar el modo SD.
+
 **Opción B — Cargar desde SD sin cambiar el modo:**
 
 Puedes forzar la carga desde SD en cualquier momento sin cambiar el modo por defecto, añadiendo `FAST` al comando de carga (ver sección 6).
@@ -371,6 +373,8 @@ LOAD FAST "NOMBRE" CODE 30000
 ```
 
 > **Importante:** A diferencia del ZX Spectrum, la dirección después de `CODE` es **obligatoria**. Los archivos en SD no almacenan la dirección de carga en una cabecera.
+
+> **Importante:** El token `FAST` es obligatorio para que `CODE` funcione correctamente. Si se usa `LOAD "NOMBRE" CODE 30000` sin `FAST` (incluso con el modo SD activo), el archivo se cargará igualmente en la dirección por defecto **16393** (4009h), ignorando la dirección especificada. Esto es una limitación de compatibilidad del firmware.
 
 Para guardar un bloque de memoria en la SD:
 
@@ -483,6 +487,8 @@ Borrar un archivo:
 ```
 LOAD *DEL "ARCHIVO.P"
 ```
+
+> **Nota:** `LOAD *DEL` no admite comodines. El nombre del archivo debe ser exacto.
 
 Renombrar o mover un archivo:
 
@@ -699,22 +705,22 @@ El SD81 Booster incorpora un puerto de joystick DB9 cuyo mapeo de botones es tot
 **Sintaxis:**
 
 ```
-LOAD *JOY "izq/der/arr/aba/fue"
+LOAD *JOY "arr/aba/izq/der/fue"
 ```
 
-La cadena de configuración contiene exactamente cinco caracteres, uno por cada función del joystick en este orden: **izquierda / derecha / arriba / abajo / fuego**.
+La cadena de configuración contiene exactamente cinco caracteres, uno por cada función del joystick en este orden: **arriba / abajo / izquierda / derecha / fuego**.
 
 **Ejemplo:**
 
 ```
-LOAD *JOY "OPQA "
+LOAD *JOY "QAOP "
 ```
 
 Este ejemplo asigna:
-- Izquierda → tecla `O`
-- Derecha → tecla `P`
 - Arriba → tecla `Q`
 - Abajo → tecla `A`
+- Izquierda → tecla `O`
+- Derecha → tecla `P`
 - Fuego → tecla espacio (` `)
 
 > **Consejo:** Consulta los controles de cada juego antes de configurar el joystick. Muchos juegos del ZX81 usan combinaciones de teclas diferentes, y con este comando puedes adaptarlas a cualquier joystick estándar de 9 pines sin modificar el software.
@@ -905,6 +911,31 @@ LOAD *PEG THEN STOP <hilo>
 LOAD *PEG THEN PAUSE <hilo>
 LOAD *PEG THEN CONT <hilo>
 ```
+
+**Cargar un programa PEG desde la SD (`LOAD *PEB`):**
+
+Además de la carga inline con cadena hexadecimal, es posible cargar un programa PEG compilado directamente desde un archivo binario en la SD:
+
+```
+LOAD *PEB <dirección> "<nombre>"
+```
+
+Donde `<dirección>` es la posición de inicio en la memoria PEG (0–255) y `"<nombre>"` es el nombre del archivo en la tarjeta SD. El archivo debe tener extensión `.PEB` (PEG binary); si no se especifica extensión, el interface la añade automáticamente.
+
+**Ejemplo:**
+
+```
+LOAD *PEB 0 "EFECT"
+LOAD *PEG THEN RUN 0,0
+```
+
+Este ejemplo carga el archivo `EFECT.PEB` en la memoria PEG a partir de la posición 0 y arranca el hilo 0 desde esa misma dirección.
+
+> **Nota técnica:** El archivo `.PEB` es el resultado de ensamblar un fuente `.PEG` con el ensamblador `peg.py`, un script Python incluido en la carpeta `EXAMPLES/PEG/` del repositorio del proyecto. Para compilar un fuente:
+> ```
+> python peg.py efect.peg
+> ```
+> Esto genera el archivo `efect.peb` listo para copiar a la SD.
 
 ### 9.4 Síntesis de voz — Comando SAY
 
@@ -1194,7 +1225,7 @@ Equivale a `RAND USR <dirección>` pero con tres ventajas importantes:
 
 - No modifica el generador de números aleatorios.
 - La rutina se llama desde el nivel superior del BASIC, dejando los registros alternativos `BC'`, `DE'` y `HL'` disponibles y las pilas limpias.
-- El resto de la línea no se analiza sintácticamente, lo que permite que la rutina realice su propio análisis de parámetros.
+- El resto de la línea no se analiza sintácticamente, lo que permite que la rutina realice su propio análisis de parámetros. Esto también significa que **todo lo que aparece a la derecha del `USR` se trata como la dirección a llamar**: por ejemplo, `LOAD USR 1+1` equivale a `LOAD USR 2` (llama a la dirección 2), en lugar de calcular `USR 1` y sumar 1 al valor de retorno como haría el `USR` normal del BASIC.
 
 Al entrar en la rutina, el registro `BC` contiene la dirección llamada.
 
@@ -1671,7 +1702,7 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos `A7h
 |------|--------|---------------------|-----------|-------------|
 | 19 | ENABLE\_MC45 | — | — | Activa el modo de ejecución de código máquina en bloques 4 y 5. |
 | 20 | DISABLE\_MC45 | — | — | Desactiva el modo MC45. |
-| 21 | JOY | String: 5 bytes de configuración | Status | Configura el mapeo del joystick. Los 5 bytes son los códigos ZX81 de las teclas para: izquierda, derecha, arriba, abajo, fuego. |
+| 21 | JOY | String: 5 bytes de configuración | Status | Configura el mapeo del joystick. Los 5 bytes son los códigos ZX81 de las teclas para: arriba, abajo, izquierda, derecha, fuego. |
 | 27 | SEL\_128CHARS | — | — | Activa el modo de 128 caracteres definibles. Equivale a `LOAD *128C`. |
 | 28 | SEL\_64CHARS | — | — | Activa el modo estándar de 64 caracteres. Equivale a `LOAD *64C`. |
 | 29 | FULLPAGING | — | — | Activa el modo de paginación completa (512 KB, 64 páginas). |
@@ -1704,7 +1735,7 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos `A7h
 
 | Cód. | Nombre | Parámetros enviados | Respuesta | Descripción |
 |------|--------|---------------------|-----------|-------------|
-| 34 | PLAY\_VGM | String: nombre de archivo | Status | Abre y comienza a reproducir un archivo VGM en background. Si no tiene extensión, añade `.vgm`. |
+| 34 | PLAY\_VGM | String: nombre de archivo | Status | Abre un archivo VGM y lo prepara para reproducir en background, pero no inicia la reproducción todavía. Si no tiene extensión, añade `.vgm`. Para iniciar la reproducción usar CONT\_VGM (cmd 37). |
 | 35 | STOP\_VGM | — | — | Detiene la reproducción VGM y reinicia el emulador AY. |
 | 36 | PAUSE\_VGM | — | — | Pausa la reproducción VGM. |
 | 37 | CONT\_VGM | — | — | Reanuda la reproducción VGM pausada. |
@@ -1781,7 +1812,7 @@ Si el voltaje es inferior a 2.5V aproximadamente, sustituye la pila por una CR20
 
 | Síntoma | Solución |
 |---------|----------|
-| No hay sonido con `LOAD *PLAY` | Comprueba que el cable de audio está conectado a la salida correspondiente del interface. |
+| No hay sonido con `LOAD *PLAY` | Comprueba que el televisor o monitor está conectado al conector SCART del interface y que el canal de audio del SCART no está silenciado. |
 | La voz no se entiende | Prueba con frases cortas y en inglés. Escribe las palabras fonéticamente si el resultado no es satisfactorio. |
 | El VGM no suena | Verifica que el archivo es un VGM con datos del chip AY únicamente. Los VGMs con otros chips no son compatibles. |
 
@@ -2140,6 +2171,8 @@ Los números se leen automáticamente en inglés desde 0 hasta los billones.
 | 5 | 5 | A000–BFFF (RAM ampliada) |
 | 6 | 2 | C000–DFFF (espejo de bloque 2) |
 | 7 | 3 | E000–FFFF (espejo de bloque 3) |
+
+> **Nota:** La asignación anterior es la del **modo normal**. Con el modo RAM48 activo (ver sección 8.4), al arrancar los bloques 6 y 7 se inicializan con las páginas 6 y 7 respectivamente, en lugar de 2 y 3. Esto es necesario para que los programas que usan las expansiones de RAM de 48 KB accedan al área 48–64 KB correctamente.
 
 ### Reglas de uso
 

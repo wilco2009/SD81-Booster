@@ -434,6 +434,8 @@ Se pueden usar comodines al estilo Unix:
 - `*` representa cualquier número de caracteres (incluido ninguno).
 - `?` representa exactamente un carácter.
 
+> **Importante:** `*` casa con todos los archivos independientemente de si tienen extensión o no. En cambio, `*.*` solo casa con archivos que contienen un punto en el nombre. Para listar todos los archivos, usa `*`, no `*.*`.
+
 Por ejemplo, para listar solo los archivos `.P`:
 
 ```
@@ -495,6 +497,8 @@ LOAD *CP "ORIGEN.P" TO "DESTINO.P"
 ```
 
 > **Nota:** `TO` es un token del BASIC (`SHIFT + 4`), no se escribe letra a letra.
+>
+> **Nota:** La fecha y hora del archivo de destino no se preserva; el archivo copiado tendrá la fecha y hora del momento de la copia.
 
 ### 7.5 Espacio libre en la SD
 
@@ -654,6 +658,18 @@ LOAD THEN PRINT "FICHERO"
 
 ```
 LOAD THEN LPRINT "FICHERO"
+```
+
+**Redirigir la salida de otros comandos a la impresora ZX Printer:**
+
+El prefijo `LOAD LPRINT` puede usarse también con los comandos que normalmente muestran texto en pantalla, para redirigir su salida directamente a la ZX Printer:
+
+```
+LOAD LPRINT DIR
+LOAD LPRINT DIR "*.P"
+LOAD LPRINT FREE
+LOAD LPRINT PWD
+LOAD LPRINT VER
 ```
 
 **Sistema de ayuda integrado:**
@@ -1181,6 +1197,8 @@ Equivale a `RAND USR <dirección>` pero con tres ventajas importantes:
 - El resto de la línea no se analiza sintácticamente, lo que permite que la rutina realice su propio análisis de parámetros.
 
 Al entrar en la rutina, el registro `BC` contiene la dirección llamada.
+
+> **Limitación con literales numéricos:** Si la rutina utiliza la rutina SCANNING de la ROM para analizar parámetros, las expresiones con literales numéricos directos (por ejemplo `USR 40000`) no funcionarán correctamente, ya que los números necesitan ser preprocesados durante la fase de verificación sintáctica del BASIC. Como solución, usa `VAL "número"` o `CODE "carácter"` en lugar del literal: por ejemplo, `USR VAL "40000"` en lugar de `USR 40000`.
 
 ---
 

@@ -1154,7 +1154,7 @@ Esta sección recoge comandos adicionales del BASIC extendido del SD81 Booster o
 
 ---
 
-### 11.1 Manipulación de cadenas
+### 12.1 Manipulación de cadenas
 
 **Invertir caracteres de una cadena (`*INV`):**
 
@@ -1182,7 +1182,7 @@ LOAD *BOLD A$
 
 ---
 
-### 11.2 Copia y relleno de bloques de memoria
+### 12.2 Copia y relleno de bloques de memoria
 
 **Copiar un bloque de memoria en orden ascendente (`*LDIR`):**
 
@@ -1214,7 +1214,7 @@ Por ejemplo, `LOAD *HEX 30000,"0A014020"` carga los valores 10 (0Ah), 1, 64 (40h
 
 ---
 
-### 11.3 Ejecución de código máquina
+### 12.3 Ejecución de código máquina
 
 **Ejecutar una rutina en código máquina (`LOAD USR`):**
 
@@ -1234,7 +1234,7 @@ Al entrar en la rutina, el registro `BC` contiene la dirección llamada.
 
 ---
 
-### 11.4 Acceso a puertos de entrada/salida
+### 12.4 Acceso a puertos de entrada/salida
 
 **Escribir en un puerto (`*OUT`):**
 
@@ -1252,7 +1252,7 @@ LOAD *IN <puerto> TO <variable>
 
 ---
 
-### 11.5 Acceso a memoria de 16 bits
+### 12.5 Acceso a memoria de 16 bits
 
 **Leer un valor de 16 bits de memoria (`LOAD PEEK`):**
 
@@ -1280,7 +1280,7 @@ Establece la última dirección de RAM disponible para el BASIC. A diferencia de
 
 ---
 
-### 11.6 Acceso al directorio desde un programa
+### 12.6 Acceso al directorio desde un programa
 
 Estos comandos permiten leer el contenido de un directorio de la SD desde dentro de un programa BASIC, útil para construir menús de selección de archivos.
 
@@ -1786,7 +1786,6 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos `A7h
 |---------|----------|
 | Error `H` al intentar cargar | Comprueba que la SD está correctamente insertada. Extráela y vuélvela a insertar. |
 | La SD no se reconoce | Verifica que está formateada en FAT32 (no exFAT ni NTFS). |
-| El directorio aparece vacío | Comprueba que los archivos tienen extensión `.P` y nombres con caracteres permitidos (A-Z, 0-9, `.,-;$()+=-`). |
 | Error `G` al cargar un programa | El archivo no existe con ese nombre. Usa `LOAD *DIR` para ver los nombres exactos. |
 | Error `J` al guardar | La tarjeta SD está llena. Usa `LOAD *FREE` para comprobar el espacio disponible. |
 
@@ -1805,7 +1804,7 @@ Si el voltaje es inferior a 2.5V aproximadamente, sustituye la pila por una CR20
 
 | Síntoma | Solución |
 |---------|----------|
-| El joystick no hace nada | Configura el mapeo con `LOAD *JOY "OPQA "` (u otro mapeo según el juego) antes de lanzar el programa. |
+| El joystick no hace nada | Configura el mapeo con `LOAD *JOY "QAOP "` (u otro mapeo según el juego) antes de lanzar el programa. |
 | Solo funciona alguna dirección | Comprueba que la cadena de configuración tiene exactamente 5 caracteres. |
 | El joystick mueve pero no dispara | Verifica que el quinto carácter de la cadena JOY corresponde a la tecla de fuego del juego. |
 
@@ -1824,7 +1823,7 @@ Si el voltaje es inferior a 2.5V aproximadamente, sustituye la pila por una CR20
 | LED STAT parpadea en Azul/Rojo al arrancar con `firmware.bin` en la SD | Error inicializando la tarjeta SD antes de la actualización. Extrae la SD, comprueba el formato FAT32 y vuelve a intentarlo. |
 | LED STAT parpadea en Blanco/Rojo tras intentar actualizar | Error durante la actualización. El archivo `firmware.bin` permanece en la SD. Comprueba que el archivo no está corrupto y vuelve a encender el ZX81 para reintentar. |
 | El LED STAT se queda en Amarillo fijo indefinidamente | La actualización está en curso pero tarda más de lo esperado. Espera al menos 2 minutos antes de considerar que hay un problema. No apagues el ZX81. |
-| Tras la actualización el interface no responde | Comprueba con `LOAD *VER` que la versión es correcta. Si el interface no arranca en absoluto, puede ser necesaria una recuperación via USB-C con STM32CubeProgrammer: abre la carcasa, localiza el jumper **JP7** junto al puerto USB-C, puentea los dos pines superiores, conecta el USB-C y usa el script `SD81Booster_Update.bat`. Una vez recuperado, retira el puente del JP7 y cierra la carcasa. |
+| Tras la actualización el interface no responde | Comprueba con `LOAD *VER` que la versión es correcta. Si el interface no arranca, sigue el procedimiento de recuperación de emergencia via USB descrito en la sección 17. |
 
 ### 16.7 Uso de la consola de depuración como herramienta de diagnóstico
 

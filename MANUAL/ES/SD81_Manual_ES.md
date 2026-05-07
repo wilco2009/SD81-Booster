@@ -1935,13 +1935,6 @@ La FPGA (Xilinx Spartan-6 XC6SLX9) carga su configuración en cada arranque desd
 
 ---
 
-### Software de ejemplo
-
-- **Mazogs para ZX81 con versión en color para Chroma81** — por Pedro Gimeno (pgimeno). Implementación del clásico juego Mazogs para ZX81, incluyendo una versión en color que aprovecha la funcionalidad Chroma81 compatible con el SD81 Booster:
-  [https://codeberg.org/pgimeno/Mazogs](https://codeberg.org/pgimeno/Mazogs)
-
----
-
 ### Herramientas
 
 - **STM32CubeProgrammer** — herramienta de programación del MCU STM32 (necesaria para actualización vía USB en caso de recuperación):

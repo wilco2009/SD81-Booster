@@ -1820,7 +1820,21 @@ The SD81 Booster speech synthesiser accepts text in English and converts it auto
 | OUTCH | | OH NO | |
 | OK | | SPELL | |
 
----
+### Individual letters
+
+When no major match is found, each letter is pronounced by its English name (A="EY", B="BEE", C="SEE", etc.).
+
+### Punctuation and breaks
+
+| Character | Effect |
+|----------|--------|
+| Space | Short break |
+| `,` | Pausa media |
+| `;` `:` | Pausa larga |
+
+### Numbers
+
+The numbers are automatically read in English from 0 to billion.
 
 ## Appendix D — Memory Paging System
 
@@ -1837,12 +1851,15 @@ The SD81 Booster speech synthesiser accepts text in English and converts it auto
 | 6 | C000–DFFF | 2 | Mirror of block 2 (required for video) |
 | 7 | E000–FFFF | 3 | Mirror of block 3 (required for video) |
 
-### Video System Constraints
+### Use Rules
 
+- Block 0 is always read only. Blocks 1–7 are read/write.
+- The same page can be mapped to more than one block simultaneously.
 - Blocks 6 and 7 must mirror what blocks 2 and 3 contain for the ZX81 video generation to work correctly.
 - If the display file is entirely in block 2, block 6 must be mapped to the same page as block 2, but block 7 can be mapped freely.
 - Similarly, if the display file is entirely in block 3, block 7 must mirror block 3 but block 6 is free.
 - Blocks 4 and 5 can always be mapped to any page.
+- Due to ZX81 hardware quirks, blocks 4–7 can only be used for data, not to execute code (except with MC45 mode active for blocks 4 and 5).
 
 ### Machine Code Execution Restriction
 
@@ -1921,6 +1938,15 @@ Video mode is controlled by two memory addresses:
 | 170 (AAh) | Superfast text | FPGA manages video. Screen is a character map in extended RAM. CPU completely free. |
 | 172 (ACh) | Superfast HiRes Spectrum | FPGA manages video. Screen is a 256×192 pixel bitmap in Spectrum format. |
 | 174 (AEh) | Superfast HiRes native | FPGA manages video. Screen is a 256×192 pixel bitmap in ZX81 native format. |
+
+### Border control (POKE 2046..2055)
+```
+POKE 2046,<attr>        : To change border attributes
+POKE 2047,170           : Activate border pattern
+POKE 2047,85            : Deactivate border pattern
+2048–2055,<datos>       : Define border pattern (8 bytes)
+``` 
+
 
 ### VSync Synchronisation
 

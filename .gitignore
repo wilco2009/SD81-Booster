@@ -3,6 +3,7 @@
 # ── Claude Code ────────────────────────────────────────────
 # Context file for Claude Code sessions (not part of project)
 /CLAUDE.md
+.claude
 
 # ── Working notes ──────────────────────────────────────────
 /Updates/

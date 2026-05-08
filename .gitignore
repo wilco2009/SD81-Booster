@@ -36,7 +36,6 @@
 *.mnt
 # Eagle scripts and generated reports
 /Circuit/*.scr
-/Circuit/*.pdf
 /Circuit/partlist_smd.txt
 
 # ── Xilinx ISE (Spartan-6 FPGA) ────────────────────────────

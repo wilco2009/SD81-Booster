@@ -23,7 +23,7 @@
 
 # ── Eagle PCB ──────────────────────────────────────────────
 # Old versions archive (kept locally, not in repo)
-/Eagle/BAK/
+/Circuit/BAK/
 # Auto-generated backup files (created on every save)
 *.b##
 *.b#[0-9]
@@ -35,9 +35,9 @@
 *.mnb
 *.mnt
 # Eagle scripts and generated reports
-/Eagle/*.scr
-/Eagle/*.pdf
-/Eagle/partlist_smd.txt
+/Circuit/*.scr
+/Circuit/*.pdf
+/Circuit/partlist_smd.txt
 
 # ── Xilinx ISE (Spartan-6 FPGA) ────────────────────────────
 # Old versions archive (kept locally, not in repo)

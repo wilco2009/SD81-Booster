@@ -1,0 +1,16 @@
+; EXPLOSION.PEG — Efecto de explosión
+; Ruido en canal A de AY chip 2, fade-out en 15 pasos
+; Duración total: 100ms bang + 15×40ms fade = 700ms
+
+        LD  R6, 8       ; Período de ruido = 8 (frecuencia media-alta)
+        LD  R7, 37h     ; Mixer: sólo ruido canal A activo (0b00110111)
+        LD  R8, 15      ; Amplitud canal A = máximo
+        WAIT 100        ; Bang inicial: 100 ms a volumen máximo
+        LD  V0, 15      ; Contador de fade (15 pasos)
+loop:
+        LD  R8, V0      ; Amplitud = contador (15 → 1)
+        WAIT 40         ; 40 ms por paso
+        DJNZ V0, loop   ; Decrementa V0 y repite si ≠ 0
+        LD  R8, 0       ; Silencio canal A
+        LD  R7, 3Fh     ; Deshabilitar todo (0b00111111)
+        HALT

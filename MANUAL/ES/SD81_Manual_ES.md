@@ -1141,9 +1141,7 @@ El siguiente programa ilustra el uso del modo de 128 caracteres para cargar un j
 - **Línea 5:** activa el modo de 128 caracteres definibles.
 - **Línea 20:** carga el archivo `SPEC-81-128.BIN` desde la SD en la dirección 15360 (3C00h), que es la zona de caracteres definibles. Este archivo contiene el juego de caracteres del ZX Spectrum.
 - **Línea 30:** limpia la pantalla.
-- **Línea 35:** activa el modo Superfast (POKE 16418,0) para liberar la CPU del control del vídeo.
 - **Línea 40:** imprime en la línea 23 (última línea de la pantalla) el mensaje de copyright del Spectrum, usando el carácter 8 como símbolo © y las palabras de la firma en vídeo inverso.
-- **Línea 45:** restaura el modo de vídeo estándar (POKE 16418,2).
 - **Línea 50:** espera indefinidamente a que se pulse cualquier tecla.
 
 ---

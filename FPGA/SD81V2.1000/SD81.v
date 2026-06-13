@@ -192,8 +192,8 @@ module SD81(
 	reg sfSP_en = 1'b0;
 	reg [2:0] sp_border = 3'd7;
 	wire [15:0] FRAMES_addr = 16'd16436;
-	wire lFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr) && (sfast_mode_en==1);
-	wire hFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr+1) && (sfast_mode_en==1);
+	wire lFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr) && (sfast_mode_en==1) && (sfSP_en==0);
+	wire hFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr+1) && (sfast_mode_en==1) && (sfSP_en==0);
 	wire micro_wr = ~nRESET & ~nWRx; 
 	wire micro_rd = ~nRESET & nWRx; 
 	wire [15:0] Addr = {A15,A14,A13,A12,A11,A10,A9,A8,A7,A6,A5,A4,A3,A2,A1,A0};
@@ -890,7 +890,7 @@ assign DEBUG_RDY = 1'b0;
 			if (~old_load_enable_fast & load_enable_fast) begin
 				current_attr <= attr_latch_fast;
 				
-				if (char_latch_fast[7]) shift_register <= ~v_dout;
+				if (char_latch_fast[7] && !sfSP_en) shift_register <= ~v_dout;	// in Spectrum mode v_dout is raw pixel data, no inverse bit
 				else shift_register <= v_dout;
 				border_pixel_cnt <= 0;
 			end else begin
@@ -1169,8 +1169,11 @@ assign DEBUG_RDY = 1'b0;
 	
 
 //	// Mezcla de canales y centrado en cero
-	wire signed [15:0] sample_l = {cha_s[0] + chc_s[0] + cha_s[1]+beeper_dout+15'sd0};
-	wire signed [15:0] sample_r = {chb_s[0] + chc_s[0] + chb_s[1]+beeper_dout+15'sd0};
+	wire signed [15:0] beeper_s = beeper_dout;	// extension de signo 13->16 bits
+												// (dentro de {} la concatenacion es unsigned y
+												// los valores negativos del beeper se corrompian)
+	wire signed [15:0] sample_l = {cha_s[0] + chc_s[0] + cha_s[1]+beeper_s+15'sd0};
+	wire signed [15:0] sample_r = {chb_s[0] + chc_s[0] + chb_s[1]+beeper_s+15'sd0};
 
 	i2s_tx DAC(
 		.clk(system_clk),

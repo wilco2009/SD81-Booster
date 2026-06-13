@@ -105,7 +105,7 @@ def main(argv):
     global params
     global lineno
     data = bytearray()
-    f = open(argv[1], 'r')
+    f = open(argv[1], 'r', encoding='utf-8')
     try:
         lineno = 0
         for line in f:

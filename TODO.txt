@@ -1,21 +1,8 @@
-- Cambiar el carácter # por = en el parser
-- Eliminar el comando M() mixer del manual
+Implementado a falta de probar
+implementado - Cambiar el carácter # por = en el parser
+implementado - implementar el comando M() mixer del manual
+
 
 PEG
-Nota MCU: Hay dos bugs en el fuente original (OR aplica pero no asigna, SUB cae en ADC). Los corrijo en el emulador.
-Bugs del MCU corregidos: OR asigna resultado correcto, SUB VAR,VAR no cae en ADC, protección división por cero.
+corregido Bugs del MCU corregidos: OR asigna resultado correcto, SUB VAR,VAR no cae en ADC, protección división por cero.
 
-cambiar en el manual
-Nota: He detectado una discrepancia en peg.py entre el assembler y el manual: el assembler codifica SHL como 4E y SHR como 4F, pero el manual dice lo contrario. No afecta a este programa (no usa shifts), pero conviene verificarlo cuando se prueben esas instrucciones.
-
-Añadir al manual que FRAMES sigue actualizándose por hardware en modo SUPERFAST
-no visualizar el valor de FRAMES
-
-Resuelto: Añadir en el debugger que el botón OVER se salte los LDIR y los JRCOND
-
-Resuelto: Activar el NMI (NMI con A0=0, y simular el bit FLASH) 
-
-Resuelto: La barra de oxigeno no funciona
-Resuelto: Eugene no se ve bien
-
-Documentar en el manual que el puerto para activar el altavoz/borde en el modo spectrum es el 251 en lugar del 254 del spectrum real

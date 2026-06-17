@@ -1324,11 +1324,25 @@ assign DEBUG_RDY = 1'b0;
 		assign LE_OL = DATA_out; 
 		assign nOE_IL = ~DATA_in;
 		
-		wire nOE_CTRL_CLOCK = ~CTRL_in; // Enable D7 if in 0xA7 detected
-		
+		wire nOE_CTRL_CLOCK = ~CTRL_in; // Enable D7 if in 0xAF detected
+
 		assign GET_CTRL_REG = CTRL_REG;
-		
+
 		assign GET_DATA_REG = DATA_REG;
+
+		// VSYNC edge counter for port $AF (D6..D1)
+		reg [5:0] vsync_cnt = 6'b0;
+		reg vsync_af_prev   = 1'b0;
+		reg ctrl_in_prev    = 1'b0;
+
+		always @(posedge system_clk) begin
+			vsync_af_prev <= vsync;
+			ctrl_in_prev  <= CTRL_in;
+			if (ctrl_in_prev & ~CTRL_in)        // flanco bajada de lectura $AF: reset
+				vsync_cnt <= 6'b0;
+			else if (vsync & ~vsync_af_prev)    // flanco subida de VSYNC: incrementa
+				vsync_cnt <= vsync_cnt + 1'b1;
+		end
 		
 		wire kbd_data_out =  {1'bz,1'bz,1'bz,
 			!kbd_data[4]?0:1'bz,
@@ -1374,9 +1388,9 @@ assign DEBUG_RDY = 1'b0;
 						mapper_port_rd? mapper_data[7] : 
 						int_dataout_en? int_data_out[7]:
 						1'bz;
-		assign D6 = 
+		assign D6 =
 						!nOE_IL? input_latch[6] :
-						~nOE_CTRL_CLOCK? 1'b0:
+						~nOE_CTRL_CLOCK? vsync_cnt[5]:
 						lFRAMES_read?FRAMES[6]:
 						hFRAMES_read?FRAMES[14]:
 						ay_psg_read[0]?ay_data_o[0][6]:
@@ -1386,9 +1400,9 @@ assign DEBUG_RDY = 1'b0;
 						mapper_port_rd? mapper_data[6] : 
 						int_dataout_en? int_data_out[6]:
 						1'bz;
-		assign D5 = 
+		assign D5 =
 						!nOE_IL? input_latch[5] :
-						~nOE_CTRL_CLOCK? 1'b0:
+						~nOE_CTRL_CLOCK? vsync_cnt[4]:
 						lFRAMES_read?FRAMES[5]:
 						hFRAMES_read?FRAMES[13]:
 						ay_psg_read[0]?ay_data_o[0][5]:
@@ -1399,9 +1413,9 @@ assign DEBUG_RDY = 1'b0;
 						chroma_mode_rd? 1'b0:					// Colour modes availables, chroma switch 6 allways on
 						int_dataout_en? int_data_out[5]:
 						1'bz;
-		assign D4 = 
+		assign D4 =
 						!nOE_IL? input_latch[4] :
-						~nOE_CTRL_CLOCK? 1'b0:
+						~nOE_CTRL_CLOCK? vsync_cnt[3]:
 						lFRAMES_read?FRAMES[4]:
 						hFRAMES_read?FRAMES[12]:
 						ay_psg_read[0]?ay_data_o[0][4]:
@@ -1412,9 +1426,9 @@ assign DEBUG_RDY = 1'b0;
 						kbdint & !kbd_data[4]?  1'b0:
 						int_dataout_en? int_data_out[4]:
 						1'bz;
-		assign D3 = 
+		assign D3 =
 						!nOE_IL? input_latch[3] :
-						~nOE_CTRL_CLOCK? 1'b0:
+						~nOE_CTRL_CLOCK? vsync_cnt[2]:
 						lFRAMES_read?FRAMES[3]:
 						hFRAMES_read?FRAMES[11]:
 						ay_psg_read[0]?ay_data_o[0][3]:
@@ -1425,9 +1439,9 @@ assign DEBUG_RDY = 1'b0;
 						kbdint & !kbd_data[3]?  1'b0:
 						int_dataout_en? int_data_out[3]:
 						1'bz;
-		assign D2 = 
+		assign D2 =
 						!nOE_IL? input_latch[2] :
-						~nOE_CTRL_CLOCK? 1'b0:
+						~nOE_CTRL_CLOCK? vsync_cnt[1]:
 						lFRAMES_read?FRAMES[2]:
 						hFRAMES_read?FRAMES[10]:
 						ay_psg_read[0]?ay_data_o[0][2]:
@@ -1438,9 +1452,9 @@ assign DEBUG_RDY = 1'b0;
 						kbdint & !kbd_data[2]?  1'b0:
 						int_dataout_en? int_data_out[2]:
 						1'bz;
-		assign D1 = 
+		assign D1 =
 						!nOE_IL? input_latch[1] :
-						~nOE_CTRL_CLOCK? CTRL_CLK:
+						~nOE_CTRL_CLOCK? vsync_cnt[0]:
 						lFRAMES_read?FRAMES[1]:
 						hFRAMES_read?FRAMES[9]:
 						ay_psg_read[0]?ay_data_o[0][1]:
@@ -1452,7 +1466,7 @@ assign DEBUG_RDY = 1'b0;
 						int_dataout_en? int_data_out[1]:
 						1'bz;
 
-		assign D0 = 
+		assign D0 =
 						!nOE_IL? input_latch[0] :
 						~nOE_CTRL_CLOCK? int_signal:
 						lFRAMES_read?FRAMES[0]:

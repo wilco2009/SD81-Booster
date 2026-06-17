@@ -1536,7 +1536,7 @@ El SD81 Booster utiliza tres puertos de E/S para la comunicación entre el Z80 y
 
 **Sincronización con VSYNC:**
 
-El bit 0 del puerto `A7h` refleja el estado de la interrupción de sincronismo vertical (VSYNC). Esto permite a la CPU esperar al inicio del refresco de pantalla de forma precisa, sin necesidad de interrupciones ni del comando `HALT`.
+El bit 0 del puerto `AFh` refleja el estado de la interrupción de sincronismo vertical (VSYNC). Esto permite a la CPU esperar al inicio del refresco de pantalla de forma precisa, sin necesidad de interrupciones ni del comando `HALT`.
 
 En el ZX Spectrum, muchos juegos usaban `HALT` o una rutina de interrupción para sincronizarse con el barrido vertical de la pantalla. En el SD81 Booster este mecanismo sustituye esa funcionalidad y es especialmente útil al portar juegos de Spectrum al ZX81 con SD81 Booster.
 
@@ -1544,11 +1544,11 @@ Ejemplo de bucle de espera a VSYNC en ensamblador Z80:
 
 ```
 WAIT_VSYNC:
-        in      a,(0A7h)        ; leer puerto de datos MCU
+        in      a,(0AFh)        ; leer puerto de control de la MCU
         and     01h             ; aislar bit 0 (VSYNC)
         jr      nz,WAIT_VSYNC   ; esperar hasta que VSYNC = 0
 WAIT_VSYNC2:
-        in      a,(0A7h)
+        in      a,(0AFh)
         and     01h
         jr      z,WAIT_VSYNC2   ; esperar flanco (VSYNC = 1)
         ; En este punto estamos sincronizados con el inicio del frame

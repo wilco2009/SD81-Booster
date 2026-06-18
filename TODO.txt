@@ -6,3 +6,7 @@ implementado - implementar el comando M() mixer del manual
 PEG
 corregido Bugs del MCU corregidos: OR asigna resultado correcto, SUB VAR,VAR no cae en ADC, protección división por cero.
 
+Documentar los puertos de los AY internos
+
+Hacer funcionar los snapshots del SD81Booster que ocupen varias páginas
+Al hacer reset hay que inicializar los registros del AY a 0

@@ -82,6 +82,11 @@ FsFile dir;
 FsFile Sfile;
 FsFile Dfile;
 FsFile TmpFile;
+FsFile dskFile;
+
+uint16_t dsk_sector_size;
+uint16_t sector_count;
+bool dsk_opened = false;
 
 char current_dir[MAX_FILENAME_LEN] = "/";
 char S[100];

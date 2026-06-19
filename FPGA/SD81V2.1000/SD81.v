@@ -1172,8 +1172,8 @@ assign DEBUG_RDY = 1'b0;
 	wire signed [15:0] beeper_s = beeper_dout;	// extension de signo 13->16 bits
 												// (dentro de {} la concatenacion es unsigned y
 												// los valores negativos del beeper se corrompian)
-	wire signed [15:0] sample_l = {cha_s[0] + chc_s[0] + cha_s[1]+beeper_s+15'sd0};
-	wire signed [15:0] sample_r = {chb_s[0] + chc_s[0] + chb_s[1]+beeper_s+15'sd0};
+	wire signed [15:0] sample_l = {cha_s[0] + chc_s[0] + chc_s[1] + cha_s[1]+beeper_s+15'sd0};
+	wire signed [15:0] sample_r = {chb_s[0] + chc_s[0] + chc_s[1] + chb_s[1]+beeper_s+15'sd0};
 
 	i2s_tx DAC(
 		.clk(system_clk),

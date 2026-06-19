@@ -1911,6 +1911,106 @@ void cmd_bat(){
   reset_commands();
 }
 
+//53
+// 53  + SECTOR SIZE(2 BYTES) + FILENAME ()
+void cmd_Open_ramdom_access(){
+char s[MAX_FILENAME_LEN];
+char file_name[MAX_FILENAME_LEN];
+uint32_t result;
+uint8_t error_code;
+uint32_t i;
+uint32_t fsize;
+
+  dsk_opened = false;
+
+  uint32_t st = millis();
+  set_SDLed(LED_ON);
+  check_SD();
+
+  error_code = 0;
+  ToggleClock();
+
+  //GET PARAMS
+
+  ToggleClock();
+  uint8_t sector_size_lo = GetByteFromZ80();
+
+  ToggleClock();
+  uint8_t sector_size_hi = GetByteFromZ80();
+
+  dsk_sector_size = sector_size_hi*256+sector_size_lo;
+
+  ToggleClock();
+  uint8_t param_len = GetByteFromZ80();
+  char ch;
+
+
+  for (uint8_t i=0; i<param_len; i++){
+    ToggleClock();
+    ch = GetByteFromZ80();
+    params[i] = (char) asc81_to_ascii[ch];
+  }
+  params[param_len] = 0;
+  if (param_len==0) {
+    sprintf_P(params,PSTR("%s%03d"),params,file_counter);
+    file_counter++;
+  } else {
+    file_counter = 0;
+  }
+
+  ToggleClock();
+  uint8_t addr = GetByteFromZ80();
+
+  if (params[0]!='/'){
+    complete_dir(tmp,current_dir);
+    strcpy(tmp,current_dir);
+    strcat(tmp,params);
+  } else {
+    strcpy(tmp,params);
+  }
+  if (!sd.exists(tmp)) strcat(tmp,".DSK");
+  
+  if (dskFile.isOpen()) dskFile.close();
+  
+  boolean opened = dskFile.open(tmp,O_READ);
+  fsize = dskFile.fileSize();
+  sector_count = fsize / dsk_sector_size;
+  dskFile.seekSet(0);
+  if (!opened || (fsize == 0)) {
+    log_0("can't open dsk file");
+    error_code = 1;
+    if (fsize>512) error_code = 5;
+  } else {
+    char* ext = get_filename_ext(tmp);
+    upStr(ext);
+    log_2("img_disk_opened");
+    dsk_opened = true;
+  }
+  if (result<fsize) {
+    error_code = 8;
+  }
+  SendByteToZ80(error_code);  // ... and Status
+  ToggleClock();              // Final clock toggle
+  reset_commands();
+}
+
+//54
+void cmd_read_dsk_sector(){
+
+}
+
+//55  
+void cmd_write_dsk_sector(){
+
+}
+
+//56 
+void cmd_close_dsk_img(){
+  dsk_opened = false;
+  dskFile.close();
+
+}
+
 // reserved codes for future
 void cmd_spare(){
   log_0("Command not recognized: %s",command_active);
@@ -1977,7 +2077,10 @@ command_handler commands[] = {
   cmd_rtc,              //50
   cmd_spare,            //51
   cmd_bat,              //52
-  cmd_spare,            //53
-  cmd_spare,            //54
+  cmd_Open_dsk_img,     //53
+  cmd_read_dsk_sector,  //54
+  cmd_write_dsk_sector, //55
+  cmd_close_dsk_img,    //56
+  cmd_spare,            //57
   cmd_spare
 };

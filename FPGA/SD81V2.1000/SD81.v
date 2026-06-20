@@ -245,6 +245,8 @@ module SD81(
 	
 	reg nQS_en = 1'b1; // initially QS interface disabled // test_NMI;
 	
+	reg block0Writable = 1'b0;
+	
 		 
 // ***************************************************
 //      CLOCK GENERATION
@@ -374,7 +376,7 @@ Port $7FEF (01111111 11101111) - IN:
 	reg bpattern_en = 1'b0;
 	reg [2:0] border_pixel_cnt = 3'b000;
 
-	wire poke_wr = (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2041) && (Addr < 16'd2057);
+	wire poke_wr = (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2041) && (Addr < 16'd2058);
 
 	always@(negedge nMREQ)
 		if (~nRFSH) ROMTABLE[15:8] = Addr[15:8];
@@ -435,6 +437,7 @@ Port $7FEF (01111111 11101111) - IN:
 			if ((Addr == 16'd2047) && (data==8'd170)) bpattern_en <= 1'b1;
 			if ((Addr == 16'd2047) && (data==8'd85)) bpattern_en <= 1'b0;
 			if ((Addr >= 16'd2048) && (Addr<2056)) border_char[Addr[2:0]] <= data;
+			if ((Addr == 16'd2047)) block0Writable <= 1'b0; 
 			
 		end
 	end
@@ -1066,7 +1069,7 @@ assign DEBUG_RDY = 1'b0;
 		block[{ A15,A14,A13}];												// normal access
 
 		// LOW ROM is write protected
-		assign nWRx =~nRESET?1'bz:(nWR | nMREQ | (~A13&~A14&~A15));
+		assign nWRx =~nRESET?1'bz:(nWR | nMREQ | ((~A13&~A14&~A15)&~block0Writable) );
 		
 		//external MEM active for RAM and ROM
 		assign nMEM_OE = ~nRESET?nMEM_OEm:int_dataout_en?1'b1:&nRD&nRFSH|nMREQ&nRFSH;

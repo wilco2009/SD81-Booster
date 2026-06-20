@@ -9,4 +9,17 @@ corregido Bugs del MCU corregidos: OR asigna resultado correcto, SUB VAR,VAR no 
 Documentar los puertos de los AY internos
 
 Hacer funcionar los snapshots del SD81Booster que ocupen varias páginas
-Al hacer reset hay que inicializar los registros del AY a 0
+
+Documentar en el manual el contador de vsync
+
+implementar los comandos de acceso a archivos grandes en Arduino
+implementar la desprotección de la página 0 en Arduino
+implementar la desprotección de la página 0 en Eightyone
+
+
+Documentar el poke de desprotección de la página 0 
+cualquier escritura a la posición 2056:
+   - desprotege la página 0
+   - desactiva todos los puertos mapeados en memoria (2041 a 2056)
+   - mantiene toda la configuración de video anterior (no hay que resetear lo que hemos configurado con los puertos 2043 a 2056)
+   - desactiva la variable FRAME por hardware

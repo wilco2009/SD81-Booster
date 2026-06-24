@@ -195,8 +195,12 @@ void _rst_data_reg(uint8_t status) {
 }
 
 void get_ctrl_reg(void){
-   _rst_ctrl_reg(LOW); 
+   _rst_ctrl_reg(LOW);
   reset_commands();
+  // cerrar los handles de acceso aleatorio (CP/M) abiertos
+  for (int i=0; i<4; i++){
+    if (f_opened[i]){ f_handle[i].close(); f_opened[i]=false; }
+  }
   reseted = true;
   initialised = false;
   Serial.println("RESET");

@@ -192,8 +192,8 @@ module SD81(
 	reg sfSP_en = 1'b0;
 	reg [2:0] sp_border = 3'd7;
 	wire [15:0] FRAMES_addr = 16'd16436;
-	wire lFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr) && (sfast_mode_en==1) && (sfSP_en==0);
-	wire hFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr+1) && (sfast_mode_en==1) && (sfSP_en==0);
+	wire lFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr) && (sfast_mode_en==1) && (sfSP_en==0) && !block0Writable;
+	wire hFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr+1) && (sfast_mode_en==1) && (sfSP_en==0) && !block0Writable;
 	wire micro_wr = ~nRESET & ~nWRx; 
 	wire micro_rd = ~nRESET & nWRx; 
 	wire [15:0] Addr = {A15,A14,A13,A12,A11,A10,A9,A8,A7,A6,A5,A4,A3,A2,A1,A0};
@@ -376,7 +376,7 @@ Port $7FEF (01111111 11101111) - IN:
 	reg bpattern_en = 1'b0;
 	reg [2:0] border_pixel_cnt = 3'b000;
 
-	wire poke_wr = (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2041) && (Addr < 16'd2058);
+	wire poke_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2041) && (Addr < 16'd2058);
 
 	always@(negedge nMREQ)
 		if (~nRFSH) ROMTABLE[15:8] = Addr[15:8];
@@ -396,6 +396,7 @@ Port $7FEF (01111111 11101111) - IN:
 			sfast_mode_en <= 1'b0;
 			sfHR_en <= 1'b0;
 			sfSP_en <= 1'b0;
+			block0Writable <= 1'b0;		// reset: bloque 0 protegido (ROM)
 		end else begin
 			// POKE 2041,ROMTABLE_low	-> set low part of ROMTABLE addr
 			// POKE 2042,ROMTABLE_high	-> set high part of ROMTABLE addr
@@ -437,7 +438,8 @@ Port $7FEF (01111111 11101111) - IN:
 			if ((Addr == 16'd2047) && (data==8'd170)) bpattern_en <= 1'b1;
 			if ((Addr == 16'd2047) && (data==8'd85)) bpattern_en <= 1'b0;
 			if ((Addr >= 16'd2048) && (Addr<2056)) border_char[Addr[2:0]] <= data;
-			if ((Addr == 16'd2047)) block0Writable <= 1'b0; 
+			//if ((Addr == 16'd2047)) block0Writable <= 1'b0;
+			if ((Addr == 16'd2056)) block0Writable <= 1'b1;	// CP/M: desproteger bloque 0
 			
 		end
 	end
@@ -893,7 +895,7 @@ assign DEBUG_RDY = 1'b0;
 			if (~old_load_enable_fast & load_enable_fast) begin
 				current_attr <= attr_latch_fast;
 				
-				if (char_latch_fast[7] && !sfSP_en) shift_register <= ~v_dout;	// in Spectrum mode v_dout is raw pixel data, no inverse bit
+				if (char_latch_fast[7] && !sfSP_en && !sfHR_en) shift_register <= ~v_dout;	// inverse solo en TEXTO; en Spectrum/HiRes v_dout es pixel raw
 				else shift_register <= v_dout;
 				border_pixel_cnt <= 0;
 			end else begin

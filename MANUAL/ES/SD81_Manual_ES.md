@@ -1692,6 +1692,12 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos `A7h
 | 16 | OPENDIR | String: ruta/comodín | Status | Abre un directorio y construye un array interno de entradas (máx. 512). Necesario antes de usar GETROWLEN/GETROW. |
 | 17 | GETROWLEN | 2 bytes: índice (little-endian) | 1 byte: longitud, Status | Devuelve la longitud del nombre de la entrada `índice` del array abierto con OPENDIR. |
 | 18 | GETROW | 2 bytes: índice (little-endian) | 1 byte: longitud, N bytes: nombre en ZX81, Status | Devuelve el nombre de la entrada `índice`. Índice 0 devuelve el directorio actual. Los directorios se devuelven entre `<` y `>`. |
+| 53 | F_OPEN		| Handle(0..3)+nombre en ASCII|	1B: status	| Abre un fichero grande (tamaño 32 bits) en un handle de archivo especificado (0..3). | El nombre es una cadena Pascal en ASCII. | 
+| 58 | F_OPEN_ZX81	| Handle(0..3)+nombre en ZX81|	1B: status	| Abre un fichero grande (tamaño 32 bits) en un handle de archivo especificado (0..3). | El nombre es una cadena Pascal en ZX81. |
+| 54 | F_SEEK		| Handle(0..3)+Offset (4 bytes Little endian)|	1B: status	| Desplaza el puntero de lectura/escritura a la posición indicada en offset |
+| 55 | F_READ		| Handle(0..3)+Count(2B Little Endian)|	count bytes + 1B:status |	Lee count bytes. Siempre envia count bytes, si se termina el archivo rellena con ceros |
+| 56 | F_WRITE		| Handle(0..3)+Count(2B Little Endian)+info to write (count bytes) |	1B:status |	escribe count bytes. |
+| 57 | F_CLOSE		| Handle(0..3) |	1B:status |	Cierra el fichero |
 
 ---
 
@@ -2364,6 +2370,7 @@ En el SD81 Booster esta funcionalidad se sustituye mediante la lectura del **bit
 | 2047 | 170 | Activar patrón de borde |
 | 2047 | 85 | Desactivar patrón de borde |
 | 2048–2055 | `<datos>` | Definir patrón de borde (8 bytes) |
+| 2056 | xxx | Desactiva los pokes de control y activa la escritura en el bloque 0 |
 
 ---
 

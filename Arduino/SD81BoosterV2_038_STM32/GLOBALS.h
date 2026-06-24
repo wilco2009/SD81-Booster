@@ -103,10 +103,8 @@ extern FsFile dir;
 extern FsFile Sfile;
 extern FsFile Dfile;
 extern FsFile TmpFile;
-extern FsFile dskFile;
-extern uint16_t dsk_sector_size;
-extern uint16_t sector_count;               // number of sectors in imagefile
-extern bool dsk_opened;
+extern FsFile f_handle[4];
+extern bool f_opened[4];
 
 extern const char asc_to_asc81 [];
 

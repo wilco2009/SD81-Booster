@@ -1371,6 +1371,12 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 | 16 | OPENDIR | String: path/wildcard | Status | Opens a directory and builds an internal array (max. 512 entries). |
 | 17 | GETROWLEN | 2B: index | 1B: length + Status | Length of the name of entry index in the array opened with OPENDIR. |
 | 18 | GETROW | 2B: index | 1B: length + N bytes + Status | Name of entry index in ZX81 encoding. Index 0 = current directory. Directories between < and >. |
+| 53 | F_OPEN		| Handle(0..3)+name in ASCII|	1B: status	| Open a big file (size 32 bits) in a specified handle (0..3). | Name is a Pascal string in ASCII. | 
+| 58 | F_OPEN_ZX81	| Handle(0..3)+name in ZX81|	1B: status	| Open a big file (size 32 bits) in a specified handle (0..3). | Name is a Pascal string in ZX81. |
+| 54 | F_SEEK		| Handle(0..3)+Offset (4 bytes Little endian)|	1B: status	| move write/read pointer to the position specified in offset |
+| 55 | F_READ		| Handle(0..3)+Count(2B Little Endian)|	count bytes + 1B:status |	read count bytes. Always send count bytes padding with Zeroes |
+| 56 | F_WRITE		| Handle(0..3)+Count(2B Little Endian)+info to write (count bytes) |	1B:status |	write count bytes. |
+| 57 | F_CLOSE		| Handle(0..3) |	1B:status |	Close file |
 
 #### Hardware control commands
 
@@ -1980,6 +1986,25 @@ LOAD *OUT 251,<colour>
 Where `<colour>` is a value 0–7 (standard Spectrum colour). The ZX Printer uses the same port and is incompatible with this mode when active.
 
 ---
+
+### Control POKEs summary
+
+| Address | Value | Function |
+|-----------|-------|---------|
+| 2043 | `<low>` | Low byte of screen file address |
+| 2044 | `<hi>` | High byte of screen file address |
+| 2045 | 170 | Activate Superfast text mode |
+| 2045 | 171 | Activate Superfast native HiRes |
+| 2045 | 172 | Activate Superfast Spectrum HiRes |
+| 2045 | 85 | Desactivate Superfast |
+| 2046 | `<attr>` | Change border attributes |
+| 2047 | 170 | Activate border pattern |
+| 2047 | 85 | Deactivate border pattern |
+| 2048–2055 | `<datos>` | Define border pattern (8 bytes) |
+| 2056 | xxx | Disable control pokes and enable writing to block 0 |
+
+---
+
 
 ## Appendix G — Audio Technical Reference: AY chip, VGM and allophones
 

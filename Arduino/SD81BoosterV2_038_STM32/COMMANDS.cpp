@@ -30,6 +30,40 @@ void cmd_nop(void){
   reset_commands();
 }
 
+// COMMAND = 59 (0x3B) TRACE de depuracion: recibe 1 byte y lo imprime por serie.
+// Codigo libre reservado para depuracion (el Z80 lo invoca con mcu_trace, ver sddisk.z80).
+void cmd_trace(void){
+  ToggleClock();                      // ACK del comando
+  uint8_t v = GetByteFromZ80_IT();    // valor a trazar
+  ToggleClock();                      // confirma el valor
+  log_0("TRACE = %d (0x%02X)", v, v);
+  command_active = CMD_IDLE;
+  reset_commands();
+}
+
+// COMMAND = 60 (0x3C) DUMP de depuracion: recibe len + len bytes y los imprime en hex.
+// El Z80 envia SP(2 LE) + 8 bytes de pila + estado del puerto E7 (paginacion).
+void cmd_dump(void){
+  uint8_t buf[24];
+  ToggleClock();                      // ACK del comando
+  uint8_t len = GetByteFromZ80_IT();  // longitud
+  if (len > sizeof(buf)) len = sizeof(buf);
+  for (uint8_t i=0; i<len; i++){
+    ToggleClock();                    // confirma byte anterior
+    buf[i] = GetByteFromZ80_IT();
+  }
+  ToggleClock();                      // confirma ultimo byte
+  // pila (LE): IY IX HL DE BC AF retC PC s0 s1  + buf[20]=E7
+  // Dos lineas: el buffer de log_debug es de 60 bytes (no desbordar).
+  uint16_t pc=(buf[15]<<8)|buf[14], af=(buf[11]<<8)|buf[10], bc=(buf[9]<<8)|buf[8], de=(buf[7]<<8)|buf[6];
+  uint16_t hl=(buf[5]<<8)|buf[4], ix=(buf[3]<<8)|buf[2], iy=(buf[1]<<8)|buf[0];
+  uint16_t s0=(buf[17]<<8)|buf[16], s1=(buf[19]<<8)|buf[18];
+  log_0("DMP PC=%04X AF=%04X BC=%04X DE=%04X", pc, af, bc, de);
+  log_0("    HL=%04X IX=%04X IY=%04X stk=%04X %04X E7=%02X", hl, ix, iy, s0, s1, buf[20]);
+  command_active = CMD_IDLE;
+  reset_commands();
+}
+
 // COMMAND = 1 OK
 void cmd_ver(void){
 //  ToggleClock();
@@ -436,7 +470,7 @@ uint32_t fsize2;
     ToggleClock();
     ch = GetByteFromZ80() & 0b01111111;
     params[i] = (char) asc81_to_ascii[ch];
-    delay(1);
+    delay(10);
 //    Serial.print(params[i]); Serial.println((byte) ch);
   }
   params[param_len] = 0;
@@ -1911,104 +1945,165 @@ void cmd_bat(){
   reset_commands();
 }
 
-//53
-// 53  + SECTOR SIZE(2 BYTES) + FILENAME ()
-void cmd_Open_ramdom_access(){
-char s[MAX_FILENAME_LEN];
-char file_name[MAX_FILENAME_LEN];
-uint32_t result;
-uint8_t error_code;
-uint32_t i;
-uint32_t fsize;
+// =====================================================================
+//  Acceso aleatorio a fichero (CP/M-SD81).  Comandos 0x35-0x39 (53-57).
+//  Handshake: igual que el resto de comandos. Un ToggleClock por byte,
+//  desfasado: el ToggleClock inicial confirma el byte de comando; cada
+//  ToggleClock posterior confirma el byte anterior; el ultimo byte
+//  recibido lo confirma el SendByteToZ80/ToggleClock final.
+//  El nombre llega en ASCII PURO (no codigo ZX81): NO usar asc81_to_ascii.
+//  Estado: 0x00 OK, 0x01 lectura corta/EOF (solo fread), 0xFF error.
+// =====================================================================
 
-  dsk_opened = false;
-
-  uint32_t st = millis();
-  set_SDLed(LED_ON);
+// fopen comun:  cmd + len(1) + nombre -> handle (0..3 / 0xFF)
+//   convert=false -> nombre en ASCII puro (cliente CP/M)
+//   convert=true  -> nombre en codigo ZX81 (modo nativo): se traduce a ASCII
+static void do_f_open(bool convert){
+  uint8_t handle = 0xFF;
   check_SD();
+  set_SDLed(LED_ON);
+  ToggleClock();                          // ACK del byte de comando
 
-  error_code = 0;
-  ToggleClock();
-
-  //GET PARAMS
-
-  ToggleClock();
-  uint8_t sector_size_lo = GetByteFromZ80();
-
-  ToggleClock();
-  uint8_t sector_size_hi = GetByteFromZ80();
-
-  dsk_sector_size = sector_size_hi*256+sector_size_lo;
-
-  ToggleClock();
-  uint8_t param_len = GetByteFromZ80();
-  char ch;
-
-
-  for (uint8_t i=0; i<param_len; i++){
-    ToggleClock();
-    ch = GetByteFromZ80();
-    params[i] = (char) asc81_to_ascii[ch];
+  uint8_t name_len = GetByteFromZ80_IT(); // longitud del nombre
+  for (uint8_t i=0; i<name_len; i++){
+    ToggleClock();                        // confirma byte anterior
+    uint8_t b = GetByteFromZ80_IT();
+    params[i] = convert ? (char)asc81_to_ascii[b] : (char)b;
   }
-  params[param_len] = 0;
-  if (param_len==0) {
-    sprintf_P(params,PSTR("%s%03d"),params,file_counter);
-    file_counter++;
-  } else {
-    file_counter = 0;
-  }
+  params[name_len] = 0;
 
-  ToggleClock();
-  uint8_t addr = GetByteFromZ80();
-
+  // ruta relativa al directorio actual del SD (salvo ruta absoluta)
   if (params[0]!='/'){
-    complete_dir(tmp,current_dir);
     strcpy(tmp,current_dir);
     strcat(tmp,params);
   } else {
     strcpy(tmp,params);
   }
-  if (!sd.exists(tmp)) strcat(tmp,".DSK");
-  
-  if (dskFile.isOpen()) dskFile.close();
-  
-  boolean opened = dskFile.open(tmp,O_READ);
-  fsize = dskFile.fileSize();
-  sector_count = fsize / dsk_sector_size;
-  dskFile.seekSet(0);
-  if (!opened || (fsize == 0)) {
-    log_0("can't open dsk file");
-    error_code = 1;
-    if (fsize>512) error_code = 5;
+
+  int h;
+  if (sd.exists(tmp)){                     // NO crear si no existe
+    h = -1;
+    for (int i=0; i<4; i++) if (!f_opened[i]){ h=i; break; }
+    if (h>=0 && f_handle[h].open(tmp, O_RDWR)){   // equivale a "r+b"
+      f_opened[h] = true;
+      handle = (uint8_t) h;
+    }
   } else {
-    char* ext = get_filename_ext(tmp);
-    upStr(ext);
-    log_2("img_disk_opened");
-    dsk_opened = true;
+    log_0("fopen: %s no existe",tmp);
   }
-  if (result<fsize) {
-    error_code = 8;
-  }
-  SendByteToZ80(error_code);  // ... and Status
-  ToggleClock();              // Final clock toggle
+
+  SendByteToZ80(handle);                   // confirma ultimo byte + envia handle
+  ToggleClock();                           // toggle final
+//  log_1("ℹ️ OPEN (%d)=%d",h,handle);
   reset_commands();
 }
 
-//54
-void cmd_read_dsk_sector(){
+// COMMAND = 53 (0x35) fopen ASCII (cliente CP/M)
+void cmd_f_open(){ do_f_open(false); }
 
+// COMMAND = 58 (0x3A) fopen ZX81 (modo nativo): nombre en codigo ZX81
+void cmd_f_open_zx81(){ do_f_open(true); }
+
+// COMMAND = 54 (0x36) fseek:  cmd + handle(1) + offset(4 LE) -> status
+void cmd_f_seek(){
+  uint8_t status = 0xFF;
+  ToggleClock();                           // ACK
+  uint8_t h = GetByteFromZ80_IT();         // handle
+  uint32_t off = 0;
+  for (uint8_t i=0; i<4; i++){
+    ToggleClock();                         // confirma byte anterior
+    uint8_t b = GetByteFromZ80_IT();
+    off |= ((uint32_t)b) << (8*i);         // little-endian
+  }
+  if (h<4 && f_opened[h]){
+    status = f_handle[h].seekSet(off) ? 0x00 : 0xFF;
+  }
+  SendByteToZ80(status);                    // confirma ultimo byte + status
+  ToggleClock();                            // toggle final
+  log_1("ℹ️ SEEK (pos=%u,Handle=%u)=%u",off,h,status);
+  reset_commands();
 }
 
-//55  
-void cmd_write_dsk_sector(){
+// COMMAND = 55 (0x37) fread:  cmd + handle(1) + count(2 LE) -> count bytes + status
+// IMPORTANTE: enviar SIEMPRE count bytes (rellenar con 0) seguidos del status.
+void cmd_f_read(){
+  uint8_t status = 0xFF;
+  ToggleClock();                           // ACK
+  uint8_t h  = GetByteFromZ80_IT();        // handle
+  ToggleClock();
+  uint8_t cl = GetByteFromZ80_IT();        // count lo
+  ToggleClock();
+  uint8_t ch = GetByteFromZ80_IT();        // count hi
+  uint16_t count = ((uint16_t)ch<<8) | cl;
 
+  set_SDLed(LED_ON);
+  // lectura en bloque (evita el read() byte a byte que puede desalinear el buffer interno)
+  int32_t got = 0;
+  if (h<4 && f_opened[h] && count>0 && count<=BUFFSIZE){
+    got = f_handle[h].read(copy_buffer, count);
+    if (got < 0) got = 0;
+  }
+  // rellenar con ceros si lectura corta
+  if ((uint16_t)got < count)
+    memset(copy_buffer + got, 0, count - (uint16_t)got);
+
+  for (uint16_t i=0; i<count; i++)
+    SendByteToZ80(copy_buffer[i]);          // confirma anterior + envia dato
+
+  if (h>=4 || !f_opened[h]) status = 0xFF;
+  else status = ((uint16_t)got==count) ? 0x00 : 0x01;
+
+  SendByteToZ80(status);                    // confirma ultimo byte + status
+  ToggleClock();                            // toggle final
+  log_1("ℹ️ READ (len=%u,Handle=%u)=%u",count,h,status);
+  reset_commands();
 }
 
-//56 
-void cmd_close_dsk_img(){
-  dsk_opened = false;
-  dskFile.close();
+// COMMAND = 56 (0x38) fwrite:  cmd + handle(1) + count(2 LE) + count bytes -> status
+void cmd_f_write(){
+  uint8_t status = 0xFF;
+  ToggleClock();                           // ACK
+  uint8_t h  = GetByteFromZ80_IT();        // handle
+  ToggleClock();
+  uint8_t cl = GetByteFromZ80_IT();        // count lo
+  ToggleClock();
+  uint8_t ch = GetByteFromZ80_IT();        // count hi
+  uint16_t count = ((uint16_t)ch<<8) | cl;
 
+  // recibir todos los bytes en copy_buffer antes de escribir en bloque
+  for (uint16_t i=0; i<count; i++){
+    ToggleClock();                         // confirma byte anterior
+    copy_buffer[i] = GetByteFromZ80_IT();
+  }
+  set_SDLed(LED_ON);
+  if (h<4 && f_opened[h]){
+    int32_t written = (count>0) ? f_handle[h].write(copy_buffer, count) : count;
+    if (written == (int32_t)count){
+      f_handle[h].sync();
+      status = 0x00;
+    }
+  }
+
+  SendByteToZ80(status);                    // confirma ultimo byte + status
+  ToggleClock();                            // toggle final
+  log_1("ℹ️ WRITE (len=%u,Handle=%u)=%u",count,h,status);
+  reset_commands();
+}
+
+// COMMAND = 57 (0x39) fclose:  cmd + handle(1) -> status
+void cmd_f_close(){
+  uint8_t status = 0xFF;
+  ToggleClock();                           // ACK
+  uint8_t h = GetByteFromZ80_IT();         // handle
+  if (h<4 && f_opened[h]){
+    f_handle[h].close();
+    f_opened[h] = false;
+    status = 0x00;
+  }
+  SendByteToZ80(status);                    // confirma handle + status
+  ToggleClock();                            // toggle final
+  log_1("ℹ️ CLOSE(%u)=%u",h,status);
+  reset_commands();
 }
 
 // reserved codes for future
@@ -2077,10 +2172,13 @@ command_handler commands[] = {
   cmd_rtc,              //50
   cmd_spare,            //51
   cmd_bat,              //52
-  cmd_Open_dsk_img,     //53
-  cmd_read_dsk_sector,  //54
-  cmd_write_dsk_sector, //55
-  cmd_close_dsk_img,    //56
-  cmd_spare,            //57
+  cmd_f_open,           //53
+  cmd_f_seek,           //54
+  cmd_f_read,           //55
+  cmd_f_write,    //56
+  cmd_f_close,            //57
+  cmd_f_open_zx81,      //58 (0x3A) fopen con nombre en codigo ZX81
+  cmd_trace,            //59 (0x3B) TRACE de depuracion (1 byte -> serie)
+  cmd_dump,             //60 (0x3C) DUMP de depuracion (len+bytes -> serie)
   cmd_spare
 };

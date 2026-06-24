@@ -30,40 +30,6 @@ void cmd_nop(void){
   reset_commands();
 }
 
-// COMMAND = 59 (0x3B) TRACE de depuracion: recibe 1 byte y lo imprime por serie.
-// Codigo libre reservado para depuracion (el Z80 lo invoca con mcu_trace, ver sddisk.z80).
-void cmd_trace(void){
-  ToggleClock();                      // ACK del comando
-  uint8_t v = GetByteFromZ80_IT();    // valor a trazar
-  ToggleClock();                      // confirma el valor
-  log_0("TRACE = %d (0x%02X)", v, v);
-  command_active = CMD_IDLE;
-  reset_commands();
-}
-
-// COMMAND = 60 (0x3C) DUMP de depuracion: recibe len + len bytes y los imprime en hex.
-// El Z80 envia SP(2 LE) + 8 bytes de pila + estado del puerto E7 (paginacion).
-void cmd_dump(void){
-  uint8_t buf[24];
-  ToggleClock();                      // ACK del comando
-  uint8_t len = GetByteFromZ80_IT();  // longitud
-  if (len > sizeof(buf)) len = sizeof(buf);
-  for (uint8_t i=0; i<len; i++){
-    ToggleClock();                    // confirma byte anterior
-    buf[i] = GetByteFromZ80_IT();
-  }
-  ToggleClock();                      // confirma ultimo byte
-  // pila (LE): IY IX HL DE BC AF retC PC s0 s1  + buf[20]=E7
-  // Dos lineas: el buffer de log_debug es de 60 bytes (no desbordar).
-  uint16_t pc=(buf[15]<<8)|buf[14], af=(buf[11]<<8)|buf[10], bc=(buf[9]<<8)|buf[8], de=(buf[7]<<8)|buf[6];
-  uint16_t hl=(buf[5]<<8)|buf[4], ix=(buf[3]<<8)|buf[2], iy=(buf[1]<<8)|buf[0];
-  uint16_t s0=(buf[17]<<8)|buf[16], s1=(buf[19]<<8)|buf[18];
-  log_0("DMP PC=%04X AF=%04X BC=%04X DE=%04X", pc, af, bc, de);
-  log_0("    HL=%04X IX=%04X IY=%04X stk=%04X %04X E7=%02X", hl, ix, iy, s0, s1, buf[20]);
-  command_active = CMD_IDLE;
-  reset_commands();
-}
-
 // COMMAND = 1 OK
 void cmd_ver(void){
 //  ToggleClock();
@@ -1994,7 +1960,6 @@ static void do_f_open(bool convert){
 
   SendByteToZ80(handle);                   // confirma ultimo byte + envia handle
   ToggleClock();                           // toggle final
-//  log_1("ℹ️ OPEN (%d)=%d",h,handle);
   reset_commands();
 }
 
@@ -2020,7 +1985,6 @@ void cmd_f_seek(){
   }
   SendByteToZ80(status);                    // confirma ultimo byte + status
   ToggleClock();                            // toggle final
-  log_1("ℹ️ SEEK (pos=%u,Handle=%u)=%u",off,h,status);
   reset_commands();
 }
 
@@ -2055,7 +2019,6 @@ void cmd_f_read(){
 
   SendByteToZ80(status);                    // confirma ultimo byte + status
   ToggleClock();                            // toggle final
-  log_1("ℹ️ READ (len=%u,Handle=%u)=%u",count,h,status);
   reset_commands();
 }
 
@@ -2086,7 +2049,6 @@ void cmd_f_write(){
 
   SendByteToZ80(status);                    // confirma ultimo byte + status
   ToggleClock();                            // toggle final
-  log_1("ℹ️ WRITE (len=%u,Handle=%u)=%u",count,h,status);
   reset_commands();
 }
 
@@ -2102,7 +2064,6 @@ void cmd_f_close(){
   }
   SendByteToZ80(status);                    // confirma handle + status
   ToggleClock();                            // toggle final
-  log_1("ℹ️ CLOSE(%u)=%u",h,status);
   reset_commands();
 }
 
@@ -2178,7 +2139,5 @@ command_handler commands[] = {
   cmd_f_write,    //56
   cmd_f_close,            //57
   cmd_f_open_zx81,      //58 (0x3A) fopen con nombre en codigo ZX81
-  cmd_trace,            //59 (0x3B) TRACE de depuracion (1 byte -> serie)
-  cmd_dump,             //60 (0x3C) DUMP de depuracion (len+bytes -> serie)
   cmd_spare
 };

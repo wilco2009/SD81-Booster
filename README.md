@@ -2,7 +2,7 @@
 
 An open hardware, open source project packing many features in a single interface.
 
-![SD81 Booster|800](DOC/img/SD81.jpg)
+![SD81 Booster|800](img/SD81.jpg)
 
 ## Credits
 

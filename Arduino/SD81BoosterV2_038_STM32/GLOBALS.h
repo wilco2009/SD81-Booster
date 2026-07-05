@@ -53,7 +53,9 @@
 
 #define SERIAL_SPEED 115200
 
-#define lapse for(int i=0;i<10;i++)
+#define lapse for(volatile uint32_t i=0;i<10;i++)
+#define getlapse for(volatile uint32_t i=0;i<100;i++)
+#define sendlapse for(volatile uint32_t i=0;i<100;i++)
 
 #define REVERSE_BITS8(x) ( \
     (((x) & 0x80) >> 7) | \

@@ -9,8 +9,11 @@
 NET "*" IOSTANDARD = LVCMOS33;
 NET "*" DRIVE = 12;
 //NET "*" SLEW = SLOW;
-NET "*" SLEW = FAST;
+NET "*" SLEW = SLOW;
 //
+
+NET "D?" IOSTANDARD = LVCMOS33 | DRIVE = 4 | SLEW = SLOW;
+
 NET "nRST_CTRL_REG" LOC = P1;
 //
 NET "GET_DATA_REG" LOC = P2;
@@ -49,7 +52,7 @@ NET "D7" LOC = P21;
 //NET "PAL_NTSC" LOC = P22;
 NET "CTRL_CLK" LOC = P22;
 //
-NET "D0" LOC = P23;
+NET "D0" LOC = P23 ;
 //
 NET "nCLOCK" LOC = P24;
 // NET "GND"  			LOC = "P25" ; 				//

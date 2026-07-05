@@ -1,0 +1,10 @@
+#-----------------------------------------------------------
+# PlanAhead v14.7 (64-bit)
+# Build 321239 by xbuild on Fri Sep 27 19:24:36 MDT 2013
+# Start of session at: Mon Jun 29 06:49:03 2026
+# Process ID: 2711
+# Log file: /home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/planAhead_run_2/planAhead.log
+# Journal file: /home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/planAhead_run_2/planAhead.jou
+#-----------------------------------------------------------
+start_gui
+source /home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/pa.fromNetlist.tcl

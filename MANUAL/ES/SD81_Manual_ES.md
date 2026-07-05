@@ -1531,8 +1531,8 @@ El SD81 Booster utiliza tres puertos de E/S para la comunicación entre el Z80 y
 | Puerto | Función |
 |--------|---------|
 | `E7h` | Mapeador de memoria |
-| `A7h` | Puerto de datos MCU (lectura y escritura). **El bit 0 en lectura indica el estado de la interrupción VSYNC.** |
-| `AFh` | Puerto de control MCU (escritura = reset del MCU; lectura = bit de reloj en bit 7) |
+| `A7h` | Puerto de datos MCU (lectura y escritura).  |
+| `AFh` | Puerto de control MCU (escritura=reset MCU; bit 7 en lectura=bit de reloj, los bits 6..1 son el contador de VSYNC desde la ultima lectura y el bit 0 en lectura indica el estado instantáneo de VSYNC)|
 
 **Sincronización con VSYNC:**
 
@@ -1692,8 +1692,8 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos `A7h
 | 16 | OPENDIR | String: ruta/comodín | Status | Abre un directorio y construye un array interno de entradas (máx. 512). Necesario antes de usar GETROWLEN/GETROW. |
 | 17 | GETROWLEN | 2 bytes: índice (little-endian) | 1 byte: longitud, Status | Devuelve la longitud del nombre de la entrada `índice` del array abierto con OPENDIR. |
 | 18 | GETROW | 2 bytes: índice (little-endian) | 1 byte: longitud, N bytes: nombre en ZX81, Status | Devuelve el nombre de la entrada `índice`. Índice 0 devuelve el directorio actual. Los directorios se devuelven entre `<` y `>`. |
-| 53 | F_OPEN		| Handle(0..3)+nombre en ASCII|	1B: status	| Abre un fichero grande (tamaño 32 bits) en un handle de archivo especificado (0..3). | El nombre es una cadena Pascal en ASCII. | 
-| 58 | F_OPEN_ZX81	| Handle(0..3)+nombre en ZX81|	1B: status	| Abre un fichero grande (tamaño 32 bits) en un handle de archivo especificado (0..3). | El nombre es una cadena Pascal en ZX81. |
+| 53 | F_OPEN		| String: nombre en ASCII |	1 byte: handle asignado (0–3) o FFh si error	| Abre un fichero existente (tamaño 32 bits) para acceso aleatorio. El MCU asigna el primer handle libre y lo devuelve. El nombre es una cadena Pascal en ASCII (no se convierte). |
+| 58 | F_OPEN_ZX81	| String: nombre en ZX81 |	1 byte: handle asignado (0–3) o FFh si error	| Igual que F_OPEN pero con el nombre en códigos de carácter ZX81 (modo nativo). |
 | 54 | F_SEEK		| Handle(0..3)+Offset (4 bytes Little endian)|	1B: status	| Desplaza el puntero de lectura/escritura a la posición indicada en offset |
 | 55 | F_READ		| Handle(0..3)+Count(2B Little Endian)|	count bytes + 1B:status |	Lee count bytes. Siempre envia count bytes, si se termina el archivo rellena con ceros |
 | 56 | F_WRITE		| Handle(0..3)+Count(2B Little Endian)+info to write (count bytes) |	1B:status |	escribe count bytes. |
@@ -2272,7 +2272,7 @@ Bit 7  Bit 6  Bit 5  Bit 4  Bit 3  Bit 2  Bit 1  Bit 0
 > **Sincronización con VSync:** El bit 0 permite a la CPU esperar a que la pantalla haya terminado de pintarse antes de actualizar su contenido, evitando parpadeos y artefactos visuales. Muchos juegos del ZX Spectrum usaban la instrucción `HALT` o una rutina de interrupción para sincronizarse con el VSync; en el SD81 Booster este mecanismo es el equivalente directo para esa funcionalidad:
 > ```asm
 >         ; Esperar al inicio del VSync
-> WAIT:   in   a,($A7)
+> WAIT:   in   a,($AF)
 >         rrca              ; bit 0 al carry
 >         jr   nc,WAIT      ; si carry=0, pantalla todavía pintándose
 >         ; aquí ya se ha completado el refresco, seguro actualizar vídeo
@@ -2352,7 +2352,7 @@ POKE 2047, 85        : REM desactivar patrón de borde
 
 En el ZX Spectrum, muchos juegos utilizaban la instrucción `HALT` o una rutina de interrupción IM1/IM2 para sincronizarse con el barrido vertical de la pantalla y conseguir animaciones fluidas sin parpadeo.
 
-En el SD81 Booster esta funcionalidad se sustituye mediante la lectura del **bit 0 del puerto A7h**, que refleja el estado de la interrupción de sincronismo vertical (VSYNC). La CPU puede esperar a este bit para sincronizarse con el inicio del refresco de pantalla sin necesidad de interrupciones ni de `HALT`. Consulta el apartado de puertos de E/S en la sección 14.2 para el ejemplo de código.
+En el SD81 Booster esta funcionalidad se sustituye mediante la lectura del **bit 0 del puerto AFh**, que refleja el estado de la interrupción de sincronismo vertical (VSYNC). La CPU puede esperar a este bit para sincronizarse con el inicio del refresco de pantalla sin necesidad de interrupciones ni de `HALT`. Consulta el apartado de puertos de E/S en la sección 14.2 para el ejemplo de código.
 
 ---
 
@@ -2402,6 +2402,19 @@ El emulador AY del SD81 Booster es compatible a nivel de registro con el chip or
 | R13 | Forma de envolvente | — | — | — | — | — | B2 | B1 | B0 |
 
 En R7, un bit a **0** activa el canal; a **1** lo desactiva. En R8–R10, si el bit de Modo env. está activo, la amplitud la controla la envolvente (R11–R13) en lugar de L3–L0.
+
+---
+
+### Puertos de E/S — dos chips AY compatibles ZonX-81
+
+El SD81 Booster implementa **dos chips AY** físicos, compatibles con el interface estándar **ZonX-81**, decodificados de forma parcial: solo se comprueban los bits A1, A2, A3, A5 y A7 de la dirección; los bits A0, A4 y A6 son indiferentes.
+
+| Bit A3 | Chip | Selección de registro (latch) | Escritura de dato |
+|--------|------|-------------------------------|--------------------|
+| 1 | Chip A (ZonX-81 estándar) | `$CFh` / `$DFh` | `$0Fh` / `$1Fh` |
+| 0 | Chip B (extensión SD81 Booster) | `$C6h` | `$06h` |
+
+El bit A7 hace de línea BC1 del AY: durante una escritura, A7=1 selecciona el registro (latch de dirección) y A7=0 escribe el dato en el registro ya seleccionado. La lectura de estado del PSG (BC1=1, BDIR=0) está implementada en la FPGA pero no expuesta actualmente por el firmware/BASIC.
 
 ---
 

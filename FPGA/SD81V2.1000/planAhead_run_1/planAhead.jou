@@ -1,0 +1,28 @@
+#-----------------------------------------------------------
+# PlanAhead v14.7 (64-bit)
+# Build 321239 by xbuild on Fri Sep 27 19:24:36 MDT 2013
+# Start of session at: Sun Jun 28 18:48:13 2026
+# Process ID: 2623
+# Log file: /home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/planAhead_run_1/planAhead.log
+# Journal file: /home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/planAhead_run_1/planAhead.jou
+#-----------------------------------------------------------
+start_gui
+source /home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/pa.fromNetlist.tcl
+set_property iostandard LVCMOS25 [get_ports [list MICRO_DB_CLK]]
+set_property iostandard LVCMOS25 [get_ports [list nBUSRQ]]
+set_property iostandard LVCMOS25 [get_ports [list SPARE0]]
+set_property pulltype PULLUP [get_ports [list O0]]
+set_property iostandard LVCMOS33 [get_ports [list MICRO_DB_CLK]]
+set_property iostandard LVCMOS33 [get_ports [list nBUSRQ]]
+set_property pulltype PULLUP [get_ports [list CTRL_CLK]]
+set_property pulltype NONE [get_ports [list CTRL_CLK]]
+set_property iostandard LVCMOS33 [get_ports [list SPARE0]]
+set_property iostandard LVTTL [get_ports [list O0]]
+set_property iostandard LVTTL [get_ports [list O1]]
+set_property iostandard LVTTL [get_ports [list nWRx]]
+set_property slew SLOW [get_ports [list nWRx]]
+set_property iostandard LVCMOS33 [get_ports [list nWRx]]
+set_property iostandard LVTTL [get_ports [list nMEM_OE]]
+set_property iostandard LVTTL [get_ports [list nMEM_OEm]]
+set_property iostandard LVTTL [get_ports [list nHALT]]
+set_property iostandard LVTTL [get_ports [list nWRx]]

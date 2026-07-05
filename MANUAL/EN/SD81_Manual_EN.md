@@ -1240,12 +1240,12 @@ The SD81 Booster uses three I/O ports:
 | Port | Function |
 |------|---------|
 | E7h | Memory mapper |
-| A7h | MCU data port (read and write). Bit 0 on read: VSYNC interrupt status (1 = vertical blanking period active, screen painted). |
-| AFh | MCU control port (write=MCU reset; bit 7 on read=clock bit) |
+| A7h | MCU data port (read and write). |
+| AFh | MCU control port (write=reset MCU; bit 7 on read=clock bit, bits 6..1 are the VSYNC counter since the last read and bit 0 on read indicates the instantaneous state of VSYNC) |
 
 #### VSYNC Synchronisation
 
-The bit 0 of port A7h reflects the status of the vertical sync interrupt (VSYNC). This allows the CPU to wait for the start of screen refresh precisely, without needing interrupts or the HALT command.
+The bit 0 of port AFh reflects the status of the vertical sync interrupt (VSYNC). This allows the CPU to wait for the start of screen refresh precisely, without needing interrupts or the HALT command.
 
 On the ZX Spectrum, many games used HALT or an IM1/IM2 interrupt routine to synchronise with the vertical scan. On the SD81 Booster this mechanism replaces that functionality and is especially useful when porting Spectrum games.
 
@@ -1253,11 +1253,11 @@ On the ZX Spectrum, many games used HALT or an IM1/IM2 interrupt routine to sync
 
 ```asm
 WAIT_VSYNC:
-        in      a,(0A7h)        ; read MCU data port
+        in      a,(0AFh)        ; read MCU data port
         and     01h             ; isolate bit 0 (VSYNC)
         jr      nz,WAIT_VSYNC   ; wait until VSYNC = 0
 WAIT_VSYNC2:
-        in      a,(0A7h)
+        in      a,(0AFh)
         and     01h
         jr      z,WAIT_VSYNC2   ; wait for edge (VSYNC = 1)
         ; Synchronised with the start of the frame
@@ -1371,8 +1371,8 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 | 16 | OPENDIR | String: path/wildcard | Status | Opens a directory and builds an internal array (max. 512 entries). |
 | 17 | GETROWLEN | 2B: index | 1B: length + Status | Length of the name of entry index in the array opened with OPENDIR. |
 | 18 | GETROW | 2B: index | 1B: length + N bytes + Status | Name of entry index in ZX81 encoding. Index 0 = current directory. Directories between < and >. |
-| 53 | F_OPEN		| Handle(0..3)+name in ASCII|	1B: status	| Open a big file (size 32 bits) in a specified handle (0..3). | Name is a Pascal string in ASCII. | 
-| 58 | F_OPEN_ZX81	| Handle(0..3)+name in ZX81|	1B: status	| Open a big file (size 32 bits) in a specified handle (0..3). | Name is a Pascal string in ZX81. |
+| 53 | F_OPEN		| String: name in ASCII |	1 byte: assigned handle (0–3) or FFh on error	| Opens an existing file (32-bit size) for random access. The MCU assigns the first free handle and returns it. The name is a Pascal string in plain ASCII (no conversion). |
+| 58 | F_OPEN_ZX81	| String: name in ZX81 |	1 byte: assigned handle (0–3) or FFh on error	| Same as F_OPEN but with the name in ZX81 character codes (native mode). |
 | 54 | F_SEEK		| Handle(0..3)+Offset (4 bytes Little endian)|	1B: status	| move write/read pointer to the position specified in offset |
 | 55 | F_READ		| Handle(0..3)+Count(2B Little Endian)|	count bytes + 1B:status |	read count bytes. Always send count bytes padding with Zeroes |
 | 56 | F_WRITE		| Handle(0..3)+Count(2B Little Endian)+info to write (count bytes) |	1B:status |	write count bytes. |
@@ -1915,7 +1915,7 @@ Allows detecting whether colour mode is available and reading VSync status:
 > **VSync synchronisation:** Bit 0 allows the CPU to wait until the screen has finished painting before updating its content, avoiding flicker and visual artefacts. Many ZX Spectrum games used the `HALT` instruction or an interrupt routine to synchronise with VSync; on the SD81 Booster this mechanism is the direct equivalent for that functionality:
 > ```asm
 >         ; Wait for start of VSync
-> WAIT:   in   a,($A7)
+> WAIT:   in   a,($AF)
 >         rrca              ; bit 0 to carry
 >         jr   nc,WAIT      ; if carry=0, screen still painting
 >         ; screen refresh complete, safe to update video
@@ -1959,7 +1959,7 @@ POKE 2047,85            : Deactivate border pattern
 To synchronise updates with the screen vertical blanking period:
 
 ```asm
-WAIT:   in   a,($A7)
+WAIT:   in   a,($AF)
         rrca
         jr   nc,WAIT      ; wait until bit 0 = 1 (blanking)
         ; safe to update video memory
@@ -2030,6 +2030,17 @@ The SD81 Booster AY emulator is register-level compatible with the original chip
 | R13 | Envelope shape/cycle | — | — | — | — | — | B2 | B1 | B0 |
 
 > **Note:** In R7, a bit at 0 enables the channel; at 1 it disables it. In R8–R10, if the Env. bit is active, amplitude is controlled by the envelope (R11–R13) instead of L3–L0.
+
+### I/O Ports — Two ZonX-81 Compatible AY Chips
+
+The SD81 Booster implements **two physical AY chips**, compatible with the standard **ZonX-81** interface, using partial address decoding: only bits A1, A2, A3, A5 and A7 are checked; bits A0, A4 and A6 are don't-care.
+
+| Bit A3 | Chip | Register select (latch) | Data write |
+|--------|------|--------------------------|------------|
+| 1 | Chip A (standard ZonX-81) | `$CFh` / `$DFh` | `$0Fh` / `$1Fh` |
+| 0 | Chip B (SD81 Booster extension) | `$C6h` | `$06h` |
+
+Bit A7 acts as the AY's BC1 line: during a write, A7=1 selects the register (address latch) and A7=0 writes the data into the already-selected register. PSG status read-back (BC1=1, BDIR=0) is implemented in the FPGA but not currently exposed via firmware/BASIC.
 
 ### VGM Player Opcodes
 

@@ -76,7 +76,7 @@ module SD81(
     input wire nRFSH,
 	 input wire nRESET,
 	 inout wire nHALT,
-	 input wire nBUSRQ,
+	 output wire nBUSRQ,
 	 output wire nBUSAK,
 	 
 	 output wire B0,
@@ -156,7 +156,8 @@ module SD81(
 	reg old_nCLOCK = 0;	
 	wire newCLK6_5;
 	wire newCLK3_25;
-	assign nBUSAK = data_dir;
+	assign nBUSRQ = GET_DATA_REG;
+	assign nBUSAK = CTRL_CLK;
 	
 	wire SEL_SPI_FLASH = nRST_CTRL_REG;			// alternative use while RESET 
 	

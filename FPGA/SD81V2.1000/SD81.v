@@ -192,6 +192,23 @@ module SD81(
 	wire cs_SPULA = sfSP_en && (nIORQ==1'b0) && (nWR==1'b0) && (Addr[7:0]==8'hfb); // Spectrum mode ULA port is here FBh (zxprinter port)
 	reg sfSP_en = 1'b0;
 	reg [2:0] sp_border = 3'd7;
+
+	// ----------------------------------------------------------------
+	// DOUBLE BUFFER (present-blit) — POKE 2057
+	//   POKE 2057,168+blk (10101BBB) -> enable, front buffer = bloque logico BBB de la BRAM
+	//   POKE 2057,85                 -> disable
+	// El video (Spectrum/HiRes) lee siempre el bloque front (BRAM privada,
+	// enmascarada de escrituras CPU). En cada blanking una FSM copia el bloque
+	// shadow (HFILE) -> front dentro de la BRAM: la pantalla muestra siempre
+	// el snapshot del ultimo VSYNC (sin tearing, una sola superficie de dibujo).
+	// ----------------------------------------------------------------
+	reg dbuf_en = 1'b0;
+	reg [2:0] front_blk = 3'd5;
+	reg blit_run = 1'b0;
+	reg blit_phase = 1'b0;
+	reg [12:0] blit_cnt = 13'd0;
+	reg old_blit_start = 1'b0;
+	wire [2:0] vpage = dbuf_en ? front_blk : HFILE[15:13];
 	wire [15:0] FRAMES_addr = 16'd16436;
 	wire lFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr) && (sfast_mode_en==1) && (sfSP_en==0) && !block0Writable;
 	wire hFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr+1) && (sfast_mode_en==1) && (sfSP_en==0) && !block0Writable;
@@ -410,7 +427,7 @@ Port $7FEF (01111111 11101111) - IN:
 			// POKE 2046,border_attr	-> change attributes for border 
 			// POKE 2047,170 				-> enable border pattern
 			// POKE 2047,85				-> disable border pattern
-			// POKE 2048..2056			-> define border pattern (8 bytes)
+			// POKE 2048..2055			-> define border pattern (8 bytes)
 //			if (Addr == 16'd2041) ROMTABLE[7:0] = data;
 //			if (Addr == 16'd2042) ROMTABLE[15:8] = data;
 			if (Addr == 16'd2043) HFILE[7:0] = data;
@@ -441,19 +458,28 @@ Port $7FEF (01111111 11101111) - IN:
 			if ((Addr >= 16'd2048) && (Addr<2056)) border_char[Addr[2:0]] <= data;
 			//if ((Addr == 16'd2047)) block0Writable <= 1'b0;
 			if ((Addr == 16'd2056)) block0Writable <= 1'b1;	// CP/M: desproteger bloque 0
-			
+			// (POKE 2057 = double buffer: se decodifica en el bloque de
+			//  control dbuf a system_clk, junto al pseudo-bloque 8 del mapper)
 		end
 	end
 	
 	wire isAttrMem = (nM1==1'b1)&&(nMREQ==1'b0) || (nRESET==1'b0);
 		
-	wire shadowram_we = ~nRESET?~nWRx:isAttrMem? ~nWR:1'b0; 
-	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]:nRFSH?Addr[15:0]:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
-	wire [7:0] shadowram_din = data;
 	wire [7:0] shadowram_dout;
 	reg [15:0] ROMTABLE = 16'h1c00;
 	wire [7:0] v_dout;
 	reg [15:0] v_addr;
+
+	// --- double buffer: blit shadow->front por el puerto A (arbitrado con la CPU) ---
+	wire cpu_sh_wr = isAttrMem & ~nWR & nRESET;					// escritura CPU en curso (puerto A ocupado)
+	wire blit_we = blit_run & blit_phase & ~cpu_sh_wr;
+	wire [15:0] blit_raddr = {HFILE[15:13], blit_cnt};			// origen: bloque shadow (HFILE)
+	wire [15:0] blit_waddr = {front_blk, blit_cnt};				// destino: bloque front (BRAM privada)
+	wire dbuf_wr_mask = dbuf_en & (Addr[15:13]==front_blk);	// front: enmascarar escrituras CPU en BRAM
+
+	wire shadowram_we = ~nRESET?~nWRx: blit_we?1'b1: (isAttrMem & ~dbuf_wr_mask)? ~nWR:1'b0;
+	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]: blit_we?blit_waddr: nRFSH?Addr[15:0]:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
+	wire [7:0] shadowram_din = blit_we? v_dout: data;
 	wire [8:0] SCR_START_Y = 62;
 	wire [8:0] SCR_START_X = 122;
 	wire [8:0] SCR_END_Y = SCR_START_Y+191;
@@ -481,9 +507,32 @@ Port $7FEF (01111111 11101111) - IN:
 		.douta(shadowram_dout),
 		.clkb(system_clk),
 		.web(1'b0),						// channel only for read
-		.addrb(v_addr), 
+		.addrb(blit_run ? blit_raddr : v_addr),	// blit lee el shadow durante el blanking
 		.doutb(v_dout)
 	);
+
+	// --- double buffer: FSM de blit (auto-present en cada blanking) ---
+	// Copia 8KB {HFILE,offset} -> {front_blk,offset} en ~630us (2 ciclos/byte
+	// a 26MHz + stalls por escrituras CPU). Ventana disponible: lineas 254..61
+	// (~7.6ms). El video esta ocioso fuera del area activa, asi que el puerto B
+	// es del blit; el puerto A se roba solo cuando la CPU no escribe.
+	wire blit_start_line = (line_cnt == 9'd254);		// justo tras el area activa (SCR_END_Y=253)
+	always @(posedge system_clk) begin
+		old_blit_start <= blit_start_line;
+		if (~dbuf_en | ~sfast_mode_en) blit_run <= 1'b0;
+		else if (blit_start_line & ~old_blit_start) begin
+			blit_run <= 1'b1;
+			blit_cnt <= 13'd0;
+			blit_phase <= 1'b0;
+		end else if (blit_run) begin
+			if (~blit_phase) blit_phase <= 1'b1;		// ciclo de direccion: doutb valido el siguiente
+			else if (~cpu_sh_wr) begin						// puerto A libre: escribir y avanzar
+				blit_phase <= 1'b0;
+				blit_cnt <= blit_cnt + 1'b1;
+				if (blit_cnt == 13'h1FFF) blit_run <= 1'b0;
+			end
+		end
+	end
 	
 	wire [2:0] col_cnt_b = {pixel_cnt+(pixel_cnt>31)-SCR_START_X}[2:0];
 	wire [2:0] line_cnt_b = {line_cnt - SCR_START_Y}[2:0];
@@ -492,14 +541,14 @@ Port $7FEF (01111111 11101111) - IN:
 	
 	wire [12:0] hr_addr = {scr_row,line_cnt_b,scr_col1};
 	wire [15:0] attr_addr_m0 = sfHR_en?{3'b110,hr_addr}:	// attribute area for superfast Hires native mode
-										sfSP_en?{HFILE[15:13],3'b110,scr_row,scr_col1}:	// attribute area for superfast spectrum mode
+										sfSP_en?{vpage,3'b110,scr_row,scr_col1}:	// attribute area for superfast spectrum mode (front si dbuf)
 										{6'b110000,char_latch_fast[7],char_latch_fast[5:0],line_cnt_b}; // attr area for superfast text mode
 										
 	wire [15:0] attr_addr_m1 = {1'b1,{DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col2}[14:0]};//16'hc0001+{scr_row,5'b00000} + scr_row+scr_col;
 	
 	wire [15:0] char_addr = DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col;
-	wire [15:0] scan_addr = sfHR_en? {HFILE[15:13],hr_addr}:	// superfast HR native mode																
-									sfSP_en?	{HFILE[15:13],hr_addr[12:11],hr_addr[7:5],hr_addr[10:8],hr_addr[4:0]}: // superfast HR spectrum mode
+	wire [15:0] scan_addr = sfHR_en? {vpage,hr_addr}:	// superfast HR native mode (front si dbuf)
+									sfSP_en?	{vpage,hr_addr[12:11],hr_addr[7:5],hr_addr[10:8],hr_addr[4:0]}: // superfast HR spectrum mode (front si dbuf)
 									{ROMTABLE[15:10],SEL_128CHARS?char_latch_fast[7]:ROMTABLE[9],char_latch_fast[5:0],line_cnt_b}; //superfast textmode
 									
 	reg [1:0] beeper_reg = 0;
@@ -997,10 +1046,16 @@ assign DEBUG_RDY = 1'b0;
 		reg [2:0] rowcnt;
 		reg [6:0] ram_data_latch;
 		
+		// Pseudo-bloque 8 (data=08h, D3=1) = control del double buffer por puerto.
+		// Solo con FULL_PAGING o tras $2056 (block0Writable), para no colisionar
+		// con escrituras legitimas de half paging (pagina impar -> bloque 0
+		// comparte el patron x8h).
+		wire dbuf_port_wr = mapper_port_wr && (D3&~D2&~D1&~D0) && (FULL_PAGING || block0Writable);
+
 		// mapper port
-		always @(posedge mapper_port_wr or negedge nRESET) 
+		always @(posedge mapper_port_wr or negedge nRESET)
 		begin
-			if (nRESET==1'b0) 
+			if (nRESET==1'b0)
 			begin
 				block[0] <= 6'd0;
 				block[1] <= 6'd1;
@@ -1011,11 +1066,43 @@ assign DEBUG_RDY = 1'b0;
 				block[6] <= ~nMODE48K?6'd6:6'd2;
 				block[7] <= ~nMODE48K?6'd7:6'd3;
 			end else begin
-				block[{D2,D1,D0}] <= FULL_PAGING ? {A13,A12,A11,A10,A9,A8} : {1'b0,D7,D6,D5,D4,D3};
+				// pseudo-bloque 8: no tocar la tabla de bloques
+				if (!((D3&~D2&~D1&~D0) && (FULL_PAGING || block0Writable)))
+					block[{D2,D1,D0}] <= FULL_PAGING ? {A13,A12,A11,A10,A9,A8} : {1'b0,D7,D6,D5,D4,D3};
 			end
 		end
-		
+
 		wire [7:0] mapper_data = block[{A10,A9,A8}];
+
+		// --- DOUBLE BUFFER: registro de control (unico driver de dbuf_en/front_blk) ---
+		// Dos vias de escritura:
+		//  a) POKE 2057 via MMIO (muere tras $2056):  168+blk = ON, 85 = OFF
+		//  b) pseudo-bloque 8 del mapper: OUT (C),A con A=08h y B=valor
+		//     valor: bit5 (32) = enable, bits2:0 = front_blk;  B=0 = OFF
+		reg old_poke2057 = 1'b0;
+		reg old_dbufport = 1'b0;
+		wire poke2057 = poke_wr && (Addr == 16'd2057);
+		always @(posedge system_clk) begin
+			old_poke2057 <= poke2057;
+			old_dbufport <= dbuf_port_wr;
+			if (~nRESET) begin
+				dbuf_en <= 1'b0;
+			end else begin
+				if (poke2057 & ~old_poke2057) begin
+					if (data[7:3]==5'b10101) begin
+						dbuf_en   <= 1'b1;
+						front_blk <= data[2:0];
+					end
+					if (data==8'd85) dbuf_en <= 1'b0;
+				end
+				if (dbuf_port_wr & ~old_dbufport) begin
+					if (A13) begin							// bit5 del valor (B) = enable
+						dbuf_en   <= 1'b1;
+						front_blk <= {A10,A9,A8};		// bits2:0 del valor = front_blk
+					end else dbuf_en <= 1'b0;
+				end
+			end
+		end
 // ************************************************
 // 	CHAR GENERATOR
 // ************************************************

@@ -2356,6 +2356,75 @@ En el SD81 Booster esta funcionalidad se sustituye mediante la lectura del **bit
 
 ---
 
+### Doble buffer (present-blit)
+
+#### Cómo genera la imagen el interface (sin doble buffer)
+
+Toda la RAM del sistema (hasta 512 KB) vive en un único chip de memoria externo (la **SRAM**), organizado en páginas de 8 KB que se asignan a los 8 bloques del mapa de memoria del Z80 mediante el mapper (E7h). Ahora bien, el circuito de vídeo **no lee esa SRAM directamente** — si lo hiciera, competiría con la CPU por el mismo chip de memoria en cada ciclo. Para evitarlo, el interface mantiene dentro de la propia FPGA una **memoria interna de vídeo** (64 KB) que actúa como un **espejo** de los 8 bloques: cada vez que la CPU escribe un byte en la SRAM, ese mismo byte se copia automáticamente al espejo. El circuito de vídeo genera la imagen leyendo siempre este espejo interno, nunca la SRAM.
+
+El espejo es fiel en todo momento — demasiado fiel, de hecho: si en un instante dado la CPU acaba de borrar un sprite, el espejo ya refleja el hueco vacío, y si el haz de vídeo pasa por esa zona justo entonces, dibuja ese hueco. Como CPU y vídeo comparten el mismo dato "en vivo", el haz puede pillar estados intermedios del dibujado — de ahí el parpadeo y el tearing que el doble buffer viene a resolver.
+
+#### Qué cambia el doble buffer
+
+```
+POKE 2057, 168+B     : REM activar doble buffer; front buffer = bloque B (0-7)
+POKE 2057, 85        : REM desactivar doble buffer
+```
+
+Al activarlo, el interface deja de mantener el espejo en tiempo real **solo para el bloque `B`** de la memoria interna de vídeo (el resto de bloques del espejo siguen funcionando como siempre). A partir de ese momento:
+
+- El vídeo deja de mirar el espejo del bloque HFILE (la pantalla habitual) y pasa a mirar el espejo del bloque `B`.
+- El espejo del bloque `B` ya **no se actualiza escritura a escritura**. En cada parpadeo vertical (VSYNC), el hardware copia de golpe, byte a byte, todo el contenido actual del espejo del bloque HFILE dentro del espejo del bloque `B`. Entre un VSYNC y el siguiente, el espejo del bloque `B` queda **congelado**: es una fotografía fija, no un reflejo en vivo.
+
+> **El punto que más confunde — léelo dos veces:** el bloque lógico `B` sigue existiendo también como memoria SRAM normal, tan accesible y escribible por la CPU como cualquier otro bloque. Pero mientras el doble buffer está activo, **esa SRAM deja de tener ninguna relación con lo que ves en pantalla**: es el espejo interno de ese bloque el que ya no la refleja. Lo que escribas en la SRAM del bloque `B` no aparecerá en la imagen, y lo que ves en pantalla no es esa SRAM sino la fotografía que la FPGA renovó en el último VSYNC, copiada del bloque HFILE. Por eso el bloque `B` conviene tratarlo como "reservado para el hardware" mientras el doble buffer está activo, aunque técnicamente sigas pudiendo usarlo como RAM para otras cosas (variables, código) que nada tengan que ver con la pantalla.
+
+Dicho de otro modo, bajo el mismo número de bloque conviven tres cosas distintas que no hay que confundir:
+
+| Capa | Qué contiene | Quién la actualiza |
+|---|---|---|
+| SRAM física del bloque `B` | La memoria real del sistema (8 KB) | La CPU, con cada lectura/escritura normal |
+| Espejo interno del bloque `B` — doble buffer OFF | Copia en vivo de esa SRAM | Automáticamente, byte a byte, en cada escritura de la CPU |
+| Espejo interno del bloque `B` — doble buffer ON | Fotografía fija del bloque HFILE | Solo la FPGA, de golpe, una vez por VSYNC |
+
+El resultado práctico:
+
+- La pantalla muestra siempre una **instantánea completa** tomada en el último VSYNC: nunca se ven borrados ni dibujados a medias.
+- El programa dibuja siempre sobre **una única superficie** (la página HFILE de siempre): no hay que alternar entre dos páginas ni redibujar "el frame de hace dos".
+- Lo que se relee de la pantalla (la página HFILE, no el bloque `B`) es siempre lo último escrito — operaciones de leer-modificar-escribir coherentes.
+
+**Uso correcto:** espera el flanco de subida del VSYNC (bit 0 del puerto AFh) y realiza todo el borrado/dibujado a continuación. Desde ese momento dispones de unos **16 ms** antes de que el hardware tome la siguiente instantánea (la copia comienza justo al terminar el área visible). Si el dibujado excede ese tiempo, la instantánea podría capturar un estado intermedio — el mismo comportamiento que un doble buffer clásico.
+
+**Elección del bloque front (`B`):** como el espejo de ese bloque deja de reflejar su SRAM, **no debe apuntarse a él ningún elemento de vídeo** (HFILE, DFILE, atributos Chroma81) mientras el doble buffer esté activo — su espejo ya no serviría para mostrarlos. Bloques recomendados: **4 o 5** ($8000-$9FFF / $A000-$BFFF, si no coinciden con tu HFILE). Evita: 0 (glyphs ROM del modo texto), 1 (chr RAM), 2-3 (DFILE), 6-7 (atributos Chroma81).
+
+> **Nota:** en modo HiRes nativo solo se doble-bufferiza el bitmap; los atributos (zona $C000) se leen en directo. En modo Spectrum se doble-bufferiza el bloque completo (bitmap + atributos). El modo texto no usa el doble buffer.
+
+**Ejemplo típico** (HFILE en $8000 = bloque 4, front en bloque 5):
+
+```
+POKE 2043,0          : REM HFILE bajo
+POKE 2044,128        : REM HFILE alto ($8000)
+POKE 2045,172        : REM Superfast HiRes Spectrum
+POKE 2057,173        : REM doble buffer ON, front = bloque 5 (168+5)
+```
+
+**Control por puerto de E/S (pseudo-bloque 8):** el `POKE 2057` deja de funcionar si el programa ha desactivado la ventana de POKEs de control escribiendo en 2056 (modo "RAM plana", p. ej. CP/M). Para esos casos el doble buffer también se controla a través del **mapper port (E7h)** usando el bloque ficticio 8:
+
+```asm
+    ld  a,08h        ; pseudo-bloque 8
+    ld  b,32+5       ; valor: bit5=activar, bits2:0=bloque front (aquí 5)
+    ld  c,0e7h
+    out (c),a        ; doble buffer ON, front = bloque 5
+
+    ld  b,0          ; valor 0 = desactivar
+    out (c),a
+```
+
+Esta vía está disponible cuando el modo **full paging** está activo o cuando se ha escrito en 2056. Restricción: en half paging tras 2056, no asignes una página impar al bloque 0 con el mapper port (ese patrón de datos, x8h, coincide con el pseudo-bloque 8).
+
+Consulta el ejemplo completo en código máquina en `EXAMPLES/DBUF/` (pelota rebotando con conmutación del doble buffer en tiempo real).
+
+---
+
 ### Resumen de POKEs de control
 
 | Dirección | Valor | Función |
@@ -2371,6 +2440,8 @@ En el SD81 Booster esta funcionalidad se sustituye mediante la lectura del **bit
 | 2047 | 85 | Desactivar patrón de borde |
 | 2048–2055 | `<datos>` | Definir patrón de borde (8 bytes) |
 | 2056 | xxx | Desactiva los pokes de control y activa la escritura en el bloque 0 |
+| 2057 | 168+B | Activar doble buffer (front buffer = bloque B, 0-7) |
+| 2057 | 85 | Desactivar doble buffer |
 
 ---
 

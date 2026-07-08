@@ -1,0 +1,577 @@
+binary-debuggable-source
+0000 0000 f bounce.asm
+0000 0000 s ; =============================================================
+0000 0000 s ; BOUNCE.ASM — demo del doble buffer del SD81 Booster (POKE 2057)
+0000 0000 s ;
+0000 0000 s ; Pelota (bloque 16x16) rebotando en modo Superfast HiRes Spectrum.
+0000 0000 s ; En cada frame se BORRA la pelota, se pierde ~6 ms a proposito
+0000 0000 s ; (simulando un dibujado pesado que cruza el barrido) y se REDIBUJA.
+0000 0000 s ;
+0000 0000 s ;   - Con doble buffer ON  (borde VERDE): imagen solida, sin parpadeo.
+0000 0000 s ;   - Con doble buffer OFF (borde ROJO):  parpadeo intenso, porque el
+0000 0000 s ;     haz pasa por la zona borrada antes del redibujado.
+0000 0000 s ;
+0000 0000 s ; Controles:  SPACE = conmutar doble buffer   M = congelar/mover   Q = salir
+0000 0000 s ;
+0000 0000 s ; Ensamblar con zmac (ver README.md). Carga desde BASIC:
+0000 0000 s ;   10 FAST
+0000 0000 s ;   20 LOAD FAST 'BOUNCE.BIN' CODE 30000
+0000 0000 s ;   30 RAND USR 30000
+0000 0000 s ;   40 SLOW
+0000 0000 s ;
+0000 0000 s ; Pantalla (HFILE) en $8000 (bloque 4). Front buffer en bloque 5:
+0000 0000 s ;   POKE 2057,168+5 = 173  -> ON      POKE 2057,85 -> OFF
+0000 0000 s ; =============================================================
+0000 0000 s 
+7530 7530 s         org 30000
+7530 7530 s 
+7530 7530 d f3
+7530 7530 u 01 01
+7530 7530 s start:  di
+7531 7531 s         ; --- HFILE = $8000 ---
+7531 7531 d 3e00
+7531 7531 u 02 01
+7531 7531 s         ld a,0
+7533 7533 d 32fb07
+7533 7533 u 03 01
+7533 7533 s         ld (2043),a         ; HFILE bajo
+7536 7536 d 3e80
+7536 7536 u 02 01
+7536 7536 s         ld a,80h
+7538 7538 d 32fc07
+7538 7538 u 03 01
+7538 7538 s         ld (2044),a         ; HFILE alto
+753b 753b s 
+753b 753b s         ; --- limpiar bitmap (6144 bytes a 0) ---
+753b 753b d 210080
+753b 753b u 03 01
+753b 753b s         ld hl,8000h
+753e 753e d 110180
+753e 753e u 03 01
+753e 753e s         ld de,8001h
+7541 7541 d 01ff17
+7541 7541 u 03 01
+7541 7541 s         ld bc,17ffh
+7544 7544 d 3600
+7544 7544 u 02 01
+7544 7544 s         ld (hl),0
+7546 7546 d edb0
+7546 7546 u 02 01
+7546 7546 s         ldir
+7548 7548 s 
+7548 7548 s         ; --- atributos: papel blanco, tinta negra (768 bytes a $38) ---
+7548 7548 d 210098
+7548 7548 u 03 01
+7548 7548 s         ld hl,9800h
+754b 754b d 110198
+754b 754b u 03 01
+754b 754b s         ld de,9801h
+754e 754e d 01ff02
+754e 754e u 03 01
+754e 754e s         ld bc,2ffh
+7551 7551 d 3638
+7551 7551 u 02 01
+7551 7551 s         ld (hl),38h
+7553 7553 d edb0
+7553 7553 u 02 01
+7553 7553 s         ldir
+7555 7555 s 
+7555 7555 s         ; --- activar color Chroma81 (bit5), borde negro ---
+7555 7555 d 01ef7f
+7555 7555 u 03 01
+7555 7555 s         ld bc,7fefh
+7558 7558 d 3e20
+7558 7558 u 02 01
+7558 7558 s         ld a,20h
+755a 755a d ed79
+755a 755a u 02 01
+755a 755a s         out (c),a
+755c 755c s 
+755c 755c s         ; --- modo Superfast HiRes Spectrum ---
+755c 755c d 3eac
+755c 755c u 02 01
+755c 755c s         ld a,172
+755e 755e d 32fd07
+755e 755e u 03 01
+755e 755e s         ld (2045),a
+7561 7561 s 
+7561 7561 s         ; --- doble buffer ON, front = bloque 5 ---
+7561 7561 d 3ead
+7561 7561 u 02 01
+7561 7561 s         ld a,173
+7563 7563 d 320908
+7563 7563 u 03 01
+7563 7563 s         ld (2057),a
+7566 7566 d 3e01
+7566 7566 u 02 01
+7566 7566 s         ld a,1
+7568 7568 d 325d76
+7568 7568 u 03 01
+7568 7568 s         ld (dbufst),a
+756b 756b d 3e04
+756b 756b u 02 01
+756b 756b s         ld a,4              ; borde verde = dbuf ON (puerto ULA Spectrum)
+756d 756d d d3fb
+756d 756d u 02 01
+756d 756d s         out (0fbh),a
+756f 756f s 
+756f 756f s ; -------------------------------------------------------------
+756f 756f s ; Bucle principal: 1 iteracion por frame, sincronizada al VSYNC.
+756f 756f s ; Con dbuf ON el hardware toma la instantanea al final del area
+756f 756f s ; visible, mucho despues de que draw haya terminado -> sin cortes.
+756f 756f s ; -------------------------------------------------------------
+756f 756f d cd8e75
+756f 756f u 03 01
+756f 756f s main:   call waitvs         ; flanco de subida de VSYNC (blit ya terminado)
+7572 7572 d cdaf75
+7572 7572 u 03 01
+7572 7572 s         call erase          ; borrar pelota (posicion actual)
+7575 7575 d cd0376
+7575 7575 u 03 01
+7575 7575 s         call delay          ; ~6 ms de "trabajo": el haz entra en pantalla
+7578 7578 d cdcd75
+7578 7578 u 03 01
+7578 7578 s         call move           ; nueva posicion con rebote
+757b 757b d cdb375
+757b 757b u 03 01
+757b 757b s         call draw           ; dibujar pelota
+757e 757e d cd0c76
+757e 757e u 03 01
+757e 757e s         call keys           ; SPACE conmuta dbuf; Z activo si Q pulsada
+7581 7581 d 20ec
+7581 7581 u 02 01
+7581 7581 s         jr nz,main
+7583 7583 s 
+7583 7583 s ; --- salida: restaurar modos y volver a BASIC ---
+7583 7583 d 3e55
+7583 7583 u 02 01
+7583 7583 s quit:   ld a,85
+7585 7585 d 320908
+7585 7585 u 03 01
+7585 7585 s         ld (2057),a         ; doble buffer OFF
+7588 7588 d 3e55
+7588 7588 u 02 01
+7588 7588 s         ld a,85
+758a 758a d 32fd07
+758a 758a u 03 01
+758a 758a s         ld (2045),a         ; modo ZX81 normal
+758d 758d d c9
+758d 758d u 01 01
+758d 758d s         ret
+758e 758e s 
+758e 758e s ; -------------------------------------------------------------
+758e 758e s ; waitvs: espera el flanco de subida del VSYNC (bit 0, puerto $AF)
+758e 758e s ; -------------------------------------------------------------
+758e 758e d dbaf
+758e 758e u 02 01
+758e 758e s waitvs: in a,(0afh)
+7590 7590 d 0f
+7590 7590 u 01 01
+7590 7590 s         rrca
+7591 7591 d 38fb
+7591 7591 u 02 01
+7591 7591 s         jr c,waitvs         ; si estamos dentro del vsync, esperar a salir
+7593 7593 d dbaf
+7593 7593 u 02 01
+7593 7593 s wvs2:   in a,(0afh)
+7595 7595 d 0f
+7595 7595 u 01 01
+7595 7595 s         rrca
+7596 7596 d 30fb
+7596 7596 u 02 01
+7596 7596 s         jr nc,wvs2          ; esperar a entrar en vsync
+7598 7598 d c9
+7598 7598 u 01 01
+7598 7598 s         ret
+7599 7599 s 
+7599 7599 s ; -------------------------------------------------------------
+7599 7599 s ; pixad: D=fila (0-191), E=columna en bytes (0-31) -> HL=direccion
+7599 7599 s ; Formato Spectrum: H = $80 | (y7y6>>3) | y2y1y0 ; L = (y5y4y3<<2) | x
+7599 7599 s ; -------------------------------------------------------------
+7599 7599 d 7a
+7599 7599 u 01 01
+7599 7599 s pixad:  ld a,d
+759a 759a d e6c0
+759a 759a u 02 01
+759a 759a s         and 0c0h
+759c 759c d 0f
+759c 759c u 01 01
+759c 759c s         rrca
+759d 759d d 0f
+759d 759d u 01 01
+759d 759d s         rrca
+759e 759e d 0f
+759e 759e u 01 01
+759e 759e s         rrca
+759f 759f d 67
+759f 759f u 01 01
+759f 759f s         ld h,a
+75a0 75a0 d 7a
+75a0 75a0 u 01 01
+75a0 75a0 s         ld a,d
+75a1 75a1 d e607
+75a1 75a1 u 02 01
+75a1 75a1 s         and 7
+75a3 75a3 d b4
+75a3 75a3 u 01 01
+75a3 75a3 s         or h
+75a4 75a4 d f680
+75a4 75a4 u 02 01
+75a4 75a4 s         or 80h
+75a6 75a6 d 67
+75a6 75a6 u 01 01
+75a6 75a6 s         ld h,a
+75a7 75a7 d 7a
+75a7 75a7 u 01 01
+75a7 75a7 s         ld a,d
+75a8 75a8 d e638
+75a8 75a8 u 02 01
+75a8 75a8 s         and 38h
+75aa 75aa d 87
+75aa 75aa u 01 01
+75aa 75aa s         add a,a
+75ab 75ab d 87
+75ab 75ab u 01 01
+75ab 75ab s         add a,a
+75ac 75ac d b3
+75ac 75ac u 01 01
+75ac 75ac s         or e
+75ad 75ad d 6f
+75ad 75ad u 01 01
+75ad 75ad s         ld l,a
+75ae 75ae d c9
+75ae 75ae u 01 01
+75ae 75ae s         ret
+75af 75af s 
+75af 75af s ; -------------------------------------------------------------
+75af 75af s ; block: rellena 16 lineas x 2 bytes con C en (bally,ballx)
+75af 75af s ; -------------------------------------------------------------
+75af 75af d 0e00
+75af 75af u 02 01
+75af 75af s erase:  ld c,0
+75b1 75b1 d 1802
+75b1 75b1 u 02 01
+75b1 75b1 s         jr blkgo
+75b3 75b3 d 0eff
+75b3 75b3 u 02 01
+75b3 75b3 s draw:   ld c,0ffh
+75b5 75b5 d 3a5876
+75b5 75b5 u 03 01
+75b5 75b5 s blkgo:  ld a,(bally)
+75b8 75b8 d 57
+75b8 75b8 u 01 01
+75b8 75b8 s         ld d,a
+75b9 75b9 d 3a5976
+75b9 75b9 u 03 01
+75b9 75b9 s         ld a,(ballx)
+75bc 75bc d 5f
+75bc 75bc u 01 01
+75bc 75bc s         ld e,a
+75bd 75bd d 0610
+75bd 75bd u 02 01
+75bd 75bd s         ld b,16
+75bf 75bf d c5
+75bf 75bf u 01 01
+75bf 75bf s blk1:   push bc
+75c0 75c0 d d5
+75c0 75c0 u 01 01
+75c0 75c0 s         push de
+75c1 75c1 d cd9975
+75c1 75c1 u 03 01
+75c1 75c1 s         call pixad
+75c4 75c4 d 71
+75c4 75c4 u 01 01
+75c4 75c4 s         ld (hl),c
+75c5 75c5 d 2c
+75c5 75c5 u 01 01
+75c5 75c5 s         inc l
+75c6 75c6 d 71
+75c6 75c6 u 01 01
+75c6 75c6 s         ld (hl),c
+75c7 75c7 d d1
+75c7 75c7 u 01 01
+75c7 75c7 s         pop de
+75c8 75c8 d c1
+75c8 75c8 u 01 01
+75c8 75c8 s         pop bc
+75c9 75c9 d 14
+75c9 75c9 u 01 01
+75c9 75c9 s         inc d
+75ca 75ca d 10f3
+75ca 75ca u 02 01
+75ca 75ca s         djnz blk1
+75cc 75cc d c9
+75cc 75cc u 01 01
+75cc 75cc s         ret
+75cd 75cd s 
+75cd 75cd s ; -------------------------------------------------------------
+75cd 75cd s ; move: y +/-2 con rebote en 0..176; x +/-1 (CADA frame, 50 Hz) en 0..30
+75cd 75cd s ; Con la tecla M se congela el movimiento (test de fantasma estatico).
+75cd 75cd s ; -------------------------------------------------------------
+75cd 75cd d 3a5c76
+75cd 75cd u 03 01
+75cd 75cd s move:   ld a,(moven)
+75d0 75d0 d b7
+75d0 75d0 u 01 01
+75d0 75d0 s         or a
+75d1 75d1 d c8
+75d1 75d1 u 01 01
+75d1 75d1 s         ret z               ; movimiento congelado
+75d2 75d2 d 3a5876
+75d2 75d2 u 03 01
+75d2 75d2 s         ld a,(bally)
+75d5 75d5 d 47
+75d5 75d5 u 01 01
+75d5 75d5 s         ld b,a
+75d6 75d6 d 3a5a76
+75d6 75d6 u 03 01
+75d6 75d6 s         ld a,(dy)
+75d9 75d9 d 80
+75d9 75d9 u 01 01
+75d9 75d9 s         add a,b
+75da 75da d feb1
+75da 75da u 02 01
+75da 75da s         cp 177
+75dc 75dc d 3809
+75dc 75dc u 02 01
+75dc 75dc s         jr c,myok
+75de 75de d 3a5a76
+75de 75de u 03 01
+75de 75de s         ld a,(dy)
+75e1 75e1 d ed44
+75e1 75e1 u 02 01
+75e1 75e1 s         neg
+75e3 75e3 d 325a76
+75e3 75e3 u 03 01
+75e3 75e3 s         ld (dy),a
+75e6 75e6 d 78
+75e6 75e6 u 01 01
+75e6 75e6 s         ld a,b
+75e7 75e7 d 325876
+75e7 75e7 u 03 01
+75e7 75e7 s myok:   ld (bally),a
+75ea 75ea d 3a5976
+75ea 75ea u 03 01
+75ea 75ea s         ld a,(ballx)
+75ed 75ed d 47
+75ed 75ed u 01 01
+75ed 75ed s         ld b,a
+75ee 75ee d 3a5b76
+75ee 75ee u 03 01
+75ee 75ee s         ld a,(dx)
+75f1 75f1 d 80
+75f1 75f1 u 01 01
+75f1 75f1 s         add a,b
+75f2 75f2 d fe1f
+75f2 75f2 u 02 01
+75f2 75f2 s         cp 31
+75f4 75f4 d 3809
+75f4 75f4 u 02 01
+75f4 75f4 s         jr c,mxok
+75f6 75f6 d 3a5b76
+75f6 75f6 u 03 01
+75f6 75f6 s         ld a,(dx)
+75f9 75f9 d ed44
+75f9 75f9 u 02 01
+75f9 75f9 s         neg
+75fb 75fb d 325b76
+75fb 75fb u 03 01
+75fb 75fb s         ld (dx),a
+75fe 75fe d 78
+75fe 75fe u 01 01
+75fe 75fe s         ld a,b
+75ff 75ff d 325976
+75ff 75ff u 03 01
+75ff 75ff s mxok:   ld (ballx),a
+7602 7602 d c9
+7602 7602 u 01 01
+7602 7602 s         ret
+7603 7603 s 
+7603 7603 s ; -------------------------------------------------------------
+7603 7603 s ; delay: ~6 ms (simula un dibujado pesado que invade el barrido)
+7603 7603 s ; -------------------------------------------------------------
+7603 7603 d 012003
+7603 7603 u 03 01
+7603 7603 s delay:  ld bc,800
+7606 7606 d 0b
+7606 7606 u 01 01
+7606 7606 s dloop:  dec bc
+7607 7607 d 78
+7607 7607 u 01 01
+7607 7607 s         ld a,b
+7608 7608 d b1
+7608 7608 u 01 01
+7608 7608 s         or c
+7609 7609 d 20fb
+7609 7609 u 02 01
+7609 7609 s         jr nz,dloop
+760b 760b d c9
+760b 760b u 01 01
+760b 760b s         ret
+760c 760c s 
+760c 760c s ; -------------------------------------------------------------
+760c 760c s ; keys: SPACE conmuta el doble buffer (borde verde/rojo).
+760c 760c s ; Devuelve Z activo si Q esta pulsada (salir).
+760c 760c s ; -------------------------------------------------------------
+760c 760c d 3e7f
+760c 760c u 02 01
+760c 760c s keys:   ld a,7fh
+760e 760e d dbfe
+760e 760e u 02 01
+760e 760e s         in a,(0feh)
+7610 7610 d 0f
+7610 7610 u 01 01
+7610 7610 s         rrca
+7611 7611 d 3826
+7611 7611 u 02 01
+7611 7611 s         jr c,knosp          ; SPACE no pulsada
+7613 7613 d 3e7f
+7613 7613 u 02 01
+7613 7613 s kwait:  ld a,7fh            ; esperar a soltar (anti-rebote)
+7615 7615 d dbfe
+7615 7615 u 02 01
+7615 7615 s         in a,(0feh)
+7617 7617 d 0f
+7617 7617 u 01 01
+7617 7617 s         rrca
+7618 7618 d 30f9
+7618 7618 u 02 01
+7618 7618 s         jr nc,kwait
+761a 761a d 3a5d76
+761a 761a u 03 01
+761a 761a s         ld a,(dbufst)
+761d 761d d ee01
+761d 761d u 02 01
+761d 761d s         xor 1
+761f 761f d 325d76
+761f 761f u 03 01
+761f 761f s         ld (dbufst),a
+7622 7622 d b7
+7622 7622 u 01 01
+7622 7622 s         or a
+7623 7623 d 280b
+7623 7623 u 02 01
+7623 7623 s         jr z,koff
+7625 7625 d 3ead
+7625 7625 u 02 01
+7625 7625 s         ld a,173
+7627 7627 d 320908
+7627 7627 u 03 01
+7627 7627 s         ld (2057),a         ; dbuf ON, front = bloque 5
+762a 762a d 3e04
+762a 762a u 02 01
+762a 762a s         ld a,4              ; borde verde
+762c 762c d d3fb
+762c 762c u 02 01
+762c 762c s         out (0fbh),a
+762e 762e d 1809
+762e 762e u 02 01
+762e 762e s         jr knosp
+7630 7630 d 3e55
+7630 7630 u 02 01
+7630 7630 s koff:   ld a,85
+7632 7632 d 320908
+7632 7632 u 03 01
+7632 7632 s         ld (2057),a         ; dbuf OFF
+7635 7635 d 3e02
+7635 7635 u 02 01
+7635 7635 s         ld a,2              ; borde rojo
+7637 7637 d d3fb
+7637 7637 u 02 01
+7637 7637 s         out (0fbh),a
+7639 7639 d 3e7f
+7639 7639 u 02 01
+7639 7639 s knosp:  ld a,7fh            ; M (misma fila que SPACE, bit 2)
+763b 763b d dbfe
+763b 763b u 02 01
+763b 763b s         in a,(0feh)
+763d 763d d e604
+763d 763d u 02 01
+763d 763d s         and 4
+763f 763f d 2010
+763f 763f u 02 01
+763f 763f s         jr nz,knom          ; M no pulsada
+7641 7641 d 3e7f
+7641 7641 u 02 01
+7641 7641 s kwm:    ld a,7fh            ; esperar a soltar (anti-rebote)
+7643 7643 d dbfe
+7643 7643 u 02 01
+7643 7643 s         in a,(0feh)
+7645 7645 d e604
+7645 7645 u 02 01
+7645 7645 s         and 4
+7647 7647 d 28f8
+7647 7647 u 02 01
+7647 7647 s         jr z,kwm
+7649 7649 d 3a5c76
+7649 7649 u 03 01
+7649 7649 s         ld a,(moven)
+764c 764c d ee01
+764c 764c u 02 01
+764c 764c s         xor 1
+764e 764e d 325c76
+764e 764e u 03 01
+764e 764e s         ld (moven),a        ; congelar/descongelar movimiento
+7651 7651 d 3efb
+7651 7651 u 02 01
+7651 7651 s knom:   ld a,0fbh
+7653 7653 d dbfe
+7653 7653 u 02 01
+7653 7653 s         in a,(0feh)
+7655 7655 d e601
+7655 7655 u 02 01
+7655 7655 s         and 1               ; Z activo si Q pulsada
+7657 7657 d c9
+7657 7657 u 01 01
+7657 7657 s         ret
+7658 7658 s 
+7658 7658 s ; -------------------------------------------------------------
+7658 7658 s ; variables
+7658 7658 s ; -------------------------------------------------------------
+7658 7658 d 50
+7658 7658 u 01 02
+7658 7658 s bally:  defb 80
+7659 7659 d 0e
+7659 7659 u 01 02
+7659 7659 s ballx:  defb 14
+765a 765a d 02
+765a 765a u 01 02
+765a 765a s dy:     defb 2
+765b 765b d 01
+765b 765b u 01 02
+765b 765b s dx:     defb 1
+765c 765c d 01
+765c 765c u 01 02
+765c 765c s moven:  defb 1
+765d 765d d 01
+765d 765d u 01 02
+765d 765d s dbufst: defb 1
+765e 765e s 
+765e 765e s         end
+75cd a move
+7599 a pixad
+7593 a wvs2
+7603 a delay
+7583 a quit
+760c a keys
+7639 a knosp
+75bf a blk1
+7606 a dloop
+758e a waitvs
+75af a erase
+7530 a start
+756f a main
+765c a moven
+7641 a kwm
+75ff a mxok
+75b5 a blkgo
+75e7 a myok
+765b a dx
+765a a dy
+7651 a knom
+7630 a koff
+75b3 a draw
+765d a dbufst
+7613 a kwait
+7659 a ballx
+7658 a bally

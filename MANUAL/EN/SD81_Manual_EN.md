@@ -1987,6 +1987,75 @@ Where `<colour>` is a value 0–7 (standard Spectrum colour). The ZX Printer use
 
 ---
 
+### Double buffering (present-blit)
+
+#### How the interface generates the image (without double buffering)
+
+All of the system's RAM (up to 512 KB) lives in a single external memory chip (the **SRAM**), organised in 8 KB pages that get assigned to the Z80's 8 memory blocks through the mapper (E7h). The video circuit, however, does **not** read that SRAM directly — doing so would make it compete with the CPU for the same memory chip on every cycle. To avoid that, the interface keeps an **internal video memory** (64 KB) inside the FPGA itself, acting as a **mirror** of the 8 blocks: every time the CPU writes a byte to the SRAM, that same byte is automatically copied into the mirror. The video circuit always generates the image by reading this internal mirror, never the SRAM.
+
+The mirror is faithful at all times — too faithful, in fact: if at some instant the CPU has just erased a sprite, the mirror already reflects the empty gap, and if the video beam happens to scan that area right then, it draws that gap. Because the CPU and the video circuit share the same "live" data, the beam can catch intermediate drawing states — hence the flicker and tearing that double buffering is meant to fix.
+
+#### What double buffering changes
+
+```
+POKE 2057, 168+B     : REM enable double buffer; front buffer = block B (0-7)
+POKE 2057, 85        : REM disable double buffer
+```
+
+When enabled, the interface stops keeping the real-time mirror **only for block `B`** of the internal video memory (every other block of the mirror keeps working as before). From that point on:
+
+- The video circuit stops looking at the HFILE block's mirror (the usual screen) and starts looking at block `B`'s mirror instead.
+- Block `B`'s mirror is **no longer updated write by write**. On every vertical blanking (VSYNC), the hardware copies, byte by byte, the entire current content of the HFILE block's mirror into block `B`'s mirror in one go. Between one VSYNC and the next, block `B`'s mirror stays **frozen**: it is a fixed snapshot, not a live reflection.
+
+> **The part that trips people up — read it twice:** logical block `B` still exists as normal SRAM too, just as accessible and writable by the CPU as any other block. But while double buffering is active, **that SRAM has no relation whatsoever to what you see on screen** — it is that block's internal mirror that stops reflecting it. Whatever you write to block `B`'s SRAM will not show up in the image, and what you see on screen is not that SRAM but the snapshot the FPGA refreshed at the last VSYNC, copied from the HFILE block. That is why block `B` should be treated as "reserved for the hardware" while double buffering is active, even though you can technically still use it as RAM for unrelated things (variables, code) that have nothing to do with the screen.
+
+Put differently, three different things coexist under the same block number, and they should not be confused:
+
+| Layer | What it holds | Who updates it |
+|---|---|---|
+| Physical SRAM of block `B` | The system's real memory (8 KB) | The CPU, on every normal read/write |
+| Internal mirror of block `B` — double buffer OFF | A live copy of that SRAM | Automatically, byte by byte, on every CPU write |
+| Internal mirror of block `B` — double buffer ON | A frozen snapshot of the HFILE block | Only the FPGA, all at once, once per VSYNC |
+
+The practical result:
+
+- The screen always shows a **complete snapshot** taken at the last VSYNC: erases or half-drawn sprites are never visible.
+- The program always draws on **a single surface** (the usual HFILE page): no page swapping, no "redraw what changed two frames ago" bookkeeping.
+- Reading back from the screen (the HFILE page, not block `B`) always returns the last value written — coherent read-modify-write.
+
+**Correct usage:** wait for the rising edge of VSYNC (bit 0 of port AFh) and do all erasing/drawing right after. From that moment you have about **16 ms** before the hardware takes the next snapshot (the copy starts right after the visible area ends). If drawing takes longer, the snapshot may capture an intermediate state — the same behaviour as a classic double buffer.
+
+**Choosing the front block (`B`):** since that block's mirror stops reflecting its SRAM, **no video element** (HFILE, DFILE, Chroma81 attributes) must point to it while double buffering is active — its mirror would no longer be able to display them. Recommended blocks: **4 or 5** ($8000-$9FFF / $A000-$BFFF, whichever does not hold your HFILE). Avoid: 0 (text-mode ROM glyphs), 1 (chr RAM), 2-3 (DFILE), 6-7 (Chroma81 attributes).
+
+> **Note:** in native HiRes mode only the bitmap is double-buffered; attributes (the $C000 area) are read live. In Spectrum mode the whole block is double-buffered (bitmap + attributes). Text mode does not use the double buffer.
+
+**Typical setup** (HFILE at $8000 = block 4, front at block 5):
+
+```
+POKE 2043,0          : REM HFILE low
+POKE 2044,128        : REM HFILE high ($8000)
+POKE 2045,172        : REM Superfast Spectrum HiRes
+POKE 2057,173        : REM double buffer ON, front = block 5 (168+5)
+```
+
+**I/O port control (pseudo-block 8):** `POKE 2057` stops working once a program has disabled the control-POKE window by writing to 2056 ("flat RAM" mode, e.g. CP/M). For those cases the double buffer can also be controlled through the **mapper port (E7h)** using the fictitious block 8:
+
+```asm
+    ld  a,08h        ; pseudo-block 8
+    ld  b,32+5       ; value: bit5=enable, bits2:0=front block (here 5)
+    ld  c,0e7h
+    out (c),a        ; double buffer ON, front = block 5
+
+    ld  b,0          ; value 0 = disable
+    out (c),a
+```
+
+This path is available when **full paging** mode is active or after writing to 2056. Restriction: in half paging after 2056, do not assign an odd page to block 0 through the mapper port (that data pattern, x8h, matches pseudo-block 8).
+
+See the complete machine-code example in `EXAMPLES/DBUF/` (bouncing ball with real-time double-buffer toggling).
+
+---
+
 ### Control POKEs summary
 
 | Address | Value | Function |
@@ -2002,6 +2071,8 @@ Where `<colour>` is a value 0–7 (standard Spectrum colour). The ZX Printer use
 | 2047 | 85 | Deactivate border pattern |
 | 2048–2055 | `<datos>` | Define border pattern (8 bytes) |
 | 2056 | xxx | Disable control pokes and enable writing to block 0 |
+| 2057 | 168+B | Enable double buffer (front buffer = block B, 0-7) |
+| 2057 | 85 | Disable double buffer |
 
 ---
 

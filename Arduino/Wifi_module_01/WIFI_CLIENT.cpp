@@ -1,0 +1,210 @@
+#include "WIFI_CLIENT.h"
+
+#define STM32_SERIAL           Serial1
+#define STM32_RX_PIN           4
+#define STM32_TX_PIN           5
+#define STM32_BAUD             921600
+#define WIFI_CLIENT_BYTE_TIMEOUT_MS      300
+#define WIFI_CLIENT_SOF_SEARCH_TIMEOUT_MS 500   // limite TOTAL buscando el SOF, no por-byte
+#define WIFI_CLIENT_MAX_RETRIES          3
+
+void wifi_client_init() {
+  STM32_SERIAL.begin(STM32_BAUD, SERIAL_8N1, STM32_RX_PIN, STM32_TX_PIN);
+}
+
+static int wifi_read_byte(uint32_t timeout_ms) {
+  uint32_t start = millis();
+  while (!STM32_SERIAL.available()) {
+    if (millis() - start > timeout_ms) return -1;
+  }
+  return STM32_SERIAL.read();
+}
+
+static bool wifi_client_read_frame_raw(WifiProtoResp* out) {
+  // Busca el SOF con un limite de tiempo TOTAL (no solo por-byte): si llegara
+  // ruido continuo que nunca coincide con WIFI_PROTO_SOF, un timeout por-byte
+  // solo no bastaria para salir de este bucle.
+  uint32_t sof_search_start = millis();
+  int b;
+  do {
+    if (millis() - sof_search_start > WIFI_CLIENT_SOF_SEARCH_TIMEOUT_MS) return false;
+    b = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
+    if (b < 0) return false;
+  } while (b != WIFI_PROTO_SOF);
+
+  int cmd    = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
+  int len_lo = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
+  int len_hi = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
+  if (cmd < 0 || len_lo < 0 || len_hi < 0) return false;
+
+  uint16_t len = (uint16_t)len_lo | ((uint16_t)len_hi << 8);
+  if (len > WIFI_PROTO_MAX_FRAME_PAYLOAD) return false;
+
+  static uint8_t crcbuf[3 + WIFI_PROTO_MAX_FRAME_PAYLOAD];
+  crcbuf[0] = (uint8_t)cmd;
+  crcbuf[1] = (uint8_t)len_lo;
+  crcbuf[2] = (uint8_t)len_hi;
+  for (uint16_t i = 0; i < len; i++) {
+    int bb = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
+    if (bb < 0) return false;
+    crcbuf[3 + i] = (uint8_t)bb;
+  }
+
+  int crc_byte = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
+  if (crc_byte < 0) return false;
+  if ((uint8_t)crc_byte != wifi_proto_crc8(crcbuf, 3 + len)) return false;
+
+  out->raw_cmd = (uint8_t)cmd;
+  memcpy(out->payload, &crcbuf[3], len);
+  out->len = len;
+  return true;
+}
+
+WifiProtoResp wifi_client_request(uint8_t cmd, const uint8_t* payload, uint16_t len) {
+  WifiProtoResp resp;
+  resp.ok = false;
+  resp.len = 0;
+
+  static uint8_t buf[3 + WIFI_PROTO_MAX_FRAME_PAYLOAD];
+  buf[0] = cmd;
+  buf[1] = (uint8_t)(len & 0xFF);
+  buf[2] = (uint8_t)(len >> 8);
+  if (len > 0) memcpy(&buf[3], payload, len);
+  uint8_t crc = wifi_proto_crc8(buf, 3 + len);
+
+  for (int attempt = 0; attempt < WIFI_CLIENT_MAX_RETRIES; attempt++) {
+    while (STM32_SERIAL.available()) STM32_SERIAL.read();   // limpia basura antes de mandar
+
+    STM32_SERIAL.write(WIFI_PROTO_SOF);
+    STM32_SERIAL.write(buf, 3 + len);
+    STM32_SERIAL.write(crc);
+
+    if (!wifi_client_read_frame_raw(&resp)) continue;        // timeout -> reintenta
+    if (resp.raw_cmd == CMD_FRAME_ERROR) continue;            // CRC mal en el STM32 -> reintenta
+    resp.ok = true;
+    return resp;
+  }
+  return resp;   // ok=false, se agotaron los reintentos
+}
+
+static WifiProtoResp wifi_client_request_path(uint8_t cmd, const char* path, const uint8_t* extra, uint16_t extra_len) {
+  uint8_t buf[WIFI_PROTO_MAX_FRAME_PAYLOAD];
+  uint8_t path_len = (uint8_t)strnlen(path, WIFI_PROTO_MAX_PATH - 1);
+  buf[0] = path_len;
+  memcpy(&buf[1], path, path_len);
+  uint16_t pos = 1 + path_len;
+  if (extra_len > 0) { memcpy(&buf[pos], extra, extra_len); pos += extra_len; }
+  return wifi_client_request(cmd, buf, pos);
+}
+
+bool wifi_client_ping(uint8_t* out_fw_version) {
+  WifiProtoResp r = wifi_client_request(CMD_PING, NULL, 0);
+  if (!r.ok || r.len < 1) return false;
+  *out_fw_version = r.payload[0];
+  return true;
+}
+
+bool wifi_client_list_dir(const char* path, void (*on_entry)(const WifiDirEntry&)) {
+  uint8_t start_index = 0;
+  bool has_more = true;
+  while (has_more) {
+    uint8_t extra[1] = { start_index };
+    WifiProtoResp r = wifi_client_request_path(CMD_LIST_DIR, path, extra, 1);
+    if (!r.ok || r.len < 3 || r.payload[0] != ST_OK) return false;
+
+    uint8_t count = r.payload[1];
+    has_more = r.payload[2] != 0;
+    uint16_t pos = 3;
+    for (uint8_t i = 0; i < count; i++) {
+      uint8_t name_len = r.payload[pos++];
+      WifiDirEntry e;
+      uint8_t n = name_len < sizeof(e.name) - 1 ? name_len : sizeof(e.name) - 1;
+      memcpy(e.name, &r.payload[pos], n); e.name[n] = 0;
+      pos += name_len;
+      memcpy(&e.size, &r.payload[pos], 4); pos += 4;
+      e.is_dir = (r.payload[pos] & WIFI_PROTO_FLAG_DIR) != 0; pos++;
+      on_entry(e);
+      start_index++;
+    }
+  }
+  return true;
+}
+
+bool wifi_client_write_open(const char* path, uint8_t* out_handle) {
+  WifiProtoResp r = wifi_client_request_path(CMD_WRITE_OPEN, path, NULL, 0);
+  if (!r.ok || r.len < 2 || r.payload[0] != ST_OK) return false;
+  *out_handle = r.payload[1];
+  return true;
+}
+
+bool wifi_client_write_chunk(uint8_t handle, const uint8_t* data, uint16_t len) {
+  uint8_t buf[3 + WIFI_PROTO_CHUNK_SIZE];
+  buf[0] = handle;
+  buf[1] = (uint8_t)(len & 0xFF);
+  buf[2] = (uint8_t)(len >> 8);
+  memcpy(&buf[3], data, len);
+  WifiProtoResp r = wifi_client_request(CMD_WRITE_CHUNK, buf, 3 + len);
+  return r.ok && r.len >= 1 && r.payload[0] == ST_OK;
+}
+
+bool wifi_client_write_close(uint8_t handle, uint32_t* out_total) {
+  uint8_t buf[1] = { handle };
+  WifiProtoResp r = wifi_client_request(CMD_WRITE_CLOSE, buf, 1);
+  if (!r.ok || r.len < 5 || r.payload[0] != ST_OK) return false;
+  memcpy(out_total, &r.payload[1], 4);
+  return true;
+}
+
+bool wifi_client_read_open(const char* path, uint8_t* out_handle, uint32_t* out_size) {
+  WifiProtoResp r = wifi_client_request_path(CMD_READ_OPEN, path, NULL, 0);
+  if (!r.ok || r.len < 6 || r.payload[0] != ST_OK) return false;
+  *out_handle = r.payload[1];
+  memcpy(out_size, &r.payload[2], 4);
+  return true;
+}
+
+bool wifi_client_read_chunk(uint8_t handle, uint32_t offset, uint8_t* buf, uint16_t* out_len, bool* out_eof) {
+  uint8_t req[5];
+  req[0] = handle;
+  memcpy(&req[1], &offset, 4);
+  WifiProtoResp r = wifi_client_request(CMD_READ_CHUNK, req, 5);
+  if (!r.ok || r.len < 3 || r.payload[0] != ST_OK) return false;
+  uint16_t dlen; memcpy(&dlen, &r.payload[1], 2);
+  memcpy(buf, &r.payload[3], dlen);
+  *out_len = dlen;
+  *out_eof = r.payload[3 + dlen] != 0;
+  return true;
+}
+
+bool wifi_client_read_close(uint8_t handle) {
+  uint8_t buf[1] = { handle };
+  WifiProtoResp r = wifi_client_request(CMD_READ_CLOSE, buf, 1);
+  return r.ok && r.len >= 1 && r.payload[0] == ST_OK;
+}
+
+bool wifi_client_delete(const char* path) {
+  WifiProtoResp r = wifi_client_request_path(CMD_DELETE, path, NULL, 0);
+  return r.ok && r.len >= 1 && r.payload[0] == ST_OK;
+}
+
+bool wifi_client_mkdir(const char* path) {
+  WifiProtoResp r = wifi_client_request_path(CMD_MKDIR, path, NULL, 0);
+  return r.ok && r.len >= 1 && r.payload[0] == ST_OK;
+}
+
+bool wifi_client_get_wifi_cfg(bool* out_configured, char* out_ssid, char* out_pass) {
+  WifiProtoResp r = wifi_client_request(CMD_GET_WIFI_CFG, NULL, 0);
+  if (!r.ok || r.len < 2 || r.payload[0] != ST_OK) return false;
+
+  *out_configured = r.payload[1] != 0;
+  if (!*out_configured) return true;
+
+  uint16_t pos = 2;
+  uint8_t ssid_len = r.payload[pos++];
+  memcpy(out_ssid, &r.payload[pos], ssid_len); out_ssid[ssid_len] = 0;
+  pos += ssid_len;
+  uint8_t pass_len = r.payload[pos++];
+  memcpy(out_pass, &r.payload[pos], pass_len); out_pass[pass_len] = 0;
+  pos += pass_len;
+  return true;
+}

@@ -19,6 +19,13 @@
 #define WIFI_PROTO_SOF          0xAA
 #define WIFI_PROTO_CHUNK_SIZE   256   // tamano de trozo para READ_CHUNK/WRITE_CHUNK
 #define WIFI_PROTO_MAX_PATH     128   // longitud maxima de path (incluye '\0' logico, ver LIST_DIR/STAT/etc.)
+#define WIFI_PROTO_MAX_SSID     32    // limite estandar 802.11
+#define WIFI_PROTO_MAX_PASS     64    // limite estandar WPA2-PSK (ASCII)
+
+// Tamano maximo de PAYLOAD de una trama (CMD+LEN no cuentan) - dimensiona los buffers
+// fijos en ambos lados, deben usar la MISMA constante para no desbordar el lado contrario.
+// Margen sobre WIFI_PROTO_CHUNK_SIZE para cabeceras de comando (handle, len, offset, etc.)
+#define WIFI_PROTO_MAX_FRAME_PAYLOAD  (WIFI_PROTO_CHUNK_SIZE + 8)
 
 // Comandos (campo CMD de la trama)
 enum WifiProtoCmd : uint8_t {
@@ -32,7 +39,9 @@ enum WifiProtoCmd : uint8_t {
   CMD_WRITE_OPEN   = 0x07,
   CMD_WRITE_CHUNK  = 0x08,
   CMD_WRITE_CLOSE  = 0x09,
-  CMD_DELETE       = 0x0A,
+  CMD_DELETE       = 0x0A,  // fichero O directorio (vacio) - el STM32 decide segun el tipo
+  CMD_GET_WIFI_CFG = 0x0B,  // el ESP32 pide al STM32 la config guardada (ssid+pass) al arrancar
+  CMD_MKDIR        = 0x0C,
 };
 
 // Status - primer byte de payload en casi todas las respuestas
@@ -62,9 +71,31 @@ enum WifiProtoStatus : uint8_t {
 // WRITE_CHUNK   req: handle(1B), len(2B LE), data(len)  resp: status   (ack por trozo)
 // WRITE_CLOSE   req: handle(1B)                         resp: status, total_bytes(4B LE)
 // DELETE        req: path(str)                          resp: status
+//                                                        (si path es un directorio, debe
+//                                                        estar VACIO - equivale a rmdir, no
+//                                                        borrado recursivo)
+// GET_WIFI_CFG  req: (vacio)                             resp: status, configured(1B),
+//                                                         ssid_len(1B), ssid(ssid_len),
+//                                                         pass_len(1B), pass(pass_len)
+// MKDIR         req: path(str)                          resp: status
 //
 // "path(str)": length-prefixed, 1 byte de longitud + bytes UTF-8/ASCII (NO terminador nulo
-// en el cable), maximo WIFI_PROTO_MAX_PATH-1 bytes de nombre.
+// en el cable), maximo WIFI_PROTO_MAX_PATH-1 bytes de nombre. Mismo formato length-prefixed
+// para ssid/pass, con los limites WIFI_PROTO_MAX_SSID/WIFI_PROTO_MAX_PASS.
+//
+// GET_WIFI_CFG SI devuelve la contrasena en claro: a diferencia de un endpoint de cara al
+// usuario, este es un enlace interno de confianza (el ESP32 necesita el password real para
+// poder conectarse) - no confundir con "mostrar credenciales guardadas a un humano".
+//
+// El STM32 es el dueno de la configuracion (persistida en /SYS/WIFI.CFG en la SD, no en el
+// ESP32) - el ESP32 la pide con este comando en su propio arranque, cada vez, y no guarda
+// nada de forma persistente el mismo. Se escribe desde un comando BASIC nuevo (pendiente,
+// ver memoria del proyecto), por ejemplo LOAD *WIFI="SSID","PASSWORD", simetrico a como ya
+// funcionan LOAD *RTC="..." y LOAD *JOY "...". wifi_credentials.h en Wifi_module_01 sigue
+// siendo, de momento, solo un atajo de arranque para las pruebas actuales sin STM32 conectado.
+//
+// Todas las peticiones las inicia SIEMPRE el ESP32 (incluida esta) - el STM32 nunca manda
+// una trama sin que se la hayan pedido, para no necesitar arbitraje en el UART.
 
 // CRC8 (poli 0x07, sin reflejar, init 0x00) - identico en ambos lados
 static inline uint8_t wifi_proto_crc8(const uint8_t* data, uint16_t len) {

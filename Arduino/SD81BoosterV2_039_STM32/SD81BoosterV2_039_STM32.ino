@@ -28,6 +28,7 @@
 #include "RTC.h"
 #include "z80-disassembler.h"
 #include "TEMP.h"
+#include "WIFI_HANDLER.h"
 
 extern "C" uint32_t SystemCoreClock;
 
@@ -238,7 +239,9 @@ void setup() {
   _rst_ctrl_reg(HIGH);
   _rst_data_reg(HIGH);
   // define comms functions
-
+  
+  wifi_handler_init();
+  
   send_config();  
   // UP=Q DOWN=A LEFT=P RIGHT=O FIRE=SPACE
   send_joycfg("\x36\x26\x34\x35\x00");                
@@ -557,6 +560,7 @@ void loop() { // Loop for test PLAY command
     }
   }
   process_serial_commands();
+  wifi_handler_poll();
   play_parser_update();
   idle_tasks(); 
 }

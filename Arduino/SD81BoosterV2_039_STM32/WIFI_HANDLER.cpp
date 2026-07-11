@@ -1,0 +1,396 @@
+#include "WIFI_HANDLER.h"
+#include "WIFI_PROTOCOL.h"
+#include "SD_handle.h"
+#include "GLOBALS.h"
+
+// Todas las peticiones las inicia el ESP32; el STM32 solo responde. Handles
+// propios (independientes de f_handle[]/f_opened[], que usa el interprete de
+// comandos BASIC existente - no deben competir por los mismos slots).
+
+#define WIFI_SERIAL             Serial1
+#define WIFI_BAUD                921600
+#define WIFI_FRAME_TIMEOUT_MS    200    // margen maximo entre bytes de una misma trama
+#define WIFI_NUM_HANDLES         2
+
+static FsFile wifi_handle[WIFI_NUM_HANDLES];
+static bool   wifi_handle_used[WIFI_NUM_HANDLES];
+
+static uint8_t rx_payload[WIFI_PROTO_MAX_FRAME_PAYLOAD];
+static uint8_t tx_payload[WIFI_PROTO_MAX_FRAME_PAYLOAD];
+
+void wifi_handler_init() {
+  WIFI_SERIAL.setRx(UART_RX);
+  WIFI_SERIAL.setTx(UART_TX);
+  WIFI_SERIAL.begin(WIFI_BAUD);
+  for (int i = 0; i < WIFI_NUM_HANDLES; i++) wifi_handle_used[i] = false;
+  log_1("WiFi handler listo en UART1 (%d baud)", WIFI_BAUD);
+}
+
+static int wifi_read_byte(uint32_t timeout_ms) {
+  uint32_t start = millis();
+  while (!WIFI_SERIAL.available()) {
+    if (millis() - start > timeout_ms) return -1;
+  }
+  return WIFI_SERIAL.read();
+}
+
+static void wifi_send_frame(uint8_t cmd, const uint8_t* payload, uint16_t len) {
+  static uint8_t buf[3 + WIFI_PROTO_MAX_FRAME_PAYLOAD];
+  buf[0] = cmd;
+  buf[1] = (uint8_t)(len & 0xFF);
+  buf[2] = (uint8_t)(len >> 8);
+  if (len > 0) memcpy(&buf[3], payload, len);
+  uint8_t crc = wifi_proto_crc8(buf, 3 + len);
+  WIFI_SERIAL.write(WIFI_PROTO_SOF);
+  WIFI_SERIAL.write(buf, 3 + len);
+  WIFI_SERIAL.write(crc);
+}
+
+static void send_status_only(uint8_t cmd, uint8_t status) {
+  tx_payload[0] = status;
+  wifi_send_frame(cmd, tx_payload, 1);
+}
+
+// Lee una trama completa ya con el SOF consumido por el llamador. Devuelve
+// false si hay timeout o CRC invalido (en CRC invalido ya responde
+// CMD_FRAME_ERROR ella misma, para que el ESP32 reenvie).
+static bool wifi_read_frame(uint8_t* cmd_out, uint8_t* payload_out, uint16_t* len_out) {
+  int cmd    = wifi_read_byte(WIFI_FRAME_TIMEOUT_MS);
+  int len_lo = wifi_read_byte(WIFI_FRAME_TIMEOUT_MS);
+  int len_hi = wifi_read_byte(WIFI_FRAME_TIMEOUT_MS);
+  if (cmd < 0 || len_lo < 0 || len_hi < 0) return false;
+
+  uint16_t len = (uint16_t)len_lo | ((uint16_t)len_hi << 8);
+  if (len > WIFI_PROTO_MAX_FRAME_PAYLOAD) return false; // trama absurda, se descarta
+
+  static uint8_t crcbuf[3 + WIFI_PROTO_MAX_FRAME_PAYLOAD];
+  crcbuf[0] = (uint8_t)cmd;
+  crcbuf[1] = (uint8_t)len_lo;
+  crcbuf[2] = (uint8_t)len_hi;
+  for (uint16_t i = 0; i < len; i++) {
+    int b = wifi_read_byte(WIFI_FRAME_TIMEOUT_MS);
+    if (b < 0) return false;
+    crcbuf[3 + i] = (uint8_t)b;
+  }
+
+  int crc_byte = wifi_read_byte(WIFI_FRAME_TIMEOUT_MS);
+  if (crc_byte < 0) return false;
+
+  if ((uint8_t)crc_byte != wifi_proto_crc8(crcbuf, 3 + len)) {
+    wifi_send_frame(CMD_FRAME_ERROR, NULL, 0);
+    return false;
+  }
+
+  *cmd_out = (uint8_t)cmd;
+  memcpy(payload_out, &crcbuf[3], len);
+  *len_out = len;
+  return true;
+}
+
+static bool extract_path(const uint8_t* payload, uint16_t len, char* out_path) {
+  if (len < 1) return false;
+  uint8_t path_len = payload[0];
+  if (len < (uint16_t)(1 + path_len)) return false;
+  uint8_t n = path_len < (WIFI_PROTO_MAX_PATH - 1) ? path_len : (WIFI_PROTO_MAX_PATH - 1);
+  memcpy(out_path, &payload[1], n);
+  out_path[n] = 0;
+  return true;
+}
+
+static int alloc_handle() {
+  for (int i = 0; i < WIFI_NUM_HANDLES; i++) if (!wifi_handle_used[i]) return i;
+  return -1;
+}
+
+static void handle_list_dir(const uint8_t* payload, uint16_t len) {
+  log_1("WIFI LIST_DIR: enter, len=%d", len);
+  char path[WIFI_PROTO_MAX_PATH];
+  if (len < 2 || !extract_path(payload, len - 1, path)) {
+    log_1("WIFI LIST_DIR: extract_path failed");
+    send_status_only(CMD_LIST_DIR, ST_IO_ERROR);
+    return;
+  }
+  uint8_t start_index = payload[len - 1];
+  log_1("WIFI LIST_DIR: path=%s start_index=%d", path, start_index);
+
+  FsFile listDir = sd.open(path);
+  log_1("WIFI LIST_DIR: sd.open returned");
+  if (!listDir || !listDir.isDir()) {
+    log_1("WIFI LIST_DIR: not a directory or doesn't exist");
+    if (listDir) listDir.close();
+    send_status_only(CMD_LIST_DIR, ST_NOT_FOUND);
+    return;
+  }
+
+  FsFile entry;
+  uint8_t skipped = 0;
+  log_1("WIFI LIST_DIR: before skip loop");
+  while (skipped < start_index && entry.openNext(&listDir, O_RDONLY)) {
+    entry.close();
+    skipped++;
+  }
+  log_1("WIFI LIST_DIR: skip done (%d)", skipped);
+
+  uint16_t pos = 3;   // 0=status, 1=entry_count, 2=has_more, filled in at the end
+  uint8_t count = 0;
+  bool has_more = false;
+  char name[64];
+
+  while (count < 4) {   // max 4 entries per page, plenty within one frame
+    log_1("WIFI LIST_DIR: before openNext count=%d", count);
+    if (!entry.openNext(&listDir, O_RDONLY)) break;
+    log_1("WIFI LIST_DIR: openNext returned, reading name");
+    entry.getName(name, sizeof(name));
+    log_1("WIFI LIST_DIR: entry=%s", name);
+    uint8_t name_len = (uint8_t)strlen(name);
+    uint32_t size = entry.size();
+    uint8_t flags = entry.isDir() ? WIFI_PROTO_FLAG_DIR : 0;
+    entry.close();
+
+    if (pos + 1 + name_len + 4 + 1 > WIFI_PROTO_MAX_FRAME_PAYLOAD) { has_more = true; break; }
+
+    tx_payload[pos++] = name_len;
+    memcpy(&tx_payload[pos], name, name_len); pos += name_len;
+    memcpy(&tx_payload[pos], &size, 4); pos += 4;
+    tx_payload[pos++] = flags;
+    count++;
+  }
+  log_1("WIFI LIST_DIR: main loop finished, count=%d", count);
+
+  if (!has_more) {
+    FsFile probe;
+    if (probe.openNext(&listDir, O_RDONLY)) { has_more = true; probe.close(); }
+  }
+  log_1("WIFI LIST_DIR: has_more=%d, closing listDir", has_more);
+
+  tx_payload[0] = ST_OK;
+  tx_payload[1] = count;
+  tx_payload[2] = has_more ? 1 : 0;
+  listDir.close();
+  log_1("WIFI LIST_DIR: sending response, pos=%d", pos);
+  wifi_send_frame(CMD_LIST_DIR, tx_payload, pos);
+  log_1("WIFI LIST_DIR: response sent");
+}
+
+static void handle_stat(const uint8_t* payload, uint16_t len) {
+  char path[WIFI_PROTO_MAX_PATH];
+  if (!extract_path(payload, len, path)) { send_status_only(CMD_STAT, ST_IO_ERROR); return; }
+
+  FsFile f = sd.open(path, O_RDONLY);
+  if (!f) { send_status_only(CMD_STAT, ST_NOT_FOUND); return; }
+
+  uint32_t size = f.size();
+  uint8_t flags = f.isDir() ? WIFI_PROTO_FLAG_DIR : 0;
+  f.close();
+
+  tx_payload[0] = ST_OK;
+  memcpy(&tx_payload[1], &size, 4);
+  tx_payload[5] = flags;
+  wifi_send_frame(CMD_STAT, tx_payload, 6);
+}
+
+// Nombre fijo usado por el ESP32 para auto-actualizar su propio firmware
+// desde la SD (ver Wifi_module_01.ino, FW_UPDATE_PATH). READ_OPEN/DELETE
+// sobre este path no llevan ninguna marca especial en el protocolo - se
+// reconoce aqui solo para informar al usuario por la consola del STM32
+// (la que de verdad ve, no el Monitor Serie del ESP32).
+#define ESP32_FW_PATH "/SYS/ESP32_FW.BIN"
+
+static void handle_read_open(const uint8_t* payload, uint16_t len) {
+  char path[WIFI_PROTO_MAX_PATH];
+  if (!extract_path(payload, len, path)) { send_status_only(CMD_READ_OPEN, ST_IO_ERROR); return; }
+
+  if (strcmp(path, ESP32_FW_PATH) == 0) {
+    Serial.println("Updating ESP32 firmware from the SD card...");
+  }
+
+  int h = alloc_handle();
+  if (h < 0) { send_status_only(CMD_READ_OPEN, ST_NO_HANDLE_FREE); return; }
+
+  if (!wifi_handle[h].open(path, O_RDONLY)) {
+    send_status_only(CMD_READ_OPEN, ST_NOT_FOUND);
+    return;
+  }
+  wifi_handle_used[h] = true;
+
+  uint32_t size = wifi_handle[h].size();
+  tx_payload[0] = ST_OK;
+  tx_payload[1] = (uint8_t)h;
+  memcpy(&tx_payload[2], &size, 4);
+  wifi_send_frame(CMD_READ_OPEN, tx_payload, 6);
+}
+
+static void handle_read_chunk(const uint8_t* payload, uint16_t len) {
+  if (len < 5) { send_status_only(CMD_READ_CHUNK, ST_IO_ERROR); return; }
+  uint8_t h = payload[0];
+  uint32_t offset; memcpy(&offset, &payload[1], 4);
+
+  if (h >= WIFI_NUM_HANDLES || !wifi_handle_used[h]) {
+    send_status_only(CMD_READ_CHUNK, ST_BAD_HANDLE);
+    return;
+  }
+
+  wifi_handle[h].seekSet(offset);
+  int n = wifi_handle[h].read(&tx_payload[3], WIFI_PROTO_CHUNK_SIZE);
+  if (n < 0) n = 0;
+  uint16_t n16 = (uint16_t)n;
+  bool eof = (offset + n16) >= wifi_handle[h].size();
+
+  tx_payload[0] = ST_OK;
+  memcpy(&tx_payload[1], &n16, 2);
+  tx_payload[3 + n16] = eof ? 1 : 0;
+  wifi_send_frame(CMD_READ_CHUNK, tx_payload, 3 + n16 + 1);
+}
+
+static void handle_read_close(const uint8_t* payload, uint16_t len) {
+  if (len < 1) { send_status_only(CMD_READ_CLOSE, ST_IO_ERROR); return; }
+  uint8_t h = payload[0];
+  if (h >= WIFI_NUM_HANDLES || !wifi_handle_used[h]) {
+    send_status_only(CMD_READ_CLOSE, ST_BAD_HANDLE);
+    return;
+  }
+  wifi_handle[h].close();
+  wifi_handle_used[h] = false;
+  send_status_only(CMD_READ_CLOSE, ST_OK);
+}
+
+static void handle_write_open(const uint8_t* payload, uint16_t len) {
+  char path[WIFI_PROTO_MAX_PATH];
+  if (!extract_path(payload, len, path)) { send_status_only(CMD_WRITE_OPEN, ST_IO_ERROR); return; }
+
+  int h = alloc_handle();
+  if (h < 0) { send_status_only(CMD_WRITE_OPEN, ST_NO_HANDLE_FREE); return; }
+
+  if (!wifi_handle[h].open(path, O_WRONLY | O_CREAT | O_TRUNC)) {
+    send_status_only(CMD_WRITE_OPEN, ST_IO_ERROR);
+    return;
+  }
+  wifi_handle_used[h] = true;
+
+  tx_payload[0] = ST_OK;
+  tx_payload[1] = (uint8_t)h;
+  wifi_send_frame(CMD_WRITE_OPEN, tx_payload, 2);
+}
+
+static void handle_write_chunk(const uint8_t* payload, uint16_t len) {
+  if (len < 3) { send_status_only(CMD_WRITE_CHUNK, ST_IO_ERROR); return; }
+  uint8_t h = payload[0];
+  uint16_t dlen; memcpy(&dlen, &payload[1], 2);
+
+  if (h >= WIFI_NUM_HANDLES || !wifi_handle_used[h]) {
+    send_status_only(CMD_WRITE_CHUNK, ST_BAD_HANDLE);
+    return;
+  }
+  if ((uint16_t)(3 + dlen) > len) { send_status_only(CMD_WRITE_CHUNK, ST_IO_ERROR); return; }
+
+  size_t written = wifi_handle[h].write(&payload[3], dlen);
+  send_status_only(CMD_WRITE_CHUNK, (written == dlen) ? ST_OK : ST_IO_ERROR);
+}
+
+static void handle_write_close(const uint8_t* payload, uint16_t len) {
+  if (len < 1) { send_status_only(CMD_WRITE_CLOSE, ST_IO_ERROR); return; }
+  uint8_t h = payload[0];
+  if (h >= WIFI_NUM_HANDLES || !wifi_handle_used[h]) {
+    send_status_only(CMD_WRITE_CLOSE, ST_BAD_HANDLE);
+    return;
+  }
+
+  wifi_handle[h].sync();
+  uint32_t total = wifi_handle[h].size();
+  wifi_handle[h].close();
+  wifi_handle_used[h] = false;
+
+  tx_payload[0] = ST_OK;
+  memcpy(&tx_payload[1], &total, 4);
+  wifi_send_frame(CMD_WRITE_CLOSE, tx_payload, 5);
+}
+
+static void handle_delete(const uint8_t* payload, uint16_t len) {
+  char path[WIFI_PROTO_MAX_PATH];
+  if (!extract_path(payload, len, path)) { send_status_only(CMD_DELETE, ST_IO_ERROR); return; }
+
+  FsFile f = sd.open(path, O_RDONLY);
+  bool exists = (bool)f;
+  bool is_dir = exists && f.isDir();
+  if (exists) f.close();
+
+  if (!exists) { send_status_only(CMD_DELETE, ST_NOT_FOUND); return; }
+
+  bool ok = is_dir ? sd.rmdir(path) : sd.remove(path);
+  if (ok && strcmp(path, ESP32_FW_PATH) == 0) {
+    Serial.println("ESP32 firmware update completed successfully.");
+  }
+  send_status_only(CMD_DELETE, ok ? ST_OK : ST_IO_ERROR);
+}
+
+static void handle_mkdir(const uint8_t* payload, uint16_t len) {
+  char path[WIFI_PROTO_MAX_PATH];
+  if (!extract_path(payload, len, path)) { send_status_only(CMD_MKDIR, ST_IO_ERROR); return; }
+  bool ok = sd.mkdir(path);
+  send_status_only(CMD_MKDIR, ok ? ST_OK : ST_IO_ERROR);
+}
+
+// /SYS/WIFI.CFG: two lines of text, SSID and password. The STM32 owns this
+// configuration (written from BASIC, see WIFI_PROTOCOL.h) - the ESP32 asks
+// for it at boot, it doesn't persist it itself.
+static void handle_get_wifi_cfg() {
+  log_1("WIFI GET_WIFI_CFG: enter");
+  FsFile f = sd.open("/SYS/WIFI.CFG", O_RDONLY);
+  log_1("WIFI GET_WIFI_CFG: sd.open returned, exists=%d", (bool)f);
+  if (!f) {
+    tx_payload[0] = ST_OK;
+    tx_payload[1] = 0;   // configured = false
+    wifi_send_frame(CMD_GET_WIFI_CFG, tx_payload, 2);
+    log_1("WIFI GET_WIFI_CFG: response sent (not configured)");
+    return;
+  }
+
+  char ssid[WIFI_PROTO_MAX_SSID + 1];
+  char pass[WIFI_PROTO_MAX_PASS + 1];
+  int ssid_len = f.fgets(ssid, sizeof(ssid));
+  log_1("WIFI GET_WIFI_CFG: ssid_len=%d", ssid_len);
+  int pass_len = f.fgets(pass, sizeof(pass));
+  log_1("WIFI GET_WIFI_CFG: pass_len=%d", pass_len);
+  f.close();
+
+  if (ssid_len < 0) ssid_len = 0;
+  if (pass_len < 0) pass_len = 0;
+  while (ssid_len > 0 && (ssid[ssid_len - 1] == '\n' || ssid[ssid_len - 1] == '\r')) ssid[--ssid_len] = 0;
+  while (pass_len > 0 && (pass[pass_len - 1] == '\n' || pass[pass_len - 1] == '\r')) pass[--pass_len] = 0;
+  log_1("WIFI GET_WIFI_CFG: after trimming, ssid_len=%d pass_len=%d", ssid_len, pass_len);
+
+  uint16_t pos = 0;
+  tx_payload[pos++] = ST_OK;
+  tx_payload[pos++] = 1;   // configured = true
+  tx_payload[pos++] = (uint8_t)ssid_len;
+  memcpy(&tx_payload[pos], ssid, ssid_len); pos += ssid_len;
+  tx_payload[pos++] = (uint8_t)pass_len;
+  memcpy(&tx_payload[pos], pass, pass_len); pos += pass_len;
+  wifi_send_frame(CMD_GET_WIFI_CFG, tx_payload, pos);
+  log_1("WIFI GET_WIFI_CFG: response sent (configured), pos=%d", pos);
+}
+
+void wifi_handler_poll() {
+  if (!WIFI_SERIAL.available()) return;
+  if (WIFI_SERIAL.read() != WIFI_PROTO_SOF) return;   // resincroniza byte a byte si hay ruido
+
+  uint8_t cmd;
+  uint16_t len;
+  if (!wifi_read_frame(&cmd, rx_payload, &len)) return;
+
+  switch (cmd) {
+    case CMD_PING:         tx_payload[0] = VERSION; wifi_send_frame(CMD_PING, tx_payload, 1); break;
+    case CMD_LIST_DIR:     handle_list_dir(rx_payload, len); break;
+    case CMD_STAT:         handle_stat(rx_payload, len); break;
+    case CMD_READ_OPEN:    handle_read_open(rx_payload, len); break;
+    case CMD_READ_CHUNK:   handle_read_chunk(rx_payload, len); break;
+    case CMD_READ_CLOSE:   handle_read_close(rx_payload, len); break;
+    case CMD_WRITE_OPEN:   handle_write_open(rx_payload, len); break;
+    case CMD_WRITE_CHUNK:  handle_write_chunk(rx_payload, len); break;
+    case CMD_WRITE_CLOSE:  handle_write_close(rx_payload, len); break;
+    case CMD_DELETE:       handle_delete(rx_payload, len); break;
+    case CMD_GET_WIFI_CFG: handle_get_wifi_cfg(); break;
+    case CMD_MKDIR:        handle_mkdir(rx_payload, len); break;
+    default: break;   // comando desconocido: se ignora
+  }
+}

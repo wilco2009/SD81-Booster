@@ -623,7 +623,7 @@ Port $7FEF (01111111 11101111) - IN:
 		end
 	end
 
-	wire [2:0] int_state;
+	wire [1:0] int_state;
 `ifdef TRACE
 //	parameter trace_depth = 32;
 //	parameter trace_width = 4;
@@ -999,19 +999,17 @@ assign DEBUG_RDY = 1'b0;
 
 	assign int_signal = (int_mode==1'b0)? vsync:vborder;
 
-	wire poke_wr_int = (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2038) && (Addr <= 16'd2040);
+	wire poke_wr_int = (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2038) && (Addr <= 16'd2039);
 
-	// POKE 2038,int_addr_low	-> set low part of ROMTABLE addr
-	// POKE 2039,int_addr_high	-> set high part of ROMTABLE addr
-	// POKE 2040,int_mode		-> enable/disable and set interrupt mode
+	// POKE 2038,int_addr_low	-> set low part of la rutina de interrupciones simuladas
+	// POKE 2039,int_addr_high	-> set high part de la rutina de interrupciones simuladas
+	// POKE 2040,1/0			-> enable_int / disable_int (interrupciones simuladas SUPERFAST/SPECTRUM)
 	always@(posedge iclock or negedge nRESET) begin
 		if (nRESET == 1'b0) begin
-//			int_addr <= 0;
 			int_mode <= 0;
 		end else if (poke_wr_int) begin
-//			if (Addr == 16'd2038) int_addr[7:0] <= data;
-//			if (Addr == 16'd2039) int_addr[15:8] <= data;
-//			if (Addr == 16'd2040) {int_mode} <= data[1];
+			if (Addr == 16'd2038) int_addr[7:0] <= data;
+			if (Addr == 16'd2039) int_addr[15:8] <= data;
 		end
 	end
 	
@@ -1021,14 +1019,12 @@ assign DEBUG_RDY = 1'b0;
 		.nreset(nRESET),
 		.enable_int(enable_int),
 		.disable_int(disable_int),
-		.vsync(int_signal),
+		.superfast_mode(sfast_mode_en),
 		.int_addr(int_addr),
 		.addr(Addr),
 		.nRD(nRD),
 		.nM1(nM1),
 		.nMREQ(nMREQ),
-		.nHALT(nHALT),
-		.data_in(data),
 		.data_out(int_data_out),
 		.enable_out(int_out_en),
 		.enabled(int_enabled),

@@ -22,6 +22,8 @@
 #include "T81.h"
 #include "transfer.h"
 #include "COMMANDS.h"
+#include "FLASH_SPI.h"
+#include "FLASH_UPDATE.h"
 #include "VBAT.h"
 #include "RTC.h"
 #include "z80-disassembler.h"
@@ -84,6 +86,12 @@ void configure_interrupts(){
   log_1("✅ Interrupts enabled");
 }
 
+bool read_wait_serial_jumper() {
+  pinMode(WAIT_SERIAL, INPUT_PULLUP);
+  delayMicroseconds(10);                    // asentamiento
+  return (digitalRead(WAIT_SERIAL) == LOW); // true = jumper puenteado a GND = saltar la espera
+}
+
 void setup() {
   // SCB->VTOR = 0x0800C000; 
   // pinMode(SD_LED, OUTPUT);
@@ -94,12 +102,13 @@ void setup() {
   pinMode(ST_LED_R, OUTPUT);
   pinMode(ST_LED_G, OUTPUT);
   pinMode(ST_LED_B, OUTPUT);
-  pinMode(WAIT_SERIAL,INPUT_PULLUP);
 
   set_blinking(clRED, 4);
   //asm(".global _printf_float"); // Link FP-enabled printf library
   Serial.begin(SERIAL_SPEED);
-  while (!Serial && (digitalRead(WAIT_SERIAL)==HIGH));     // Espera a que el puerto serial esté listo o el jumper de deshabilitacion de la espera puesto
+
+  bool skip_wait = read_wait_serial_jumper();
+  while (!Serial && !skip_wait);     // Espera a que el puerto serial esté listo o el jumper de deshabilitacion de la espera puesto
   log_0("ℹ️ INIT");
   start_reset_Z80();
   set_blinking(clORANGE, 4);
@@ -115,22 +124,20 @@ void setup() {
   pinMode(A10b, INPUT);
   pinMode(A9b, INPUT);
   pinMode(A8b, INPUT);
-  pinMode(FPGA_DONE, INPUT);
-  pinMode(FPGAPROG, OUTPUT);
-  digitalWrite(FPGAPROG, HIGH);
-
   pinMode(FLASH_MOSI, INPUT);
   pinMode(FLASH_MISO, INPUT);
   pinMode(FLASH_SCLK, INPUT);
   pinMode(FLASH_CS, INPUT);
 
+  pinMode(FPGA_DONE, INPUT);
+  pinMode(FPGAPROG, OUTPUT);
+  digitalWrite(FPGAPROG, LOW);
+  delay(100);
+  digitalWrite(FPGAPROG, HIGH);
+
   pinMode(Z80_RESET, OUTPUT);
   digitalWrite(Z80_RESET, LOW);
   pinMode(FPGA_RESET, OUTPUT);
-  digitalWrite(FPGA_RESET, LOW);
-  delay(1);
-  //delay(1500); // espera a que arranque la FPGA
-  while (!digitalRead(FPGA_DONE));
   set_blinking(clPINK, 4);
 
  
@@ -188,13 +195,45 @@ void setup() {
   
   if (!SD_Init()) LED_error(clBLUE);
 
+  digitalWrite(FPGAPROG, LOW);
+  flash_begin();
+  Serial.print("Flash Jedec ID: ");
+  Serial.println(flash_read_jedec_id(), HEX);  // debe imprimir EF4018
+  flash_end();
+  char s[] = "/SD81.MCS";
+  FlashUpdateStatus st = flash_update_from_mcs(s);
+  if (st == FLASHUPD_NO_FILE) {
+    log_1("ℹ️ No %s on SD, nothing to update.", s);
+  } else {
+    Serial.print("flash_update status: "); Serial.println(st);
+    if (st == FLASHUPD_OK) {
+      if (sd.remove(s)) Serial.println("file erased.");
+      else Serial.println("❌ Error deleting file.");
+
+      // Forzar un ciclo COMPLETO de reconfiguracion de la FPGA aqui mismo:
+      // la FPGA sigue corriendo con el bitstream viejo en este punto. NO
+      // hace falta resetear el STM32 despues: en este punto del setup()
+      // aun no se ha tocado nada persistente de la MCU (RAM, interrupciones,
+      // DAC/mixer, RTC, VBAT vienen todos despues), asi que basta con que
+      // la FPGA quede reconfigurada y el propio setup() continua normal.
+   }
+    // On any error status: leave the file in place (retry next boot) and
+    // continue the normal boot with whatever bitstream is already loaded.
+  }
+
+  Serial.println("ℹ️ Reconfiguring FPGA...");
+  delay(100);
+  digitalWrite(FPGAPROG, HIGH);
+  while (!digitalRead(FPGA_DONE));
+  Serial.println("✅ FPGA reconfigured.");
+ 
   set_SDLed(LED_OFF);
 
   enableMem();
   int status = load_ROM("/SYS/SDBOOST.ROM");
+  disableMem();
   if (status == -1) LED_error(clORANGE);      // memory error
   else if (status == -2) LED_error(clBLUE);   // error openning ROM file
-  disableMem();
   set_blinking(clBLUE, 4);
   _rst_ctrl_reg(HIGH);
   _rst_data_reg(HIGH);
@@ -205,15 +244,11 @@ void setup() {
   send_joycfg("\x36\x26\x34\x35\x00");                
 
   configure_interrupts();
-  set_blinking(clPINK, 4);
-  log_0("ℹ️ reseting Z80");
-  digitalWrite(FPGA_RESET, HIGH);
-  delay(100);
-  digitalWrite(Z80_RESET, HIGH);
 //  playing_wav = false;
   set_blinking(clYELLOW, 4);
   rtc_init();
   Serial_print_time();
+
   vbat_init();
  float bat_level = get_battery_level();
 // uint8_t bat_byte = get_battery_byte();
@@ -221,6 +256,12 @@ if (bat_level > GOOD_BAT_LEVEL) Serial.print("✅ "); else if (bat_level > MIN_B
  Serial.print("Battery level: "); Serial.print(bat_level);Serial.println("V");
 // Serial.print("Battery level: "); Serial.println(bat_byte);
 //  log_0("Battery level: %.2f \n\r",bat_level);
+
+  set_blinking(clPINK, 4);
+  log_0("ℹ️ reseting Z80");
+  digitalWrite(FPGA_RESET, HIGH);
+  delay(100);
+  digitalWrite(Z80_RESET, HIGH);
 
   set_blinking_off();
   set_status_led_ok();

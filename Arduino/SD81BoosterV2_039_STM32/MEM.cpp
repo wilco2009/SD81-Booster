@@ -3,16 +3,16 @@
 
 uint8_t* extmem;
 
-const int ADDRESS_PINS[] = {PE0, PE1, PE2, PE3, PE4, PE5, PE6, PE7, PE8, PE9, PE10, PE11, PE12, PE13, PE14,A16b,A17b,A18b}; 
+const int ADDRESS_PINS[] = {PE0, PE1, PE2, PE3, PE4, PE5, PE6, PE7, PE8, PE9, PE10, PE11, PE12, PE13, PE14, A15b, A16b, A17b, A18b};
 const int DATA_PINS_OUT[] = {PD0, PD1, PD2, PD3, PD4, PD5, PD6, PD7}; 
 const int DATA_PINS_IN[] = {PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15}; 
 
 void mem_write_lapse(void){
-  delayMicroseconds(3);
+  delayMicroseconds(13);
 }
 
 void mem_read_lapse(void){
-  delayMicroseconds(3);
+  delayMicroseconds(13);
 }
 
 static void mem_testOk() {

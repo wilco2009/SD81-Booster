@@ -9,11 +9,10 @@
 #define nMEM_OEb        PA8
 #define UART_TX         PA9
 #define UART_RX         PA10
-#define WAIT_SERIAL     PA10  // cambiar?
 #define USB_DN          PA11
 #define USB_DP          PA12
 #define SWDIO           PA13
-#define SWCLK           PA14
+#define SWCLK           PA  14
 #define nOE_OL          PA15
 
 #define CFG_CLK         PB0
@@ -24,7 +23,8 @@
 #define RST_DATA_REG    PB5
 #define FPGA_HSWAPEN    PB5
 #define SCL             PB6   // unconnected
-#define SDA             PB7   // unconnected
+#define SDA             PB7   
+#define WAIT_SERIAL     PB7   
 #define FPGA_RESET      PB8
 #define Z80_RESET       PB9
 #define FLASH_SCLK      PB10
@@ -32,7 +32,6 @@
 #define A17b            PB12 
 #define A18b            PB13 
 #define RST_CTRL_REG    PB14
-// #define SEL_SPI_FLASH   PB14  // alternative use while RESET 
 #define SS_SD           PB15  
 
 #define SD_LED          PC0
@@ -48,7 +47,7 @@
 #define GET_DATA_REG    PC10
 #define QSPIN           PC11     
 #define FPGAPROG        PC12
-#define PS2_DATA        PC13
+#define SPARE           PC13
 #define CLK_32KH_0      PC14
 #define CLK_32KH_1      PC15
 

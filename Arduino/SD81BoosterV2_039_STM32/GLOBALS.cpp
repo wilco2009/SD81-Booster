@@ -127,6 +127,8 @@ void set_status_led_ok(){
 }
 
 void LED_error(uint32_t RGB1, uint32_t RGB2){
+    digitalWrite(FPGA_RESET, HIGH);
+
     while (1) {
       set_status_LED(RGB1);
       delay(500);

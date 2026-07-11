@@ -2,7 +2,7 @@
 <BODY TEXT='#000000' BGCOLOR='#FFFFFF' LINK='#0000EE' VLINK='#551A8B' ALINK='#FF0000'>
 <TABLE BORDER CELLSPACING=0 CELLPADDING=3 WIDTH='100%'>
 <TR ALIGN=CENTER BGCOLOR='#99CCFF'>
-<TD ALIGN=CENTER COLSPAN='4'><B>SD81 Project Status (11/09/2025 - 12:49:13)</B></TD></TR>
+<TD ALIGN=CENTER COLSPAN='4'><B>SD81 Project Status (07/08/2026 - 00:18:16)</B></TD></TR>
 <TR ALIGN=LEFT>
 <TD BGCOLOR='#FFFF99'><B>Project File:</B></TD>
 <TD>SD81V2.1000.xise</TD>
@@ -13,7 +13,7 @@
 <TD BGCOLOR='#FFFF99'><B>Module Name:</B></TD>
 <TD>SD81</TD>
 <TD BGCOLOR='#FFFF99'><B>Implementation State:</B></TD>
-<TD>Synthesized</TD>
+<TD>Programming File Generated</TD>
 </TR>
 <TR ALIGN=LEFT>
 <TD BGCOLOR='#FFFF99'><B>Target Device:</B></TD>
@@ -25,20 +25,21 @@ No Errors</TD>
 <TR ALIGN=LEFT>
 <TD BGCOLOR='#FFFF99'><B>Product Version:</B></TD><TD>ISE 14.7</TD>
 <TD BGCOLOR='#FFFF99'><UL><LI><B>Warnings:</B></LI></UL></TD>
-<TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/*.xmsgs?&DataKey=Warning'>101 Warnings (0 new)</A></TD>
+<TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/*.xmsgs?&DataKey=Warning'>186 Warnings (10 new)</A></TD>
 </TR>
 <TR ALIGN=LEFT>
 <TD BGCOLOR='#FFFF99'><B>Design Goal:</B></dif></TD>
 <TD>Timing Performance</TD>
 <TD BGCOLOR='#FFFF99'><UL><LI><B>Routing Results:</B></LI></UL></TD>
 <TD>
-&nbsp;</TD>
+<A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.unroutes'>All Signals Completely Routed</A></TD>
 </TR>
 <TR ALIGN=LEFT>
 <TD BGCOLOR='#FFFF99'><B>Design Strategy:</B></dif></TD>
 <TD><A HREF_DISABLED='Performance with IOB Packing?&DataKey=Strategy'>Performance with IOB Packing</A></TD>
 <TD BGCOLOR='#FFFF99'><UL><LI><B>Timing Constraints:</B></LI></UL></TD>
-<TD>&nbsp;</TD>
+<TD>
+<A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.ptwx?&DataKey=ConstraintsData'>All Constraints Met</A></TD>
 </TR>
 <TR ALIGN=LEFT>
 <TD BGCOLOR='#FFFF99'><B>Environment:</B></dif></TD>
@@ -47,7 +48,7 @@ No Errors</TD>
 System Settings</A>
 </TD>
 <TD BGCOLOR='#FFFF99'><UL><LI><B>Final Timing Score:</B></LI></UL></TD>
-<TD>&nbsp;&nbsp;</TD>
+<TD>0 &nbsp;<A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.twx?&DataKey=XmlTimingReport'>(Timing Report)</A></TD>
 </TR>
 </TABLE>
 
@@ -111,54 +112,533 @@ System Settings</A>
 <TR ALIGN=LEFT><TD>WARNING:Xst:737: - Found 1-bit latch for signal &lt;joy_cnf&lt;22&gt;&gt;. Latches may be generated from incomplete case or if statements. We do not recommend the use of latches in FPGA/CPLD designs, as they may lead to timing problems.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
 <TR ALIGN=LEFT><TD>WARNING:Xst:737: - Found 1-bit latch for signal &lt;joy_cnf&lt;21&gt;&gt;. Latches may be generated from incomplete case or if statements. We do not recommend the use of latches in FPGA/CPLD designs, as they may lead to timing problems.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
 <TR ALIGN=LEFT><TD>WARNING:Xst:737: - Found 1-bit latch for signal &lt;joy_cnf&lt;20&gt;&gt;. Latches may be generated from incomplete case or if statements. We do not recommend the use of latches in FPGA/CPLD designs, as they may lead to timing problems.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT BGCOLOR='#FFFF99'><TD><B>Translation Warnings</B></TD><TD COLSPAN='2'><B>New</B></TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:NgdBuild:1212: - User specified non-default attribute value (76.923077) was detected for the CLKIN_PERIOD attribute on DCM "dcm_final_inst/dcm_sp_inst". This does not match the PERIOD constraint value (76.923 ns.). The uncertainty calculation will use the non-default attribute value. This could result in incorrect uncertainty calculated for DCM output clocks.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:NgdBuild:452: - logical net 'shadowram/dinb&lt;7&gt;' has no driver</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:NgdBuild:452: - logical net 'shadowram/dinb&lt;6&gt;' has no driver</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:NgdBuild:452: - logical net 'shadowram/dinb&lt;5&gt;' has no driver</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:NgdBuild:452: - logical net 'shadowram/dinb&lt;4&gt;' has no driver</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:NgdBuild:452: - logical net 'shadowram/dinb&lt;3&gt;' has no driver</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:NgdBuild:452: - logical net 'shadowram/dinb&lt;2&gt;' has no driver</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:NgdBuild:452: - logical net 'shadowram/dinb&lt;1&gt;' has no driver</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:NgdBuild:452: - logical net 'shadowram/dinb&lt;0&gt;' has no driver</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT BGCOLOR='#FFFF99'><TD><B>Map Warnings (Only the first 50 listed)</B></TD><TD COLSPAN='2'><B>New</B></TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:MapLib:830: - Cannot automatically set COMPENSATION attribute for PLL_ADV clk104inst/pll_base_inst/PLL_ADV because no input clock signal was found.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:MapLib:701: - Signal CLK100 connected to top level port CLK100 has been removed.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_0" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_1" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_2" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_3" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_4" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_5" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_6" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_7" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_8" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_9" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_10" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_11" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_12" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_20" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_13" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_21" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_14" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_22" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_30" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_15" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_23" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_31" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_16" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_24" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_32" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_17" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_25" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_33" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_18" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_26" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_19" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_27" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_28" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Pack:2780: - The register "cfg_reg_29" has the property IOB=TRUE, but it did not join an IO component because it is not connected to any IO element.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net aychips[0].ay/rst_n_inv is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net clock_ym2149 is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net CTRL_out is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net kbdint is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net GND_1_o_GND_1_o_AND_383_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>New</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net chroma_mode_wr is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net DATA_out is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net nRESET_GND_1_o_AND_467_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>New</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net GND_1_o_GND_1_o_AND_392_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>New</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net cs_SPULA is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net nIOWR_inv is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net GND_1_o_GND_1_o_AND_387_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>New</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net GND_1_o_GND_1_o_AND_398_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>New</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net nFE_port_RD_NMIon_OR_83_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT BGCOLOR='#FFFF99'><TD><B>Place and Route Warnings</B></TD><TD COLSPAN='2'><B>New</B></TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Par:288: - The signal SPARE0_IBUF has no load. PAR will not attempt to route this signal.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Par:288: - The signal MICRO_DB_CLK_IBUF has no load. PAR will not attempt to route this signal.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:ParHelpers:361: - There are 2 loadless signals in this design. This design will cause Bitgen to issue DRC warnings.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:Par:283: - There are 2 loadless signals in this design. This design will cause Bitgen to issue DRC warnings.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT BGCOLOR='#FFFF99'><TD><B>Bitgen Warnings</B></TD><TD COLSPAN='2'><B>New</B></TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net aychips[0].ay/rst_n_inv is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net clock_ym2149 is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net CTRL_out is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net kbdint is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net GND_1_o_GND_1_o_AND_383_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>New</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net chroma_mode_wr is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net DATA_out is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net nRESET_GND_1_o_AND_467_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>New</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net GND_1_o_GND_1_o_AND_392_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>New</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net cs_SPULA is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net nIOWR_inv is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net GND_1_o_GND_1_o_AND_387_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>New</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net GND_1_o_GND_1_o_AND_398_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>New</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net nFE_port_RD_NMIon_OR_83_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net GND_1_o_GND_1_o_AND_380_o is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net DATA_in_out is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:372: - Gated clock. Clock net NMIset is sourced by a combinatorial pin. This is not good design practice. Use the CE pin to control the loading of data into the flip-flop.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
+<TR ALIGN=LEFT><TD>WARNING:PhysDesignRules:781: - PULLUP on an active net. PULLUP of comp DIN_PULLUP is set but the tri state is not configured.</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
 </TABLE>
 
 
 
 &nbsp;<BR><TABLE BORDER CELLSPACING=0 CELLPADDING=3 WIDTH='100%'>
-<TR ALIGN=CENTER BGCOLOR='#99CCFF'><TD ALIGN=CENTER COLSPAN='4'><B>Device Utilization Summary (estimated values)</B></TD><TD ALIGN=RIGHT WIDTH='10%'COLSPAN=1> <A HREF_DISABLED="?&ExpandedTable=DeviceUtilizationSummary(estimatedvalues)"><B>[-]</B></a></TD></TR>
+<TR ALIGN=CENTER BGCOLOR='#99CCFF'><TD ALIGN=CENTER COLSPAN='5'><B>Device Utilization Summary</B></TD><TD ALIGN=RIGHT WIDTH='10%'COLSPAN=1> <A HREF_DISABLED="?&ExpandedTable=DeviceUtilizationSummary"><B>[-]</B></a></TD></TR>
 <TR ALIGN=CENTER BGCOLOR='#FFFF99'>
-<TD ALIGN=LEFT><B>Logic Utilization</B></TD><TD><B>Used</B></TD><TD><B>Available</B></TD><TD COLSPAN='2'><B>Utilization</B></TD></TR>
+<TD ALIGN=LEFT><B>Slice Logic Utilization</B></TD><TD><B>Used</B></TD><TD><B>Available</B></TD><TD><B>Utilization</B></TD><TD COLSPAN='2'><B>Note(s)</B></TD>
+</TR>
 <TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of Slice Registers</TD>
-<TD ALIGN=RIGHT>1095</TD>
-<TD ALIGN=RIGHT>11440</TD>
-<TD ALIGN=RIGHT COLSPAN='2'>9%</TD>
+<TD ALIGN=RIGHT>1,149</TD>
+<TD ALIGN=RIGHT>11,440</TD>
+<TD ALIGN=RIGHT>10%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as Flip Flops</TD>
+<TD ALIGN=RIGHT>1,082</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as Latches</TD>
+<TD ALIGN=RIGHT>39</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as Latch-thrus</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as AND/OR logics</TD>
+<TD ALIGN=RIGHT>28</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
 </TR>
 <TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of Slice LUTs</TD>
-<TD ALIGN=RIGHT>2111</TD>
-<TD ALIGN=RIGHT>5720</TD>
-<TD ALIGN=RIGHT COLSPAN='2'>36%</TD>
+<TD ALIGN=RIGHT>1,635</TD>
+<TD ALIGN=RIGHT>5,720</TD>
+<TD ALIGN=RIGHT>28%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
 </TR>
-<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of fully used LUT-FF pairs</TD>
-<TD ALIGN=RIGHT>896</TD>
-<TD ALIGN=RIGHT>2310</TD>
-<TD ALIGN=RIGHT COLSPAN='2'>38%</TD>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as logic</TD>
+<TD ALIGN=RIGHT>1,577</TD>
+<TD ALIGN=RIGHT>5,720</TD>
+<TD ALIGN=RIGHT>27%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
 </TR>
-<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of bonded IOBs</TD>
-<TD ALIGN=RIGHT>97</TD>
-<TD ALIGN=RIGHT>102</TD>
-<TD ALIGN=RIGHT COLSPAN='2'>95%</TD>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number using O6 output only</TD>
+<TD ALIGN=RIGHT>883</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
 </TR>
-<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of Block RAM/FIFO</TD>
-<TD ALIGN=RIGHT>32</TD>
-<TD ALIGN=RIGHT>32</TD>
-<TD ALIGN=RIGHT COLSPAN='2'>100%</TD>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number using O5 output only</TD>
+<TD ALIGN=RIGHT>182</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
 </TR>
-<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of BUFG/BUFGCTRLs</TD>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number using O5 and O6</TD>
+<TD ALIGN=RIGHT>512</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number used as ROM</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as Memory</TD>
+<TD ALIGN=RIGHT>26</TD>
+<TD ALIGN=RIGHT>1,440</TD>
+<TD ALIGN=RIGHT>1%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number used as Dual Port RAM</TD>
+<TD ALIGN=RIGHT>24</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number using O6 output only</TD>
 <TD ALIGN=RIGHT>8</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number using O5 output only</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number using O5 and O6</TD>
 <TD ALIGN=RIGHT>16</TD>
-<TD ALIGN=RIGHT COLSPAN='2'>50%</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number used as Single Port RAM</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number used as Shift Register</TD>
+<TD ALIGN=RIGHT>2</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number using O6 output only</TD>
+<TD ALIGN=RIGHT>2</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number using O5 output only</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number using O5 and O6</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used exclusively as route-thrus</TD>
+<TD ALIGN=RIGHT>32</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number with same-slice register load</TD>
+<TD ALIGN=RIGHT>15</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number with same-slice carry load</TD>
+<TD ALIGN=RIGHT>17</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Number with other load</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of occupied Slices</TD>
+<TD ALIGN=RIGHT>634</TD>
+<TD ALIGN=RIGHT>1,430</TD>
+<TD ALIGN=RIGHT>44%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of MUXCYs used</TD>
+<TD ALIGN=RIGHT>408</TD>
+<TD ALIGN=RIGHT>2,860</TD>
+<TD ALIGN=RIGHT>14%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of LUT Flip Flop pairs used</TD>
+<TD ALIGN=RIGHT>1,838</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number with an unused Flip Flop</TD>
+<TD ALIGN=RIGHT>874</TD>
+<TD ALIGN=RIGHT>1,838</TD>
+<TD ALIGN=RIGHT>47%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number with an unused LUT</TD>
+<TD ALIGN=RIGHT>203</TD>
+<TD ALIGN=RIGHT>1,838</TD>
+<TD ALIGN=RIGHT>11%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number of fully used LUT-FF pairs</TD>
+<TD ALIGN=RIGHT>761</TD>
+<TD ALIGN=RIGHT>1,838</TD>
+<TD ALIGN=RIGHT>41%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number of unique control sets</TD>
+<TD ALIGN=RIGHT>97</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number of slice register sites lost<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to control set restrictions</TD>
+<TD ALIGN=RIGHT>333</TD>
+<TD ALIGN=RIGHT>11,440</TD>
+<TD ALIGN=RIGHT>2%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of bonded <A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81_map.xrpt?&DataKey=IOBProperties'>IOBs</A></TD>
+<TD ALIGN=RIGHT>98</TD>
+<TD ALIGN=RIGHT>102</TD>
+<TD ALIGN=RIGHT>96%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number of LOCed IOBs</TD>
+<TD ALIGN=RIGHT>97</TD>
+<TD ALIGN=RIGHT>98</TD>
+<TD ALIGN=RIGHT>98%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;IOB Flip Flops</TD>
+<TD ALIGN=RIGHT>21</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of RAMB16BWERs</TD>
+<TD ALIGN=RIGHT>32</TD>
+<TD ALIGN=RIGHT>32</TD>
+<TD ALIGN=RIGHT>100%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of RAMB8BWERs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>64</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of BUFIO2/BUFIO2_2CLKs</TD>
+<TD ALIGN=RIGHT>1</TD>
+<TD ALIGN=RIGHT>32</TD>
+<TD ALIGN=RIGHT>3%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as BUFIO2s</TD>
+<TD ALIGN=RIGHT>1</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as BUFIO2_2CLKs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of BUFIO2FB/BUFIO2FB_2CLKs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>32</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of BUFG/BUFGMUXs</TD>
+<TD ALIGN=RIGHT>6</TD>
+<TD ALIGN=RIGHT>16</TD>
+<TD ALIGN=RIGHT>37%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as BUFGs</TD>
+<TD ALIGN=RIGHT>6</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as BUFGMUX</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of DCM/DCM_CLKGENs</TD>
+<TD ALIGN=RIGHT>2</TD>
+<TD ALIGN=RIGHT>4</TD>
+<TD ALIGN=RIGHT>50%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as DCMs</TD>
+<TD ALIGN=RIGHT>2</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as DCM_CLKGENs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of ILOGIC2/ISERDES2s</TD>
+<TD ALIGN=RIGHT>15</TD>
+<TD ALIGN=RIGHT>200</TD>
+<TD ALIGN=RIGHT>7%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as ILOGIC2s</TD>
+<TD ALIGN=RIGHT>15</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as ISERDES2s</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of IODELAY2/IODRP2/IODRP2_MCBs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>200</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of OLOGIC2/OSERDES2s</TD>
+<TD ALIGN=RIGHT>6</TD>
+<TD ALIGN=RIGHT>200</TD>
+<TD ALIGN=RIGHT>3%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as OLOGIC2s</TD>
+<TD ALIGN=RIGHT>6</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>&nbsp;&nbsp;&nbsp;&nbsp;Number used as OSERDES2s</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of BSCANs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>4</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of BUFHs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>128</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of BUFPLLs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>8</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of BUFPLL_MCBs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>4</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of DSP48A1s</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>16</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of ICAPs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>1</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of MCBs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>2</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of PCILOGICSEs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>2</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
 </TR>
 <TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of PLL_ADVs</TD>
-<TD ALIGN=RIGHT>1</TD>
+<TD ALIGN=RIGHT>0</TD>
 <TD ALIGN=RIGHT>2</TD>
-<TD ALIGN=RIGHT COLSPAN='2'>50%</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of PMVs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>1</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of STARTUPs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>1</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Number of SUSPEND_SYNCs</TD>
+<TD ALIGN=RIGHT>0</TD>
+<TD ALIGN=RIGHT>1</TD>
+<TD ALIGN=RIGHT>0%</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TR>
+<TR ALIGN=RIGHT><TD ALIGN=LEFT>Average Fanout of Non-Clock Nets</TD>
+<TD ALIGN=RIGHT>3.77</TD>
+<TD>&nbsp;</TD>
+<TD>&nbsp;</TD>
+<TD COLSPAN='2'>&nbsp;</TD>
 </TR>
 </TABLE>
 
 
 
-
+&nbsp;<BR><TABLE BORDER CELLSPACING=0 CELLPADDING=3 WIDTH='100%'>
+<TR ALIGN=CENTER BGCOLOR='#99CCFF'><TD ALIGN=CENTER COLSPAN='4'><B>Performance Summary</B></TD><TD ALIGN=RIGHT WIDTH='10%'COLSPAN=1> <A HREF_DISABLED="?&ExpandedTable=PerformanceSummary"><B>[-]</B></a></TD></TR>
+<TR ALIGN=LEFT>
+<TD BGCOLOR='#FFFF99'><B>Final Timing Score:</B></TD>
+<TD>0 (Setup: 0, Hold: 0, Component Switching Limit: 0)</TD>
+<TD BGCOLOR='#FFFF99'><B>Pinout Data:</B></TD>
+<TD COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81_par.xrpt?&DataKey=PinoutData'>Pinout Report</A></TD>
+</TR>
+<TR ALIGN=LEFT>
+<TD BGCOLOR='#FFFF99'><B>Routing Results:</B></TD><TD>
+<A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.unroutes'>All Signals Completely Routed</A></TD>
+<TD BGCOLOR='#FFFF99'><B>Clock Data:</B></TD>
+<TD COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81_par.xrpt?&DataKey=ClocksData'>Clock Report</A></TD>
+</TR>
+<TR ALIGN=LEFT>
+<TD BGCOLOR='#FFFF99'><B>Timing Constraints:</B></TD>
+<TD>
+<A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.ptwx?&DataKey=ConstraintsData'>All Constraints Met</A></TD>
+<TD BGCOLOR='#FFFF99'><B>&nbsp;</B></TD>
+<TD COLSPAN='2'>&nbsp;</TD>
+</TABLE>
 
 
 
@@ -166,24 +646,24 @@ System Settings</A>
 <TR ALIGN=CENTER BGCOLOR='#99CCFF'><TD ALIGN=CENTER COLSPAN='6'><B>Detailed Reports</B></TD><TD ALIGN=RIGHT WIDTH='10%'COLSPAN=1> <A HREF_DISABLED="?&ExpandedTable=DetailedReports"><B>[-]</B></a></TD></TR>
 <TR BGCOLOR='#FFFF99'><TD><B>Report Name</B></TD><TD><B>Status</B></TD><TD><B>Generated</B></TD>
 <TD ALIGN=LEFT><B>Errors</B></TD><TD ALIGN=LEFT><B>Warnings</B></TD><TD ALIGN=LEFT COLSPAN='2'><B>Infos</B></TD></TR>
-<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.syr'>Synthesis Report</A></TD><TD>Current</TD><TD>Wed Jul 8 10:25:54 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/xst.xmsgs?&DataKey=Warning'>101 Warnings (0 new)</A></TD><TD ALIGN=LEFT COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/xst.xmsgs?&DataKey=Info'>51 Infos (0 new)</A></TD></TR>
-<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.bld'>Translation Report</A></TD><TD>Out of Date</TD><TD>Tue Jul 7 14:40:07 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/ngdbuild.xmsgs?&DataKey=Warning'>9 Warnings (0 new)</A></TD><TD ALIGN=LEFT COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/ngdbuild.xmsgs?&DataKey=Info'>2 Infos (0 new)</A></TD></TR>
-<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81_map.mrp'>Map Report</A></TD><TD>Out of Date</TD><TD>Tue Jul 7 14:40:30 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/map.xmsgs?&DataKey=Warning'>54 Warnings (0 new)</A></TD><TD ALIGN=LEFT COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/map.xmsgs?&DataKey=Info'>10 Infos (0 new)</A></TD></TR>
-<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.par'>Place and Route Report</A></TD><TD>Out of Date</TD><TD>Tue Jul 7 14:40:46 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/par.xmsgs?&DataKey=Warning'>4 Warnings (0 new)</A></TD><TD ALIGN=LEFT COLSPAN='2'>0</TD></TR>
+<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.syr'>Synthesis Report</A></TD><TD>Current</TD><TD>Thu Jul 9 11:44:49 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/xst.xmsgs?&DataKey=Warning'>101 Warnings (0 new)</A></TD><TD ALIGN=LEFT COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/xst.xmsgs?&DataKey=Info'>51 Infos (7 new)</A></TD></TR>
+<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.bld'>Translation Report</A></TD><TD>Current</TD><TD>Thu Jul 9 11:45:00 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/ngdbuild.xmsgs?&DataKey=Warning'>9 Warnings (0 new)</A></TD><TD ALIGN=LEFT COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/ngdbuild.xmsgs?&DataKey=Info'>2 Infos (0 new)</A></TD></TR>
+<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81_map.mrp'>Map Report</A></TD><TD>Current</TD><TD>Thu Jul 9 11:45:24 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/map.xmsgs?&DataKey=Warning'>54 Warnings (5 new)</A></TD><TD ALIGN=LEFT COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/map.xmsgs?&DataKey=Info'>10 Infos (0 new)</A></TD></TR>
+<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.par'>Place and Route Report</A></TD><TD>Current</TD><TD>Thu Jul 9 11:45:41 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/par.xmsgs?&DataKey=Warning'>4 Warnings (0 new)</A></TD><TD ALIGN=LEFT COLSPAN='2'>0</TD></TR>
 <TR ALIGN=LEFT><TD>Power Report</TD><TD>&nbsp;</TD><TD>&nbsp;</TD><TD>&nbsp;</TD><TD>&nbsp;</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
-<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.twr'>Post-PAR Static Timing Report</A></TD><TD>Out of Date</TD><TD>Tue Jul 7 14:40:54 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/trce.xmsgs?&DataKey=Info'>3 Infos (0 new)</A></TD></TR>
-<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.bgn'>Bitgen Report</A></TD><TD>Out of Date</TD><TD>Tue Jul 7 14:41:07 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/bitgen.xmsgs?&DataKey=Warning'>18 Warnings (0 new)</A></TD><TD ALIGN=LEFT COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/bitgen.xmsgs?&DataKey=Info'>1 Info (0 new)</A></TD></TR>
+<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.twr'>Post-PAR Static Timing Report</A></TD><TD>Current</TD><TD>Thu Jul 9 11:45:51 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/trce.xmsgs?&DataKey=Info'>3 Infos (0 new)</A></TD></TR>
+<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.bgn'>Bitgen Report</A></TD><TD>Current</TD><TD>Thu Jul 9 11:46:10 2026</TD><TD ALIGN=LEFT>0</TD><TD ALIGN=LEFT><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/bitgen.xmsgs?&DataKey=Warning'>18 Warnings (5 new)</A></TD><TD ALIGN=LEFT COLSPAN='2'><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/_xmsgs/bitgen.xmsgs?&DataKey=Info'>1 Info (0 new)</A></TD></TR>
 </TABLE>
 &nbsp;<BR><TABLE BORDER CELLSPACING=0 CELLPADDING=3 WIDTH='100%'>
 <TR ALIGN=CENTER BGCOLOR='#99CCFF'><TD ALIGN=CENTER COLSPAN='3'><B>Secondary Reports</B></TD><TD ALIGN=RIGHT WIDTH='10%'COLSPAN=1> <A HREF_DISABLED="?&ExpandedTable=SecondaryReports"><B>[-]</B></a></TD></TR>
 <TR BGCOLOR='#FFFF99'><TD><B>Report Name</B></TD><TD><B>Status</B></TD><TD COLSPAN='2'><B>Generated</B></TD></TR>
-<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81_map.map'>Map Log File</A></TD><TD>Out of Date</TD><TD COLSPAN='2'>Tue Jul 7 14:40:30 2026</TD></TR>
-<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81_pad.txt'>Pad Report</A></TD><TD>Out of Date</TD><TD COLSPAN='2'>Tue Jul 7 14:40:46 2026</TD></TR>
-<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.unroutes'>Unroutes Report</A></TD><TD>Out of Date</TD><TD COLSPAN='2'>Tue Jul 7 14:40:46 2026</TD></TR>
+<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81_map.map'>Map Log File</A></TD><TD>Current</TD><TD COLSPAN='2'>Thu Jul 9 11:45:24 2026</TD></TR>
+<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81_pad.txt'>Pad Report</A></TD><TD>Current</TD><TD COLSPAN='2'>Thu Jul 9 11:45:41 2026</TD></TR>
+<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/SD81.unroutes'>Unroutes Report</A></TD><TD>Current</TD><TD COLSPAN='2'>Thu Jul 9 11:45:41 2026</TD></TR>
 <TR ALIGN=LEFT><TD>WebTalk Report</TD><TD>&nbsp;</TD><TD COLSPAN='2'>&nbsp;</TD></TR>
-<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/webtalk.log'>WebTalk Log File</A></TD><TD>Out of Date</TD><TD COLSPAN='2'>Tue Jul 7 14:41:08 2026</TD></TR>
+<TR ALIGN=LEFT><TD><A HREF_DISABLED='/home/ise/ClaudeCode/SD81-Booster/FPGA/SD81V2.1000/webtalk.log'>WebTalk Log File</A></TD><TD>Current</TD><TD COLSPAN='2'>Thu Jul 9 11:46:11 2026</TD></TR>
 </TABLE>
 
 
-<br><center><b>Date Generated:</b> 07/07/2026 - 13:51:54</center>
+<br><center><b>Date Generated:</b> 07/08/2026 - 00:18:18</center>
 </BODY></HTML>

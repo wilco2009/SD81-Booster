@@ -226,8 +226,9 @@ FsFile f;
     f.seekSet(0);
     for (int i=0; i< f.fileSize(); i++){
       uint8_t b = f.read();
-      if (read_sram(i) != b) {
-        log_0("❌ Error in mem pos %d",i);
+      uint8_t a = read_sram(i);
+      if (a != b) {
+        log_0("❌ Error in mem pos=%d write=%d read=%d ",i, b, a);
         return -1;
       }
     }

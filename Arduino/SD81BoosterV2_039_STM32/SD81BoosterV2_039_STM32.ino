@@ -525,6 +525,11 @@ void loop() { // Loop for test PLAY command
     dir.close();
     //VGMFile.close();
     TmpFile.close();
+    // Cierre de los handles de acceso aleatorio (CP/M), diferido aqui desde
+    // get_ctrl_reg() (COMMS.cpp) para no tocar la SD/SPI dentro de una ISR.
+    for (int i = 0; i < 4; i++) {
+      if (f_opened[i]) { f_handle[i].close(); f_opened[i] = false; }
+    }
     delay(100);
   }
   QS_pressed = !digitalRead(QSPIN);

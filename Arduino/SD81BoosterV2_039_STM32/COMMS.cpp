@@ -197,10 +197,12 @@ void _rst_data_reg(uint8_t status) {
 void get_ctrl_reg(void){
    _rst_ctrl_reg(LOW);
   reset_commands();
-  // cerrar los handles de acceso aleatorio (CP/M) abiertos
-  for (int i=0; i<4; i++){
-    if (f_opened[i]){ f_handle[i].close(); f_opened[i]=false; }
-  }
+  // Los handles de acceso aleatorio (CP/M) NO se cierran aqui - esto es una
+  // ISR, y cerrar ficheros toca la SD/SPI. Si esta interrupcion salta
+  // mientras el loop() esta a mitad de OTRA operacion SD (p.ej. el
+  // manejador WiFi leyendo/escribiendo la tarjeta), las dos transacciones
+  // SPI se pisan y corrompen. Se difiere al loop() principal via el flag
+  // reseted, igual que ya se hace con Sfile/Dfile/dir/TmpFile.
   reseted = true;
   initialised = false;
   Serial.println("RESET");

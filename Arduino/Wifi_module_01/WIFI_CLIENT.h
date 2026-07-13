@@ -22,6 +22,11 @@ struct WifiDirEntry {
   bool     is_dir;
 };
 
+struct WifiNetwork {
+  char ssid[WIFI_PROTO_MAX_SSID + 1];
+  char pass[WIFI_PROTO_MAX_PASS + 1];
+};
+
 void wifi_client_init();
 
 // Peticion generica (bajo nivel) - usar las de mas arriba cuando encajen.
@@ -37,6 +42,14 @@ bool wifi_client_read_chunk(uint8_t handle, uint32_t offset, uint8_t* buf, uint1
 bool wifi_client_read_close(uint8_t handle);
 bool wifi_client_delete(const char* path);
 bool wifi_client_mkdir(const char* path);
-bool wifi_client_get_wifi_cfg(bool* out_configured, char* out_ssid, char* out_pass);
+
+// Descarga /SYS/WIFI.CFG (via READ_OPEN/CHUNK/CLOSE, como cualquier otro
+// fichero - el STM32 no sabe nada de "redes WiFi") y lo interpreta aqui
+// mismo: pares de lineas SSID/password, repetidos uno tras otro. Rellena
+// `networks` (hasta max_networks entradas) en el mismo orden del fichero.
+// *out_count es cuantas se guardaron. Devuelve false solo si fallo el
+// transporte al pedir el fichero - que no exista o este vacio da
+// *out_count=0 con return true, no es un error.
+bool wifi_client_read_wifi_networks(WifiNetwork* networks, uint8_t max_networks, uint8_t* out_count);
 
 #endif

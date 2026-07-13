@@ -192,17 +192,24 @@ static void handle_stat(const uint8_t* payload, uint16_t len) {
 // Nombre fijo usado por el ESP32 para auto-actualizar su propio firmware
 // desde la SD (ver Wifi_module_01.ino, FW_UPDATE_PATH). READ_OPEN/DELETE
 // sobre este path no llevan ninguna marca especial en el protocolo - se
-// reconoce aqui solo para informar al usuario por la consola del STM32
-// (la que de verdad ve, no el Monitor Serie del ESP32).
+// reconoce aqui solo para informar al usuario por la consola y el LED del
+// STM32 (los que de verdad ve un usuario normal, no el Monitor Serie del
+// ESP32, que no va a tener conectado).
 #define ESP32_FW_PATH "/SYS/ESP32_FW.BIN"
+
+// Si el ESP32 falla a mitad de la actualizacion (imagen corrupta, error de
+// escritura, etc.) nunca llega a pedir DELETE - el fichero se queda en la
+// SD para reintentar en el siguiente arranque, pero el STM32 no tiene
+// ninguna otra señal de que ha terminado (con error). Sin esto, el LED se
+// quedaria parpadeando rosa para siempre. Timeout: si no llega la
+// confirmacion de exito (DELETE) en este plazo, se asume fallo.
+#define ESP32_UPDATE_TIMEOUT_MS  60000
+static bool esp32_update_in_progress = false;
+static uint32_t esp32_update_start_ms = 0;
 
 static void handle_read_open(const uint8_t* payload, uint16_t len) {
   char path[WIFI_PROTO_MAX_PATH];
   if (!extract_path(payload, len, path)) { send_status_only(CMD_READ_OPEN, ST_IO_ERROR); return; }
-
-  if (strcmp(path, ESP32_FW_PATH) == 0) {
-    Serial.println("Updating ESP32 firmware from the SD card...");
-  }
 
   int h = alloc_handle();
   if (h < 0) { send_status_only(CMD_READ_OPEN, ST_NO_HANDLE_FREE); return; }
@@ -212,6 +219,17 @@ static void handle_read_open(const uint8_t* payload, uint16_t len) {
     return;
   }
   wifi_handle_used[h] = true;
+
+  // Solo se dispara aqui, DESPUES de confirmar que el fichero existe de
+  // verdad - el ESP32 pide READ_OPEN de este path en TODOS los arranques
+  // (exista o no la actualizacion), asi que disparar esto antes de saber
+  // si realmente se abrio encenderia el LED en cada arranque normal.
+  if (strcmp(path, ESP32_FW_PATH) == 0) {
+    Serial.println("Updating ESP32 firmware from the SD card...");
+    set_blinking(clPINK, 4);
+    esp32_update_in_progress = true;
+    esp32_update_start_ms = millis();
+  }
 
   uint32_t size = wifi_handle[h].size();
   tx_payload[0] = ST_OK;
@@ -319,6 +337,9 @@ static void handle_delete(const uint8_t* payload, uint16_t len) {
   bool ok = is_dir ? sd.rmdir(path) : sd.remove(path);
   if (ok && strcmp(path, ESP32_FW_PATH) == 0) {
     Serial.println("ESP32 firmware update completed successfully.");
+    set_blinking_off();
+    set_status_led_ok();
+    esp32_update_in_progress = false;
   }
   send_status_only(CMD_DELETE, ok ? ST_OK : ST_IO_ERROR);
 }
@@ -330,47 +351,21 @@ static void handle_mkdir(const uint8_t* payload, uint16_t len) {
   send_status_only(CMD_MKDIR, ok ? ST_OK : ST_IO_ERROR);
 }
 
-// /SYS/WIFI.CFG: two lines of text, SSID and password. The STM32 owns this
-// configuration (written from BASIC, see WIFI_PROTOCOL.h) - the ESP32 asks
-// for it at boot, it doesn't persist it itself.
-static void handle_get_wifi_cfg() {
-  log_1("WIFI GET_WIFI_CFG: enter");
-  FsFile f = sd.open("/SYS/WIFI.CFG", O_RDONLY);
-  log_1("WIFI GET_WIFI_CFG: sd.open returned, exists=%d", (bool)f);
-  if (!f) {
-    tx_payload[0] = ST_OK;
-    tx_payload[1] = 0;   // configured = false
-    wifi_send_frame(CMD_GET_WIFI_CFG, tx_payload, 2);
-    log_1("WIFI GET_WIFI_CFG: response sent (not configured)");
-    return;
-  }
-
-  char ssid[WIFI_PROTO_MAX_SSID + 1];
-  char pass[WIFI_PROTO_MAX_PASS + 1];
-  int ssid_len = f.fgets(ssid, sizeof(ssid));
-  log_1("WIFI GET_WIFI_CFG: ssid_len=%d", ssid_len);
-  int pass_len = f.fgets(pass, sizeof(pass));
-  log_1("WIFI GET_WIFI_CFG: pass_len=%d", pass_len);
-  f.close();
-
-  if (ssid_len < 0) ssid_len = 0;
-  if (pass_len < 0) pass_len = 0;
-  while (ssid_len > 0 && (ssid[ssid_len - 1] == '\n' || ssid[ssid_len - 1] == '\r')) ssid[--ssid_len] = 0;
-  while (pass_len > 0 && (pass[pass_len - 1] == '\n' || pass[pass_len - 1] == '\r')) pass[--pass_len] = 0;
-  log_1("WIFI GET_WIFI_CFG: after trimming, ssid_len=%d pass_len=%d", ssid_len, pass_len);
-
-  uint16_t pos = 0;
-  tx_payload[pos++] = ST_OK;
-  tx_payload[pos++] = 1;   // configured = true
-  tx_payload[pos++] = (uint8_t)ssid_len;
-  memcpy(&tx_payload[pos], ssid, ssid_len); pos += ssid_len;
-  tx_payload[pos++] = (uint8_t)pass_len;
-  memcpy(&tx_payload[pos], pass, pass_len); pos += pass_len;
-  wifi_send_frame(CMD_GET_WIFI_CFG, tx_payload, pos);
-  log_1("WIFI GET_WIFI_CFG: response sent (configured), pos=%d", pos);
-}
+// /SYS/WIFI.CFG ya no tiene un comando dedicado (era CMD_GET_WIFI_CFG,
+// retirado por una condicion de carrera SD dificil de depurar entre esta
+// funcion y la ISR get_ctrl_reg - ver memoria del proyecto). Se sirve como
+// un fichero de texto mas via los comandos genericos READ_OPEN/READ_CHUNK/
+// READ_CLOSE, ya manejados por handle_read_open/handle_read_chunk mas
+// arriba en este fichero - el ESP32 lo descarga y lo interpreta el mismo.
 
 void wifi_handler_poll() {
+  if (esp32_update_in_progress && (millis() - esp32_update_start_ms > ESP32_UPDATE_TIMEOUT_MS)) {
+    Serial.println("ESP32 firmware update timed out - assuming it failed.");
+    set_blinking_off();
+    set_status_LED(clYELLOW);
+    esp32_update_in_progress = false;
+  }
+
   if (!WIFI_SERIAL.available()) return;
   if (WIFI_SERIAL.read() != WIFI_PROTO_SOF) return;   // resincroniza byte a byte si hay ruido
 
@@ -389,7 +384,6 @@ void wifi_handler_poll() {
     case CMD_WRITE_CHUNK:  handle_write_chunk(rx_payload, len); break;
     case CMD_WRITE_CLOSE:  handle_write_close(rx_payload, len); break;
     case CMD_DELETE:       handle_delete(rx_payload, len); break;
-    case CMD_GET_WIFI_CFG: handle_get_wifi_cfg(); break;
     case CMD_MKDIR:        handle_mkdir(rx_payload, len); break;
     default: break;   // comando desconocido: se ignora
   }

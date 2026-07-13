@@ -192,19 +192,65 @@ bool wifi_client_mkdir(const char* path) {
   return r.ok && r.len >= 1 && r.payload[0] == ST_OK;
 }
 
-bool wifi_client_get_wifi_cfg(bool* out_configured, char* out_ssid, char* out_pass) {
-  WifiProtoResp r = wifi_client_request(CMD_GET_WIFI_CFG, NULL, 0);
-  if (!r.ok || r.len < 2 || r.payload[0] != ST_OK) return false;
+bool wifi_client_read_wifi_networks(WifiNetwork* networks, uint8_t max_networks, uint8_t* out_count) {
+  *out_count = 0;
 
-  *out_configured = r.payload[1] != 0;
-  if (!*out_configured) return true;
+  uint8_t handle;
+  uint32_t file_size;
+  if (!wifi_client_read_open("/SYS/WIFI.CFG", &handle, &file_size)) {
+    // Fichero inexistente u otro fallo de apertura - no es un error de
+    // transporte, simplemente no hay configuracion guardada todavia.
+    return true;
+  }
 
-  uint16_t pos = 2;
-  uint8_t ssid_len = r.payload[pos++];
-  memcpy(out_ssid, &r.payload[pos], ssid_len); out_ssid[ssid_len] = 0;
-  pos += ssid_len;
-  uint8_t pass_len = r.payload[pos++];
-  memcpy(out_pass, &r.payload[pos], pass_len); out_pass[pass_len] = 0;
-  pos += pass_len;
+  String content;
+  content.reserve(file_size + 1);
+  uint32_t offset = 0;
+  bool eof = false;
+  bool transport_ok = true;
+
+  while (!eof) {
+    uint8_t buf[WIFI_PROTO_CHUNK_SIZE];
+    uint16_t len = 0;
+    if (!wifi_client_read_chunk(handle, offset, buf, &len, &eof)) {
+      transport_ok = false;
+      break;
+    }
+    for (uint16_t i = 0; i < len; i++) content += (char)buf[i];
+    offset += len;
+    if (len == 0 && !eof) break; // evita bucle infinito si el STM32 no marca eof
+  }
+
+  wifi_client_read_close(handle);
+  if (!transport_ok) return false;
+
+  // Formato: pares de lineas SSID/password, uno tras otro. Lineas separadas
+  // por \n (y \r opcional, por si el fichero se edito en Windows).
+  uint8_t stored = 0;
+  int pos = 0;
+  int len = content.length();
+  String lines[2];
+  int line_idx = 0;
+
+  while (pos <= len && stored < max_networks) {
+    int nl = content.indexOf('\n', pos);
+    String line = (nl == -1) ? content.substring(pos) : content.substring(pos, nl);
+    while (line.endsWith("\r")) line.remove(line.length() - 1);
+
+    if (line.length() > 0) {
+      lines[line_idx++] = line;
+      if (line_idx == 2) {
+        lines[0].toCharArray(networks[stored].ssid, sizeof(networks[stored].ssid));
+        lines[1].toCharArray(networks[stored].pass, sizeof(networks[stored].pass));
+        stored++;
+        line_idx = 0;
+      }
+    }
+
+    if (nl == -1) break;
+    pos = nl + 1;
+  }
+
+  *out_count = stored;
   return true;
 }

@@ -9,7 +9,10 @@
 // Fixed path on the SD card for a pending ESP32 firmware image. If present at
 // boot, it gets flashed via the Update library and deleted on success - same
 // pattern as the STM32's own SD81.MCS FPGA self-update.
-#define FW_UPDATE_PATH "/SYS/ESP32_FW.BIN"
+// Raiz de la SD, no /SYS - misma convencion que firmware.bin (STM32) y
+// SD81.MCS (FPGA), los otros dos ficheros de auto-actualizacion.
+#define FW_UPDATE_PATH        "/ESP32_FW.BIN"
+#define FW_UPDATE_FAILED_PATH "/ESP32_FW_FAILED.TXT"
 
 #define MDNS_HOSTNAME "sd81booster"   // reachable at http://sd81booster.local
 
@@ -239,11 +242,32 @@ void handleDelete() {
   server.send(303);
 }
 
+// Writes a short text note explaining why the update was rejected, so the
+// SD card carries visible evidence instead of the update silently vanishing.
+void mark_firmware_update_failed(const char* reason) {
+  uint8_t handle;
+  if (!wifi_client_write_open(FW_UPDATE_FAILED_PATH, &handle)) return;
+  String content = "SD81 Booster ESP32 firmware update REJECTED.\n";
+  content += "Reason: "; content += reason; content += "\n";
+  content += "The bad file was deleted - copy a known-good ESP32_FW.BIN to the SD card root and retry.\n";
+  wifi_client_write_chunk(handle, (const uint8_t*)content.c_str(), content.length());
+  uint32_t total;
+  wifi_client_write_close(handle, &total);
+}
+
 // Checks for a pending firmware image on the SD card and applies it. Reuses
 // the existing READ_OPEN/READ_CHUNK/READ_CLOSE + DELETE protocol commands -
 // no new protocol needed. On success, deletes the file and reboots into the
-// new firmware. On any failure, aborts and leaves the file in place so the
-// next boot retries (same recovery pattern as the STM32's FPGA self-update).
+// new firmware.
+//
+// On failure there are two different cases:
+// - Transport error (READ_CHUNK failed, i.e. the STM32<->ESP32 UART link
+//   hiccuped) - not the file's fault, leave it in place so next boot retries.
+// - Content error (bad magic byte, size mismatch, SHA-256 mismatch inside
+//   Update.end()) - the file itself is bad, so retrying forever is pointless
+//   and would just re-trigger the update-in-progress LED sequence on every
+//   boot. Delete it and leave a short explanatory note instead (see
+//   FW_UPDATE_FAILED_PATH above).
 void check_and_apply_firmware_update() {
   uint8_t handle;
   uint32_t size;
@@ -255,8 +279,12 @@ void check_and_apply_firmware_update() {
   Serial.print("Firmware update file found, size="); Serial.println(size);
 
   if (!Update.begin(size)) {
+    // Not a transport error - Update itself rejected the requested size
+    // (e.g. too big for the inactive OTA partition) before reading anything.
     Serial.print("Update.begin failed: "); Serial.println(Update.errorString());
     wifi_client_read_close(handle);
+    wifi_client_delete(FW_UPDATE_PATH);
+    mark_firmware_update_failed(Update.errorString());
     return;
   }
 
@@ -264,12 +292,14 @@ void check_and_apply_firmware_update() {
   uint32_t offset = 0;
   bool eof = false;
   bool ok = true;
+  bool transport_error = false;
 
   while (!eof && offset < size) {
     uint16_t n = 0;
     if (!wifi_client_read_chunk(handle, offset, buf, &n, &eof)) {
       Serial.println("Error: READ_CHUNK failed during firmware update");
       ok = false;
+      transport_error = true;
       break;
     }
     if (n == 0) break;
@@ -286,12 +316,22 @@ void check_and_apply_firmware_update() {
   if (ok && offset == size && Update.end(true)) {
     Serial.println("Firmware update applied successfully - deleting file and rebooting...");
     wifi_client_delete(FW_UPDATE_PATH);
+    wifi_client_delete(FW_UPDATE_FAILED_PATH); // clear any stale failure note from a previous attempt
     delay(200);
     ESP.restart();
+    return;
+  }
+
+  const char* reason = Update.errorString();
+  Update.abort();
+  Serial.print("Firmware update FAILED: "); Serial.println(reason);
+
+  if (transport_error) {
+    Serial.println("Transport error - file left on the SD card for retry on next boot.");
   } else {
-    Update.abort();
-    Serial.print("Firmware update FAILED: "); Serial.println(Update.errorString());
-    Serial.println("File left on the SD card for retry on next boot.");
+    Serial.println("Content error - deleting bad file so it isn't retried forever.");
+    wifi_client_delete(FW_UPDATE_PATH);
+    mark_firmware_update_failed(reason);
   }
 }
 

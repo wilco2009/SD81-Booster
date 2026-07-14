@@ -110,7 +110,7 @@ char file_name[MAX_FILENAME_LEN];
     char* ext = get_filename_ext(ss);
     upStr(ext);
     if (strcmp(ext,"T81")==0){
-      ss[strlen(ss)]='/';
+      strcat(ss,"/");
       T81_dir = true;
       error_code = 0;
       strcpy(current_dir,ss);
@@ -501,7 +501,7 @@ uint32_t fsize2;
         delay(10);
       }
       i = 0;
-      if (!Sfile.isOpen()){
+      if (Sfile.isOpen()){
         Sfile.seekSet(fpos);
         log_1("sending file");
         // send file length
@@ -890,8 +890,6 @@ char ascSize[0x10];
       else break;
       delay(10);
     }
-    if (!Sfile.isOpen()) log_0("error openning %s",dirname);
-    else log_0("error openning %s",dirname);
     Sfile.seekSet(4); // skip header
     while (!fin) {
       set_SDLed((millis() % 64)>32);

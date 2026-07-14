@@ -1325,9 +1325,8 @@ similar).
 
 The WiFi module can update its own firmware from the SD card, with no
 need to connect it to a computer. Copy the ESP32_FW.BIN file (available
-in the project repository) to the SYS folder of the SD card - for
-example by uploading it through the file server itself - and restart the
-interface.
+in the project repository) to the root of the SD card - for example by
+uploading it through the file server itself - and restart the interface.
 
 During the update, the STAT LED blinks pink. If it finishes
 successfully, it turns solid green. If the process fails, the LED stays

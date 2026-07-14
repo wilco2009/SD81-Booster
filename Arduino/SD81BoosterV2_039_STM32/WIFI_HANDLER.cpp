@@ -195,7 +195,9 @@ static void handle_stat(const uint8_t* payload, uint16_t len) {
 // reconoce aqui solo para informar al usuario por la consola y el LED del
 // STM32 (los que de verdad ve un usuario normal, no el Monitor Serie del
 // ESP32, que no va a tener conectado).
-#define ESP32_FW_PATH "/SYS/ESP32_FW.BIN"
+// En la raiz de la SD, no en /SYS - misma convencion que firmware.bin (STM32)
+// y SD81.MCS (FPGA), los otros dos ficheros de auto-actualizacion.
+#define ESP32_FW_PATH "/ESP32_FW.BIN"
 
 // Si el ESP32 falla a mitad de la actualizacion (imagen corrupta, error de
 // escritura, etc.) nunca llega a pedir DELETE - el fichero se queda en la

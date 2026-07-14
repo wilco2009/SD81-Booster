@@ -1362,9 +1362,9 @@ dispositivos conectados del panel de administración de tu router
 
 El módulo WiFi puede actualizar su propio firmware desde la SD, sin
 necesidad de conectarlo a un ordenador. Copia el archivo ESP32_FW.BIN
-(disponible en el repositorio del proyecto) en la carpeta SYS de la SD
---- por ejemplo subiéndolo con el propio servidor de archivos --- y
-reinicia el interface.
+(disponible en el repositorio del proyecto) en la raíz de la SD --- por
+ejemplo subiéndolo con el propio servidor de archivos --- y reinicia el
+interface.
 
 Durante la actualización, el LED STAT parpadea en rosa. Si termina con
 éxito, pasa a verde fijo. Si el proceso falla, el LED se queda en

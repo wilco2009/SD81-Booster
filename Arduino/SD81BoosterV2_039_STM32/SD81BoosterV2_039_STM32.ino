@@ -239,7 +239,7 @@ void setup() {
   _rst_ctrl_reg(HIGH);
   _rst_data_reg(HIGH);
   // define comms functions
-  
+
   wifi_handler_init();
   
   send_config();  
@@ -265,6 +265,23 @@ if (bat_level > GOOD_BAT_LEVEL) Serial.print("✅ "); else if (bat_level > MIN_B
   digitalWrite(FPGA_RESET, HIGH);
   delay(100);
   digitalWrite(Z80_RESET, HIGH);
+
+  // Invalidar la IP publicada en el arranque anterior: si el ESP32 no llega
+  // a conectarse esta vez (o no esta presente), no debe quedar una IP vieja
+  // que LOAD THEN PRINT "*IP" siga mostrando como si fuera valida. Se
+  // sobreescribe con un texto de aviso en vez de borrar el fichero.
+  // Colocado DESPUES de liberar el reset del Z80 a proposito: si esta
+  // escritura a SD fallase o tardase (p.ej. "/MAN" no existe todavia), no
+  // debe poder bloquear nunca el arranque del Z80 (causo justo eso antes:
+  // "/MAN" no se creaba en ningun sitio, sin video hasta comentarlo).
+  if (!sd.exists("/MAN")) sd.mkdir("/MAN");
+  {
+    FsFile ipf;
+    if (ipf.open("/MAN/IP.TXT", O_WRONLY | O_CREAT | O_TRUNC)) {
+      ipf.print("NO CONNEXION");
+      ipf.close();
+    }
+  }
 
   set_blinking_off();
   set_status_led_ok();
@@ -495,6 +512,21 @@ void process_serial_commands(void){
                     }
                   }
                   Serial_print_time();
+              } else if (strncmp(serial_command_buffer, "IP", 2) == 0){
+                SdFile f;
+                char ipfile[]="/MAN/IP.TXT";
+                if (sd.exists(ipfile)) {
+                  if (!f.open(ipfile, O_READ)) {
+                    Serial.print("Error abriendo"); Serial.println(ipfile);
+                    return;
+                  }
+                  char linea[100];
+                  int n;
+                  while ((n = f.fgets(linea, sizeof(linea))) > 0) {
+                    Serial.print(linea);
+                  }
+                  f.close();
+                }
               } 
               else {
                   Serial.print("Unknown command: ");

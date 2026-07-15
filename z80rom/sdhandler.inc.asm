@@ -1102,6 +1102,43 @@ chEol:		call	MustBeEOL	; Check if EOL and end syntax check
 		ld	i,a		; Set I to point to the high byte
 		ret
 
+; LOAD *WRX [STOP]
+; WRX in the second 8K (I in $20-$3F): FPGA-mapped register, no MCU
+; involved, so this is a plain POKE instead of the MCU protocol used
+; by MC45/128C/etc above.
+CmdWRX:		ld	bc,170*256+85	; B=ON value, C=OFF value
+		cp	.STOP		; Token STOP?
+		jr	nz,WRXcmddone	; Jump if not
+		ld	b,c		; Change to OFF value
+		rst	NEXT_CHAR	; skip STOP
+WRXcmddone:	call	MustBeEOL	; Done with syntax, time for action
+		ld	a,b
+		ld	(2058),a
+		ret
+
+; LOAD *DBUF <block> | LOAD *DBUF STOP
+; Double buffer: <block> is the front buffer block (0-7), same FPGA
+; register encoding as the raw POKE (168+block to enable, 85 to
+; disable) - see the "Double buffer (present-blit)" appendix.
+CmdDBUF:	cp	.STOP		; Token STOP?
+		jr	z,DBUFoff
+		call	CLASS_6		; Read block number
+		call	MustBeEOL	; Check EOL and end syntax check
+		call	FIND_INT	; BC = block number
+		ld	a,b
+		or	a		; Error B if it's > 255
+		jp	nz,ReportB
+		ld	a,c
+		cp	8		; Valid range is between 0 and 7
+		jp	nc,ReportB
+		or	168		; 168+block = enable value
+		jr	DBUFsend
+DBUFoff:	rst	NEXT_CHAR	; skip STOP
+		call	MustBeEOL	; Check EOL and end syntax check
+		ld	a,85		; disable value
+DBUFsend:	ld	(2057),a
+		ret
+
 ; LOAD *JOY <string>
 CmdJOY:		call	GetStrExpr	; Read a string expression
 		call	MustBeEOL	; The line must end after the expr.
@@ -1795,6 +1832,12 @@ CmdList:
 
 		db	.R,.T,.C + $80
 		dw	CmdRTC
+
+		db	.W,.R,.X + $80
+		dw	CmdWRX
+
+		db	.D,.B,.U,.F + $80
+		dw	CmdDBUF
 
 		db	$FF
 

@@ -204,6 +204,20 @@ module SD81(
 	// ----------------------------------------------------------------
 	reg dbuf_en = 1'b0;
 	reg [2:0] front_blk = 3'd5;
+
+	// ----------------------------------------------------------------
+	// WRX en los segundos 8KB — POKE 2058
+	//   POKE 2058,170 -> ON: durante el refresh con A13=1 (I en $20-$3F) la
+	//                    direccion I*256+R pasa TAL CUAL a la SRAM (RAM plana
+	//                    en 8-16K, como un ZX81 con ampliacion en esa zona).
+	//   POKE 2058,85  -> OFF (defecto): comportamiento actual, esa region se
+	//                    trata como generador de caracteres en RAM (chr RAM).
+	// Un ZX81 real con RAM en 8-16K hace WRX; uno con placa de chargen hace
+	// tabla — son dos hardwares distintos sobre la misma region y no es
+	// autodetectable: el propio emulador tambien lo pide como opcion (WRX +
+	// RAM 8-16K). Ejemplo que lo necesita: Hi-res Chess de Psion (I=$2xxx).
+	// ----------------------------------------------------------------
+	reg wrx_en = 1'b0;
 	reg blit_run = 1'b0;
 	reg blit_phase = 1'b0;
 	reg [12:0] blit_cnt = 13'd0;
@@ -394,7 +408,7 @@ Port $7FEF (01111111 11101111) - IN:
 	reg bpattern_en = 1'b0;
 	reg [2:0] border_pixel_cnt = 3'b000;
 
-	wire poke_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2041) && (Addr < 16'd2058);
+	wire poke_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2041) && (Addr < 16'd2059);
 
 	always@(negedge nMREQ)
 		if (~nRFSH) ROMTABLE[15:8] = Addr[15:8];
@@ -415,6 +429,7 @@ Port $7FEF (01111111 11101111) - IN:
 			sfHR_en <= 1'b0;
 			sfSP_en <= 1'b0;
 			block0Writable <= 1'b0;		// reset: bloque 0 protegido (ROM)
+			wrx_en <= 1'b0;
 		end else begin
 			// POKE 2041,ROMTABLE_low	-> set low part of ROMTABLE addr
 			// POKE 2042,ROMTABLE_high	-> set high part of ROMTABLE addr
@@ -458,6 +473,9 @@ Port $7FEF (01111111 11101111) - IN:
 			if ((Addr >= 16'd2048) && (Addr<2056)) border_char[Addr[2:0]] <= data;
 			//if ((Addr == 16'd2047)) block0Writable <= 1'b0;
 			if ((Addr == 16'd2056)) block0Writable <= 1'b1;	// CP/M: desproteger bloque 0
+			// POKE 2058,170 -> WRX en 8-16K ON; POKE 2058,85 -> OFF
+			if ((Addr == 16'd2058) && (data==8'd170)) wrx_en <= 1'b1;
+			if ((Addr == 16'd2058) && (data==8'd85))  wrx_en <= 1'b0;
 			// (POKE 2057 = double buffer: se decodifica en el bloque de
 			//  control dbuf a system_clk, junto al pseudo-bloque 8 del mapper)
 		end
@@ -1144,10 +1162,10 @@ assign DEBUG_RDY = 1'b0;
 		~nRESET?3'bzzz:				// access to RAM from micro on boot
 		~nQS_en & ~nRFSH? 3'b001:	// access to char table on QS mode
 		{A12,A11,A10}; 				// normal access
-	assign {A9x,A8x,A7x,A6x,A5x,A4x,A3x,A2x,A1x,A0x} = 
+	assign {A9x,A8x,A7x,A6x,A5x,A4x,A3x,A2x,A1x,A0x} =
 		~nRESET?10'bzzzzzzzzzz:																						// access to RAM from micro on boot
-		(nQS_en & (nRFSH | A14 | A15) || (~nQS_en & nRFSH))? {A9,A8,A7,A6,A5,A4,A3,A2,A1,A0}:  // normal access				
-		(~nQS_en & ~nRFSH)||SEL_128CHARS?{ram_Dlatch[7],ram_Dlatch[5:0],line_cnt[2:0]}:			// access  to char table on 128CHAR or QS mode 
+		(nQS_en & (nRFSH | A14 | A15 | (wrx_en & A13)) || (~nQS_en & nRFSH))? {A9,A8,A7,A6,A5,A4,A3,A2,A1,A0}:  // normal access (wrx_en: WRX con I en $20-$3F, POKE 2058)
+		(~nQS_en & ~nRFSH)||SEL_128CHARS?{ram_Dlatch[7],ram_Dlatch[5:0],line_cnt[2:0]}:			// access  to char table on 128CHAR or QS mode
 		{A9,ram_Dlatch[5:0],line_cnt[2:0]};																		// access to char table on 64CHAR mode
 	assign {A18x,A17x,A16x,A15x,A14x,A13x} = ~nRESET?6'bzzzzzz: // access to RAM from micro on boot
 		(~nQS_en & ~nRFSH)?block[3'b100]:								// access to char table on QS mode

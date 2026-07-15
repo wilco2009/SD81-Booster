@@ -136,7 +136,7 @@ Version 1.0
 
 [11.5 User-Definable Characters (128C / 64C)](#user-definable-characters-128c-64c)
 
-[Ejemplo: pantalla de inicio estilo Spectrum](#ejemplo-pantalla-de-inicio-estilo-spectrum)
+[Example: Spectrum-style start screen](#example-spectrum-style-start-screen)
 
 [12. Advanced BASIC Extensions](#advanced-basic-extensions)
 
@@ -238,7 +238,7 @@ Version 1.0
 
 [Appendix A --- Complete PLAY Command Reference](#appendix-a-complete-play-command-reference)
 
-[Tabla de duraciones](#tabla-de-duraciones)
+[Duration Table](#duration-table)
 
 [Efectos de envolvente (W)](#envelope-table-w)
 
@@ -266,7 +266,7 @@ Version 1.0
 
 [Escritura (OUT 7FEFh)](#writing-out-7fefh)
 
-[Formato del color de borde (bits 2--0, formato GRB)](#formato-del-color-de-borde-bits-20-formato-grb)
+[Border colour format (bits 2-0, GRB format)](#border-colour-format-bits-2-0-grb-format)
 
 [Lectura (IN 7FEFh)](#reading-in-7fefh)
 
@@ -274,11 +274,11 @@ Version 1.0
 
 [The Video Problem in the Original ZX81](#the-video-problem-in-the-original-zx81)
 
-[Modo Superfast](#modo-superfast)
+[Superfast Mode](#superfast-mode)
 
-[Modo Spectrum](#modo-spectrum)
+[Spectrum Mode](#spectrum-mode)
 
-[Control del borde](#_Toc229078093)
+[Border control](#_Toc229078093)
 
 [VSYNC Synchronisation](#vsync-synchronisation-1)
 
@@ -286,7 +286,7 @@ Version 1.0
 
 [Appendix G --- Audio Technical Reference: AY chip, VGM and allophones](#appendix-g-audio-technical-reference-ay-chip-vgm-and-allophones)
 
-[Registros del chip AY-3-8910/12](#registros-del-chip-ay-3-891012)
+[AY-3-8910/12 Chip Registers](#ay-3-891012-chip-registers)
 
 [Opcodes del reproductor VGM](#vgm-player-opcodes)
 
@@ -322,7 +322,7 @@ If you have just opened the box and want to get started as quickly as possible, 
 
 **4. Load your first program**
 
-> LOAD FAST \"NOMBRE\"
+> LOAD FAST \"NAME\"
 
 Replace NAME with the filename without the .P extension.
 
@@ -364,7 +364,7 @@ The SD81 Booster is a compact enclosure that connects to the ZX81\'s rear expans
 
 ![](media/image2.png){width="5.0in" height="3.125in"}
 
-*Vista lateral derecha: RESET, QSILVA, MICRO-SD y USB*
+*Right side view: RESET, QSILVA, MICRO-SD and USB*
 
 The right side panel presents, from left to right:
 
@@ -380,13 +380,13 @@ The right side panel presents, from left to right:
 
 ![](media/image3.png){width="5.0in" height="2.5520833333333335in"}
 
-*Vista lateral izquierda: conector JOYSTICK DB9*
+*Left side view: JOYSTICK DB9 connector*
 
 - JOYSTICK connector (DB9): joystick port compatible with standard 9-pin joysticks (Atari/Commodore type). The mapping of joystick buttons to ZX81 keys is fully programmable via the LOAD \*JOY command (see section 9.6).
 
 ![](media/image4.png){width="5.0in" height="3.1354166666666665in"}
 
-*Vista trasera: conector RGB SCART*
+*Rear view: RGB SCART connector*
 
 - RGB connector (SCART): RGB colour video output compatible with the Chroma81 interface. Allows the ZX81 to be connected to monitors and televisions with SCART input for high quality colour image.
 
@@ -394,7 +394,7 @@ The right side panel presents, from left to right:
 
 ![](media/image5.png){width="3.75in" height="3.59375in"}
 
-*Vista superior: LEDs STAT y SD*
+*Top view: STAT and SD LEDs*
 
 The top panel incorporates two indicator lights:
 
@@ -563,7 +563,7 @@ The interface will search the SD card root by default. You can organise your pro
 
 > /
 >
-> ├── AUTOEXEC.P ← Programa que se carga al arrancar
+> ├── AUTOEXEC.P ← Program that loads at boot
 >
 > ├── JUEGOS/
 >
@@ -573,7 +573,7 @@ The interface will search the SD card root by default. You can organise your pro
 >
 > ├── DEMOS/
 >
-> └── SYS/ ← Carpeta del sistema (obligatoria, no modificar)
+> └── SYS/ ← System folder (mandatory, do not modify)
 
 ### 5.4 The AUTOEXEC Program
 
@@ -607,7 +607,7 @@ To return to tape mode by default:
 
 Once SD mode is active (or using LOAD FAST), loading a program is straightforward. Replace NAME with the name of your file (without the .P extension):
 
-> LOAD FAST \"NOMBRE\"
+> LOAD FAST \"NAME\"
 
 Press ENTER. The program will load in a few moments and will start automatically if it has auto-run.
 
@@ -620,7 +620,7 @@ Press ENTER. The program will load in a few moments and will start automatically
 
 To load a program from the SD card:
 
-> LOAD FAST \"NOMBRE\"
+> LOAD FAST \"NAME\"
 
 The interface will first try the exact filename. If not found, it will automatically try adding the .P extension.
 
@@ -630,11 +630,11 @@ To load from a subfolder:
 
 To load and run from a specific line number:
 
-> LOAD FAST \"NOMBRE\" THEN GOTO 100
+> LOAD FAST \"NAME\" THEN GOTO 100
 
 To load without auto-running:
 
-> LOAD FAST \"NOMBRE\" THEN STOP
+> LOAD FAST \"NAME\" THEN STOP
 
 | **ℹ** | *THEN, GOTO y STOP are ZX81 BASIC tokens, not written letter by letter.* |
 |------|------------------------------------------------------------------|
@@ -643,7 +643,7 @@ To load without auto-running:
 
 To save a program to the SD card:
 
-> SAVE FAST \"NOMBRE\"
+> SAVE FAST \"NAME\"
 
 The interface always appends the .P extension to the saved file.
 
@@ -654,7 +654,7 @@ The interface always appends the .P extension to the saved file.
 
 To load a block of data to a specific memory address:
 
-> LOAD FAST \"NOMBRE\" CODE 30000
+> LOAD FAST \"NAME\" CODE 30000
 
 | **ℹ** | *Unlike the ZX Spectrum, the address after CODE is mandatory. Files on SD do not store the load address in a header.* |
 |------|------------------------------------------------------------------|
@@ -664,7 +664,7 @@ To load a block of data to a specific memory address:
 
 To save a memory block to SD:
 
-> SAVE FAST \"NOMBRE\" CODE 30000,2048
+> SAVE FAST \"NAME\" CODE 30000,2048
 
 Where 30000 is the start address and 2048 is the length in bytes.
 
@@ -672,7 +672,7 @@ Where 30000 is the start address and 2048 is the length in bytes.
 
 If SD mode is active but you want to load a specific file from tape:
 
-> LOAD SLOW \"NOMBRE\"
+> LOAD SLOW \"NAME\"
 
 ### 7.5 Game Compatibility Notes
 
@@ -736,7 +736,7 @@ To go back to the root:
 
 > LOAD \*CD \"/\"
 
-Ver el directorio actual:
+View the current directory:
 
 > LOAD \*PWD
 
@@ -744,25 +744,25 @@ Ver el directorio actual:
 
 To create a subdirectory in the current directory:
 
-> LOAD \*MD \"NUEVACARPETA\"
+> LOAD \*MD \"NEWFOLDER\"
 
 To remove an empty folder:
 
-> LOAD \*RD \"CARPETAVACIA\"
+> LOAD \*RD \"EMPTYFOLDER\"
 
 ### 8.4 Delete, Rename and Copy Files
 
 To delete a file:
 
-> LOAD \*DEL \"ARCHIVO.P\"
+> LOAD \*DEL \"FILE.P\"
 
 To rename or move a file:
 
-> LOAD \*MV \"VIEJO.P\" TO \"NUEVO.P\"
+> LOAD \*MV \"OLD.P\" TO \"NEW.P\"
 
 To copy a file:
 
-> LOAD \*CP \"ORIGEN.P\" TO \"DESTINO.P\"
+> LOAD \*CP \"SOURCE.P\" TO \"DEST.P\"
 
 | **ℹ** | *TO is a BASIC token (SHIFT + 4), not typed letter by letter.* |
 |:----:|------------------------------------------------------------------|
@@ -801,11 +801,11 @@ To exit the T81 directory and return to the normal filesystem:
 
 The interface can play uncompressed WAV audio files directly from the SD card simply by loading them with the usual command:
 
-> LOAD FAST \"SONIDO.WAV\"
+> LOAD FAST \"SOUND.WAV\"
 
 If the file has the .WAV extension, the interface detects it automatically and plays it instead of trying to load it as a program. No special command is needed.
 
-| **ℹ** | *Solo se admiten archivos WAV sin comprimir (PCM). Otros formatos de audio no son compatibles.* |
+| **ℹ** | *Only uncompressed WAV audio files (PCM) are supported. Other audio formats are not compatible.* |
 |------|------------------------------------------------------------------|
 
 ## 9.2 Real Time Clock --- RTC Command
@@ -822,20 +822,20 @@ The SD81 Booster incorporates a real time clock (RTC) with backup battery. The L
 
 **Set the date and time:**
 
-> LOAD \*RTC=\"cadena\"
+> LOAD \*RTC=\"date/time\"
 
 Six input formats are supported:
 
 | **Format** | **Example** | **Description** |
 |-----------------------|-----------------------|--------------------------|
 | YYYY-MM-DD HH:MM:SS.CC | 2025-04-30 18:30:00.00 | Full date and time with hundredths |
-| AAAA-MM-DD HH:MM:SS | 2025-04-30 18:30:00 | Date and time completas |
-| AAAA-MM-DD | 2025-04-30 | Date only |
+| YYYY-MM-DD HH:MM:SS | 2025-04-30 18:30:00 | Full date and time |
+| YYYY-MM-DD | 2025-04-30 | Date only |
 | HH:MM:SS.CC | 18:30:00.00 | Time only with hundredths |
 | HH:MM:SS | 18:30:00 | Time with seconds |
 | HH:MM | 18:30 | Time (hours and minutes) |
 
-**Ejemplos:**
+**Examples:**
 
 > LOAD \*RTC=\"2025-04-30 18:30:00\"
 >
@@ -843,7 +843,7 @@ Six input formats are supported:
 >
 > LOAD \*RTC=\"18:30:00\"
 
-**Ejemplo en un programa BASIC:**
+**Example in a BASIC program:**
 
 > 10 LOAD \*RTC TO R\$
 >
@@ -887,11 +887,11 @@ The LOAD THEN PRINT command is the equivalent of the MS-DOS TYPE command or Linu
 
 **Display a text file on screen:**
 
-> LOAD THEN PRINT \"FICHERO\"
+> LOAD THEN PRINT \"FILE\"
 
 **Send the content to the ZX Printer:**
 
-> LOAD THEN LPRINT \"FICHERO\"
+> LOAD THEN LPRINT \"FILE\"
 
 **Redirect other command output to the ZX Printer:**
 
@@ -1034,9 +1034,9 @@ The PLAY command allows playing music directly from BASIC using a text string th
 
 **Basic syntax:**
 
-> LOAD \*PLAY \"cadena1\"
+> LOAD \*PLAY \"string1\"
 >
-> LOAD \*PLAY \"cadena1\",\"cadena2\",\"cadena3\"
+> LOAD \*PLAY \"string1\",\"string2\",\"string3\"
 
 Each string corresponds to one voice. Between one and three strings can be used simultaneously.
 
@@ -1058,7 +1058,7 @@ The SD81 Booster can play VGM (Video Game Music) format files in the background 
 
 **Prepare a VGM file:**
 
-> LOAD \*VGM \"MUSICA\"
+> LOAD \*VGM \"MUSIC\"
 
 Loads the MUSIC.VGM file from the SD and prepares it for playback, without starting it yet.
 
@@ -1080,7 +1080,7 @@ Loads the MUSIC.VGM file from the SD and prepares it for playback, without start
 
 > LOAD \*VGMLOOP
 
-**Desactivar el modo bucle:**
+**Disable loop mode:**
 
 > LOAD \*VGMLOOP STOP
 
@@ -1089,7 +1089,7 @@ Loads the MUSIC.VGM file from the SD and prepares it for playback, without start
 
 **Typical usage example in a BASIC program:**
 
-> 10 LOAD \*VGM \"MUSICA\"
+> 10 LOAD \*VGM \"MUSIC\"
 >
 > 20 LOAD \*VGMLOOP
 >
@@ -1151,11 +1151,11 @@ The SD81 Booster incorporates a speech synthesiser that can reproduce English ph
 
 **Syntax:**
 
-> LOAD \*SAY \"frase\"
+> LOAD \*SAY \"STRING\"
 
 The synthesiser analyses the text string and attempts to build the pronunciation by combining English phonemes. The text should be written in English, in uppercase.
 
-**Ejemplos:**
+**Examples:**
 
 > LOAD \*SAY \"HELLO WORLD\"
 >
@@ -1191,18 +1191,18 @@ For most BASIC programs it is not necessary to manage memory manually: the inter
 
 ## 11.1 Basic Concepts: Blocks and Pages
 
-El espacio de direcciones del Z80 (64 KB) se divide en 8 bloques de 8 KB cada uno:
+The Z80 address space (64 KB) is divided into 8 blocks of 8 KB each:
 
-| **Bloque** | **Rango de direcciones** | **Uso habitual**                       |
-|-----------|-------------------------|-------------------------------------|
-| **0**      | 0000--1FFF               | ROM del ZX81 (solo lectura)            |
-| **1**      | 2000--3FFF               | Interface extension ROM                |
-| **2**      | 4000--5FFF               | RAM principal / pantalla               |
-| **3**      | 6000--7FFF               | RAM principal                          |
-| **4**      | 8000--9FFF               | RAM ampliada                           |
-| **5**      | A000--BFFF               | RAM ampliada                           |
-| **6**      | C000--DFFF               | Mirror of block 2 (required for video) |
-| **7**      | E000--FFFF               | Mirror of block 3 (required for video) |
+| **Block** | **Address range** | **Typical use**                        |
+|-----------|-------------------|----------------------------------------|
+| **0**     | 0000--1FFF        | ZX81 ROM (read-only)                   |
+| **1**     | 2000--3FFF        | Interface extension ROM                |
+| **2**     | 4000--5FFF        | Main RAM / screen                      |
+| **3**     | 6000--7FFF        | Main RAM                               |
+| **4**     | 8000--9FFF        | Extended RAM                           |
+| **5**     | A000--BFFF        | Extended RAM                           |
+| **6**     | C000--DFFF        | Mirror of block 2 (required for video) |
+| **7**     | E000--FFFF        | Mirror of block 3 (required for video) |
 
 The 512 KB of RAM are divided into 64 pages of 8 KB. Each block can point to any of these 64 pages, allowing access to all the memory simply by changing which page is assigned to each block.
 
@@ -1219,7 +1219,7 @@ Where \<block\> is a number from 0 to 7 and \<page\> is a number from 0 to 63.
 
 To read which page is currently assigned to a block:
 
-> LOAD \*MAP \<bloque\> TO \<variable\>
+> LOAD \*MAP \<block\> TO \<variable\>
 
 **Example --- map block 4 to page 10:**
 
@@ -1231,7 +1231,7 @@ From that point on, any read or write to addresses 32768--40959 will access page
 
 > 10 LOAD \*MAP 4 TO A
 >
-> 20 PRINT \"Bloque 4 apunta a la pagina \";A
+> 20 PRINT \"Block 4 points to page \";A
 
 | **ℹ** | *For a complete reference of the paging system, including 512 KB full paging mode and use from machine code, see Appendix D of this manual.* |
 |------|------------------------------------------------------------------|
@@ -1246,7 +1246,7 @@ MC45 mode (Machine Code 4 and 5) deactivates this limitation, allowing any Z80 i
 
 > LOAD \*MC45
 
-**Desactivarlo:**
+**Deactivate it:**
 
 > LOAD \*MC45 STOP
 
@@ -1257,11 +1257,11 @@ MC45 mode (Machine Code 4 and 5) deactivates this limitation, allowing any Z80 i
 
 The SD81 Booster allows booting with a different ROM than the standard ZX81 ROM without needing to use any command. Simply place one or more ROM files in the /SYS/ folder on the SD card with names /SYS/0.ROM through /SYS/9.ROM.
 
-**Para arrancar con una ROM alternativa:**
+**To boot with an alternative ROM:**
 
 8.  Hold down the number corresponding to the desired ROM file while powering on the ZX81.
 
-9.  Suelta la tecla cuando el ordenador haya arrancado.
+9.  Release the key once the computer has booted.
 
 | **💡** | *This feature is very useful for testing alternative or modified ROMs without reprogramming any chip. The standard ZX81 ROM always loads if no key is pressed during boot.* |
 |------|------------------------------------------------------------------|
@@ -1290,7 +1290,7 @@ If you need to restore the original character set after modifying it:
 | **ℹ** | *Activating 128-character mode is incompatible with the HRG internal character generator (see section 10.6). Both modes cannot be active simultaneously.* |
 |------|------------------------------------------------------------------|
 
-### Ejemplo: pantalla de inicio estilo Spectrum
+### Example: Spectrum-style start screen
 
 The following program illustrates the use of 128-character mode to load an alternative character set from the SD and display a screen in ZX Spectrum style:
 
@@ -1333,9 +1333,9 @@ This section covers additional BASIC extension commands of the SD81 Booster orie
 
 ## 12.1 String Manipulation
 
-**Invertir caracteres de una cadena (\*INV):**
+**Invert characters in a string (\*INV):**
 
-Invierte el bit 7 de todos los caracteres de una variable de cadena, convirtiendo los caracteres normales en inversos y viceversa:
+Inverts bit 7 of all characters in a string variable, turning normal characters into inverse and vice versa:
 
 > LOAD \*INV A\$
 
@@ -1354,15 +1354,15 @@ Forces bit 7 of all characters in a string variable to 1, putting all characters
 
 ## 12.2 Memory Block Copy and Fill
 
-**Copiar un bloque de memoria en orden ascendente (\*LDIR):**
+**Copy a memory block in ascending order (\*LDIR):**
 
-> LOAD \*LDIR \<origen\>,\<destino\>,\<longitud\>
+> LOAD \*LDIR \<source\>,\<dest\>,\<length\>
 
 Copies \<count\> bytes from \<source\> to \<dest\> in ascending order. Equivalent to the Z80 LDIR instruction.
 
 **Copy in descending order (\*LDDR):**
 
-> LOAD \*LDDR \<origen\>,\<destino\>,\<longitud\>
+> LOAD \*LDDR \<source\>,\<dest\>,\<length\>
 
 Same as \*LDIR but in descending order. Equivalent to the Z80 LDDR instruction.
 
@@ -1398,11 +1398,11 @@ Upon entry to the routine, the BC register contains the address called.
 
 **Write to a port (\*OUT):**
 
-> LOAD \*OUT \<puerto\>,\<valor\>
+> LOAD \*OUT \<port\>,\<value\>
 
 **Read from a port (\*IN):**
 
-> LOAD \*IN \<puerto\> TO \<variable\>
+> LOAD \*IN \<port\> TO \<variable\>
 
 | **ℹ** | *TO is the BASIC token (SHIFT + 4), not typed letter by letter.* |
 |-------|------------------------------------------------------------------|
@@ -1429,9 +1429,9 @@ Sets the last RAM address available for BASIC. Unlike the standard CLEAR command
 
 These commands allow reading the content of an SD directory from within a BASIC program, useful for building file selection menus.
 
-**Abrir un directorio para lectura (\*OPENDIR):**
+**Open a directory for reading (\*OPENDIR):**
 
-> LOAD \*OPENDIR \<cadena\>
+> LOAD \*OPENDIR \<string\>
 
 The string can include a full path and wildcards. If wildcards are used, the maximum number of retrievable entries is 512. This command leaves the directory ready to use with \*ROW.
 
@@ -1455,7 +1455,7 @@ Reads the directory entry with the given number (starting from 1) and stores it 
 >
 > 60 NEXT I
 >
-> 70 INPUT \"Selecciona: \";N
+> 70 INPUT \"Select: \";N
 >
 > 80 LOAD \*ROW N TO A\$
 >
@@ -1645,20 +1645,20 @@ Loads a Spectrum format image (.SCR) from the /SCR/ folder on the SD and display
 
 When an error occurs, the ZX81 displays a code at the bottom of the screen followed by the line number where it occurred. The error codes related to the SD81 Booster are:
 
-| **Code** | **Significado** |
+| **Code** | **Meaning** |
 |--------|----------------------------------------------------------------|
 | **A** | Invalid argument (incorrect filename, parameter out of range, or hexadecimal string with incorrect length in \*PEG or \*HEX). |
 | **D** | The user pressed BREAK to interrupt an operation (e.g. during a directory listing). |
-| **G** | Archivo no encontrado en la SD. |
+| **G** | File not found on the SD card. |
 | **H** | Error accessing the SD card. Check it is correctly inserted and formatted in FAT32. |
 | **I** | I/O error on the SD card during a read or write operation. |
-| **J** | Disco lleno: no hay espacio suficiente en la SD para guardar el archivo. |
+| **J** | Disk full: not enough space on the SD card to save the file. |
 | **K** | File or directory already exists with that name. |
 | **L** | File name that is too long or with characters that are not allowed. |
 | **M** | The directory is not empty (when trying to delete with \*RD). |
 | **N** | Permission denied or write-protected file. |
 
-| **💡** | *Si obtienes el error H de forma repetida, extrae la tarjeta SD, comprueba el formato FAT32 y vuelve a insertarla. Si el error persiste, prueba con otra tarjeta.* |
+| **💡** | *If you get error H repeatedly, remove the SD card, check it is formatted as FAT32, and reinsert it. If the error persists, try a different card.* |
 |------|------------------------------------------------------------------|
 
 # 15. For Programmers
@@ -1669,7 +1669,7 @@ This section is aimed at developers who wish to take advantage of the SD81 Boost
 
 The expansion ROM occupies block 1, starting at address 8192 (2000h):
 
-| **Address** | **Contenido / Rutina** |
+| **Address** | **Content / Routine** |
 |---------|---------------------------------------------------------------|
 | 2000h | String \'SD81\' in ZX81 character encoding |
 | 2004h | ROM version byte (high nibble = major, low nibble = minor). PEEK 8196. |
@@ -1684,7 +1684,7 @@ The expansion ROM occupies block 1, starting at address 8192 (2000h):
 | 2019h | WaitEqBrk --- like WaitDiffBrk but expect equality |
 | 201Ch | SendString --- sends string to MCU prefixed by length. B=length, DE=address |
 | 201Fh | SendStrLoop --- sends B bytes to MCU from DE without waiting for clock changes |
-| 2022h | ReportStatus --- lee byte del MCU; si ≠0 genera error BASIC (1=G, 2=H, \...) |
+| 2022h | ReportStatus --- reads a byte from the MCU; if ≠0, raises BASIC error (1=G, 2=H, \...) |
 | 2025h | PrintBPaged --- prints character with paging. B=character (0--63 or 128--191) |
 | 2028h | Cmd64C --- Activate 64 character mode (= LOAD \*64C) |
 | 202Bh | Cmd128C --- Activate 128 character mode (= LOAD \*128C) |
@@ -1707,7 +1707,7 @@ The expansion ROM occupies block 1, starting at address 8192 (2000h):
 
 ## 15.2 I/O Ports and MCU Protocol
 
-| **Puerto** | **Function** |
+| **Port** | **Function** |
 |---------|---------------------------------------------------------------|
 | **E7h** | Memory Mapper |
 | **A7h** | MCU data port (read and write). |
@@ -1797,7 +1797,7 @@ The USB-C port on the interface also works as a serial debug port. When connecte
 
 **Connection parameters:**
 
-| **Parameter**    | **Valor**   |
+| **Parameter**    | **Value**   |
 |------------------|-------------|
 | **Speed**        | 115200 baud |
 | **Data bits**    | 8           |
@@ -1816,7 +1816,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 
 ### Error codes returned by commands
 
-| **Code** | **Significado**                                  |
+| **Code** | **Meaning**                                      |
 |----------|--------------------------------------------------|
 | **0**    | Success                                          |
 | **1**    | File or directory not found                      |
@@ -1833,7 +1833,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 
 ### System commands
 
-| **Code** | **Nombre** | **Parameters** | **Respuesta** | **Description** |
+| **Code** | **Name** | **Parameters** | **Response** | **Description** |
 |------|---------|-------------|----------|-----------------------------------|
 | **0** | **NOP** | **---** | **---** | **No operation. Only synchronises the clock.** |
 | 1 | VERSION | --- | 1 byte: version | Returns the MCU version. Same format as byte at 2004h. |
@@ -1842,21 +1842,21 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 
 ### Filesystem commands
 
-| **Code** | **Nombre** | **Parameters** | **Respuesta** | **Description** |
+| **Code** | **Name** | **Parameters** | **Response** | **Description** |
 |------|------------|----------------|--------------|--------------------------|
 | **2** | **PWD** | **---** | **String + EOT + status** | **Returns the current directory in ZX81 encoding.** |
-| 3 | CD | String: ruta | Status | Changes the current directory. Accepts absolute (/) and relative paths. |
-| 4 | DEL | String: archivo | Status | Deletes a file from the current directory. No wildcards. |
+| 3 | CD | String: path | Status | Changes the current directory. Accepts absolute (/) and relative paths. |
+| 4 | DEL | String: filename | Status | Deletes a file from the current directory. No wildcards. |
 | 5 | MKDIR | String: filename | Status | Creates a subdirectory. |
 | 6 | RMDIR | String: filename | Status | Removes an empty directory. |
-| 7 | MOVE | String: origen + String: destino | Status | Renames or moves a file. |
-| 8 | COPY | String: origen + String: destino | Status | Copies a file. Date/time is not preserved. |
+| 7 | MOVE | String: source + String: destination | Status | Renames or moves a file. |
+| 8 | COPY | String: source + String: destination | Status | Copies a file. Date/time is not preserved. |
 | 9 | LOAD | String: filename | 2B length + N bytes + Status | Loads a file. .P/.81: calculates real size. .ROM: loads at address 0 and resets. .WAV: plays audio. |
-| 10 | SAVE | String: nombre + 2B longitud + N bytes | Status | Saves a data block as a file on the SD. |
-| 11 | TYPE | String: filename | String char a char + EOT + Status | Sends the content of a text file. With \* searches in /MAN/ with .TXT extension. |
-| 12 | DIR | String: path/wildcard | String char a char + EOT + Status | Lists the directory, including file sizes. |
+| 10 | SAVE | String: filename + 2B length + N bytes | Status | Saves a data block as a file on the SD. |
+| 11 | TYPE | String: filename | String char by char + EOT + Status | Sends the content of a text file. With \* searches in /MAN/ with .TXT extension. |
+| 12 | DIR | String: path/wildcard | String char by char + EOT + Status | Lists the directory, including file sizes. |
 | 14 | FREE_TXT | --- | String + EOT + Status | Returns SD total and free space as text. |
-| 15 | FREE | --- | 4B total + 4B libre + Status | Space total and free in KB as 32-bit little-endian values. |
+| 15 | FREE | --- | 4B total + 4B free + Status | Space total and free in KB as 32-bit little-endian values. |
 | 16 | OPENDIR | String: path/wildcard | Status | Opens a directory and builds an internal array (max. 512 entries). |
 | 17 | GETROWLEN | 2B: index | 1B: length + Status | Length of the name of entry index in the array opened with OPENDIR. |
 | 18 | GETROW | 2B: index | 1B: length + N bytes + Status | Name of entry index in ZX81 encoding. Index 0 = current directory. Directories between \< and \>. |
@@ -1869,11 +1869,11 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 
 ### Hardware control commands
 
-| **Code** | **Nombre** | **Parameters** | **Respuesta** | **Description** |
+| **Code** | **Name** | **Parameters** | **Response** | **Description** |
 |------|-------------|----------------|---------|------------------------------|
 | **19** | **ENABLE_MC45** | **---** | **---** | **Activates MC45 mode (machine code in blocks 4 and 5).** |
 | 20 | DISABLE_MC45 | --- | --- | Deactivates MC45 mode. |
-| 21 | JOY | String: 5 bytes de teclas ZX81 | Status | Configura el mapeo del joystick: izquierda, derecha, arriba, abajo, fuego. |
+| 21 | JOY | String: 5 bytes of ZX81 keys | Status | Configures the joystick mapping: left, right, up, down, fire. |
 | 27 | SEL_128CHARS | --- | --- | Activates 128-character mode. Equivalent to LOAD \*128C. |
 | 28 | SEL_64CHARS | --- | --- | Activates standard 64-character mode. Equivalent to LOAD \*64C. |
 | 29 | FULLPAGING | --- | --- | Activates full paging mode (512 KB, 64 pages). |
@@ -1883,43 +1883,43 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 
 ### Speech synthesis commands
 
-| **Code** | **Nombre** | **Parameters** | **Respuesta** | **Description** |
+| **Code** | **Name** | **Parameters** | **Response** | **Description** |
 |------|-----------|--------------|---------|---------------------------------|
 | **22** | **BINARY_SAY** | **String: allophone bytes** | **Status** | **Plays allophones in binary format. Synchronous (blocks until finished).** |
-| 23 | SAY | String: texto ASCII | Status | Converts text to phonemes and plays it. With \* as first character: background. Equivalent to LOAD \*SAY. |
+| 23 | SAY | String: ASCII text | Status | Converts text to phonemes and plays it. With \* as first character: background. Equivalent to LOAD \*SAY. |
 
 ### AY / sound commands
 
-| **Code** | **Nombre** | **Parameters** | **Respuesta** | **Description** |
+| **Code** | **Name** | **Parameters** | **Response** | **Description** |
 |------|-----------|-----------------|---------|------------------------------|
-| **24** | **AY_SET_REG** | **1B: registro (0--15) + 1B: valor** | **---** | **Writes a value to an AY emulator register.** |
-| 25 | AY_GET_REG | 1B: registro (0--15) | 1B: valor | Reads the current value of an AY emulator register. |
-| 26 | AY_PLAY | String: canal A + String: B + String: C | Status | Plays up to three simultaneous PLAY strings. With \* in ch A: background. Equivalent to LOAD \*PLAY. |
+| **24** | **AY_SET_REG** | **1B: register (0-15) + 1B: value** | **---** | **Writes a value to an AY emulator register.** |
+| 25 | AY_GET_REG | 1B: register (0-15) | 1B: value | Reads the current value of an AY emulator register. |
+| 26 | AY_PLAY | String: channel A + String: B + String: C | Status | Plays up to three simultaneous PLAY strings. With \* in ch A: background. Equivalent to LOAD \*PLAY. |
 
 ### VGM commands
 
-| **Code** | **Nombre** | **Parameters** | **Respuesta** | **Description** |
+| **Code** | **Name** | **Parameters** | **Response** | **Description** |
 |------|-----------|---------------|---------|--------------------------------|
-| **34** | **PLAY_VGM** | **String: nombre de archivo** | **Status** | **Opens and starts playing a VGM file in background. Adds .vgm if no extension.** |
+| **34** | **PLAY_VGM** | **String: filename** | **Status** | **Opens and starts playing a VGM file in background. Adds .vgm if no extension.** |
 | 35 | STOP_VGM | --- | --- | Stops VGM playback and resets the AY emulator. |
 | 36 | PAUSE_VGM | --- | --- | Pauses VGM playback. |
 | 37 | CONT_VGM | --- | --- | Resumes paused VGM playback. |
-| 38 | LOOP_VGM | 1B: modo (0=no bucle, 1=bucle) | --- | Sets the VGM player loop mode. |
+| 38 | LOOP_VGM | 1B: mode (0=no loop, 1=loop) | --- | Sets the VGM player loop mode. |
 
 ### PEG commands
 
-| **Code** | **Nombre** | **Parameters** | **Respuesta** | **Description** |
+| **Code** | **Name** | **Parameters** | **Response** | **Description** |
 |------|------------|---------------|---------|-------------------------------|
 | **40** | **LOAD_PEG** | **1B: address + String: hex data** | **---** | **Loads PEG instructions into generator memory. 2 bytes per instruction in little-endian.** |
 | 41 | PLAY_PEG | 1B: thread (0--2) + 1B: address | --- | Starts execution of a PEG program on the indicated thread. |
-| 42 | STOP_PEG | 1B: hilo (0--2) | --- | Stops and resets the indicated PEG thread. |
-| 43 | PAUSE_PEG | 1B: hilo (0--2) | --- | Pauses the indicated PEG thread. |
-| 44 | CONT_PEG | 1B: hilo (0--2) | --- | Resumes the indicated PEG thread. |
+| 42 | STOP_PEG | 1B: thread (0-2) | --- | Stops and resets the indicated PEG thread. |
+| 43 | PAUSE_PEG | 1B: thread (0-2) | --- | Pauses the indicated PEG thread. |
+| 44 | CONT_PEG | 1B: thread (0-2) | --- | Resumes the indicated PEG thread. |
 | 45 | SDLOAD_PEG | String: name + 1B: address | Status | Loads a .PEB file from SD into PEG memory. Maximum size: 512 bytes. |
 
 ### RTC and battery commands
 
-| **Code** | **Nombre** | **Parameters** | **Respuesta** | **Description** |
+| **Code** | **Name** | **Parameters** | **Response** | **Description** |
 |------|--------|-------------|---------------|--------------------------------|
 | **50** | **RTC** | **String: date/time (or empty to read)** | **If read: ZX81 String + Status. If write: Status** | **Without params: returns date/time. With params: sets the clock. Formats: YYYY-MM-DD HH:MM:SS.CC / YYYY-MM-DD HH:MM:SS / YYYY-MM-DD / HH:MM:SS.CC / HH:MM:SS / HH:MM.** |
 | 52 | BAT | --- | 5 bytes ASCII + Status | Returns RTC battery level as a 5-character string in format V.mmm (ZX81 encoding). |
@@ -2070,7 +2070,7 @@ The FPGA (Xilinx Spartan-6 XC6SLX9) loads its configuration on each boot from an
 | **Term** | **Definition** |
 |--------------|----------------------------------------------------------|
 | **Allophone** | Minimal speech sound unit used by the speech synthesiser. The SD81 Booster uses the SP0256 chip allophones. |
-| **Block** | 8 KB division of the Z80 address de direccionamiento del Z80. El SD81 Booster divide los 64 KB del Z80 en 8 bloques (0--7). |
+| **Block** | 8 KB division of the Z80 address space. The SD81 Booster divides the Z80\'s 64 KB into 8 blocks (0-7). |
 | **FPGA** | Programmable logic circuit (Xilinx Spartan-6 XC6SLX9) that implements in hardware the video logic, memory mapper and other interface functions. |
 | **FAT32** | Filesystem required by the interface\'s microSD card. Incompatible with exFAT and NTFS. |
 | **FAST** | ZX81 BASIC token (SHIFT+F). On the SD81 Booster, activates SD loading/saving mode. |
@@ -2090,9 +2090,9 @@ The FPGA (Xilinx Spartan-6 XC6SLX9) loads its configuration on each boot from an
 
 # 19. Firmware Version History
 
-| **Version** | **Fecha** | **Novedades principales** |
-|-------------|-----------|---------------------------|
-| **1.0**     | 2025      | First public release.     |
+| **Version** | **Date** | **Main changes**      |
+|-------------|----------|-----------------------|
+| **1.0**     | 2025     | First public release. |
 
 | **ℹ** | *This history will be updated with each new firmware version. Check the project repository for the complete changelog.* |
 |------|------------------------------------------------------------------|
@@ -2153,9 +2153,9 @@ https://www.tablix.org/\~avian/spectrum/rom/
 
 # Appendix A --- Complete PLAY Command Reference
 
-## Tabla de duraciones
+## Duration Table
 
-| **Valor** | **Nombre**                | **Duration at 60 bpm** |
+| **Value** | **Name**                  | **Duration at 60 bpm** |
 |-----------|---------------------------|------------------------|
 | **1**     | Semiquaver (1/4 crotchet) | 0.25 s                 |
 | **2**     | Dotted semiquaver         | 0.375 s                |
@@ -2172,7 +2172,7 @@ https://www.tablix.org/\~avian/spectrum/rom/
 
 ## Envelope Table (W)
 
-| **Code** | **Forma**        | **Description**         |
+| **Code** | **Shape**        | **Description**         |
 |----------|------------------|-------------------------|
 | **W0**   | \\\|\_\_\_\_\_\_ | Decay then stay off     |
 | **W1**   | /\|\_\_\_\_\_\_  | Rise then stay off      |
@@ -2185,26 +2185,26 @@ https://www.tablix.org/\~avian/spectrum/rom/
 
 ## Complete Command Table
 
-| **Parameter** | **Description**                                      |
-|---------------|------------------------------------------------------|
-| C..B          | Nota en octava actual                                |
-| Inv(C..B)     | Note in next octave (inverse video)                  |
-| =             | Sharpens the next note                               |
-| £             | Plays a rest                                         |
-| 1..12         | Duration from this point                             |
-| \-            | Duration ligature                                    |
-| N / space     | Number separator                                     |
-| O\<n\>        | Octave (0--8, default 4)                             |
-| T\<n\>        | Tempo en bpm (60--240, defecto 120) --- solo canal A |
-| V\<n\>        | Volume (0--15)                                       |
-| W\<n\>        | Selects envelope effect (0--7).                      |
-| U             | Enables envelope for the channel.                    |
-| X\<n\>        | Sets envelope ramp time (0--65535; 6927 ≈ 1 second). |
-| M\<n\>        | Active channel and mode selection (0--63)            |
-| ( )           | Repeat enclosed section once more                    |
-| )             | Repeat from start indefinitely                       |
-| H             | Forces termination of the entire PLAY command.       |
-| \*            | (Channel A only) Background playback                 |
+| **Parameter** | **Description**                                       |
+|---------------|-------------------------------------------------------|
+| C..B          | Note in current octave                                |
+| Inv(C..B)     | Note in next octave (inverse video)                   |
+| =             | Sharpens the next note                                |
+| £             | Plays a rest                                          |
+| 1..12         | Duration from this point                              |
+| \-            | Duration ligature                                     |
+| N / space     | Number separator                                      |
+| O\<n\>        | Octave (0--8, default 4)                              |
+| T\<n\>        | Tempo in bpm (60-240, default 120) --- channel A only |
+| V\<n\>        | Volume (0--15)                                        |
+| W\<n\>        | Selects envelope effect (0--7).                       |
+| U             | Enables envelope for the channel.                     |
+| X\<n\>        | Sets envelope ramp time (0--65535; 6927 ≈ 1 second).  |
+| M\<n\>        | Active channel and mode selection (0--63)             |
+| ( )           | Repeat enclosed section once more                     |
+| )             | Repeat from start indefinitely                        |
+| H             | Forces termination of the entire PLAY command.        |
+| \*            | (Channel A only) Background playback                  |
 
 # Appendix B --- PEG Effects Generator Reference
 
@@ -2250,31 +2250,31 @@ The synthesiser is based on the SP0256 phonemes from General Instrument (Currah 
 
 ## Recognised Words (selection by length)
 
-13 caracteres: INVESTIGATORS, IRRESPONSIBLE
+13-character words: INVESTIGATORS, IRRESPONSIBLE
 
-12 caracteres: INVESTIGATOR
+12-character words: INVESTIGATOR
 
-11 caracteres: INVESTIGATE
+11-character words: INVESTIGATE
 
-10 caracteres: CORRECTING
+10-character words: CORRECTING
 
-9 caracteres: COGNITIVE, CORRECTED, SEPTEMBER, SINCERELY, SINCERITY, INTERFACE
+9-character words: COGNITIVE, CORRECTED, SEPTEMBER, SINCERELY, SINCERITY, INTERFACE
 
-8 caracteres: CHECKERS, CHECKING, COMPUTER, CORRECTS, DAUGHTER, DECEMBER, EIGHTEEN, FEBRUARY, FREEZERS, FREEZING, NINETEEN, NOVEMBER, PLEDGING, SATURDAY
+8-character words: CHECKERS, CHECKING, COMPUTER, CORRECTS, DAUGHTER, DECEMBER, EIGHTEEN, FEBRUARY, FREEZERS, FREEZING, NINETEEN, NOVEMBER, PLEDGING, SATURDAY
 
-7 caracteres: BOOSTER, CHECKED, CHECKER, CORRECT, FREEZER, JANUARY, MINUTES, OCTOBER, PLASTIC, SIXTEEN, TUESDAY, COLLIDE
+7-character words: BOOSTER, CHECKED, CHECKER, CORRECT, FREEZER, JANUARY, MINUTES, OCTOBER, PLASTIC, SIXTEEN, TUESDAY, COLLIDE
 
-6 caracteres: AUGUST, COOKIE, EQUALS, EXTENT, FRIDAY, FROZEN, MONDAY, SUNDAY, TALKED, TALKER, TWENTY
+6-character words: AUGUST, COOKIE, EQUALS, EXTENT, FRIDAY, FROZEN, MONDAY, SUNDAY, TALKED, TALKER, TWENTY
 
-5 caracteres: APRIL, CHECK, CROWN, EIGHT, EQUAL, ERROR, FIFTY, HELLO, MARCH, MONTH, SIXTY, TALKS, THREE, WORLD
+5-character words: APRIL, CHECK, CROWN, EIGHT, EQUAL, ERROR, FIFTY, HELLO, MARCH, MONTH, SIXTY, TALKS, THREE, WORLD
 
-4 caracteres: DATE, FIVE, FOUR, HAVE, JUNE, NINE, RAYS, TALK, THIS, TIME, WHAT, WHOA, WILL, ZX81
+4-character words: DATE, FIVE, FOUR, HAVE, JUNE, NINE, RAYS, TALK, THIS, TIME, WHAT, WHOA, WILL, ZX81
 
 3-character words: ACK, ACT, ADD, AMP, ASH, ASK, BAD, BED, BIG, BOX, BUT, CAR, END, EST, GET, HAS, HIM, ICK, IMP, ING, INK, JOB, KEY, MAY, NOT, NOW, OLD, OUR, OUT, RAY, RED, SIX, SUN, TEN, THE, TOP, TWO, USE, WAY, WHO, WHY, YES, YET, YOU, and many more.
 
 ## Punctuation and Pauses
 
-| **Character** | **Efect**    |
+| **Character** | **Effect**   |
 |---------------|--------------|
 | Space         | Short pause  |
 | ,             | Medium pause |
@@ -2282,11 +2282,11 @@ The synthesiser is based on the SP0256 phonemes from General Instrument (Currah 
 
 ## Direct Allophones (advanced use)
 
-Pausas: PA1, PA2, PA3, PA4, PA5
+Pauses: PA1, PA2, PA3, PA4, PA5
 
-Vocales: AA, AE, AH, AO, AW, AX, AY, EH, ER1, ER2, EY, IH, IY, OW, OY, UH, UW1, UW2, XR, YR
+Vowels: AA, AE, AH, AO, AW, AX, AY, EH, ER1, ER2, EY, IH, IY, OW, OY, UH, UW1, UW2, XR, YR
 
-Consonantes: BB1, BB2, CH, DD1, DD2, DH1, DH2, EL, FF, GG1, GG2, GG3, HH1, HH2, JH, KK1, KK2, KK3, LL, MM, NG, NN1, NN2, OR, PP, RR1, RR2, SH, SS, TH, TT1, TT2, VV, WH, WW, YY1, YY2, ZH, ZZ
+Consonants: BB1, BB2, CH, DD1, DD2, DH1, DH2, EL, FF, GG1, GG2, GG3, HH1, HH2, JH, KK1, KK2, KK3, LL, MM, NG, NN1, NN2, OR, PP, RR1, RR2, SH, SS, TH, TT1, TT2, VV, WH, WW, YY1, YY2, ZH, ZZ
 
 # Appendix D --- Memory Paging System
 
@@ -2345,11 +2345,11 @@ Allows you to set the color mode and border color:
 | **3**    | Border color brightness bit.                         |
 | **2--0** | Border color in GRB (Green-Red-Blue) format.         |
 
-### Formato del color de borde (bits 2--0, formato GRB)
+### Border colour format (bits 2-0, GRB format)
 
 | **Value (GRB)** | **Color** |
 |-----------------|-----------|
-| **000**         | Negro     |
+| **000**         | Black     |
 | **001**         | Blue      |
 | **010**         | Red       |
 | **011**         | Magenta   |
@@ -2390,7 +2390,7 @@ Bit 0 allows the CPU to wait until the screen has finished painting before updat
 >
 > WAIT: in a,(\$AF)
 >
-> rrca ; bit 0 al carry
+> rrca ; bit 0 to carry
 >
 > jr nc,WAIT ; if carry=0, screen still painting
 >
@@ -2402,7 +2402,7 @@ Bit 0 allows the CPU to wait until the screen has finished painting before updat
 
 The ZX81 in SLOW mode manages video by software: during screen refresh, the CPU must execute NOP instructions while the hardware generates the video signal, consuming a significant fraction of processor time.
 
-## Modo Superfast
+## Superfast Mode
 
 In Superfast mode, the interface hardware takes control of the data bus during screen refresh, placing video data directly without CPU intervention. This frees the processor completely for other tasks.
 
@@ -2414,7 +2414,7 @@ Before activating the mode it is necessary to indicate the screen file address (
 
 The three Superfast mode variants are selected by POKEing address 2045:
 
-| **POKE** | **Modo** |
+| **POKE** | **Mode** |
 |------------------|------------------------------------------------------|
 | POKE 2045, 170 | Superfast text (standard text mode, accelerated) |
 | POKE 2045, 171 | Superfast HiRes native (high resolution in ZX81 format) |
@@ -2433,7 +2433,7 @@ LOAD \*SFAST STOP : REM disable (equivalent to \*SFHR STOP / \*SFSP STOP)
 
 (equivalent to the POKEs above, for machine-code use). **LOAD \*SFHR** and **LOAD \*SFSP** write HFILE (2043/2044) and enable the mode in a single step; HFILE is not needed for **LOAD \*SFAST** since text mode does not use extended RAM.
 
-## Modo Spectrum
+## Spectrum Mode
 
 Spectrum mode (POKE 2045,172) reorders screen lines to match the ZX Spectrum screen organisation, facilitating the conversion of programs between both platforms and enabling the loading of .SCR files directly.
 
@@ -2506,7 +2506,7 @@ When enabled, the interface stops keeping the real-time mirror **only for block 
 
 Put differently, three different things coexist under the same block number, and they should not be confused:
 
-| Capa | Qué contiene | Quién la actualiza |
+| Layer | What it contains | Who updates it |
 |------------------------|------------------|-------------------------------|
 | Physical SRAM of block \`B\` | The system\'s real memory (8 KB) | The CPU, on every normal read/write |
 | Internal mirror of block \`B\` --- double buffer OFF | A live copy of that SRAM | Automatically, byte by byte, on every CPU write |
@@ -2574,14 +2574,14 @@ LOAD \*WRX STOP : REM disable (character generator mode, default)
 
 ## Control POKEs summary
 
-| **Address** | **Valor** | **Function**                                        |
+| **Address** | **Value** | **Function**                                        |
 |--------------|-----------|------------------------------------------------|
 | 2043        | \<low\>   | Low byte of screen file address                     |
 | 2044        | \<hi\>    | High byte of screen file address                    |
 | 2045        | 170       | Activate Superfast text mode                        |
 | 2045        | 171       | Activate Superfast native HiRes                     |
 | 2045        | 172       | Activate Superfast Spectrum HiRes                   |
-| 2045        | 85        | Desactivate Superfast                               |
+| 2045        | 85        | Deactivate Superfast                                |
 | 2046        | \<attr\>  | Change border attributes                            |
 | 2047        | 170       | Activate border pattern                             |
 | 2047        | 85        | Deactivate border pattern                           |
@@ -2594,7 +2594,7 @@ LOAD \*WRX STOP : REM disable (character generator mode, default)
 
 # Appendix G --- Audio Technical Reference: AY chip, VGM and allophones
 
-## Registros del chip AY-3-8910/12
+## AY-3-8910/12 Chip Registers
 
 The SD81 Booster AY emulator is register-level compatible with the original chip. It supports three independent voices, envelope and noise.
 
@@ -2608,12 +2608,12 @@ The SD81 Booster AY emulator is register-level compatible with the original chip
 | **R5** | Channel C --- tone period (high) | --- | --- | --- | --- | B3 | B2 | B1 | B0 |
 | **R6** | Noise period | --- | --- | --- | B4 | B3 | B2 | B1 | B0 |
 | **R7** | Channel enable | --- | --- | Noise C | Noise B | Noise A | Tone C | Tone B | Tone A |
-| **R8** | Amplitud canal A | --- | --- | --- | Env. | L3 | L2 | L1 | L0 |
-| **R9** | Amplitud canal B | --- | --- | --- | Env. | L3 | L2 | L1 | L0 |
-| **R10** | Amplitud canal C | --- | --- | --- | Env. | L3 | L2 | L1 | L0 |
+| **R8** | Channel A amplitude | --- | --- | --- | Env. | L3 | L2 | L1 | L0 |
+| **R9** | Channel B amplitude | --- | --- | --- | Env. | L3 | L2 | L1 | L0 |
+| **R10** | Channel C amplitude | --- | --- | --- | Env. | L3 | L2 | L1 | L0 |
 | **R11** | Envelope period (low) | B7 | B6 | B5 | B4 | B3 | B2 | B1 | B0 |
 | **R12** | Envelope period (high) | B7 | B6 | B5 | B4 | B3 | B2 | B1 | B0 |
-| **R13** | Forma de envolvente | --- | --- | --- | --- | --- | B2 | B1 | B0 |
+| **R13** | Envelope shape | --- | --- | --- | --- | --- | B2 | B1 | B0 |
 
 | **ℹ** | *In R7, a bit at 0 enables the channel; at 1 it disables it. In R8--R10, if the Env. bit is active, amplitude is controlled by the envelope (R11--R13) instead of L3--L0.* |
 |------|------------------------------------------------------------------|
@@ -2646,11 +2646,11 @@ Allophones are used with the MCU BINARY SAY command (16h) for precise phonetic s
 
 | **Code** | **Allophone** | **Example** | **Code** | **Allophone** | **Example** |
 |--------|------------|-----------------|--------|------------|-----------------|
-| **\$00** | PA1 | pausa 10 ms | **\$20** | AW | out |
-| **\$01** | PA2 | pausa 30 ms | **\$21** | DD2 | do |
-| **\$02** | PA3 | pausa 50 ms | **\$22** | GG3 | wig |
-| **\$03** | PA4 | pausa 100 ms | **\$23** | VV | vest |
-| **\$04** | PA5 | pausa 200 ms | **\$24** | GG1 | got |
+| **\$00** | PA1 | pause 10 ms | **\$20** | AW | out |
+| **\$01** | PA2 | pause 30 ms | **\$21** | DD2 | do |
+| **\$02** | PA3 | pause 50 ms | **\$22** | GG3 | wig |
+| **\$03** | PA4 | pause 100 ms | **\$23** | VV | vest |
+| **\$04** | PA5 | pause 200 ms | **\$24** | GG1 | got |
 | **\$05** | OY | boy | **\$25** | SH | ship |
 | **\$06** | AY | sky | **\$26** | ZH | azure |
 | **\$07** | EH | end | **\$27** | RR2 | brain |
@@ -2663,20 +2663,20 @@ Allophones are used with the MCU BINARY SAY command (16h) for precise phonetic s
 | **\$0E** | RR1 | rural | **\$2E** | WW | wool |
 | **\$0F** | AX | succeed | **\$2F** | XR | repair |
 | **\$10** | MM | milk | **\$30** | WH | whig |
-| **\$11** | TT1 | part | **\$31** | YY1 | yes (corto) |
+| **\$11** | TT1 | part | **\$31** | YY1 | yes (short) |
 | **\$12** | DH1 | they | **\$32** | CH | church |
-| **\$13** | IY | see | **\$33** | ER1 | fir (corto) |
-| **\$14** | EY | beige | **\$34** | ER2 | fir (largo) |
+| **\$13** | IY | see | **\$33** | ER1 | fir (short) |
+| **\$14** | EY | beige | **\$34** | ER2 | fir (long) |
 | **\$15** | DD1 | could | **\$35** | OW | beau |
 | **\$16** | UW1 | too | **\$36** | DH2 | they |
 | **\$17** | AO | aught | **\$37** | SS | vest |
 | **\$18** | AA | hot | **\$38** | NN2 | no |
-| **\$19** | YY2 | yes (largo) | **\$39** | HH2 | hoe |
+| **\$19** | YY2 | yes (long) | **\$39** | HH2 | hoe |
 | **\$1A** | AE | hat | **\$3A** | OR | store |
 | **\$1B** | HH1 | he | **\$3B** | AR | alarm |
-| **\$1C** | BB1 | business (corto) | **\$3C** | YR | clear |
+| **\$1C** | BB1 | business (short) | **\$3C** | YR | clear |
 | **\$1D** | TH | thin | **\$3D** | GG2 | guest |
 | **\$1E** | UH | book | **\$3E** | EL | saddle |
-| **\$1F** | UW2 | food | **\$3F** | BB2 | business (largo) |
+| **\$1F** | UW2 | food | **\$3F** | BB2 | business (long) |
 
 *User Manual SD81 Booster v1.0 --- Open hardware and open source software*

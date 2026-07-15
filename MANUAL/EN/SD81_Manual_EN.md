@@ -2372,6 +2372,16 @@ Allows detecting whether colour mode is available and reading VSync status:
 | **ℹ** | *Reading bit 5 as 0 allows programs to automatically detect the presence of the Chroma81 interface and activate colour modes if available.* |
 |------|------------------------------------------------------------------|
 
+Equivalent command:
+
+LOAD \*COLOR : REM enable colour, border white (7) by default
+
+LOAD \*COLOR \<colour\> : REM enable colour, border = \<colour\> (0-15)
+
+LOAD \*COLOR STOP : REM disable colour
+
+(equivalent to the OUT 7FEFh above; sets bit 5 and the character-code mode automatically. **\<colour\>** is the port's low 4 bits, brightness + GRB combined into 0-15.
+
 **VSync synchronisation:**
 
 Bit 0 allows the CPU to wait until the screen has finished painting before updating its content, avoiding flicker and visual artefacts. Many ZX Spectrum games used the HALT instruction or an interrupt routine to synchronise with VSync; on the SD81 Booster this mechanism is the direct equivalent for that functionality:
@@ -2458,6 +2468,12 @@ It is possible to define an 8-byte pattern that will be repeated along the scree
 |----------|----------------|
 | **4--3** | Beeper control |
 | **2--0** | Border color   |
+
+Equivalent command (pattern ink + Spectrum-mode border):
+
+LOAD \*BORDER \<colour\> : REM pattern ink (0-15) and Spectrum-mode border (bits 2-0)
+
+(equivalent to **POKE 2046,\<colour\>** plus the ULA port FBh above in a single step; it does not enable the pattern by itself, **POKE 2047,170** is still needed. The native-mode border background colour is set with **LOAD \*COLOR**, not this command.)
 
 ## VSYNC Synchronisation
 

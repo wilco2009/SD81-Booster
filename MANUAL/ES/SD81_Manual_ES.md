@@ -2479,6 +2479,16 @@ Permite detectar si el modo color está disponible y leer el estado del VSync:
 |:----:|------------------------------------------------------------------|
 | **ℹ** | *La lectura del bit 5 a 0 permite a los programas detectar automáticamente la presencia del interface Chroma81 y activar los modos de color si está disponible.* |
 
+Comando equivalente:
+
+LOAD \*COLOR : REM activar color, borde blanco (7) por defecto
+
+LOAD \*COLOR \<color\> : REM activar color, borde = \<color\> (0-15)
+
+LOAD \*COLOR STOP : REM desactivar color
+
+(equivalente al OUT 7FEFh anterior; activa el bit 5 y fija el modo de código de carácter automáticamente. **\<color\>** son los 4 bits bajos del puerto, brillo + GRB combinados en 0-15.
+
 # Apéndice F --- Modos Superfast y Spectrum
 
 ## El problema del vídeo en el ZX81 original
@@ -2552,6 +2562,12 @@ Es posible definir un patrón de 8 bytes que se repetirá a lo largo del borde d
 |----------|--------------------|
 | **4--3** | Control del beeper |
 | **2--0** | Color del borde    |
+
+Comando equivalente (tinta del patrón + borde en modo Spectrum):
+
+LOAD \*BORDER \<color\> : REM tinta del patron (0-15) y borde en modo Spectrum (bits 2-0)
+
+(equivalente a **POKE 2046,\<color\>** más el puerto ULA FBh anterior en un solo paso; no activa el patrón por sí solo, hace falta **POKE 2047,170**. El color de fondo del borde en modo nativo se controla con **LOAD \*COLOR**, no con este comando.)
 
 ## Sincronización con VSYNC
 

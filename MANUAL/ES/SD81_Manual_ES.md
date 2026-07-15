@@ -2504,6 +2504,18 @@ Las tres variantes del modo Superfast se seleccionan mediante POKE en la direcci
 | POKE 2045, 172 | Superfast HiRes Spectrum (alta resolución en formato Spectrum) |
 | POKE 2045, 85 | Desactivar modo Superfast |
 
+Con los comandos equivalentes:
+
+LOAD \*SFAST : REM Superfast texto
+
+LOAD \*SFHR \<direccion\> : REM Superfast HiRes nativo, HFILE = \<direccion\>
+
+LOAD \*SFSP \<direccion\> : REM Superfast HiRes Spectrum, HFILE = \<direccion\>
+
+LOAD \*SFAST STOP : REM desactivar (equivalente a \*SFHR STOP / \*SFSP STOP)
+
+(equivalentes a los POKE anteriores, por si se prefiere desde código máquina). **LOAD \*SFHR** y **LOAD \*SFSP** escriben HFILE (2043/2044) y activan el modo en un solo paso; no hace falta indicar HFILE para **LOAD \*SFAST** porque el modo texto no usa RAM extendida.
+
 ## Modo Spectrum
 
 El modo Spectrum (POKE 2045,172) reordena las líneas de pantalla para que coincidan con la organización de la pantalla del ZX Spectrum, facilitando la conversión de programas entre ambas plataformas. En el ZX81 estándar las líneas se organizan de forma diferente a como lo hace el Spectrum; este modo elimina esa diferencia por hardware.

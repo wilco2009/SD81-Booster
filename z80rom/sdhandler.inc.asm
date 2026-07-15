@@ -58,6 +58,7 @@ VERSION:	db	$13		; ROM version 1.3
 DataPort	equ	0xA7
 ClkPort		equ	0xAF
 MapperPort	equ	0xE7
+SpulaPort	equ	0xFB	; Spectrum-mode border/beeper ULA-style port (low byte only decoded)
 
 CMD_nop		equ	0x00
 CMD_ver		equ	0x01
@@ -1139,6 +1140,102 @@ DBUFoff:	rst	NEXT_CHAR	; skip STOP
 DBUFsend:	ld	(2057),a
 		ret
 
+; LOAD *SFAST [STOP]
+; Superfast text mode - no HFILE needed (uses DFILE/ROMTABLE, not extended RAM).
+CmdSFAST:	ld	bc,170*256+85	; B=ON value, C=OFF value
+		cp	.STOP		; Token STOP?
+		jr	nz,SFASTcmddone	; Jump if not
+		ld	b,c		; Change to OFF value
+		rst	NEXT_CHAR	; skip STOP
+SFASTcmddone:	call	MustBeEOL	; Done with syntax, time for action
+		ld	a,b
+		ld	(2045),a
+		ret
+
+; LOAD *SFHR <address> | LOAD *SFHR STOP
+; Superfast native HiRes mode. <address> is HFILE, the screen file address
+; in extended RAM.
+CmdSFHR:	cp	.STOP		; Token STOP?
+		jr	z,SFxxOff
+		call	CLASS_6		; Read HFILE address
+		call	MustBeEOL	; Check EOL and end syntax check
+		call	FIND_INT	; BC = HFILE address
+		ld	a,c
+		ld	(2043),a	; HFILE low
+		ld	a,b
+		ld	(2044),a	; HFILE high
+		ld	a,171		; Superfast HiRes native
+		jr	SFxxSend
+
+; LOAD *SFSP <address> | LOAD *SFSP STOP
+; Superfast Spectrum HiRes mode. <address> is HFILE, same as SFHR.
+CmdSFSP:	cp	.STOP		; Token STOP?
+		jr	z,SFxxOff
+		call	CLASS_6		; Read HFILE address
+		call	MustBeEOL	; Check EOL and end syntax check
+		call	FIND_INT	; BC = HFILE address
+		ld	a,c
+		ld	(2043),a	; HFILE low
+		ld	a,b
+		ld	(2044),a	; HFILE high
+		ld	a,172		; Superfast HiRes Spectrum
+		jr	SFxxSend
+SFxxOff:	rst	NEXT_CHAR	; skip STOP
+		call	MustBeEOL	; Check EOL and end syntax check
+		ld	a,85		; disable value
+SFxxSend:	ld	(2045),a
+		ret
+
+; LOAD *BORDER <colour>
+; Set border pattern ink (POKE 2046, low nibble; only visible if the
+; border pattern is enabled via POKE 2047) and the Superfast HiRes
+; Spectrum mode border/background colour (ULA-style port, low 3 bits).
+; The native-mode border background colour is set with LOAD *COLOR instead.
+CmdBORDER:	call	CLASS_6		; Read colour number
+		call	MustBeEOL	; Check EOL and end syntax check
+		call	FIND_INT	; BC = colour number
+		ld	a,b
+		or	a		; Error B if it's > 255
+		jp	nz,ReportB
+		ld	a,c
+		cp	16		; Valid range is between 0 and 15
+		jp	nc,ReportB
+		ld	(2046),a	; native/superfast text mode border ink
+		ld	a,c
+		and	7		; Spectrum mode ULA port only has 3 bits
+		out	(SpulaPort),a
+		ret
+
+; LOAD *COLOR [<border colour>] | LOAD *COLOR STOP
+; Enable/disable Chroma81 colour mode and set the native-mode border
+; background colour (port 7FEFh: bit5=enable, bits3-0=border colour).
+; <border colour> defaults to 7 (white) if omitted.
+CmdCOLOR:	cp	.STOP		; Token STOP?
+		jr	z,COLORoff
+		cp	.nl		; No argument given?
+		jr	z,COLORdflt
+		call	CLASS_6		; Read border colour number
+		call	MustBeEOL	; Check EOL and end syntax check
+		call	FIND_INT	; BC = border colour number
+		ld	a,b
+		or	a		; Error B if it's > 255
+		jp	nz,ReportB
+		ld	a,c
+		cp	16		; Valid range is between 0 and 15
+		jp	nc,ReportB
+		jr	COLORgotn
+COLORdflt:	call	MustBeEOL	; Check EOL and end syntax check
+		ld	a,7		; default border colour
+COLORgotn:	and	$0F
+		or	$20		; enable bit
+		jr	COLORsend
+COLORoff:	rst	NEXT_CHAR	; skip STOP
+		call	MustBeEOL	; Check EOL and end syntax check
+		xor	a		; disable value
+COLORsend:	ld	bc,32751	; port 7FEFh (Chroma81 mode/enable/border)
+		out	(c),a
+		ret
+
 ; LOAD *JOY <string>
 CmdJOY:		call	GetStrExpr	; Read a string expression
 		call	MustBeEOL	; The line must end after the expr.
@@ -1838,6 +1935,21 @@ CmdList:
 
 		db	.D,.B,.U,.F + $80
 		dw	CmdDBUF
+
+		db	.S,.F,.A,.S,.T + $80
+		dw	CmdSFAST
+
+		db	.S,.F,.H,.R + $80
+		dw	CmdSFHR
+
+		db	.S,.F,.S,.P + $80
+		dw	CmdSFSP
+
+		db	.B,.O,.R,.D,.E,.R + $80
+		dw	CmdBORDER
+
+		db	.C,.O,.L,.O,.R + $80
+		dw	CmdCOLOR
 
 		db	$FF
 

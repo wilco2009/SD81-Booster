@@ -2409,7 +2409,19 @@ The three Superfast mode variants are selected by POKEing address 2045:
 | POKE 2045, 170 | Superfast text (standard text mode, accelerated) |
 | POKE 2045, 171 | Superfast HiRes native (high resolution in ZX81 format) |
 | POKE 2045, 172 | Superfast HiRes Spectrum (high resolution in Spectrum format) |
-| POKE 2045, 85 | Desactivar modo Superfast |
+| POKE 2045, 85 | Deactivate Superfast mode |
+
+Equivalent commands:
+
+LOAD \*SFAST : REM Superfast text mode
+
+LOAD \*SFHR \<address\> : REM Superfast native HiRes, HFILE = \<address\>
+
+LOAD \*SFSP \<address\> : REM Superfast Spectrum HiRes, HFILE = \<address\>
+
+LOAD \*SFAST STOP : REM disable (equivalent to \*SFHR STOP / \*SFSP STOP)
+
+(equivalent to the POKEs above, for machine-code use). **LOAD \*SFHR** and **LOAD \*SFSP** write HFILE (2043/2044) and enable the mode in a single step; HFILE is not needed for **LOAD \*SFAST** since text mode does not use extended RAM.
 
 ## Modo Spectrum
 

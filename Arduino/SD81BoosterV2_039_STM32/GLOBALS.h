@@ -74,6 +74,7 @@ extern uint8_t GPIOR0; // Esta variable tiene que ser sustituida por alguna form
 extern uint8_t copy_buffer[BUFFSIZE];
 extern char array_dirname[MAX_FILENAME_LEN];
 extern uint16_t* file_array; //[MAX_FILE_ARRAY];
+extern uint16_t index_array;
 extern uint8_t sys_vars[128];
 extern uint16_t row_array;
 extern uint32_t serial_ini;

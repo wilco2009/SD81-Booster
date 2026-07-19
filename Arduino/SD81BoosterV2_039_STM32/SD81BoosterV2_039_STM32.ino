@@ -94,12 +94,19 @@ bool read_wait_serial_jumper() {
 }
 
 void setup() {
-  // SCB->VTOR = 0x0800C000; 
+  // SCB->VTOR = 0x0800C000;
   // pinMode(SD_LED, OUTPUT);
   // set_SDLed(LED_ON);
   // while(1);
-  // __enable_irq();  
-  
+  // __enable_irq();
+
+  // file_array (GLOBALS.cpp) es un puntero sin inicializar: reutiliza
+  // copy_buffer (mismo tamano, BUFFSIZE = MAX_FILE_ARRAY*sizeof(uint16_t))
+  // como backing storage para no gastar el doble de RAM. Sin esta linea
+  // file_array quedaba a NULL y cmd_opendir2/cmd_getrow leian/escribian
+  // memoria basura (listado de archivos vacio en HW real).
+  file_array = (uint16_t*)copy_buffer;
+
   pinMode(ST_LED_R, OUTPUT);
   pinMode(ST_LED_G, OUTPUT);
   pinMode(ST_LED_B, OUTPUT);

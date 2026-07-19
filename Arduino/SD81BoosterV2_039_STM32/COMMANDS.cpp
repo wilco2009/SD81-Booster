@@ -122,10 +122,11 @@ char file_name[MAX_FILENAME_LEN];
     sprintf_P(tmp,PSTR("current dir = \"%s\"\r"), ss);
     strcpy(current_dir,ss);
   }
-    if (dir.isOpen()) dir.close(); 
+    if (dir.isOpen()) dir.close();
   SendByteToZ80(error_code);  // ... and Status
-  ToggleClock();              // Final clock toggle
-  reset_commands();
+  reset_commands();           // antes del ToggleClock final: ver comentario
+                               // en cmd_opendir2 sobre la ventana de carrera
+  ToggleClock();               // Final clock toggle
 }
 
 // COMMAND = 4 OK
@@ -362,7 +363,10 @@ uint32_t result;
   if (T81_dir){
     error_code = 13; // forbiden operation
   } else {
-    if (param2[0]!='/'){
+    if (params[0]!='/'){   // bug: comparaba param2[0] (el destino) al
+                            // completar la ruta del ORIGEN (params);
+                            // ver cmd_move, que si compara el campo que
+                            // le corresponde a cada mitad
       complete_dir(tmp,current_dir);
       strcpy(tmp,current_dir);
       strcat(tmp,params);
@@ -370,7 +374,7 @@ uint32_t result;
       strcpy(tmp,params);
     }
     complete_dir(params,tmp);
-    
+
     if (param2[0]!='/'){
       complete_dir(tmp,current_dir);
       strcpy(tmp,current_dir);
@@ -1096,7 +1100,6 @@ int pos;
 uint8_t error_code;
 uint8_t c;
 bool isdir = false;
-uint16_t index_array;
   check_SD();
   error_code = 0;
   ToggleClock();
@@ -1146,6 +1149,12 @@ uint16_t index_array;
   } else {
     sprintf_P(s,PSTR("dir of \"%s%s\" is \r"), array_dirname,wildcards);
 
+    // Sfile es un objeto GLOBAL compartido con otros comandos (p.ej.
+    // cmd_copy lo usa via Sfile.open(nombre,...) para el origen). Si un
+    // comando previo lo dejo sin cerrar del todo, openNext() puede
+    // arrastrar estado y duplicar la entrada que ese comando toco --
+    // cierre defensivo antes de enumerar, por si acaso.
+    if (Sfile.isOpen()) Sfile.close();
     index_array = 0;
     while (Sfile.openNext(&dir, O_RDONLY)) {
       set_SDLed((millis() % 64)>32);
@@ -1156,11 +1165,21 @@ uint16_t index_array;
       }
       Sfile.close();
     }
-  }  
-    if (dir.isOpen()) dir.close(); 
+  }
+    if (dir.isOpen()) dir.close();
   SendByteToZ80(error_code);                // ... and Status
-  ToggleClock();                            // Final clock toggle
+  // reset_commands() ANTES del ToggleClock() final (no despues, como en
+  // el resto de comandos): reset_commands() es lo que pone
+  // command_active=CMD_IDLE, que es la condicion que get_data_reg()
+  // (COMMS.cpp) exige para aceptar un byte de comando nuevo. Con el
+  // orden antiguo hay una ventana de carrera: el Z80 ve el ToggleClock
+  // y puede mandar ya el siguiente comando antes de que el firmware
+  // ejecute reset_commands(), y ese byte se pierde en silencio. Rara
+  // vez se nota (el codigo Z80 normal deja hueco de sobra entre
+  // llamadas MCU), pero con dos llamadas seguidas casi sin nada en
+  // medio (p.ej. OPENDIR2 justo tras un CD) se pierde el comando.
   reset_commands();
+  ToggleClock();                            // Final clock toggle
 }
 
 // COMMAND =17
@@ -1221,6 +1240,15 @@ void cmd_getrow(){
     file_name[0]=0;
     error_code = 1;
     len = 0;
+  } else if (row_array > index_array) {
+    // Fuera de rango: OPENDIR2 solo encontro index_array entradas para
+    // ESTE directorio (indices validos de file_array: 0..index_array-1).
+    // Sin este chequeo, file_array[row_array-1] leia memoria residual
+    // (de una enumeracion anterior, posiblemente de otra carpeta) en
+    // vez de devolver "no existe", duplicando la ultima entrada real.
+    SendByteToZ80(0);  // string len
+    dir.getName(file_name, MAX_FILENAME_LEN);
+    error_code = 0;
   } else {
     if (Sfile.open(&dir, file_array[row_array-1], O_RDONLY)){
       Sfile.getName(file_name, MAX_FILENAME_LEN);

@@ -1040,6 +1040,14 @@ CmdICHR:	ld	bc,CMD_ichr_on*256 + CMD_ichr_off
 CmdRAM48:	ld	bc,CMD_std48k_on*256 + CMD_std48k_off
 		jr	CMD_ONOFF_BC
 
+; LOAD *FULLPAG [STOP] -- activa paginacion completa (512K, CMD_pages64)
+; o, con STOP, vuelve a la paginacion simple (256K, CMD_pages32). El
+; propio ROM ya activa CMD_pages64 solo (ver mas arriba, al paginar un
+; bloque a pagina >=32), pero no habia forma explicita de volver atras
+; ni de activarlo a mano sin necesidad de tocar paginas altas.
+CmdFULLPAG:	ld	bc,CMD_pages64*256 + CMD_pages32
+		jr	CMD_ONOFF_BC
+
 ; LOAD *MC45 [STOP]
 CmdMC45ONOFF:	ld	bc,CMD_mc45_on*256 + CMD_mc45_off
 CMD_ONOFF_BC:	cp	.STOP		; Token STOP?
@@ -1950,6 +1958,9 @@ CmdList:
 
 		db	.C,.O,.L,.O,.R + $80
 		dw	CmdCOLOR
+
+		db	.F,.U,.L,.L,.P,.A,.G + $80
+		dw	CmdFULLPAG
 
 		db	$FF
 

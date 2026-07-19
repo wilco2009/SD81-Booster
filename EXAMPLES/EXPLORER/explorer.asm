@@ -15,6 +15,7 @@
 ; Teclas: 5=carpeta padre 6=abajo 7=arriba 8/ENTER=abrir/activar
 ;         1/2=pagina arriba/abajo  N=nueva carpeta D=borrar R=renombrar
 ;         C=marcar copiar X=marcar mover V=pegar  ESPACIO=salir
+;         S=panel de configuracion (lateral)
 ;
 ; Ensamblar con pasmo: pasmo explorer.asm EXPLORER.BIN
 ; Cargar/usar: ver README.md (incluye el stub BASIC necesario).
@@ -42,6 +43,13 @@ NORM_ATTR       equ 038h        ; papel blanco, tinta negra
 SEL_ATTR        equ 00Fh        ; papel azul, tinta blanca (resaltado)
 PATH_ATTR       equ 020h        ; papel verde, tinta negra
 MAXVIS          equ 21
+PANEL_ATTRCOL0  equ 20          ; 1ª columna de atributo (0-31) del panel de config.
+LIST_ATTRCOLS   equ PANEL_ATTRCOL0      ; columnas de atributo de la lista con panel activo
+LIST_MAXCHARS   equ 26          ; caracteres (6px) que caben en LIST_ATTRCOLS sin invadir el panel
+PANEL_TXTCOL    equ 27          ; columna de texto (6px) donde arranca el panel
+PANEL_VALCOL    equ 37          ; columna donde arranca el valor (ON/OFF/128/64) de cada opcion
+PANEL_ATTR      equ 028h        ; papel cian, tinta negra (filas de opciones)
+PANEL_BASE_ATTR equ PANEL_ATTR  ; fondo base del panel: tambien cian
 namebuf         equ VIDBASE+1B00h
 
         jp start
@@ -74,6 +82,23 @@ start:
         ; --- borde azul ---
         ld a,1
         out (0fbh),a
+
+        ; --- estado inicial conocido del panel de config: WRX OFF,
+        ; FULLPAG OFF, MC45 OFF, CHR 64 (no hay forma de leer el estado
+        ; real del firmware, asi que lo forzamos al arrancar) ---
+        xor a
+        ld (cfg_wrx),a
+        ld (cfg_fullpag),a
+        ld (cfg_mc45),a
+        ld (cfg_chr128),a
+        ld a,85
+        ld (2058),a               ; WRX OFF (POKE directo, sin protocolo MCU)
+        ld a,30                   ; CMD_pages32 (FULLPAG OFF)
+        call mcu_send
+        ld a,20                   ; CMD_mc45_off
+        call mcu_send
+        ld a,28                   ; CMD_chars64
+        call mcu_send
 
         ; --- abrir directorio raiz ---
         call do_opendir_root
@@ -121,6 +146,21 @@ vtr_t1: ld b,a
         ld c,PATH_ATTR
         call fill_row_attr
 
+        ld a,(cfg_panel)
+        or a
+        jr z,vtr_widthfull
+        ld a,LIST_MAXCHARS
+        ld (list_maxchars),a
+        ld a,LIST_ATTRCOLS
+        ld (list_attrw),a
+        jr vtr_widthdone
+vtr_widthfull:
+        ld a,42
+        ld (list_maxchars),a
+        ld a,32
+        ld (list_attrw),a
+vtr_widthdone:
+
         ld hl,(win_start)
         ld (row_ptr),hl
         ld c,0
@@ -154,10 +194,12 @@ vlist_setattr:
         pop bc
         ld hl,namebuf
         ld a,(namelen)
-        cp 42
-        jr c,vlist_t2
-        ld a,42
-vlist_t2: ld b,a
+        ld b,a
+        ld a,(list_maxchars)
+        cp b
+        jr nc,vlist_t2
+        ld b,a
+vlist_t2:
         push bc
         call p42_string
         pop bc
@@ -168,8 +210,12 @@ vlist_t2: ld b,a
         push bc
         ld a,c
         inc a
+        push af                  ; guarda fila (1-based)
+        ld a,(list_attrw)
+        ld b,a
+        pop af
         ld c,SEL_ATTR
-        call fill_row_attr
+        call fill_row_attr_n
         pop bc
 vlist_nofull:
 
@@ -179,7 +225,163 @@ vlist_nofull:
         inc c
         jr vlist_loop
 vlist_done:
+        ld a,(cfg_panel)
+        or a
+        ret z
+        jp vt_draw_panel
+
+; -------------------------------------------------------------
+; vt_draw_panel: pinta toda la zona de settings (columnas de atributo
+; PANEL_ATTRCOL0..31) -- fondo azul base, la fila del titulo (1) en
+; blanco/tinta negra a toda su anchura, y cada fila de opcion (3/5/7/9)
+; en cian/tinta negra -- y luego el texto encima.
+; Se llama desde vt_refresh, despues del listado, solo si (cfg_panel)=1.
+; -------------------------------------------------------------
+vt_draw_panel:
+        ld b,1
+vdp_base:
+        push bc
+        ld a,b
+        call vdp_fillrow_base
+        pop bc
+        inc b
+        ld a,b
+        cp MAXVIS+1
+        jr c,vdp_base
+
+        ld a,1
+        call vdp_fillrow_title
+        ld a,3
+        call vdp_fillrow_opt
+        ld a,5
+        call vdp_fillrow_opt
+        ld a,7
+        call vdp_fillrow_opt
+        ld a,9
+        call vdp_fillrow_opt
+
+        ld d,1
+        ld e,PANEL_TITLE_COL
+        ld hl,panel_title
+        ld b,panel_title_len
+        ld c,NORM_ATTR
+        call panel_print
+
+        ld d,3
+        ld e,PANEL_TXTCOL
+        ld hl,panel_lbl_wrx
+        ld b,panel_lbl_wrx_len
+        ld c,PANEL_ATTR
+        call panel_print
+        ld d,3
+        ld e,PANEL_VALCOL
+        ld a,(cfg_wrx)
+        call panel_onoff
+        ld b,3
+        ld c,PANEL_ATTR
+        call panel_print
+
+        ld d,5
+        ld e,PANEL_TXTCOL
+        ld hl,panel_lbl_fullpag
+        ld b,panel_lbl_fullpag_len
+        ld c,PANEL_ATTR
+        call panel_print
+        ld d,5
+        ld e,PANEL_VALCOL
+        ld a,(cfg_fullpag)
+        call panel_onoff
+        ld b,3
+        ld c,PANEL_ATTR
+        call panel_print
+
+        ld d,7
+        ld e,PANEL_TXTCOL
+        ld hl,panel_lbl_mc45
+        ld b,panel_lbl_mc45_len
+        ld c,PANEL_ATTR
+        call panel_print
+        ld d,7
+        ld e,PANEL_VALCOL
+        ld a,(cfg_mc45)
+        call panel_onoff
+        ld b,3
+        ld c,PANEL_ATTR
+        call panel_print
+
+        ld d,9
+        ld e,PANEL_TXTCOL
+        ld hl,panel_lbl_chr
+        ld b,panel_lbl_chr_len
+        ld c,PANEL_ATTR
+        call panel_print
+        ld d,9
+        ld e,PANEL_VALCOL
+        ld a,(cfg_chr128)
+        or a
+        ld hl,str_chr64
+        jr z,vdp_chrval
+        ld hl,str_chr128
+vdp_chrval:
+        ld b,3
+        ld c,PANEL_ATTR
+        call panel_print
         ret
+
+; vdp_fillrow_base/_title/_opt: A=fila -> tiñe toda la anchura de la zona
+; de settings (columnas PANEL_ATTRCOL0..31) en esa fila, con el atributo
+; base/titulo/opcion respectivamente.
+vdp_fillrow_base:
+        ld c,PANEL_BASE_ATTR
+        jr vdp_fillrow_common
+vdp_fillrow_title:
+        ld c,NORM_ATTR
+        jr vdp_fillrow_common
+vdp_fillrow_opt:
+        ld c,PANEL_ATTR
+vdp_fillrow_common:
+        ld d,PANEL_ATTRCOL0
+        ld b,32-PANEL_ATTRCOL0
+        jp fill_row_attr_col
+
+; panel_print: D=fila,E=columna,HL=puntero texto,B=longitud,C=atributo.
+; Fija (cur_attr)=C antes de imprimir: p42_printdata tiñe con cur_attr la
+; celda de cada caracter que dibuja (igual que hace el listado para
+; resaltar la fila seleccionada); sin esto el texto del panel heredaba el
+; ultimo cur_attr que dejo el listado (NORM_ATTR) y salia con fondo
+; blanco encima del cian/blanco del panel.
+panel_print:
+        ld a,c
+        ld (cur_attr),a
+        call p42_setxy
+        jp p42_string
+
+; panel_onoff: A=0/1 -> HL=puntero a cadena de 3 caracteres "OFF"/"ON "
+panel_onoff:
+        or a
+        ld hl,str_off
+        ret z
+        ld hl,str_on
+        ret
+
+panel_title:    defb "SETTINGS"
+panel_title_len equ $-panel_title
+; centrado en el hueco de texto del panel (PANEL_TXTCOL..41, 15 columnas)
+PANEL_TITLE_COL equ PANEL_TXTCOL+(15-panel_title_len)/2
+
+panel_lbl_wrx:         defb "W WRX"
+panel_lbl_wrx_len      equ $-panel_lbl_wrx
+panel_lbl_fullpag:     defb "F FULLPAG"
+panel_lbl_fullpag_len  equ $-panel_lbl_fullpag
+panel_lbl_mc45:        defb "M MC45"
+panel_lbl_mc45_len     equ $-panel_lbl_mc45
+panel_lbl_chr:         defb "H CHR"
+panel_lbl_chr_len      equ $-panel_lbl_chr
+
+str_off:        defb "OFF"
+str_on:         defb "ON "
+str_chr128:     defb "128"
+str_chr64:      defb "64 "
 
 ; -------------------------------------------------------------
 ; vt_loop: bucle interactivo real -- read_key + 6/7 (movimiento con
@@ -217,6 +419,16 @@ vt_loop:
         jp z,vt_pgup
         cp 14
         jp z,vt_pgdn
+        cp 15
+        jp z,vt_toggle_panel
+        cp 16
+        jp z,vt_toggle_wrx
+        cp 17
+        jp z,vt_toggle_fullpag
+        cp 18
+        jp z,vt_toggle_mc45
+        cp 19
+        jp z,vt_toggle_chr
         jr vt_loop
 
 ; -------------------------------------------------------------
@@ -234,6 +446,99 @@ vt_updir:
         call vt_refresh
         jp vt_loop
 updir_dotdot: defb ".."
+
+; -------------------------------------------------------------
+; vt_toggle_panel: tecla S -- activa/desactiva el panel de configuracion
+; lateral. No toca (cur_index)/(win_start): al desactivarlo, vt_refresh
+; repinta la lista a ancho completo en la misma posicion en la que estaba.
+; -------------------------------------------------------------
+vt_toggle_panel:
+        ld a,(cfg_panel)
+        xor 1
+        ld (cfg_panel),a
+        call vt_refresh
+        jp vt_loop
+
+; -------------------------------------------------------------
+; vt_toggle_wrx/fullpag/mc45/chr: teclas W/F/M/H del panel -- invierten
+; su variable cfg_* y envian el comando correspondiente (WRX es un POKE
+; directo a 2058, igual que CmdWRX en el ROM; los demas son comandos MCU
+; de un solo byte, sin respuesta, igual que CMD_ONOFF_BC en el ROM).
+; Repintan el panel entero (vt_refresh) para reflejar el nuevo estado.
+; Si el panel no esta visible, no hacen nada (evita cambios de estado
+; invisibles mientras se navega el listado).
+; -------------------------------------------------------------
+vt_toggle_wrx:
+        ld a,(cfg_panel)
+        or a
+        jp z,vt_loop
+        ld a,(cfg_wrx)
+        xor 1
+        ld (cfg_wrx),a
+        or a
+        jr z,vtw_off
+        ld a,170
+        jr vtw_poke
+vtw_off:
+        ld a,85
+vtw_poke:
+        ld (2058),a
+        call vt_refresh
+        jp vt_loop
+
+vt_toggle_fullpag:
+        ld a,(cfg_panel)
+        or a
+        jp z,vt_loop
+        ld a,(cfg_fullpag)
+        xor 1
+        ld (cfg_fullpag),a
+        or a
+        jr z,vtf_off
+        ld a,29                   ; CMD_pages64
+        jr vtf_send
+vtf_off:
+        ld a,30                   ; CMD_pages32
+vtf_send:
+        call mcu_send
+        call vt_refresh
+        jp vt_loop
+
+vt_toggle_mc45:
+        ld a,(cfg_panel)
+        or a
+        jp z,vt_loop
+        ld a,(cfg_mc45)
+        xor 1
+        ld (cfg_mc45),a
+        or a
+        jr z,vtm45_off
+        ld a,19                   ; CMD_mc45_on
+        jr vtm45_send
+vtm45_off:
+        ld a,20                   ; CMD_mc45_off
+vtm45_send:
+        call mcu_send
+        call vt_refresh
+        jp vt_loop
+
+vt_toggle_chr:
+        ld a,(cfg_panel)
+        or a
+        jp z,vt_loop
+        ld a,(cfg_chr128)
+        xor 1
+        ld (cfg_chr128),a
+        or a
+        jr z,vtchr_64
+        ld a,27                   ; CMD_chars128
+        jr vtchr_send
+vtchr_64:
+        ld a,28                   ; CMD_chars64
+vtchr_send:
+        call mcu_send
+        call vt_refresh
+        jp vt_loop
 
 vt_exit:
         ld a,85
@@ -1294,12 +1599,33 @@ rra_t1: ld b,a
         ret
 
 fill_row_attr:
-        call calc_attr_addr
+        ld b,32
+        ld d,0
+        jr fill_row_attr_col
+
+; fill_row_attr_n: como fill_row_attr pero con anchura B (1-32) desde la
+; columna 0. Usada por el listado cuando el panel de config esta activo,
+; para no pintar el resalte de seleccion encima del panel.
+fill_row_attr_n:
+        ld d,0
+        jr fill_row_attr_col
+
+; fill_row_attr_col: A=fila, D=columna inicial de atributo(0-31),
+; B=anchura(1-32 cols), C=attr -> destruye AF,BC,DE,HL
+fill_row_attr_col:
+        call calc_attr_addr      ; hl = direccion columna 0 de la fila
+        ld a,d
+        ld d,0
+        ld e,a
+        add hl,de                ; hl += columna inicial
         ld (hl),c
         ld d,h
         ld e,l
         inc de
-        ld bc,31
+        ld a,b
+        dec a
+        ld c,a
+        ld b,0
         ldir
         ret
 
@@ -1465,9 +1791,9 @@ rk_wait:
         ld a,0F7h
         in a,(0FEh)
         bit 0,a
-        jr z,rk_pgup
+        jp z,rk_pgup
         bit 1,a
-        jr z,rk_pgdn
+        jp z,rk_pgdn
         bit 4,a
         jr z,rk_k5
         ld a,0EFh
@@ -1480,22 +1806,32 @@ rk_wait:
         jr z,rk_k8
         ld a,0BFh
         in a,(0FEh)
-        and 01h
+        bit 0,a
         jr z,rk_enter
+        bit 4,a
+        jr z,rk_h
         ld a,7Fh
         in a,(0FEh)
         bit 0,a
         jr z,rk_space
         bit 3,a
         jr z,rk_n
+        bit 2,a
+        jr z,rk_m
         ld a,0FDh
         in a,(0FEh)
         bit 2,a
         jr z,rk_d
+        bit 1,a
+        jr z,rk_s
+        bit 3,a
+        jr z,rk_f
         ld a,0FBh
         in a,(0FEh)
         bit 3,a
         jr z,rk_r
+        bit 1,a
+        jr z,rk_w
         ld a,0FEh
         in a,(0FEh)
         bit 3,a
@@ -1529,6 +1865,21 @@ rk_n:
 rk_d:
         ld a,8
         jr rk_deb
+rk_s:
+        ld a,15
+        jr rk_deb
+rk_w:
+        ld a,16
+        jr rk_deb
+rk_f:
+        ld a,17
+        jr rk_deb
+rk_m:
+        ld a,18
+        jr rk_deb
+rk_h:
+        ld a,19
+        jr rk_deb
 rk_r:
         ld a,9
         jr rk_deb
@@ -1561,21 +1912,24 @@ rk_rel:
         jr nz,rk_stillp
         ld a,0BFh
         in a,(0FEh)
-        and 01h
-        jr z,rk_stillp
+        and 11h
+        cp 11h
+        jr nz,rk_stillp
         ld a,7Fh
         in a,(0FEh)
-        and 09h
-        cp 09h
+        and 0Dh
+        cp 0Dh
         jr nz,rk_stillp
         ld a,0FDh
         in a,(0FEh)
-        and 04h
-        jr z,rk_stillp
+        and 0Eh
+        cp 0Eh
+        jr nz,rk_stillp
         ld a,0FBh
         in a,(0FEh)
-        and 08h
-        jr z,rk_stillp
+        and 0Ah
+        cp 0Ah
+        jr nz,rk_stillp
         ld a,0FEh
         in a,(0FEh)
         and 1Ch
@@ -2173,6 +2527,17 @@ p42_characters:
 cur_index:      defw 1
 win_start:      defw 1
 row_ptr:        defw 0
+cfg_panel:      defb 0          ; 0=panel oculto, 1=panel de config visible
+list_maxchars:  defb 42         ; ancho de texto vigente del listado (recalc. en vt_refresh)
+list_attrw:     defb 32         ; ancho de atributo vigente del listado (idem)
+
+; -- panel de configuracion: estado local de cada opcion (no hay forma de
+; preguntarselo al firmware, asi que el explorador fuerza un estado inicial
+; conocido en start y lo va llevando al alternar cada tecla) --
+cfg_wrx:        defb 0          ; 0=OFF,1=ON
+cfg_fullpag:    defb 0          ; 0=OFF,1=ON
+cfg_mc45:       defb 0          ; 0=OFF,1=ON
+cfg_chr128:     defb 0          ; 0=CHR64,1=CHR128
 cur_attr:       defb NORM_ATTR
 namelen:        defb 0
 retlen:         defb 0

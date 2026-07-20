@@ -50,6 +50,17 @@ PANEL_TXTCOL    equ 27          ; columna de texto (6px) donde arranca el panel
 PANEL_VALCOL    equ 37          ; columna donde arranca el valor (ON/OFF/128/64) de cada opcion
 PANEL_ATTR      equ 028h        ; papel cian, tinta negra (filas de opciones)
 PANEL_BASE_ATTR equ PANEL_ATTR  ; fondo base del panel: tambien cian
+PANEL_TITLE_ATTR equ 01Fh       ; papel magenta, tinta blanca (fila del titulo) -- prueba
+; columnas de bytes (0-31) donde pegar con blit_cols cada icono -- salen
+; de extract_icon.py (preposicionan el icono a nivel de pixel, alineado
+; con columnas de texto de 6px; ver cabecera de ese script) y NO se
+; recalculan aqui porque el desplazamiento sub-byte ya esta "horneado"
+; en el recurso .bin correspondiente.
+PANEL_ICONJOY_COL   equ 24   ; iconos de flechas (5 bytes, pixel visible 198)
+PANEL_JOY_VALCOL    equ 33   ; teclas QAOP: mismo pixel (198) que el icono
+PANEL_ICONSTOP_COL  equ 24   ; bajo la T (pixel 192)
+PANEL_ICONPAUSE_COL equ 25   ; bajo la Y (pixel 204)
+PANEL_ICONPLAY_COL  equ 27   ; bajo la U (pixel 216)
 namebuf         equ VIDBASE+1B00h
 
         jp start
@@ -259,12 +270,18 @@ vdp_base:
         call vdp_fillrow_opt
         ld a,9
         call vdp_fillrow_opt
+        ld a,12
+        call vdp_fillrow_opt
+        ld a,14
+        call vdp_fillrow_opt
+        ld a,16
+        call vdp_fillrow_opt
 
         ld d,1
         ld e,PANEL_TITLE_COL
         ld hl,panel_title
         ld b,panel_title_len
-        ld c,NORM_ATTR
+        ld c,PANEL_TITLE_ATTR
         call panel_print
 
         ld d,3
@@ -326,6 +343,59 @@ vdp_chrval:
         ld b,3
         ld c,PANEL_ATTR
         call panel_print
+
+        ; -- iconos de flechas del joystick --
+        ld a,11
+        ld d,PANEL_ICONJOY_COL
+        ld b,5
+        ld ix,ICON_JOY
+        call blit_cols
+
+        ld d,12
+        ld e,PANEL_TXTCOL
+        ld hl,panel_lbl_joy
+        ld b,panel_lbl_joy_len
+        ld c,PANEL_ATTR
+        call panel_print
+        ld d,12
+        ld e,PANEL_JOY_VALCOL
+        ld hl,cfg_joy_keys
+        ld b,5
+        ld c,PANEL_ATTR
+        call panel_print
+
+        ld d,14
+        ld e,PANEL_TYU_COL
+        ld hl,panel_lbl_tyu
+        ld b,panel_lbl_tyu_len
+        ld c,PANEL_ATTR
+        call panel_print
+
+        ; -- iconos STOP/PAUSA/PLAY, cada uno bajo su letra (T/Y/U) --
+        ld a,15
+        ld d,PANEL_ICONSTOP_COL
+        ld b,1
+        ld ix,ICON_STOP
+        call blit_cols
+        ld a,15
+        ld d,PANEL_ICONPAUSE_COL
+        ld b,2
+        ld ix,ICON_PAUSE
+        call blit_cols
+        ld a,15
+        ld d,PANEL_ICONPLAY_COL
+        ld b,1
+        ld ix,ICON_PLAY
+        call blit_cols
+
+        ; -- nombre del VGM cargado (vacio si no hay ninguno) --
+        ld d,16
+        ld e,PANEL_TXTCOL
+        ld hl,cfg_vgm_name
+        ld a,(cfg_vgm_namelen)
+        ld b,a
+        ld c,PANEL_ATTR
+        call panel_print
         ret
 
 ; vdp_fillrow_base/_title/_opt: A=fila -> tiñe toda la anchura de la zona
@@ -335,7 +405,7 @@ vdp_fillrow_base:
         ld c,PANEL_BASE_ATTR
         jr vdp_fillrow_common
 vdp_fillrow_title:
-        ld c,NORM_ATTR
+        ld c,PANEL_TITLE_ATTR
         jr vdp_fillrow_common
 vdp_fillrow_opt:
         ld c,PANEL_ATTR
@@ -377,6 +447,12 @@ panel_lbl_mc45:        defb "M MC45"
 panel_lbl_mc45_len     equ $-panel_lbl_mc45
 panel_lbl_chr:         defb "H CHR"
 panel_lbl_chr_len      equ $-panel_lbl_chr
+panel_lbl_joy:         defb "J JOY"
+panel_lbl_joy_len      equ $-panel_lbl_joy
+panel_lbl_tyu:         defb "T Y U"
+panel_lbl_tyu_len      equ $-panel_lbl_tyu
+; centrado igual que el titulo (PANEL_TXTCOL..41, 15 columnas)
+PANEL_TYU_COL equ PANEL_TXTCOL+(15-panel_lbl_tyu_len)/2
 
 str_off:        defb "OFF"
 str_on:         defb "ON "
@@ -429,6 +505,14 @@ vt_loop:
         jp z,vt_toggle_mc45
         cp 19
         jp z,vt_toggle_chr
+        cp 20
+        jp z,vt_edit_joy
+        cp 21
+        jp z,vt_vgm_stop
+        cp 22
+        jp z,vt_vgm_pause
+        cp 23
+        jp z,vt_vgm_cont
         jr vt_loop
 
 ; -------------------------------------------------------------
@@ -536,6 +620,113 @@ vt_toggle_chr:
 vtchr_64:
         ld a,28                   ; CMD_chars64
 vtchr_send:
+        call mcu_send
+        call vt_refresh
+        jp vt_loop
+
+; -------------------------------------------------------------
+; vt_edit_joy: tecla J -- edita las 5 teclas del joystick (arriba, abajo,
+; izda, dcha, fuego) partiendo del valor actual (cfg_joy_keys), con el
+; mismo dialogo de texto que usan renombrar/nueva carpeta (show_prompt +
+; text_input), pero con (ti_allow_space)=1: el ESPACIO es una tecla de
+; joystick valida (p.ej. fuego), asi que aqui NO cancela -- se inserta
+; como caracter normal. Para cancelar (recuperar las teclas de antes de
+; editar) hay que usar SHIFT+1 (ti_restore), como en renombrar; por eso
+; se rellena rn_oldname/rn_oldlen con el valor actual antes de editar.
+; Solo si se sale con exactamente 5 caracteres se manda con CMD_joy (21)
+; y se actualiza cfg_joy_keys; en cualquier otro caso no se toca nada.
+; Solo actua si el panel esta visible.
+; -------------------------------------------------------------
+vt_edit_joy:
+        ld a,(cfg_panel)
+        or a
+        jp z,vt_loop
+
+        ld hl,cfg_joy_keys
+        ld de,namebuf
+        ld bc,5
+        ldir
+        ld a,5
+        ld (namelen),a
+        ld (rn_oldlen),a
+        ld hl,namebuf
+        ld de,rn_oldname
+        ld bc,5
+        ldir
+
+        ld a,1
+        ld (ti_allow_space),a
+        ld hl,prompt_joy
+        ld b,prompt_joy_len
+        call show_prompt
+        call text_input
+        xor a
+        ld (ti_allow_space),a
+
+        ld a,(namelen)
+        cp 5
+        jp nz,vt_refresh_and_loop  ; longitud distinta de 5: no se manda nada
+
+        ld hl,namebuf
+        ld de,cfg_joy_keys
+        ld bc,5
+        ldir
+        ld hl,cfg_joy_keys
+        ld b,5
+        ld a,21                   ; CMD_joy
+        call cmd_str_zx
+        jp vt_refresh_and_loop
+
+prompt_joy:
+        defb "JOYSTICK KEYS (UP,DOWN,LEFT,RIGHT,FIRE):"
+prompt_joy_len equ $-prompt_joy
+
+; -------------------------------------------------------------
+; vt_vgm_stop/pause/cont: teclas T/Y/U -- control del VGM cargado con
+; vt_act_loadvgm. T (parar) y Y (pausar) solo actuan si esta sonando;
+; U (continuar) solo si hay algo cargado (sonando o en pausa). Solo
+; actuan si el panel esta visible.
+; -------------------------------------------------------------
+vt_vgm_stop:
+        ld a,(cfg_panel)
+        or a
+        jp z,vt_loop
+        ld a,(cfg_vgm_playing)
+        or a
+        jp z,vt_loop
+        xor a
+        ld (cfg_vgm_playing),a
+        ld (cfg_vgm_loaded),a
+        ld (cfg_vgm_namelen),a
+        ld a,35                   ; CMD_stopVGM
+        call mcu_send
+        call vt_refresh
+        jp vt_loop
+
+vt_vgm_pause:
+        ld a,(cfg_panel)
+        or a
+        jp z,vt_loop
+        ld a,(cfg_vgm_playing)
+        or a
+        jp z,vt_loop
+        xor a
+        ld (cfg_vgm_playing),a
+        ld a,36                   ; CMD_pauseVGM
+        call mcu_send
+        call vt_refresh
+        jp vt_loop
+
+vt_vgm_cont:
+        ld a,(cfg_panel)
+        or a
+        jp z,vt_loop
+        ld a,(cfg_vgm_loaded)
+        or a
+        jp z,vt_loop
+        ld a,1
+        ld (cfg_vgm_playing),a
+        ld a,37                   ; CMD_contVGM
         call mcu_send
         call vt_refresh
         jp vt_loop
@@ -760,6 +951,8 @@ vt_activate:
         ld a,(namebuf)
         cp '<'
         jp z,vt_act_dir
+        call is_vgm_ext
+        jp z,vt_act_loadvgm
         jp vt_act_loadp
 
 vt_act_dir:
@@ -814,6 +1007,70 @@ vtl_done:
         ld c,a
         ld b,0
         ret                     ; USR devuelve BC = longitud del nombre
+
+VGM_NAME_MAXLEN equ 15   ; ancho de texto util del panel (PANEL_TXTCOL..41)
+
+; is_vgm_ext: Z si namebuf/(namelen) termina en ".VGM" (mayusculas, mismo
+; criterio que el resto de nombres que devuelve la SD). Destruye AF,DE,HL.
+is_vgm_ext:
+        ld a,(namelen)
+        cp 4
+        jr c,ive_no
+        ld hl,namebuf
+        ld e,a
+        ld d,0
+        add hl,de
+        dec hl
+        dec hl
+        dec hl
+        dec hl                  ; hl = namebuf + namelen - 4
+        ld a,(hl)
+        cp '.'
+        jr nz,ive_no
+        inc hl
+        ld a,(hl)
+        cp 'V'
+        jr nz,ive_no
+        inc hl
+        ld a,(hl)
+        cp 'G'
+        jr nz,ive_no
+        inc hl
+        ld a,(hl)
+        cp 'M'
+        ret
+ive_no:
+        or 1                    ; asegura NZ
+        ret
+
+; vt_act_loadvgm: ENTER sobre un archivo .VGM -- lo carga con CMD_loadVGM
+; (34) y se queda en el explorador (a diferencia de vt_act_loadp, que
+; sale al BASIC). Guarda el nombre, recortado al ancho del panel, para
+; mostrarlo en la fila de musica, y marca "cargado y sonando" (el reproductor
+; arranca solo al cargar).
+vt_act_loadvgm:
+        ld a,(namelen)
+        ld b,a
+        ld hl,namebuf
+        ld a,34                   ; CMD_loadVGM
+        call cmd_str_zx
+
+        ld a,(namelen)
+        cp VGM_NAME_MAXLEN
+        jr c,vtlv_short
+        ld a,VGM_NAME_MAXLEN
+vtlv_short:
+        ld (cfg_vgm_namelen),a
+        ld c,a
+        ld b,0
+        ld hl,namebuf
+        ld de,cfg_vgm_name
+        ldir
+
+        ld a,1
+        ld (cfg_vgm_loaded),a
+        ld (cfg_vgm_playing),a
+        jp vt_refresh_and_loop
 
 ; strip_brackets: quita '<' inicial y '>' final de namebuf, ajusta
 ; (namelen). Copia literal de explorer.asm.
@@ -1198,7 +1455,17 @@ ti_loop:
         cp 13
         jp z,ti_done
         cp 32
-        jp z,ti_cancel
+        jr nz,ti_chkother
+        push af
+        ld a,(ti_allow_space)
+        or a
+        jr nz,ti_spaceok
+        pop af
+        jp ti_cancel
+ti_spaceok:
+        pop af
+        jr ti_ischar
+ti_chkother:
         cp 8
         jp z,ti_back
         cp 3
@@ -1207,6 +1474,7 @@ ti_loop:
         jp z,ti_left
         cp 2
         jp z,ti_right
+ti_ischar:
         ld c,a
         ld a,(namelen)
         cp TI_MAXLEN
@@ -1516,12 +1784,17 @@ copy_row:
         call calc_bmp_addr
         ld (cp_dstaddr),hl
 
+; copy_row/clear_row: limitadas a (list_attrw) columnas (32 con el panel
+; cerrado, igual que siempre) para no desplazar/borrar el panel de
+; configuracion cuando el listado hace scroll con el panel abierto.
         ld b,8
 cpr_loop:
         push bc
         ld hl,(cp_srcaddr)
         ld de,(cp_dstaddr)
-        ld bc,32
+        ld a,(list_attrw)
+        ld c,a
+        ld b,0
         ldir
         ld hl,(cp_srcaddr)
         inc h
@@ -1538,7 +1811,9 @@ cpr_loop:
         ld a,(cp_dstrow)
         call calc_attr_addr
         ex de,hl
-        ld bc,32
+        ld a,(list_attrw)
+        ld c,a
+        ld b,0
         ldir
         ret
 
@@ -1553,7 +1828,10 @@ cr_loop:
         ld d,h
         ld e,l
         inc de
-        ld bc,31
+        ld a,(list_attrw)
+        dec a
+        ld c,a
+        ld b,0
         ldir
         pop hl
         inc h
@@ -1567,7 +1845,10 @@ cr_loop:
         ld d,h
         ld e,l
         inc de
-        ld bc,31
+        ld a,(list_attrw)
+        dec a
+        ld c,a
+        ld b,0
         ldir
         ret
 
@@ -1575,28 +1856,45 @@ cr_loop:
 ; redraw_row_attr / fill_row_attr / blit_row / calc_bmp_addr /
 ; calc_attr_addr: usan VIDBASE_HI/ATTRBASE_HI (derivados de VIDBLOCK).
 ; -------------------------------------------------------------
+; redraw_row_attr: repintado parcial de UNA fila del listado (usado por
+; vt_down/vt_up sin cruzar pagina). Respeta (list_maxchars)/(list_attrw)
+; -- igual que vlist_loop en vt_refresh -- para no invadir el panel de
+; configuracion cuando esta abierto (si esta cerrado valen 42/32 y el
+; comportamiento es identico al de siempre).
 redraw_row_attr:
-        push af
+        ld (rra_row),a
         push bc
         call get_row
         pop bc
-        pop af
+        ld a,c
+        ld (rra_attr),a
+        ld (cur_attr),a
+
+        ld a,(rra_row)
         ld d,a
         ld e,0
         call p42_setxy
-        push af
-        ld a,c
-        ld (cur_attr),a
+
         ld hl,namebuf
         ld a,(namelen)
-        cp 42
-        jr c,rra_t1
-        ld a,42
-rra_t1: ld b,a
-        call p42_string
+        ld b,a
+        ld a,(list_maxchars)
+        cp b
+        jr nc,rra_t1
+        ld b,a
+rra_t1: call p42_string
+
+        ld a,(rra_row)
+        push af
+        ld a,(list_attrw)
+        ld b,a
+        ld a,(rra_attr)
+        ld c,a
         pop af
-        call fill_row_attr
+        call fill_row_attr_n
         ret
+rra_row:  defb 0
+rra_attr: defb 0
 
 fill_row_attr:
         ld b,32
@@ -1668,6 +1966,61 @@ br_loop:
         push ix
         pop hl
         ld bc,32
+        ldir
+        ret
+
+; -------------------------------------------------------------
+; blit_cols: como blit_row pero con anchura y columna inicial variables
+; (para los iconos del panel de configuracion, mas estrechos que una fila
+; completa). Recurso generado por extract_bg.py con rango de columnas:
+; anchura*8 bytes de bitmap (8 scanlines de "anchura" bytes) + anchura
+; bytes de atributo. Entrada: A=fila, D=columna inicial(0-31),
+; B=anchura(cols), IX=recurso. Destruye AF,BC,DE,HL,IX.
+; -------------------------------------------------------------
+blit_cols:
+        ld (blit_row_reg),a
+        ld a,d
+        ld (blit_col_reg),a
+        ld a,b
+        ld (blit_w_reg),a
+
+        ld a,(blit_row_reg)
+        call calc_bmp_addr        ; hl = direccion linea0, columna 0 de la fila
+        ld a,(blit_col_reg)
+        ld e,a
+        ld d,0
+        add hl,de                  ; hl += columna inicial
+
+        ld b,8
+bcl_loop:
+        push bc
+        push hl
+        ex de,hl
+        push ix
+        pop hl
+        ld a,(blit_w_reg)
+        ld c,a
+        ld b,0
+        ldir
+        push hl
+        pop ix
+        pop hl
+        inc h
+        pop bc
+        djnz bcl_loop
+
+        ld a,(blit_row_reg)
+        call calc_attr_addr
+        ld a,(blit_col_reg)
+        ld e,a
+        ld d,0
+        add hl,de
+        ex de,hl
+        push ix
+        pop hl
+        ld a,(blit_w_reg)
+        ld c,a
+        ld b,0
         ldir
         ret
 
@@ -1795,52 +2148,62 @@ rk_wait:
         bit 1,a
         jp z,rk_pgdn
         bit 4,a
-        jr z,rk_k5
+        jp z,rk_k5
         ld a,0EFh
         in a,(0FEh)
         bit 4,a
-        jr z,rk_k6
+        jp z,rk_k6
         bit 3,a
-        jr z,rk_k7
+        jp z,rk_k7
         bit 2,a
-        jr z,rk_k8
+        jp z,rk_k8
         ld a,0BFh
         in a,(0FEh)
         bit 0,a
-        jr z,rk_enter
+        jp z,rk_enter
         bit 4,a
-        jr z,rk_h
+        jp z,rk_h
+        bit 3,a
+        jp z,rk_j
         ld a,7Fh
         in a,(0FEh)
         bit 0,a
-        jr z,rk_space
+        jp z,rk_space
         bit 3,a
-        jr z,rk_n
+        jp z,rk_n
         bit 2,a
-        jr z,rk_m
+        jp z,rk_m
         ld a,0FDh
         in a,(0FEh)
         bit 2,a
-        jr z,rk_d
+        jp z,rk_d
         bit 1,a
-        jr z,rk_s
+        jp z,rk_s
         bit 3,a
-        jr z,rk_f
+        jp z,rk_f
         ld a,0FBh
         in a,(0FEh)
         bit 3,a
-        jr z,rk_r
+        jp z,rk_r
         bit 1,a
-        jr z,rk_w
+        jp z,rk_w
+        bit 4,a
+        jp z,rk_t
+        ld a,0DFh
+        in a,(0FEh)
+        bit 4,a
+        jp z,rk_y
+        bit 3,a
+        jp z,rk_u
         ld a,0FEh
         in a,(0FEh)
         bit 3,a
-        jr z,rk_c
+        jp z,rk_c
         bit 2,a
-        jr z,rk_x
+        jp z,rk_x
         bit 4,a
-        jr z,rk_v
-        jr rk_wait
+        jp z,rk_v
+        jp rk_wait
 rk_k5:
         ld a,2
         jr rk_deb
@@ -1880,6 +2243,18 @@ rk_m:
 rk_h:
         ld a,19
         jr rk_deb
+rk_j:
+        ld a,20
+        jr rk_deb
+rk_t:
+        ld a,21
+        jr rk_deb
+rk_y:
+        ld a,22
+        jr rk_deb
+rk_u:
+        ld a,23
+        jr rk_deb
 rk_r:
         ld a,9
         jr rk_deb
@@ -1912,8 +2287,8 @@ rk_rel:
         jr nz,rk_stillp
         ld a,0BFh
         in a,(0FEh)
-        and 11h
-        cp 11h
+        and 19h
+        cp 19h
         jr nz,rk_stillp
         ld a,7Fh
         in a,(0FEh)
@@ -1927,8 +2302,13 @@ rk_rel:
         jr nz,rk_stillp
         ld a,0FBh
         in a,(0FEh)
-        and 0Ah
-        cp 0Ah
+        and 1Ah
+        cp 1Ah
+        jr nz,rk_stillp
+        ld a,0DFh
+        in a,(0FEh)
+        and 18h
+        cp 18h
         jr nz,rk_stillp
         ld a,0FEh
         in a,(0FEh)
@@ -2538,6 +2918,14 @@ cfg_wrx:        defb 0          ; 0=OFF,1=ON
 cfg_fullpag:    defb 0          ; 0=OFF,1=ON
 cfg_mc45:       defb 0          ; 0=OFF,1=ON
 cfg_chr128:     defb 0          ; 0=CHR64,1=CHR128
+cfg_joy_keys:   defb "QAOP "    ; teclas arriba/abajo/izda/dcha/fuego
+cfg_vgm_loaded:   defb 0        ; 0=nada cargado, 1=hay un VGM cargado (sonando o en pausa)
+cfg_vgm_playing:  defb 0        ; 0=parado/en pausa, 1=sonando
+cfg_vgm_namelen:  defb 0
+cfg_vgm_name:     defs VGM_NAME_MAXLEN
+blit_row_reg:   defb 0          ; temporales de blit_cols (fila/columna/anchura)
+blit_col_reg:   defb 0
+blit_w_reg:     defb 0
 cur_attr:       defb NORM_ATTR
 namelen:        defb 0
 retlen:         defb 0
@@ -2551,6 +2939,8 @@ rc_pending:     defb 0
 rc_offset:      defb 0
 ti_cursor:      defb 0
 ti_char:        defb 0
+ti_allow_space: defb 0          ; 1 = ESPACIO se inserta como caracter
+                                 ; normal en vez de cancelar (teclas joystick)
 ti_src:         defw 0
 ti_dst:         defw 0
 ti_delpos:      defb 0
@@ -2578,5 +2968,13 @@ BG_ROW0:
         incbin "bg_row0.bin"
 BG_ROW23:
         incbin "bg_row23.bin"
+ICON_JOY:
+        incbin "icon_joy.bin"
+ICON_STOP:
+        incbin "icon_stop.bin"
+ICON_PAUSE:
+        incbin "icon_pause.bin"
+ICON_PLAY:
+        incbin "icon_play.bin"
 
         end

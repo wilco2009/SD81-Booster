@@ -29,30 +29,39 @@ def bitmap_addr_native(x_byte, y):
     line = within % 8
     return third * 2048 + line * 256 + row_in_third * 32 + x_byte
 
-def extract_row(data, row):
+def extract_row(data, row, col0=0, col1=32):
+    # col0/col1: rango de columnas de atributo (0-31, col1 exclusivo) a
+    # extraer -- por defecto la fila completa (formato usado por
+    # bg_row0.bin/bg_row23.bin y blit_row). Un rango mas estrecho produce
+    # un recurso mas pequeño (formato usado por los iconos del panel de
+    # configuracion y blit_cols): width*8 bytes de bitmap (8 scanlines de
+    # width bytes) + width bytes de atributo.
     assert len(data) == 6912, "se esperaba un .scr de 6912 bytes"
+    width = col1 - col0
     out = bytearray()
     for line in range(8):
         y = row * 8 + line
-        for xb in range(32):
+        for xb in range(col0, col1):
             out.append(data[bitmap_addr_native(xb, y)])
-    attr_off = 6144 + row * 32
-    out += data[attr_off:attr_off + 32]
-    assert len(out) == 288
+    attr_off = 6144 + row * 32 + col0
+    out += data[attr_off:attr_off + width]
+    assert len(out) == width * 9
     return bytes(out)
 
 def main():
-    if len(sys.argv) != 4:
-        print("uso: extract_bg.py <entrada.scr> <fila 0-23> <salida.bin>")
+    if len(sys.argv) not in (4, 6):
+        print("uso: extract_bg.py <entrada.scr> <fila 0-23> <salida.bin> [col_inicial col_final]")
+        print("     (columnas de atributo 0-31, col_final exclusivo; por defecto 0 32 = fila completa)")
         sys.exit(1)
     scr_path, row_str, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
     row = int(row_str)
+    col0, col1 = (int(sys.argv[4]), int(sys.argv[5])) if len(sys.argv) == 6 else (0, 32)
     with open(scr_path, "rb") as f:
         data = f.read()
-    chunk = extract_row(data, row)
+    chunk = extract_row(data, row, col0, col1)
     with open(out_path, "wb") as f:
         f.write(chunk)
-    print(f"fila {row} -> {out_path} ({len(chunk)} bytes)")
+    print(f"fila {row} cols {col0}-{col1} -> {out_path} ({len(chunk)} bytes)")
 
 if __name__ == "__main__":
     main()

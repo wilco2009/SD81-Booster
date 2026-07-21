@@ -1978,6 +1978,7 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 | 55 | F_READ | Handle(0..3)+Count(2B Little Endian) | count bytes + 1B:status | Lee count bytes. Siempre envia count bytes, si se termina el archivo rellena con ceros |
 | 56 | F_WRITE | Handle(0..3)+Count(2B Little Endian)+info to write (count bytes) | 1B:status | escribe count bytes. |
 | 57 | F_CLOSE | Handle(0..3) | 1B:status | Cierra el fichero |
+| 59 | F_STAT | Handle(0..3) | 4B:tamaño+2B:fecha+2B:hora+1B:status | Devuelve el tamaño (32 bits) y la fecha/hora de creación (formato FAT) de un fichero ya abierto con F_OPEN. |
 
 ### Comandos de control del hardware
 

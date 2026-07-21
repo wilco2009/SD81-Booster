@@ -63,6 +63,21 @@ PANEL_ICONPAUSE_COL equ 25   ; bajo la Y (pixel 204)
 PANEL_ICONPLAY_COL  equ 27   ; bajo la U (pixel 216)
 namebuf         equ VIDBASE+1B00h
 
+; -------------------------------------------------------------
+; Visor de texto (*.TXT): estado y buffer de lectura, alojados en el
+; mismo hueco libre de VIDBLOCK que namebuf (justo despues), para no
+; gastar presupuesto del bloque de 8K del programa.
+; -------------------------------------------------------------
+VWR_ROWS        equ 22           ; filas de texto en pantalla (1..22)
+VWR_BUFSIZE     equ 512          ; trozo de fichero leido de una vez (maximo del firmware)
+viewer_handle    equ namebuf+110
+viewer_topline   equ viewer_handle+1     ; 2 bytes: nº de linea (0-based) en la fila 1
+viewer_bufpos    equ viewer_topline+2    ; 2 bytes: posicion de lectura dentro de viewer_buf
+viewer_buflen    equ viewer_bufpos+2     ; 2 bytes: bytes validos en viewer_buf
+viewer_size      equ viewer_buflen+2     ; 4 bytes: tamaño total del fichero (CMD_f_stat, al abrir)
+viewer_remaining equ viewer_size+4       ; 4 bytes: bytes que quedan por leer desde el ultimo rewind
+viewer_buf       equ viewer_remaining+4  ; VWR_BUFSIZE bytes
+
         jp start
 retname:        ; buffer ESTABLE del nombre devuelto a BASIC (24579=ORG+3),
         defs 104 ; en RAM bloque 3, sobrevive a video_off (que remapea VIDBLOCK)
@@ -953,6 +968,8 @@ vt_activate:
         jp z,vt_act_dir
         call is_vgm_ext
         jp z,vt_act_loadvgm
+        call is_txt_ext
+        jp z,vt_view_txt
         jp vt_act_loadp
 
 vt_act_dir:
@@ -1043,6 +1060,39 @@ ive_no:
         or 1                    ; asegura NZ
         ret
 
+; is_txt_ext: Z si namebuf/(namelen) termina en ".TXT" (mismo criterio
+; que is_vgm_ext). Destruye AF,DE,HL.
+is_txt_ext:
+        ld a,(namelen)
+        cp 4
+        jr c,ite_no
+        ld hl,namebuf
+        ld e,a
+        ld d,0
+        add hl,de
+        dec hl
+        dec hl
+        dec hl
+        dec hl
+        ld a,(hl)
+        cp '.'
+        jr nz,ite_no
+        inc hl
+        ld a,(hl)
+        cp 'T'
+        jr nz,ite_no
+        inc hl
+        ld a,(hl)
+        cp 'X'
+        jr nz,ite_no
+        inc hl
+        ld a,(hl)
+        cp 'T'
+        ret
+ite_no:
+        or 1
+        ret
+
 ; vt_act_loadvgm: ENTER sobre un archivo .VGM -- lo carga con CMD_loadVGM
 ; (34) y se queda en el explorador (a diferencia de vt_act_loadp, que
 ; sale al BASIC). Guarda el nombre, recortado al ancho del panel, para
@@ -1071,6 +1121,289 @@ vtlv_short:
         ld (cfg_vgm_loaded),a
         ld (cfg_vgm_playing),a
         jp vt_refresh_and_loop
+
+; -------------------------------------------------------------
+; vt_view_txt: ENTER sobre un archivo .TXT -- lo abre en modo ASCII
+; (CMD_f_open=53) y muestra su contenido a pantalla completa, con 6/7
+; para desplazarse linea a linea (ESPACIO para salir). Si no se puede
+; abrir, no hace nada.
+; -------------------------------------------------------------
+vt_view_txt:
+        call f_open_txt
+        cp 0FFh
+        jp z,vt_loop
+
+        ld (viewer_handle),a
+        call f_stat              ; -> (viewer_size) = tamaño exacto del
+                                  ; fichero (ignoramos fecha/hora y status:
+                                  ; el tamaño ya es valido con solo tener
+                                  ; el handle abierto)
+        ld hl,0
+        ld (viewer_topline),hl
+        call vwr_render
+
+vwr_loop:
+        call read_key
+        cp 1
+        jp z,vwr_exit
+        cp 3
+        jp z,vwr_down
+        cp 4
+        jp z,vwr_up
+        cp 13
+        jp z,vwr_pgup
+        cp 14
+        jp z,vwr_pgdn
+        jr vwr_loop
+
+vwr_down:
+        ld hl,(viewer_topline)
+        inc hl
+        ld (viewer_topline),hl
+        call vwr_render
+        jr vwr_loop
+
+vwr_up:
+        ld hl,(viewer_topline)
+        ld a,h
+        or l
+        jr z,vwr_loop            ; ya esta en la primera linea
+        dec hl
+        ld (viewer_topline),hl
+        call vwr_render
+        jr vwr_loop
+
+; vwr_pgup/vwr_pgdn: teclas 1/2 -- avanzan/retroceden una pantalla
+; completa (VWR_ROWS lineas). vwr_pgup recorta a 0 en vez de dejar que
+; (viewer_topline) se vaya a negativo (envolveria a un numero enorme,
+; de 16 bits sin signo). vwr_pgdn no comprueba el final del fichero por
+; la misma razon que vwr_down no lo hace: si te pasas, la pantalla sale
+; en blanco y con 7/PgUp se vuelve atras.
+;
+; vwr_pgdn SI comprueba si la pagina nueva queda en blanco (ninguna linea
+; impresa): en ese caso deshace el avance y se queda en la ultima pagina
+; con texto, en vez de dejar la pantalla vacia.
+vwr_pgup:
+        ld hl,(viewer_topline)
+        ld de,VWR_ROWS
+        or a
+        sbc hl,de
+        jr nc,vwr_pgup_ok
+        ld hl,0
+vwr_pgup_ok:
+        ld (viewer_topline),hl
+        call vwr_render
+        jr vwr_loop
+
+vwr_pgdn:
+        ld hl,(viewer_topline)
+        push hl                    ; guarda la fila actual por si hay que deshacer
+        ld de,VWR_ROWS
+        add hl,de
+        ld (viewer_topline),hl
+        call vwr_render
+        ld a,(vwr_row)
+        cp 1
+        jr nz,vwr_pgdn_ok          ; se imprimio al menos una linea: aceptar
+        pop hl
+        ld (viewer_topline),hl
+        call vwr_render            ; en blanco: repinta la ultima pagina con texto
+        jr vwr_loop
+vwr_pgdn_ok:
+        pop hl
+        jr vwr_loop
+
+vwr_exit:
+        ld a,(viewer_handle)
+        call f_close
+        jp vt_refresh_and_loop
+
+; vwr_render: repinta la pantalla completa del visor. Vuelve siempre al
+; principio del fichero y relee desde ahi, saltando (viewer_topline)
+; lineas sin imprimir y luego imprimiendo hasta VWR_ROWS o EOF -- mas
+; sencillo y robusto que llevar un historial de offsets, a costa de
+; releer el fichero en cada desplazamiento (aceptable para el tamaño
+; tipico de estos archivos).
+vwr_render:
+        ld a,(viewer_handle)
+        call f_rewind
+        ld hl,0
+        ld (viewer_bufpos),hl
+        ld (viewer_buflen),hl
+        ld hl,(viewer_size)
+        ld (viewer_remaining),hl
+        ld hl,(viewer_size+2)
+        ld (viewer_remaining+2),hl
+
+        call video_clear
+        ld ix,BG_ROW0
+        xor a
+        call blit_row
+        ld ix,BG_ROW23
+        ld a,23
+        call blit_row
+
+        ld hl,(viewer_topline)
+        ld a,h
+        or l
+        jr z,vwr_skipdone
+vwr_skiploop:
+        push hl
+        call vwr_nextline
+        pop hl
+        jr nz,vwr_skipdone        ; EOF antes de llegar a la linea pedida
+        dec hl
+        ld a,h
+        or l
+        jr nz,vwr_skiploop
+vwr_skipdone:
+
+        ld a,1
+        ld (vwr_row),a            ; fila de pantalla actual (1..VWR_ROWS) --
+                                  ; en memoria, NO en C: vwr_nextline usa C
+                                  ; como escratch para el caracter leido y
+                                  ; lo destruye (era el bug: la fila se
+                                  ; corrompia justo antes de p42_setxy)
+vwr_printloop:
+        ld a,(vwr_row)
+        cp VWR_ROWS+1
+        jr nc,vwr_printdone
+        call vwr_nextline
+        jr nz,vwr_printdone       ; EOF: no hay mas lineas que mostrar
+        ld a,NORM_ATTR
+        ld (cur_attr),a
+        ld a,(vwr_row)
+        ld d,a
+        ld e,0
+        call p42_setxy
+        ld hl,namebuf
+        ld a,(namelen)
+        ld b,a
+        call p42_string
+        ld a,(vwr_row)
+        inc a
+        ld (vwr_row),a
+        jr vwr_printloop
+vwr_printdone:
+        ret
+vwr_row: defb 0
+
+; vwr_nextline: lee la siguiente linea del stream (via vwr_getchar) y la
+; deja en namebuf/(namelen), recortada a 42 caracteres -- sigue
+; consumiendo caracteres hasta el '\n' aunque no quepan mas, para no
+; perder la cuenta de bytes del fichero. Ignora '\r'. Devuelve Z si se
+; leyo una linea (aunque este vacia); NZ si no quedaba nada que leer.
+vwr_nextline:
+        xor a
+        ld (namelen),a
+vnl_charloop:
+        call vwr_getchar
+        jr c,vnl_eof
+        cp 13
+        jr z,vnl_charloop         ; ignora CR (por si el fichero es CRLF)
+        cp 10
+        jr z,vnl_done             ; LF: fin de linea
+        ld c,a
+        ld a,(namelen)
+        cp 42
+        jr nc,vnl_charloop        ; linea ya llena: seguir consumiendo sin guardar
+        ld hl,namebuf
+        ld e,a
+        ld d,0
+        add hl,de
+        ld (hl),c
+        ld a,(namelen)
+        inc a
+        ld (namelen),a
+        jr vnl_charloop
+vnl_done:
+        xor a                     ; Z=1
+        ret
+vnl_eof:
+        ld a,(namelen)
+        or a
+        jr nz,vnl_done            ; ultima linea sin '\n' final: se da por buena
+        or 1                      ; NZ: no hay mas lineas
+        ret
+
+; vwr_getchar: A=siguiente byte del stream, recargando (viewer_buf) con
+; f_read cuando se agota. CY=1 si no quedan mas datos (viewer_remaining
+; llega a 0). (viewer_remaining) -- puesto a (viewer_size) por vwr_render,
+; obtenido de CMD_f_stat al abrir -- dice exactamente cuantos bytes
+; quedan, asi que cada recarga pide como mucho eso: nunca se le pide a
+; CMD_f_read mas de lo que hay, y por tanto nunca rellena con ceros de
+; relleno (no hace falta ninguna heuristica sobre bytes 0x00).
+vwr_getchar:
+        ld hl,(viewer_buflen)
+        ld de,(viewer_bufpos)
+        or a
+        sbc hl,de
+        jr nz,vgc_have             ; bufpos < buflen: quedan datos en el buffer
+
+        ld hl,(viewer_remaining)
+        ld a,h
+        or l
+        ld b,a
+        ld hl,(viewer_remaining+2)
+        ld a,h
+        or l
+        or b
+        jr nz,vgc_refill
+        scf
+        ret                        ; (viewer_remaining)=0: fin de fichero real
+
+vgc_refill:
+        call vwr_reqlen            ; de = min(VWR_BUFSIZE,(viewer_remaining))
+        push de
+        ld a,(viewer_handle)
+        call f_read
+        pop de
+        call vwr_sub_remaining
+        ld hl,0
+        ld (viewer_bufpos),hl
+        ld (viewer_buflen),de
+vgc_have:
+        ld hl,(viewer_bufpos)
+        ld de,viewer_buf
+        add hl,de
+        ld a,(hl)
+        push af
+        ld hl,(viewer_bufpos)
+        inc hl
+        ld (viewer_bufpos),hl
+        pop af
+        or a                       ; CY=0
+        ret
+
+; vwr_reqlen: DE = min(VWR_BUFSIZE,(viewer_remaining)). Asume que ya se
+; comprobo que (viewer_remaining) > 0. Destruye AF,HL.
+vwr_reqlen:
+        ld hl,(viewer_remaining+2)
+        ld a,h
+        or l
+        jr nz,vrl_full             ; parte alta <> 0: remaining > 65535
+        ld de,(viewer_remaining)
+        ld hl,VWR_BUFSIZE
+        or a
+        sbc hl,de
+        ret nc                     ; VWR_BUFSIZE >= remaining_lo: de=remaining_lo
+vrl_full:
+        ld de,VWR_BUFSIZE
+        ret
+
+; vwr_sub_remaining: (viewer_remaining) -= DE (resta de 16 bits sobre un
+; contador de 32). Destruye AF,HL.
+vwr_sub_remaining:
+        ld hl,(viewer_remaining)
+        or a
+        sbc hl,de
+        ld (viewer_remaining),hl
+        ld hl,(viewer_remaining+2)
+        jr nc,vsr_done
+        dec hl
+vsr_done:
+        ld (viewer_remaining+2),hl
+        ret
 
 ; strip_brackets: quita '<' inicial y '>' final de namebuf, ajusta
 ; (namelen). Copia literal de explorer.asm.
@@ -2394,6 +2727,132 @@ cmd_2str_zx:
         ex de,hl
         ld b,c
         call send_pascal_zx
+        jp mcu_recv
+
+; =============================================================
+; PROTOCOLO DE FICHEROS (CMD_f_open/seek/read/close, 53/54/55/57) -- para
+; el visor de texto. A diferencia de MOVE/COPY/etc, cmd_f_open (53)
+; espera el nombre en ASCII "puro" (ver do_f_open en COMMANDS.cpp: con
+; convert=false NO pasa los bytes por asc81_to_ascii), asi que aqui NO se
+; convierte a charset ZX81 -- send_pascal_raw/cmd_str_raw mandan los
+; bytes tal cual, a diferencia de send_pascal_zx/cmd_str_zx.
+; =============================================================
+send_pascal_raw:
+        ld a,b
+        call mcu_send
+        ld a,b
+        or a
+        ret z
+spr_loop:
+        ld a,(hl)
+        inc hl
+        push bc
+        push hl
+        call mcu_send
+        pop hl
+        pop bc
+        djnz spr_loop
+        ret
+
+cmd_str_raw:
+        push hl
+        push bc
+        call mcu_send
+        pop bc
+        pop hl
+        call send_pascal_raw
+        jp mcu_recv
+
+; f_open_txt: abre (namebuf,namelen) en modo ASCII -> A=handle (0-3) o
+; 0xFF si no existe/error.
+f_open_txt:
+        ld hl,namebuf
+        ld a,(namelen)
+        ld b,a
+        ld a,53                   ; CMD_f_open
+        jp cmd_str_raw
+
+; f_rewind: A=handle -> A=status. Vuelve al principio del fichero
+; (offset 0); es el unico uso que necesita el visor de texto, asi que no
+; hay una f_seek general con offset variable.
+f_rewind:
+        ld c,a
+        ld a,54                   ; CMD_f_seek
+        call mcu_send
+        ld a,c
+        call mcu_send
+        xor a
+        call mcu_send             ; offset byte 0
+        xor a
+        call mcu_send             ; offset byte 1 -- mcu_send NO conserva A
+        xor a                     ; (al salir deja el resultado del XOR de
+        call mcu_send             ; espera, no el byte enviado), asi que hay
+        xor a                     ; que recargarlo antes de CADA llamada
+        call mcu_send             ; offset byte 3 (MSB)
+        jp mcu_recv
+
+; f_read: A=handle, DE=cuenta -> llena (viewer_buf) con DE bytes
+; (con relleno de ceros si el fichero se acaba antes) y devuelve A=status
+; (0=completa, 1=corta/EOF, 0xFF=error).
+f_read:
+        ld c,a
+        ld a,55                   ; CMD_f_read
+        call mcu_send
+        ld a,c
+        call mcu_send
+        ld a,e
+        call mcu_send
+        ld a,d
+        call mcu_send
+        ld hl,viewer_buf
+fr_loop:
+        push hl
+        push de
+        call mcu_recv
+        pop de
+        pop hl
+        ld (hl),a
+        inc hl
+        dec de
+        ld a,d
+        or e
+        jr nz,fr_loop
+        jp mcu_recv
+
+; f_close: A=handle -> A=status.
+f_close:
+        ld c,a
+        ld a,57                   ; CMD_f_close
+        call mcu_send
+        ld a,c
+        call mcu_send
+        jp mcu_recv
+
+; f_stat: A=handle (ya abierto) -> deja en (viewer_size) el tamaño (4
+; bytes LE) y descarta fecha/hora (2+2 bytes, aun sin uso); A=status.
+f_stat:
+        ld c,a
+        ld a,59                   ; CMD_f_stat
+        call mcu_send
+        ld a,c
+        call mcu_send
+        ld hl,viewer_size
+        ld b,4
+fst_loop1:
+        push hl
+        push bc
+        call mcu_recv
+        pop bc
+        pop hl
+        ld (hl),a
+        inc hl
+        djnz fst_loop1
+        ld b,4                    ; fecha(2)+hora(2): se leen y se descartan
+fst_loop2:
+        push bc
+        call mcu_recv
+        pop bc
+        djnz fst_loop2
         jp mcu_recv
 
 do_opendir:

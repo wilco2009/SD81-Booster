@@ -1866,6 +1866,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 | 55 | F_READ | Handle(0..3)+Count(2B Little Endian) | count bytes + 1B:status | Read count bytes. It Will send count bytes allways padding with zeroes if needed |
 | 56 | F_WRITE | Handle(0..3)+Count(2B Little Endian)+info to write (count bytes) | 1B:status | Write count bytes. |
 | 57 | F_CLOSE | Handle(0..3) | 1B:status | Close file |
+| 59 | F_STAT | Handle(0..3) | 4B:size+2B:date+2B:time+1B:status | Returns the size (32 bits) and creation date/time (FAT format) of a file already opened with F_OPEN. |
 
 ### Hardware control commands
 

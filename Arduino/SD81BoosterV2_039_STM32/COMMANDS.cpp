@@ -2093,6 +2093,34 @@ void cmd_f_close(){
   reset_commands();
 }
 
+// COMMAND = 59 (0x3B) fstat:  cmd + handle(1) -> tamaño(4 LE) + fecha(2,
+// formato FAT de SdFat) + hora(2, formato FAT) + status. El handle debe
+// estar ya abierto con CMD_f_open. Pensado para el visor de texto del
+// explorador, que asi conoce el tamaño exacto en vez de tener que
+// adivinarlo con el relleno de ceros de CMD_f_read.
+void cmd_f_stat(){
+  uint8_t status = 0xFF;
+  uint32_t fsize = 0;
+  uint16_t fdate = 0, ftime = 0;
+  ToggleClock();                           // ACK
+  uint8_t h = GetByteFromZ80_IT();         // handle
+  if (h<4 && f_opened[h]){
+    fsize = f_handle[h].fileSize();
+    if (f_handle[h].getCreateDateTime(&fdate, &ftime)) status = 0x00;
+  }
+  SendByteToZ80((uint8_t)(fsize & 0xFF));         // confirma handle + tamaño byte0 (LSB)
+  SendByteToZ80((uint8_t)((fsize>>8) & 0xFF));
+  SendByteToZ80((uint8_t)((fsize>>16) & 0xFF));
+  SendByteToZ80((uint8_t)((fsize>>24) & 0xFF));   // byte3 (MSB)
+  SendByteToZ80((uint8_t)(fdate & 0xFF));
+  SendByteToZ80((uint8_t)((fdate>>8) & 0xFF));
+  SendByteToZ80((uint8_t)(ftime & 0xFF));
+  SendByteToZ80((uint8_t)((ftime>>8) & 0xFF));
+  SendByteToZ80(status);                    // confirma ultimo byte + status
+  ToggleClock();                            // toggle final
+  reset_commands();
+}
+
 // reserved codes for future
 void cmd_spare(){
   log_0("Command not recognized: %s",command_active);
@@ -2162,8 +2190,9 @@ command_handler commands[] = {
   cmd_f_open,           //53
   cmd_f_seek,           //54
   cmd_f_read,           //55
-  cmd_f_write,    //56
-  cmd_f_close,            //57
+  cmd_f_write,          //56
+  cmd_f_close,          //57
   cmd_f_open_zx81,      //58 (0x3A) fopen con nombre en codigo ZX81
-  cmd_spare
+  cmd_f_stat,           //59 (0x3B) fstat: tamaño + fecha/hora de creacion
+  cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

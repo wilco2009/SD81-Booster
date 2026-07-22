@@ -78,6 +78,23 @@ viewer_size      equ viewer_buflen+2     ; 4 bytes: tamaño total del fichero (C
 viewer_remaining equ viewer_size+4       ; 4 bytes: bytes que quedan por leer desde el ultimo rewind
 viewer_buf       equ viewer_remaining+4  ; VWR_BUFSIZE bytes
 
+; -------------------------------------------------------------
+; Visor hexadecimal: comparte handle/topline/tamaño con el visor de
+; texto (nunca estan activos a la vez), añade su propio estado a
+; continuacion del buffer.
+; -------------------------------------------------------------
+HEXROW_BYTES    equ 8            ; bytes por fila en pantalla
+HEXR_ASCII_COL  equ 33           ; columna de texto (6px) donde arranca la
+                                  ; columna ASCII/ZX81: 6 (offset) + 2 +
+                                  ; 24 (8 pares hex) + 1 = 33
+hexr_row        equ viewer_buf+VWR_BUFSIZE  ; 2 bytes: fila (offset/HEXROW_BYTES) en curso durante el render
+hexr_count      equ hexr_row+2               ; 1 byte: bytes reales de la fila en curso (1-8)
+hexr_nrows      equ hexr_count+1             ; 1 byte: filas realmente pintadas (para PgDn)
+hexr_tmplo      equ hexr_nrows+1             ; 2 bytes: escratch de hex_remaining
+hexr_tmphi      equ hexr_tmplo+2             ; 2 bytes: escratch de hex_remaining
+hexg_val        equ hexr_tmphi+2             ; 4 bytes: acumulador de hex_parse/hexr_goto
+hexr_zxmode     equ hexg_val+4               ; 1 byte: 0=columna ASCII, 1=columna ZX81 (tecla Z)
+
         jp start
 retname:        ; buffer ESTABLE del nombre devuelto a BASIC (24579=ORG+3),
         defs 104 ; en RAM bloque 3, sobrevive a video_off (que remapea VIDBLOCK)
@@ -291,6 +308,8 @@ vdp_base:
         call vdp_fillrow_opt
         ld a,16
         call vdp_fillrow_opt
+        ld a,18
+        call vdp_fillrow_opt
 
         ld d,1
         ld e,PANEL_TITLE_COL
@@ -411,6 +430,14 @@ vdp_chrval:
         ld b,a
         ld c,PANEL_ATTR
         call panel_print
+
+        ; -- atajo para ver /MAN/IP.TXT (o "NO CONNEXION") --
+        ld d,18
+        ld e,PANEL_TXTCOL
+        ld hl,panel_lbl_ip
+        ld b,panel_lbl_ip_len
+        ld c,PANEL_ATTR
+        call panel_print
         ret
 
 ; vdp_fillrow_base/_title/_opt: A=fila -> tiñe toda la anchura de la zona
@@ -460,12 +487,14 @@ panel_lbl_fullpag:     defb "F FULLPAG"
 panel_lbl_fullpag_len  equ $-panel_lbl_fullpag
 panel_lbl_mc45:        defb "M MC45"
 panel_lbl_mc45_len     equ $-panel_lbl_mc45
-panel_lbl_chr:         defb "H CHR"
+panel_lbl_chr:         defb "A CHR"
 panel_lbl_chr_len      equ $-panel_lbl_chr
 panel_lbl_joy:         defb "J JOY"
 panel_lbl_joy_len      equ $-panel_lbl_joy
 panel_lbl_tyu:         defb "T Y U"
 panel_lbl_tyu_len      equ $-panel_lbl_tyu
+panel_lbl_ip:          defb "I IP"
+panel_lbl_ip_len       equ $-panel_lbl_ip
 ; centrado igual que el titulo (PANEL_TXTCOL..41, 15 columnas)
 PANEL_TYU_COL equ PANEL_TXTCOL+(15-panel_lbl_tyu_len)/2
 
@@ -519,7 +548,7 @@ vt_loop:
         cp 18
         jp z,vt_toggle_mc45
         cp 19
-        jp z,vt_toggle_chr
+        jp z,vt_view_hex
         cp 20
         jp z,vt_edit_joy
         cp 21
@@ -528,7 +557,11 @@ vt_loop:
         jp z,vt_vgm_pause
         cp 23
         jp z,vt_vgm_cont
-        jr vt_loop
+        cp 24
+        jp z,vt_toggle_chr
+        cp 27
+        jp z,vt_view_ip
+        jp vt_loop
 
 ; -------------------------------------------------------------
 ; vt_updir: tecla 5 -- copia literal de do_updir en explorer.asm (CD ..
@@ -1133,6 +1166,9 @@ vt_view_txt:
         cp 0FFh
         jp z,vt_loop
 
+vt_view_txt_opened:              ; entrada compartida con vt_view_ip (con
+                                  ; (namebuf,namelen) ya listos y f_open_txt
+                                  ; ya hecho con exito, A=handle)
         ld (viewer_handle),a
         call f_stat              ; -> (viewer_size) = tamaño exacto del
                                   ; fichero (ignoramos fecha/hora y status:
@@ -1217,6 +1253,37 @@ vwr_exit:
         ld a,(viewer_handle)
         call f_close
         jp vt_refresh_and_loop
+
+; vt_view_ip: tecla I -- equivalente a abrir /MAN/IP.TXT en el visor de
+; texto (vt_view_txt), sea cual sea la carpeta actual; si no existe,
+; muestra "NO CONNEXION" en vez de quedarse callado.
+vt_view_ip:
+        ld hl,ip_path
+        ld de,namebuf
+        ld bc,ip_path_len
+        ldir
+        ld a,ip_path_len
+        ld (namelen),a
+        call f_open_txt
+        cp 0FFh
+        jp nz,vt_view_txt_opened
+
+        call video_clear
+        ld a,NORM_ATTR
+        ld (cur_attr),a
+        ld d,10
+        ld e,13
+        call p42_setxy
+        ld hl,noconn_msg
+        ld b,noconn_msg_len
+        call p42_string
+        call read_key
+        jp vt_refresh_and_loop
+
+ip_path:        defb "/MAN/IP.TXT"
+ip_path_len     equ $-ip_path
+noconn_msg:     defb "NO CONNEXION"
+noconn_msg_len  equ $-noconn_msg
 
 ; vwr_render: repinta la pantalla completa del visor. Vuelve siempre al
 ; principio del fichero y relee desde ahi, saltando (viewer_topline)
@@ -1403,6 +1470,512 @@ vwr_sub_remaining:
         dec hl
 vsr_done:
         ld (viewer_remaining+2),hl
+        ret
+
+; -------------------------------------------------------------
+; vt_view_hex: tecla H -- visor hexadecimal+ASCII de la entrada
+; seleccionada (cualquier archivo, no una carpeta), 8 bytes por fila.
+; A diferencia del visor de texto, cada fila tiene tamaño fijo, asi que
+; salta directamente con f_seek en vez de releer secuencialmente desde
+; el principio. 6/7 desplazan fila a fila, 1/2 pantalla completa,
+; ESPACIO cierra (reutiliza vwr_exit). No depende del panel.
+; -------------------------------------------------------------
+vt_view_hex:
+        ld hl,(cur_index)
+        ex de,hl
+        call get_row
+        ld a,(namelen)
+        or a
+        jp z,vt_loop
+        ld a,(namebuf)
+        cp '<'
+        jp z,vt_loop              ; no se puede ver una carpeta en hex
+
+        call f_open_txt
+        cp 0FFh
+        jp z,vt_loop
+
+        ld (viewer_handle),a
+        call f_stat
+        ld a,32
+        ld (list_attrw),a         ; hexr_down/up reutilizan copy_row/clear_row
+                                  ; (respetan este ancho); el visor es
+                                  ; siempre a pantalla completa, sin panel
+        xor a
+        ld (hexr_zxmode),a       ; cada archivo se abre en modo ASCII
+        ld hl,0
+        ld (viewer_topline),hl
+        call hexr_render
+
+hexr_loop:
+        call read_key
+        cp 1
+        jp z,vwr_exit
+        cp 3
+        jp z,hexr_down
+        cp 4
+        jp z,hexr_up
+        cp 13
+        jp z,hexr_pgup
+        cp 14
+        jp z,hexr_pgdn
+        cp 25
+        jp z,hexr_goto
+        cp 26
+        jp z,hexr_toggle_zx
+        jp hexr_loop
+
+; hexr_toggle_zx: tecla Z -- alterna la columna de la derecha entre
+; interpretar cada byte como ASCII (por defecto) o como codigo de
+; caracter ZX81 (via zx_to_ascii, la misma tabla que usa el listado para
+; los nombres de archivo). Los graficos de bloque (01-0A) se dibujan a
+; nivel de bitmap (ver hexr_invloop/p42_draw_block/zxblock_tbl). Los
+; tokens de palabra clave de BASIC no tienen representacion, asi que
+; salen como '?' (igual que hace zx_to_ascii con cualquier codigo que
+; no sepa convertir).
+hexr_toggle_zx:
+        ld a,(hexr_zxmode)
+        xor 1
+        ld (hexr_zxmode),a
+        call hexr_render
+        jp hexr_loop
+
+; hexr_down/hexr_up: como vt_down/vt_up en el listado principal --
+; desplazan el contenido de pantalla ya pintado (copy_row) y solo
+; calculan/pintan la UNA fila que queda al descubierto, en vez de
+; repintar las VWR_ROWS filas enteras.
+hexr_down:
+        ld hl,(viewer_topline)     ; comprueba primero si existe la fila
+        ld de,VWR_ROWS             ; candidata (la que entraria nueva al
+        add hl,de                  ; final) antes de tocar la pantalla
+        ld (hexr_row),hl
+        call hex_offset
+        call hex_remaining
+        jr c,hexr_loop            ; no hay datos ahi: no se mueve nada
+
+        call hexr_scroll_up
+
+        ld hl,(viewer_topline)
+        inc hl
+        ld (viewer_topline),hl
+        ld de,VWR_ROWS-1
+        add hl,de
+        ld (hexr_row),hl
+        ld a,VWR_ROWS
+        ld (vwr_row),a
+        call clear_row             ; limpia la fila expuesta antes de pintarla
+        call hexr_row_process
+        jp hexr_loop
+
+hexr_up:
+        ld hl,(viewer_topline)
+        ld a,h
+        or l
+        jr z,hexr_loop            ; ya esta en la primera fila
+
+        call hexr_scroll_down
+
+        ld hl,(viewer_topline)
+        dec hl
+        ld (viewer_topline),hl
+        ld (hexr_row),hl
+        ld a,1
+        ld (vwr_row),a
+        call clear_row
+        call hexr_row_process
+        jp hexr_loop
+
+; hexr_scroll_up/hexr_scroll_down: desplazan las VWR_ROWS filas de
+; pantalla ya pintadas (copia literal de scroll_list_up/scroll_list_down,
+; pero con VWR_ROWS en vez de MAXVIS: el visor no tiene panel lateral).
+hexr_scroll_up:
+        ld b,1
+hxsu_loop:
+        ld d,b
+        ld a,b
+        inc a
+        ld e,a
+        push bc
+        call copy_row
+        pop bc
+        inc b
+        ld a,b
+        cp VWR_ROWS
+        jr c,hxsu_loop
+        ret
+
+hexr_scroll_down:
+        ld b,VWR_ROWS
+hxsd_loop:
+        ld d,b
+        ld a,b
+        dec a
+        ld e,a
+        push bc
+        call copy_row
+        pop bc
+        dec b
+        ld a,b
+        cp 2
+        jr nc,hxsd_loop
+        ret
+
+; hexr_goto: tecla G -- pide una direccion hexadecimal (mismo dialogo que
+; renombrar) y salta ahi. El nibble menos significativo se fuerza a 0
+; (ej.: 12345668 -> 12345660), y el resultado se convierte de "byte" a
+; "fila" (/HEXROW_BYTES) para (viewer_topline).
+hexr_goto:
+        xor a
+        ld (namelen),a
+        ld hl,prompt_goto
+        ld b,prompt_goto_len
+        call show_prompt
+        call text_input
+        ld a,(namelen)
+        or a
+        jr z,hexr_goto_redraw     ; cancelado: solo repintar (el dialogo tapo el visor)
+
+        call hex_parse
+        ld a,(hexg_val)
+        and 0F0h
+        ld (hexg_val),a
+        ld b,3                     ; /8 (byte -> fila): 3 desplazamientos
+                                   ; a la derecha de los 32 bits
+hxg_rshift:
+        ld hl,hexg_val+3
+        srl (hl)
+        dec hl
+        rr (hl)
+        dec hl
+        rr (hl)
+        dec hl
+        rr (hl)
+        djnz hxg_rshift
+        ld hl,(hexg_val)
+        ld (viewer_topline),hl
+hexr_goto_redraw:
+        call hexr_render
+        jp hexr_loop
+
+prompt_goto:
+        defb "GOTO ADDRESS (HEX):"
+prompt_goto_len equ $-prompt_goto
+
+; vwr_pgup/vwr_pgdn (VWR_ROWS) valen igual aqui: misma pantalla, mismo
+; nº de filas visibles.
+hexr_pgup:
+        ld hl,(viewer_topline)
+        ld de,VWR_ROWS
+        or a
+        sbc hl,de
+        jr nc,hexr_pgup_ok
+        ld hl,0
+hexr_pgup_ok:
+        ld (viewer_topline),hl
+        call hexr_render
+        jp hexr_loop
+
+hexr_pgdn:
+        ld hl,(viewer_topline)
+        push hl                   ; guarda la fila actual por si hay que deshacer
+        ld de,VWR_ROWS
+        add hl,de
+        ld (viewer_topline),hl
+        call hexr_render
+        ld a,(hexr_nrows)
+        or a
+        jr nz,hexr_pgdn_ok        ; se pinto al menos una fila: aceptar
+        pop hl
+        ld (viewer_topline),hl
+        call hexr_render          ; en blanco: repinta la ultima pantalla con datos
+        jp hexr_loop
+hexr_pgdn_ok:
+        pop hl
+        jp hexr_loop
+
+; hexr_render: repinta la pantalla completa del visor hexadecimal desde
+; (viewer_topline) (fila = offset/HEXROW_BYTES). Cada fila: calcula su
+; offset, comprueba con hex_remaining cuantos bytes hay realmente ahi
+; (para no pedirle a CMD_f_read mas de los que quedan -- a diferencia
+; del visor de texto, un binario SI puede contener bytes 0x00 reales, no
+; se puede usar esa heuristica), salta con f_seek y lee con f_read.
+; Para en el primer offset que ya no exista (fin real del fichero).
+hexr_render:
+        call video_clear
+        ld ix,BG_ROW0
+        xor a
+        call blit_row
+        ld ix,BG_ROW23
+        ld a,23
+        call blit_row
+
+        ld a,06h                 ; tinta amarilla, papel negro
+        ld (cur_attr),a
+        ld d,23
+        ld e,20                  ; ~columna 14 de 8px (14*8/6), +1
+        call p42_setxy
+        ld hl,hexr_hint
+        ld b,hexr_hint_len
+        call p42_string
+
+        ld hl,(viewer_topline)
+        ld (hexr_row),hl
+        ld a,1
+        ld (vwr_row),a
+        xor a
+        ld (hexr_nrows),a
+
+hexr_rowloop:
+        ld a,(vwr_row)
+        cp VWR_ROWS+1
+        jr nc,hexr_done
+
+        call hexr_row_process
+        jr c,hexr_done            ; no queda nada desde este offset: parar
+
+        ld hl,hexr_nrows
+        inc (hl)
+        ld hl,(hexr_row)
+        inc hl
+        ld (hexr_row),hl
+        ld a,(vwr_row)
+        inc a
+        ld (vwr_row),a
+        jr hexr_rowloop
+hexr_done:
+        ret
+
+hexr_hint:     defb "G-GOTO Z-ZX/ASC     "
+hexr_hint_len  equ $-hexr_hint
+
+; hexr_row_process: procesa UNA fila -- (hexr_row)=numero de fila,
+; (vwr_row)=fila de pantalla donde pintarla. Calcula el offset, mira con
+; hex_remaining cuantos bytes hay realmente ahi (para no pedirle a
+; CMD_f_read mas de los que quedan -- a diferencia del visor de texto,
+; un binario SI puede contener bytes 0x00 reales, no vale la heuristica
+; del byte nulo), salta con f_seek, lee con f_read y pinta con
+; hexr_printrow. CY=1 si no habia ningun byte en ese offset (fin real
+; del fichero): no pinta nada. Usada tanto por hexr_render (pantalla
+; completa) como por hexr_down/hexr_up (una sola fila).
+hexr_row_process:
+        ld hl,(hexr_row)
+        call hex_offset
+        call hex_remaining
+        ret c                     ; no queda nada desde este offset
+
+        ld a,d
+        or e
+        jr nz,hrp_full            ; parte alta (16 bits) de "remaining" <> 0: fila completa
+        ld a,h
+        or a
+        jr nz,hrp_full            ; byte alto de la parte baja <> 0: remaining >= 256, fila completa
+        ld a,l
+        cp HEXROW_BYTES
+        jr nc,hrp_full
+        jr hrp_gotcount
+hrp_full:
+        ld a,HEXROW_BYTES
+hrp_gotcount:
+        ld (hexr_count),a
+
+        ld hl,(hexr_row)
+        call hex_offset
+        ld a,(viewer_handle)
+        call f_seek
+        cp 0FFh
+        scf
+        ret z                     ; fallo de seek: tratar como "sin datos"
+
+        ld a,(hexr_count)
+        ld e,a
+        ld d,0
+        ld a,(viewer_handle)
+        call f_read
+
+        call hexr_printrow
+        or a                      ; CY=0: fila con datos, pintada
+        ret
+
+; hexr_printrow: construye en namebuf y pinta la fila actual (offset en
+; (hexr_row), datos en viewer_buf, (hexr_count) bytes reales) en la fila
+; de pantalla (vwr_row). Formato: "OOOOOO  h1 h2 .. h8  a1a2..a8"
+; (recorta a huecos en blanco si la fila es la ultima y es parcial).
+hexr_printrow:
+        xor a
+        ld (namelen),a
+
+        ld hl,(hexr_row)
+        call hex_offset           ; de:hl = offset de 32 bits; solo se
+                                  ; muestran los 24 bits bajos (6 hex)
+        ld a,e
+        call nb_hexbyte
+        ld a,h
+        call nb_hexbyte
+        ld a,l
+        call nb_hexbyte
+        ld a,' '
+        call nb_append
+        ld a,' '
+        call nb_append
+
+        ld a,(hexr_count)
+        ld b,a
+        or a
+        jr z,hexr_hex_blanks
+        ld hl,viewer_buf
+hexr_hex_real:
+        ld a,(hl)
+        inc hl
+        call nb_hexbyte
+        ld a,' '
+        call nb_append
+        djnz hexr_hex_real
+hexr_hex_blanks:
+        ld a,HEXROW_BYTES
+        ld hl,hexr_count
+        sub (hl)
+        or a
+        jr z,hexr_asciicol
+        ld b,a
+hexr_hex_blankloop:
+        ld a,' '
+        call nb_append
+        ld a,' '
+        call nb_append
+        ld a,' '
+        call nb_append
+        djnz hexr_hex_blankloop
+hexr_asciicol:
+        ld a,' '
+        call nb_append
+
+        ld a,(hexr_count)
+        ld b,a
+        or a
+        jr z,hexr_prdone
+        ld hl,viewer_buf
+hexr_asciiloop:
+        ld a,(hl)
+        inc hl
+        ld c,a
+        ld a,(hexr_zxmode)
+        or a
+        jr nz,hexr_ascii_zx
+        ld a,c
+        cp 32
+        jr c,hexr_ascii_dot
+        cp 127
+        jr nc,hexr_ascii_dot
+        jr hexr_ascii_ok
+hexr_ascii_zx:
+        ld a,c
+        push hl                   ; zx_to_ascii usa HL para su tabla y no
+        call zx_to_ascii          ; lo conserva (igual que get_row, que
+        pop hl                    ; ya hace este mismo push/pop); misma
+                                  ; tabla que usa el listado con los
+                                  ; nombres de archivo, '?' para tokens/
+                                  ; graficos sin representacion
+        jr hexr_ascii_ok
+hexr_ascii_dot:
+        ld a,'.'
+hexr_ascii_ok:
+        call nb_append
+        djnz hexr_asciiloop
+hexr_prdone:
+        ld a,NORM_ATTR
+        ld (cur_attr),a
+        ld a,(vwr_row)
+        ld d,a
+        ld e,0
+        call p42_setxy
+        ld hl,namebuf
+        ld a,(namelen)
+        ld b,a
+        call p42_string
+
+        ; -- modo ZX81: dibuja los graficos de bloque (codigos 01-08, ver
+        ; p42_draw_block/zxblock_tbl) e invierte (a nivel de bitmap, ver
+        ; p42_invert_cell) los caracteres cuyo byte tenia el bit7 a 1 --
+        ld a,(hexr_zxmode)
+        or a
+        ret z
+        ld a,(hexr_count)
+        or a
+        ret z
+        ld b,a
+        ld hl,viewer_buf
+        ld c,0                     ; c = indice dentro de la fila (0..hexr_count-1)
+hexr_invloop:
+        ld a,(hl)
+        inc hl
+        push bc
+        push hl
+        ld b,a                     ; b = byte original (con bit7)
+        ld a,(vwr_row)
+        ld d,a
+        ld a,c
+        add a,HEXR_ASCII_COL
+        ld e,a                     ; d,e = fila,columna de esta celda
+        ld a,b
+        and 07Fh
+        cp 1
+        jr c,hexr_inv_noblk        ; codigo 0: no es bloque
+        cp 11
+        jr nc,hexr_inv_noblk       ; codigo >=11: no es bloque
+        call p42_draw_block
+hexr_inv_noblk:
+        bit 7,b
+        jr z,hexr_inv_skip
+        call p42_invert_cell
+hexr_inv_skip:
+        pop hl
+        pop bc
+        inc c
+        djnz hexr_invloop
+        ret
+
+; nb_append: A=caracter -> lo añade a namebuf en la posicion (namelen) y
+; suma 1 a (namelen). Destruye HL,DE.
+nb_append:
+        push hl                  ; preserva HL/DE del que llama: se usa
+        push de                  ; dentro de bucles que recorren su propio
+        push af                  ; puntero (offset, viewer_buf...) en HL
+        ld hl,namebuf
+        ld a,(namelen)
+        ld e,a
+        ld d,0
+        add hl,de
+        pop af
+        ld (hl),a
+        ld a,(namelen)
+        inc a
+        ld (namelen),a
+        pop de
+        pop hl
+        ret
+
+; nb_hexbyte: A=byte -> añade sus 2 digitos hex a namebuf.
+nb_hexbyte:
+        push af
+        rrca
+        rrca
+        rrca
+        rrca
+        call hex_nibble
+        call nb_append
+        pop af
+        call hex_nibble
+        call nb_append
+        ret
+
+; hex_nibble: A=byte (solo importan los 4 bits bajos) -> A=digito ASCII
+; ('0'-'9'/'A'-'F').
+hex_nibble:
+        and 0Fh
+        add a,'0'
+        cp '9'+1
+        ret c
+        add a,7
         ret
 
 ; strip_brackets: quita '<' inicial y '>' final de namebuf, ajusta
@@ -2420,6 +2993,137 @@ dc_shifted:
         ret
 
 ; -------------------------------------------------------------
+; p42_cellpos: D=fila,E=columna (caracteres de 6px, 0-41) -> HL=direccion
+; del primer byte (linea 0) de esa celda en el bitmap, C=desplazamiento
+; de bit (0-7) dentro de ese byte. Comun a p42_invert_cell y
+; p42_draw_block. Destruye AF,B.
+; -------------------------------------------------------------
+p42_cellpos:
+        ld a,d
+        push af                  ; guarda la fila (d se reutiliza como escratch)
+        ld a,e
+        ld l,a
+        ld h,0
+        add hl,hl
+        ld d,h
+        ld e,l
+        add hl,hl
+        add hl,de                ; hl = columna*6 (posicion en pixeles)
+        ld a,l
+        ld b,a
+        and 7
+        ld c,a                   ; c = desplazamiento de bit (0-7)
+        ld a,b
+        rrca
+        rrca
+        rrca
+        and 1Fh
+        ld b,a                   ; b = columna de byte (0-31)
+
+        pop af                   ; recupera la fila
+        push bc
+        call calc_bmp_addr       ; hl = direccion linea0 de la fila
+        pop bc
+        ld a,l
+        add a,b
+        ld l,a                   ; hl += columna de byte
+        ret
+
+; -------------------------------------------------------------
+; p42_invert_cell: D=fila,E=columna (caracteres de 6px, 0-41) -> invierte
+; (XOR) el bloque de 6x8 pixeles de esa posicion, dejando el atributo
+; (papel/tinta) intacto. Mismo truco que draw_cursor (evita el "clash"
+; de la celda de atributo de 8px contra el caracter de 6px) pero
+; aplicado a las 8 scanlines en vez de solo la ultima -- para el modo
+; ZX81 inverso (bit7) del visor hexadecimal. Destruye AF,BC,DE,HL.
+; -------------------------------------------------------------
+p42_invert_cell:
+        call p42_cellpos         ; hl = direccion linea0, c = desplazamiento
+        ld d,0FCh                ; mascara de 6 bits (11111100) desplazada
+        ld e,0                   ; c bits, repartida entre este byte y el
+        ld a,c                   ; siguiente (igual que draw_cursor)
+        or a
+        jr z,pic_shifted
+pic_shift:
+        srl d
+        rr e
+        dec a
+        jr nz,pic_shift
+pic_shifted:
+        ld b,8
+pic_loop:
+        push bc
+        push hl
+        ld a,(hl)
+        xor d
+        ld (hl),a
+        inc hl
+        ld a,(hl)
+        xor e
+        ld (hl),a
+        pop hl
+        inc h
+        pop bc
+        djnz pic_loop
+        ret
+
+; -------------------------------------------------------------
+; p42_draw_block: A=codigo de bloque ZX81 (1-0Ah), D=fila, E=columna ->
+; dibuja (OR, no XOR) el patron de graficos de bloque correspondiente
+; sobre una celda de 6x8 px ya en blanco (ver zxblock_tbl). Destruye
+; AF,BC,DE,HL.
+; -------------------------------------------------------------
+p42_draw_block:
+        push af                  ; codigo de bloque (1-8)
+        call p42_cellpos         ; hl = direccion linea0, c = desplazamiento
+        pop af
+        dec a
+        add a,a
+        add a,a
+        add a,a                  ; a = (codigo-1)*8
+        ld de,zxblock_tbl
+        add a,e
+        ld e,a
+        jr nc,pdb_noc
+        inc d
+pdb_noc:                         ; de = puntero al patron de 8 bytes
+        ld b,8
+pdb_loop:
+        push bc
+        ld a,(de)
+        inc de
+        push de
+        ld d,a
+        ld e,0
+        ld a,c
+        or a
+        jr z,pdb_shifted
+pdb_shift:
+        srl d
+        rr e
+        dec a
+        jr nz,pdb_shift
+pdb_shifted:
+        push hl
+        ld a,(hl)
+        or d
+        ld (hl),a
+        inc hl
+        ld a,(hl)
+        or e
+        ld (hl),a
+        pop hl
+        inc h
+        pop de
+        pop bc
+        djnz pdb_loop
+        ret
+
+; zxblock_tbl: los datos estan al final del fichero (ver mas abajo, junto
+; a specfont.bin/BG_ROW0/etc.) -- es una tabla pura sin saltos ni
+; llamadas, puede vivir por encima de 32768 sin problema.
+
+; -------------------------------------------------------------
 ; mcu_map: asigna una pagina fisica a un bloque de 8K (puerto $E7)
 ; Entrada: A = bloque (0-7), E = pagina (0-63)
 ; -------------------------------------------------------------
@@ -2514,6 +3218,10 @@ rk_wait:
         jp z,rk_s
         bit 3,a
         jp z,rk_f
+        bit 0,a
+        jp z,rk_a
+        bit 4,a
+        jp z,rk_g
         ld a,0FBh
         in a,(0FEh)
         bit 3,a
@@ -2528,6 +3236,8 @@ rk_wait:
         jp z,rk_y
         bit 3,a
         jp z,rk_u
+        bit 2,a
+        jp z,rk_i
         ld a,0FEh
         in a,(0FEh)
         bit 3,a
@@ -2536,6 +3246,8 @@ rk_wait:
         jp z,rk_x
         bit 4,a
         jp z,rk_v
+        bit 1,a
+        jp z,rk_z
         jp rk_wait
 rk_k5:
         ld a,2
@@ -2588,6 +3300,15 @@ rk_y:
 rk_u:
         ld a,23
         jr rk_deb
+rk_i:
+        ld a,27
+        jr rk_deb
+rk_a:
+        ld a,24
+        jr rk_deb
+rk_g:
+        ld a,25
+        jr rk_deb
 rk_r:
         ld a,9
         jr rk_deb
@@ -2599,6 +3320,9 @@ rk_x:
         jr rk_deb
 rk_v:
         ld a,12
+        jr rk_deb
+rk_z:
+        ld a,26
         jr rk_deb
 rk_pgup:
         ld a,13
@@ -2630,8 +3354,8 @@ rk_rel:
         jr nz,rk_stillp
         ld a,0FDh
         in a,(0FEh)
-        and 0Eh
-        cp 0Eh
+        and 1Fh
+        cp 1Fh
         jr nz,rk_stillp
         ld a,0FBh
         in a,(0FEh)
@@ -2640,13 +3364,13 @@ rk_rel:
         jr nz,rk_stillp
         ld a,0DFh
         in a,(0FEh)
-        and 18h
-        cp 18h
+        and 1Ch
+        cp 1Ch
         jr nz,rk_stillp
         ld a,0FEh
         in a,(0FEh)
-        and 1Ch
-        cp 1Ch
+        and 1Eh
+        cp 1Eh
         jr nz,rk_stillp
         jr rk_relok
 rk_stillp:
@@ -2855,6 +3579,175 @@ fst_loop2:
         djnz fst_loop2
         jp mcu_recv
 
+; f_seek: A=handle, DE:HL=offset de 32 bits (DE=palabra alta, HL=palabra
+; baja) -> A=status. Usado por el visor hexadecimal para saltar
+; directamente a la fila pedida (a diferencia del visor de texto, que
+; siempre relee desde el principio porque las lineas son de longitud
+; variable). Recarga A antes de cada mcu_send (ver el bug de f_rewind:
+; mcu_send no conserva A entre llamadas).
+f_seek:
+        ld c,a
+        push hl
+        push de
+        ld a,54                   ; CMD_f_seek
+        call mcu_send
+        ld a,c
+        call mcu_send
+        pop de
+        pop hl
+        ld a,l
+        call mcu_send             ; offset byte0 (LSB)
+        ld a,h
+        call mcu_send             ; offset byte1
+        ld a,e
+        call mcu_send             ; offset byte2
+        ld a,d
+        call mcu_send             ; offset byte3 (MSB)
+        jp mcu_recv
+
+; hex_offset: HL=fila (16 bits) -> DE:HL=offset de 32 bits (fila*
+; HEXROW_BYTES), DE=palabra alta, HL=palabra baja. Destruye AF.
+hex_offset:
+        ld de,0
+        add hl,hl
+        rl e
+        rl d
+        add hl,hl
+        rl e
+        rl d
+        add hl,hl
+        rl e
+        rl d
+        ret
+
+; hex_remaining: DE:HL=offset (32 bits) -> si offset>=(viewer_size), CY=1
+; (no quedan bytes: fin del fichero). Si no, DE:HL=(viewer_size)-offset
+; (bytes reales desde ese offset) y CY=0. Destruye AF.
+hex_remaining:
+        ld (hexr_tmplo),hl
+        ld (hexr_tmphi),de
+        ld hl,(viewer_size)
+        ld de,(hexr_tmplo)
+        or a
+        sbc hl,de
+        ld (hexr_tmplo),hl
+        ld hl,(viewer_size+2)
+        ld de,(hexr_tmphi)
+        sbc hl,de
+        ld (hexr_tmphi),hl
+        ret c                     ; offset > tamaño: no quedan bytes
+
+        ld a,h
+        or l
+        ld b,a
+        ld hl,(hexr_tmplo)
+        ld a,h
+        or l
+        or b
+        jr z,hxr_none             ; remaining == 0 exacto: tampoco quedan
+        ld hl,(hexr_tmplo)
+        ld de,(hexr_tmphi)
+        or a
+        ret
+hxr_none:
+        scf
+        ret
+
+; hex_parse: namebuf/(namelen) (digitos hex ASCII, mayuscula o minuscula;
+; los caracteres que no sean 0-9/A-F/a-f cuentan como 0) -> (hexg_val) =
+; valor de 32 bits (4 bytes, LSB primero). Usado por hexr_goto. Destruye
+; AF,BC,DE,HL.
+hex_parse:
+        xor a
+        ld (hexg_val),a
+        ld (hexg_val+1),a
+        ld (hexg_val+2),a
+        ld (hexg_val+3),a
+        ld a,(namelen)
+        or a
+        ret z
+        ld c,a                    ; c = nº de caracteres que quedan
+        ld b,0                    ; b = indice actual en namebuf
+hxp_loop:
+        push bc                   ; (hexg_val) <<= 4 (multiplicar por 16,
+        ld b,4                    ; 4 desplazamientos de 1 bit con acarreo
+hxp_shift:                        ; entre los 4 bytes)
+        ld hl,hexg_val
+        sla (hl)
+        inc hl
+        rl (hl)
+        inc hl
+        rl (hl)
+        inc hl
+        rl (hl)
+        djnz hxp_shift
+        pop bc
+
+        push bc
+        ld hl,namebuf
+        ld a,b
+        ld e,a
+        ld d,0
+        add hl,de
+        ld a,(hl)
+        pop bc
+        call hex_digit_val         ; a = valor del digito (0-15), 0 si no es hex
+
+        push bc                    ; (hexg_val) += a (suma de 32 bits con acarreo)
+        ld hl,hexg_val
+        add a,(hl)
+        ld (hl),a
+        ld a,0
+        adc a,0
+        inc hl
+        add a,(hl)
+        ld (hl),a
+        ld a,0
+        adc a,0
+        inc hl
+        add a,(hl)
+        ld (hl),a
+        ld a,0
+        adc a,0
+        inc hl
+        add a,(hl)
+        ld (hl),a
+        pop bc
+
+        inc b
+        dec c
+        ld a,c
+        or a
+        jr nz,hxp_loop
+        ret
+
+; hex_digit_val: A=caracter ASCII -> A=valor 0-15 si es '0'-'9'/'A'-'F'/
+; 'a'-'f'; 0 en cualquier otro caso.
+hex_digit_val:
+        cp '0'
+        jr c,hdv_zero
+        cp '9'+1
+        jr nc,hdv_notdigit
+        sub '0'
+        ret
+hdv_notdigit:
+        cp 'A'
+        jr c,hdv_zero
+        cp 'F'+1
+        jr nc,hdv_lower
+        sub 'A'-10
+        ret
+hdv_lower:
+        cp 'a'
+        jr c,hdv_zero
+        cp 'f'+1
+        jr nc,hdv_zero
+        sub 'a'-10
+        ret
+hdv_zero:
+        xor a
+        ret
+
 do_opendir:
         ld a,16
         jp cmd_str_zx
@@ -2981,7 +3874,11 @@ zta_chk0:
         ret
 zta_chk11:
         cp 11
-        jr c,zta_unknown
+        jr nc,zta_c11old           ; 11 en adelante sigue la logica de antes
+        ld a,32                    ; 01-0A: bloque grafico, se dibuja aparte
+        ret                        ; (ver hexr_invloop/p42_draw_block); aqui,
+                                    ; celda en blanco para no mezclar bitmaps
+zta_c11old:
         cp 28
         jr nc,zta_unknown
         sub 11
@@ -3435,5 +4332,21 @@ ICON_PAUSE:
         incbin "icon_pause.bin"
 ICON_PLAY:
         incbin "icon_play.bin"
+
+; zxblock_tbl: patrones de graficos de bloque ZX81 (01-0A), extraidos
+; bit a bit de la ROM real del ZX81 en $1E00. Tabla pura (sin saltos ni
+; llamadas), por eso vive aqui con el resto de recursos, por encima de
+; 32768. Usada por p42_draw_block.
+zxblock_tbl:
+        defb 0e0h,0e0h,0e0h,0e0h,000h,000h,000h,000h   ; 01
+        defb 01Ch,01Ch,01Ch,01Ch,000h,000h,000h,000h   ; 02
+        defb 0FCh,0FCh,0FCh,0FCh,000h,000h,000h,000h   ; 03
+        defb 000h,000h,000h,000h,0e0h,0e0h,0e0h,0e0h   ; 04
+        defb 0e0h,0e0h,0e0h,0e0h,0e0h,0e0h,0e0h,0e0h   ; 05
+        defb 01ch,01ch,01ch,01ch,0e0h,0e0h,0e0h,0e0h   ; 06
+        defb 0FCh,0FCh,0FCh,0FCh,01ch,01Ch,01Ch,01Ch   ; 07
+        defb 0A8h,054h,0A8h,054h,0A8h,054h,0A8h,054h   ; 08
+        defb 000h,000h,000h,000h,0A8h,054h,0A8h,054h   ; 09
+        defb 0A8h,054h,0A8h,054h,000h,000h,000h,000h   ; 0A
 
         end

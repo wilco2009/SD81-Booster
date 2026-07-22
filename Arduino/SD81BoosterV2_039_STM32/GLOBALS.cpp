@@ -45,7 +45,7 @@ uint8_t GPIOR0 = 0; // Esta variable tiene que ser sustituida por alguna forma d
 
 uint8_t copy_buffer[BUFFSIZE];
 char array_dirname[MAX_FILENAME_LEN];
-uint16_t* file_array; //[MAX_FILE_ARRAY];
+uint16_t file_array[MAX_FILE_ARRAY];
 uint16_t index_array;   // nº de entradas validas en file_array (cmd_opendir2
                          // lo rellena, cmd_getrow lo usa para no leer fuera
                          // de rango cuando le piden una fila que no existe)

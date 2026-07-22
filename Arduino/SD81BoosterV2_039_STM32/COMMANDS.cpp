@@ -2010,8 +2010,12 @@ void cmd_f_seek(){
     status = f_handle[h].seekSet(off) ? 0x00 : 0xFF;
   }
   SendByteToZ80(status);                    // confirma ultimo byte + status
-  ToggleClock();                            // toggle final
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en
+  // cmd_opendir2 sobre la ventana de carrera (F_SEEK+F_READ se llaman muy
+  // seguidos, p.ej. desde el visor hexadecimal, y con el orden antiguo se
+  // podia perder el siguiente comando).
   reset_commands();
+  ToggleClock();                            // toggle final
 }
 
 // COMMAND = 55 (0x37) fread:  cmd + handle(1) + count(2 LE) -> count bytes + status
@@ -2044,8 +2048,10 @@ void cmd_f_read(){
   else status = ((uint16_t)got==count) ? 0x00 : 0x01;
 
   SendByteToZ80(status);                    // confirma ultimo byte + status
-  ToggleClock();                            // toggle final
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en
+  // cmd_opendir2 sobre la ventana de carrera.
   reset_commands();
+  ToggleClock();                            // toggle final
 }
 
 // COMMAND = 56 (0x38) fwrite:  cmd + handle(1) + count(2 LE) + count bytes -> status
@@ -2074,8 +2080,10 @@ void cmd_f_write(){
   }
 
   SendByteToZ80(status);                    // confirma ultimo byte + status
-  ToggleClock();                            // toggle final
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en
+  // cmd_opendir2 sobre la ventana de carrera.
   reset_commands();
+  ToggleClock();                            // toggle final
 }
 
 // COMMAND = 57 (0x39) fclose:  cmd + handle(1) -> status
@@ -2089,8 +2097,13 @@ void cmd_f_close(){
     status = 0x00;
   }
   SendByteToZ80(status);                    // confirma handle + status
-  ToggleClock();                            // toggle final
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en
+  // cmd_opendir2 sobre la ventana de carrera -- F_CLOSE va seguido casi
+  // siempre de un GETROW (repintar el listado al salir de un visor), el
+  // caso de dos llamadas seguidas casi sin hueco que describe ese
+  // comentario.
   reset_commands();
+  ToggleClock();                            // toggle final
 }
 
 // COMMAND = 59 (0x3B) fstat:  cmd + handle(1) -> tamaño(4 LE) + fecha(2,
@@ -2117,8 +2130,10 @@ void cmd_f_stat(){
   SendByteToZ80((uint8_t)(ftime & 0xFF));
   SendByteToZ80((uint8_t)((ftime>>8) & 0xFF));
   SendByteToZ80(status);                    // confirma ultimo byte + status
-  ToggleClock();                            // toggle final
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en
+  // cmd_opendir2 sobre la ventana de carrera.
   reset_commands();
+  ToggleClock();                            // toggle final
 }
 
 // reserved codes for future

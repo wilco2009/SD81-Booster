@@ -1225,13 +1225,13 @@ Donde \<hilo\> es el número de hilo (0, 1 o 2) y \<dirección\> es la direcció
 
 Además de la carga inline con cadena hexadecimal, es posible cargar un programa PEG compilado directamente desde un archivo en la SD:
 
-> LOAD \*PEB \<dirección\> \"\<nombre\>\"
+> LOAD \*PEB \<dirección\>,\"\<nombre\>\"
 
 Donde \<dirección\> es la posición de inicio en la memoria PEG (0--255) y \<nombre\> es el nombre del archivo en la SD. El archivo debe tener extensión .PEB (PEG binary); si no se especifica extensión, el interface la añade automáticamente.
 
 **Ejemplo:**
 
-> LOAD \*PEB 0 \"EFECT\"
+> LOAD \*PEB 0,\"EFECT\"
 >
 > LOAD \*PEG THEN RUN 0,0
 

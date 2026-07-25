@@ -91,6 +91,7 @@ void read_next_VGM_command(){
       log_2("WAIT 17 ms");
       break;
     case 0x63:             // wait 882 samples (50th of a second), a shortcut for 0x61 0x72 0x03
+      ti_VGM = millis()+20;
       log_2("WAIT 20 ms");
       break;
     case 0xA0:             // AY8910, write value dd to register aa

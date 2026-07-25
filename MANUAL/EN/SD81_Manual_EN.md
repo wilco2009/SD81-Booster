@@ -1130,13 +1130,13 @@ Where \<thread\> is the thread number (0, 1 or 2) and \<address\> is the start a
 
 In addition to inline loading with a hexadecimal string, it is possible to load a compiled PEG program directly from a binary file on the SD:
 
-> LOAD \*PEB \<address\> \"\<name\>\"
+> LOAD \*PEB \<address\>,\"\<name\>\"
 
 Where \<address\> is the start position in PEG memory (0--255) and \<name\> is the filename on the SD. The file must have the .PEB extension (PEG binary); if no extension is specified, the interface adds it automatically.
 
 **Example:**
 
-> LOAD \*PEB 0 \"EFECT\"
+> LOAD \*PEB 0,\"EFECT\"
 >
 > LOAD \*PEG THEN RUN 0,0
 

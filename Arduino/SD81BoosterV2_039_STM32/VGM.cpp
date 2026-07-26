@@ -9,32 +9,49 @@ bool playing_VGM = false;
 uint8_t VGM_mode = 0;
 SdFile VGMFile;
 uint8_t retries = 0;
+uint32_t vgm_data_start = 0x100;  // fallback if the header field can't be read
 
 
 uint8_t openVGM(char* s){
   char id [5];
   int16_t result;
+  uint8_t offbuf[4];
+  uint32_t dataOffsetRel;
 
   retries = 0;
   ti_VGM = 0;
   log_3("OPEN VGM %s", s);
   if (VGMFile.isOpen()) VGMFile.close();
 
-  if (!VGMFile.open(s)) 
+  if (!VGMFile.open(s))
     return 1;
   log_3("succesfull,0");
-    
+
   result = VGMFile.read(id, 4);
   id[4] = 0;
   if ((result != 4) || (strcmp(id, "Vgm ")!=0)){
-    VGMFile.close();    
+    VGMFile.close();
     log_3("id %s not recognized", id);
     return 11;
   }
-  VGMFile.seekSet(256); // skip header  
-  log_3("skiping header");
+
+  // VGM data offset: 4-byte little-endian field at absolute offset 0x34,
+  // relative to itself (real spec, not a fixed header size). Not every
+  // export tool pads the header to the same length, so this must be read
+  // from the file instead of assumed; a wrong guess desyncs every command
+  // that follows until the parser stumbles back onto a real boundary.
+  VGMFile.seekSet(0x34);
+  if (VGMFile.read(offbuf, 4) == 4) {
+    dataOffsetRel = (uint32_t)offbuf[0] | ((uint32_t)offbuf[1]<<8) |
+                    ((uint32_t)offbuf[2]<<16) | ((uint32_t)offbuf[3]<<24);
+  } else {
+    dataOffsetRel = 0;
+  }
+  vgm_data_start = dataOffsetRel ? (0x34 + dataOffsetRel) : 0x40;
+  VGMFile.seekSet(vgm_data_start); // skip header
+  log_3("skiping header, data at %lu", vgm_data_start);
   //DAC_Init(DAC_AY);
-  
+
   return 0;
 }
 
@@ -127,7 +144,7 @@ void read_next_VGM_command(){
       }
       break;
     case -1:
-      if (VGM_mode == 1) VGMFile.seekSet(256); // repeat again  
+      if (VGM_mode == 1) VGMFile.seekSet(vgm_data_start); // repeat again
       else {
         log_0("Error reading command");
         if (result < 0) {

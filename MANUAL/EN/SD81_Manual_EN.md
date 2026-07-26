@@ -2561,6 +2561,36 @@ out (c),a
 
 This path is available when **full paging** mode is active or after writing to 2056. Restriction: in half paging after 2056, do not assign an odd page to block 0 through the mapper port (that data pattern, x8h, matches pseudo-block 8).
 
+**MANUAL mode: double buffering without an automatic copy**
+
+In addition to the AUTO mode described above (with an automatic blit on every VSYNC), there is a **MANUAL mode** where the FPGA copies nothing: the Z80 itself draws the whole frame directly into whichever block is not currently the front, and only switches which of the two blocks is shown. This saves the cost of the automatic copy (\~630 µs per frame), at the price of the Z80 having to redraw the whole frame itself (workable in Superfast modes, where the CPU is free from video refresh). Unlike AUTO mode, there is no single HFILE that the FPGA copies here: you need two real blocks (for example 4 and 5).
+
+POKE 2057, 200+B : REM double buffer ON, MANUAL mode; front = block B (0-7)
+
+The values 168+B (AUTO mode) and 200+B (MANUAL mode) share the same POKE 2057; use 85 to disable in either case.
+
+**Typical use:**
+
+1\. Pick two real blocks for the two buffers (e.g. 4 and 5). HFILE is irrelevant to this mechanism while double buffering is active.
+
+2\. Enable it with the starting block as front (POKE 2057, 200+4) and draw the first frame into the other block (5).
+
+3\. Every frame: draw the whole frame into whichever block is not the current front; wait for VSYNC (bit 0 of port AFh); switch the front with POKE 2057, 200+B (B = the block you just drew into).
+
+4\. On the next frame, draw into the block that has just been freed (the former front).
+
+The FPGA\'s write mask still automatically protects the current front block from CPU writes, in both modes.
+
+**I/O port control (pseudo-block 8):** same as in AUTO mode, but with an extra bit (bit4 of the B value) to select MANUAL:
+
+ld a,08h ; pseudo-block 8
+
+ld b,32+16+5 ; bit5=enable, bit4=MANUAL mode, bits2:0=front block (here 5)
+
+ld c,0e7h
+
+out (c),a ; double buffer ON, MANUAL mode, front = block 5
+
 See the complete machine-code example in \`EXAMPLES/DBUF/\` (bouncing ball with real-time double-buffer toggling).
 
 ## WRX with the 8-16K RAM
@@ -2575,23 +2605,24 @@ LOAD \*WRX STOP : REM disable (character generator mode, default)
 
 ## Control POKEs summary
 
-| **Address** | **Value** | **Function**                                        |
+| **Address** | **Value** | **Function** |
 |--------------|-----------|------------------------------------------------|
-| 2043        | \<low\>   | Low byte of screen file address                     |
-| 2044        | \<hi\>    | High byte of screen file address                    |
-| 2045        | 170       | Activate Superfast text mode                        |
-| 2045        | 171       | Activate Superfast native HiRes                     |
-| 2045        | 172       | Activate Superfast Spectrum HiRes                   |
-| 2045        | 85        | Deactivate Superfast                                |
-| 2046        | \<attr\>  | Change border attributes                            |
-| 2047        | 170       | Activate border pattern                             |
-| 2047        | 85        | Deactivate border pattern                           |
-| 2048--2055  | \<data\>  | Define border pattern (8 bytes)                     |
-| 2056        | xxxx      | Disable control pokes and enable writing to block 0 |
-| 2057        | 168+B     | Enable double buffer (front buffer = block B, 0-7)  |
-| 2057        | 85        | Disable double buffer                               |
-| 2058        | 170       | Enable WRX in the 8-16K RAM                         |
-| 2058        | 85        | Disable WRX (character generator mode)              |
+| 2043 | \<low\> | Low byte of screen file address |
+| 2044 | \<hi\> | High byte of screen file address |
+| 2045 | 170 | Activate Superfast text mode |
+| 2045 | 171 | Activate Superfast native HiRes |
+| 2045 | 172 | Activate Superfast Spectrum HiRes |
+| 2045 | 85 | Deactivate Superfast |
+| 2046 | \<attr\> | Change border attributes |
+| 2047 | 170 | Activate border pattern |
+| 2047 | 85 | Deactivate border pattern |
+| 2048--2055 | \<data\> | Define border pattern (8 bytes) |
+| 2056 | xxxx | Disable control pokes and enable writing to block 0 |
+| 2057 | 168+B | Enable double buffer (front buffer = block B, 0-7) |
+| 2057 | 200+B | Enable double buffer, MANUAL mode (front buffer = block B, 0-7) |
+| 2057 | 85 | Disable double buffer |
+| 2058 | 170 | Enable WRX in the 8-16K RAM |
+| 2058 | 85 | Disable WRX (character generator mode) |
 
 # Appendix G --- Audio Technical Reference: AY chip, VGM and allophones
 

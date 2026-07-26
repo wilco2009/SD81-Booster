@@ -2656,6 +2656,36 @@ out (c),a
 
 Esta vía está disponible cuando el modo **full paging** está activo o cuando se ha escrito en 2056. Restricción: en half paging tras 2056, no asignes una página impar al bloque 0 con el mapper port (ese patrón de datos, x8h, coincide con el pseudo-bloque 8).
 
+**Modo MANUAL: doble buffer sin copia automática**
+
+Además del modo AUTO descrito arriba (con blit automático en cada VSYNC), existe un **modo MANUAL** en el que la FPGA no copia nada: el propio Z80 dibuja el frame completo directamente en el bloque que en cada momento no es el front, y solo conmuta cuál de los dos bloques se muestra. Se ahorra el coste de la copia automática (\~630 µs por frame), a cambio de que el redibujado completo corre por cuenta del Z80 (viable en modos Superfast, donde la CPU está libre de refresco de vídeo). A diferencia del modo AUTO, aquí no hay un único HFILE que la FPGA copie: hacen falta dos bloques reales (por ejemplo 4 y 5).
+
+POKE 2057, 200+B : REM doble buffer ON modo MANUAL; front = bloque B (0-7)
+
+Los valores 168+B (modo AUTO) y 200+B (modo MANUAL) comparten el mismo POKE 2057; usa 85 para desactivar en ambos casos.
+
+**Uso típico:**
+
+1\. Elige dos bloques reales para los dos buffers (p. ej. 4 y 5). HFILE deja de ser relevante para este mecanismo mientras el doble buffer esté activo.
+
+2\. Actívalo con el bloque inicial como front (POKE 2057, 200+4) y dibuja el primer frame en el otro bloque (5).
+
+3\. En cada frame: dibuja el frame completo en el bloque que no es el front actual; espera VSYNC (bit 0 del puerto AFh); conmuta el front con POKE 2057, 200+B (B = el bloque que acabas de pintar).
+
+4\. En el frame siguiente, pinta el bloque que ha quedado libre (el antiguo front).
+
+La máscara de escritura de la FPGA sigue protegiendo automáticamente al bloque front frente a escrituras de la CPU, en ambos modos.
+
+**Por puerto de E/S (pseudo-bloque 8):** igual que en modo AUTO, pero con un bit adicional (bit4 del valor B) para seleccionar MANUAL:
+
+ld a,08h ; pseudo-bloque 8
+
+ld b,32+16+5 ; bit5=activar, bit4=modo MANUAL, bits2:0=bloque front (aqui 5)
+
+ld c,0e7h
+
+out (c),a ; doble buffer ON modo MANUAL, front = bloque 5
+
 Consulta el ejemplo completo en código máquina en \`EXAMPLES/DBUF/\` (pelota rebotando con conmutación del doble buffer en tiempo real).
 
 ## WRX con la RAM de 8-16K
@@ -2684,6 +2714,7 @@ LOAD \*WRX STOP : REM desactivar (modo generador de caracteres, por defecto)
 | 2048--2055 | \<datos\> | Definir patrón de borde (8 bytes) |
 | 2056 | \- | Desactiva los pokes de control y activa la escritura en el bloque 0 |
 | 2057 | 168+B | Activar doble buffer (front buffer = bloque B, 0-7) |
+| 2057 | 200+B | Activar doble buffer modo MANUAL (front buffer = bloque B, 0-7) |
 | 2057 | 85 | Desactivar doble buffer |
 | 2058 | 170 | Activar WRX en la RAM de 8-16K |
 | 2058 | 85 | Desactivar WRX (modo generador de caracteres) |

@@ -195,15 +195,24 @@ module SD81(
 
 	// ----------------------------------------------------------------
 	// DOUBLE BUFFER (present-blit) — POKE 2057
-	//   POKE 2057,168+blk (10101BBB) -> enable, front buffer = bloque logico BBB de la BRAM
+	//   POKE 2057,168+blk (10101BBB) -> enable AUTO (con blit), front = bloque BBB
+	//   POKE 2057,200+blk (11001BBB) -> enable MANUAL (sin blit), front = bloque BBB
 	//   POKE 2057,85                 -> disable
 	// El video (Spectrum/HiRes) lee siempre el bloque front (BRAM privada,
-	// enmascarada de escrituras CPU). En cada blanking una FSM copia el bloque
-	// shadow (HFILE) -> front dentro de la BRAM: la pantalla muestra siempre
-	// el snapshot del ultimo VSYNC (sin tearing, una sola superficie de dibujo).
+	// enmascarada de escrituras CPU). En modo AUTO, en cada blanking una FSM
+	// copia el bloque shadow (HFILE) -> front dentro de la BRAM: la pantalla
+	// muestra siempre el snapshot del ultimo VSYNC (sin tearing, una sola
+	// superficie de dibujo, mas simple para el Z80 pero con coste del blit).
+	// En modo MANUAL no hay copia automatica: el Z80 escribe el frame entero
+	// directamente en el bloque que en cada momento NO es front (el otro
+	// bloque real, no HFILE) y solo conmuta front_blk tras cada VSYNC — sin
+	// coste de copia, pero el redibujado completo corre por cuenta del Z80.
+	// La mascara de escritura (dbuf_wr_mask) protege igual en ambos modos al
+	// bloque actualmente front frente a escrituras CPU.
 	// ----------------------------------------------------------------
 	reg dbuf_en = 1'b0;
 	reg [2:0] front_blk = 3'd5;
+	reg auto_blit_en = 1'b0;		// 1=modo AUTO (blit automatico), 0=modo MANUAL
 
 	// ----------------------------------------------------------------
 	// WRX en los segundos 8KB — POKE 2058
@@ -537,7 +546,7 @@ Port $7FEF (01111111 11101111) - IN:
 	wire blit_start_line = (line_cnt == 9'd254);		// justo tras el area activa (SCR_END_Y=253)
 	always @(posedge system_clk) begin
 		old_blit_start <= blit_start_line;
-		if (~dbuf_en | ~sfast_mode_en) blit_run <= 1'b0;
+		if (~dbuf_en | ~sfast_mode_en | ~auto_blit_en) blit_run <= 1'b0;
 		else if (blit_start_line & ~old_blit_start) begin
 			blit_run <= 1'b1;
 			blit_cnt <= 13'd0;
@@ -1088,11 +1097,14 @@ assign DEBUG_RDY = 1'b0;
 
 		wire [7:0] mapper_data = block[{A10,A9,A8}];
 
-		// --- DOUBLE BUFFER: registro de control (unico driver de dbuf_en/front_blk) ---
+		// --- DOUBLE BUFFER: registro de control (unico driver de dbuf_en/front_blk/auto_blit_en) ---
 		// Dos vias de escritura:
-		//  a) POKE 2057 via MMIO (muere tras $2056):  168+blk = ON, 85 = OFF
+		//  a) POKE 2057 via MMIO (muere tras $2056):
+		//       168+blk (10101BBB) = ON modo AUTO (con blit),   85 = OFF
+		//       200+blk (11001BBB) = ON modo MANUAL (sin blit)
 		//  b) pseudo-bloque 8 del mapper: OUT (C),A con A=08h y B=valor
-		//     valor: bit5 (32) = enable, bits2:0 = front_blk;  B=0 = OFF
+		//     valor: bit5 (32) = enable, bit4 (16) = modo MANUAL (1) / AUTO (0),
+		//     bits2:0 = front_blk;  B=0 = OFF
 		reg old_poke2057 = 1'b0;
 		reg old_dbufport = 1'b0;
 		wire poke2057 = poke_wr && (Addr == 16'd2057);
@@ -1101,19 +1113,33 @@ assign DEBUG_RDY = 1'b0;
 			old_dbufport <= dbuf_port_wr;
 			if (~nRESET) begin
 				dbuf_en <= 1'b0;
+				auto_blit_en <= 1'b0;
 			end else begin
 				if (poke2057 & ~old_poke2057) begin
-					if (data[7:3]==5'b10101) begin
-						dbuf_en   <= 1'b1;
-						front_blk <= data[2:0];
+					if (data[7:3]==5'b10101) begin		// 168+blk: AUTO
+						dbuf_en      <= 1'b1;
+						front_blk    <= data[2:0];
+						auto_blit_en <= 1'b1;
 					end
-					if (data==8'd85) dbuf_en <= 1'b0;
+					if (data[7:3]==5'b11001) begin		// 200+blk: MANUAL
+						dbuf_en      <= 1'b1;
+						front_blk    <= data[2:0];
+						auto_blit_en <= 1'b0;
+					end
+					if (data==8'd85) begin
+						dbuf_en      <= 1'b0;
+						auto_blit_en <= 1'b0;
+					end
 				end
 				if (dbuf_port_wr & ~old_dbufport) begin
 					if (A13) begin							// bit5 del valor (B) = enable
-						dbuf_en   <= 1'b1;
-						front_blk <= {A10,A9,A8};		// bits2:0 del valor = front_blk
-					end else dbuf_en <= 1'b0;
+						dbuf_en      <= 1'b1;
+						front_blk    <= {A10,A9,A8};		// bits2:0 del valor = front_blk
+						auto_blit_en <= ~A12;					// bit4 del valor (B): 0=AUTO, 1=MANUAL
+					end else begin
+						dbuf_en      <= 1'b0;
+						auto_blit_en <= 1'b0;
+					end
 				end
 			end
 		end

@@ -193,7 +193,21 @@ module ay_3_8192 (
     else if (clken == 1'b1)
       divprescaler <= {divprescaler[14:0], divprescaler[15]};
   end
-  
+
+  // Segunda etapa /16 solo para la envolvente: divprescaler[0] da master/16,
+  // pero el AY real avanza la envolvente a master/256 (el tono si es master/8,
+  // que es lo que da clken_presc). Sin esta etapa la envolvente corre 16 veces
+  // mas rapido y los sonidos que dependen de ella (R8/R9/R10 con bit 4 a 1)
+  // se apagan antes de oirse.
+  reg [3:0] env_div = 4'd0;
+  wire clken_presc_env16 = clken_presc_env & (env_div == 4'd15);
+  always @(posedge clk) begin
+    if (rst_n == 1'b0)
+      env_div <= 4'd0;
+    else if (clken == 1'b1 && clken_presc_env == 1'b1)
+      env_div <= env_div + 4'd1;
+  end
+
   reg tone_a = 1'b0, tone_b = 1'b0, tone_c = 1'b0, tone_noise = 1'b0;
   reg [11:0] counter_tone_a, counter_tone_b, counter_tone_c;
   reg [4:0] counter_noise;
@@ -297,7 +311,7 @@ module ay_3_8192 (
       counter_envelope <= 16'h0001;
     end
     else begin
-      if (clken == 1'b1 && clken_presc_env == 1'b1) begin
+      if (clken == 1'b1 && clken_presc_env16 == 1'b1) begin
         if (counter_envelope >= envelope_period) begin
           counter_envelope <= 16'h0001;
           if (envelope_sample_seq == 5'b0_1111)

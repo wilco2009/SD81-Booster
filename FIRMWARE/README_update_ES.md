@@ -96,9 +96,11 @@ Usa este método solo si la actualización normal por SD falla o si la aplicaci�
 
 ---
 
-## Inicialización del RTC (necesaria tras actualizar el firmware del MCU)
+## Inicialización del RTC
 
-En el primer arranque tras actualizar el firmware (aplicación) del MCU, hay que inicializar el RTC (Real Time Clock):
+Solo hace falta **la primera vez que se programa el MCU** (por ejemplo, un chip recién salido de fábrica), o si la configuración del RTC se corrompe — por ejemplo por un problema con la pila de respaldo. **Un usuario normal que actualiza un interface que ya funciona no necesita hacer esto.**
+
+> **Precaución:** Asegúrate de tener la pila de respaldo CR2032 instalada y con carga antes de realizar este procedimiento.
 
 1. Quita tensión al interface.
 2. Mantén pulsado el botón **Quick Silva** (parte izquierda del interface — el segundo pulsador empezando por arriba, es decir, el más cercano al usuario).

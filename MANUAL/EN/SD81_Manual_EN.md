@@ -2044,7 +2044,9 @@ Verify the installed version with:
 
 **RTC initialization:**
 
-On the first boot after updating the MCU firmware, the RTC (Real Time Clock) needs to be initialized:
+Only needed **the first time the MCU is ever programmed** (e.g. a factory-fresh chip), or if the RTC configuration becomes corrupted \-\-- for example due to a problem with the backup battery. **A normal user updating an already-working interface does not need to do this.**
+
+**Caution:** Make sure the CR2032 backup battery is installed and has charge before running this procedure.
 
 1\. Power off the interface.
 

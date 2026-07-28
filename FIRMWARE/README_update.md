@@ -96,9 +96,11 @@ Use this method only if the normal SD update fails or the application is corrupt
 
 ---
 
-## RTC initialization (required after updating the MCU firmware)
+## RTC initialization
 
-On the first boot after updating the MCU firmware (application), the RTC (Real Time Clock) needs to be initialized:
+Only needed **the first time the MCU is ever programmed** (e.g. a factory-fresh chip), or if the RTC configuration becomes corrupted — for example due to a problem with the backup battery. **A normal user updating an already-working interface does not need to do this.**
+
+> **Caution:** Make sure the CR2032 backup battery is installed and has charge before running this procedure.
 
 1. Power off the interface.
 2. Press and hold the **QuickSilva button** (left side of the interface — the second button from the top, i.e. the one closest to the user).

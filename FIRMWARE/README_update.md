@@ -25,9 +25,9 @@ Under normal circumstances, **only the application needs to be updated**. The bo
 
 | File | Description |
 |------|-------------|
-| `SD81Booster.mcs` | MCS image to be written to the auxiliary SPI flash (25Q128) connected to the FPGA. |
+| `SD81.mcs` | MCS image to be written to the auxiliary SPI flash (25Q128) connected to the FPGA. |
 
-The FPGA loads its configuration from this SPI flash at power-up. See [the FPGA programming section](#fpga-programming-via-jtag) below for update instructions.
+The FPGA loads its configuration from this SPI flash at power-up. See [FPGA update (via SD card)](#fpga-update-via-sd-card) below for update instructions.
 
 All binaries are included in this folder.
 
@@ -84,16 +84,54 @@ Use this method only if the normal SD update fails or the application is corrupt
 | 1 | `bootloader.bin` | `0x08000000` |
 | 2 | `firmware.bin` | `0x0800C000` |
 
+   Two ways to do this — no Arduino IDE or source build needed either way, only STM32CubeProgrammer:
+
+   - **Scripted (recommended):** double-click `bootloader.bat` and/or `firmware.bat` in this folder. Each one calls STM32CubeProgrammer's command-line tool (via `stm32CubeProg.sh`, run through the included `busybox.exe`) to flash the matching binary to the right address over DFU automatically.
+   - **Manual (STM32CubeProgrammer GUI):** connect in DFU mode and download each binary to its address from the table above.
+
 8. Once flashing is complete, **remove the JP7 bridge**.
 9. Close the case and reconnect the interface to the ZX81.
 
-> **Note:** Only flash the bootloader if it is known to be corrupted. In most cases, flashing only the application (`0x0800C000`) is sufficient.
+> **Note:** Only flash the bootloader if it is known to be corrupted. In most cases, flashing only the application (`0x0800C000`) is sufficient — just run `firmware.bat` (or download only `firmware.bin` in the GUI).
+
+---
+
+## MCU diagnostics via USB serial console
+
+If an update fails, or the interface behaves oddly and you want to see what is actually happening, connect the USB-C port to a PC (**normal connection, JP7 does not need to be bridged for this**) and open a serial terminal — the Arduino IDE's own Serial Monitor works, or any other terminal program (PuTTY, Tera Term, minicom, CoolTerm, `screen`...).
+
+**Terminal settings:**
+
+| Setting | Value |
+|---------|-------|
+| Baud rate | 115200 |
+| Data bits | 8 |
+| Parity | None |
+| Stop bits | 1 |
+
+(i.e. **115200 8N1**.)
+
+The console shows boot progress, SD access errors, firmware update progress, and other MCU status/debug messages in real time.
+
+---
+
+## FPGA update (via SD card)
+
+This is the recommended method — no JTAG cable or Xilinx tools required.
+
+Just like the MCU, the SD81 Booster can reprogram the FPGA's auxiliary SPI flash (25Q128) automatically from the microSD card.
+
+1. Copy `SD81.mcs` from this folder to the root of the microSD card.
+2. Insert the SD card into the interface with the ZX81 powered off.
+3. Turn on the ZX81. The system detects the file, reprograms the FPGA flash, and deletes it from the SD card once finished.
+
+> ⚠️ **Warning:** Do not power off the ZX81 or remove the SD card during the update. If the process is interrupted, the system detects this and automatically retries on the next boot — `SD81.mcs` is not deleted from the SD card until the update has been confirmed to complete successfully.
 
 ---
 
 ## FPGA programming via JTAG
 
-This procedure is intended for **advanced users and manufacturers only**. It requires a Xilinx USB Platform Cable (or compatible clone) and Xilinx ISE iMPACT.
+Use this method only if the SD card update above fails or is not available. It is intended for **advanced users and manufacturers only**, and requires a Xilinx USB Platform Cable (or compatible clone) and Xilinx ISE iMPACT.
 
 The FPGA (Spartan-6 XC6SLX9) does not store its configuration internally. It loads from an auxiliary SPI flash chip (25Q128) at every power-up. Programming means writing `SD81Booster.mcs` to that flash via JTAG indirect programming.
 
@@ -110,3 +148,42 @@ The FPGA (Spartan-6 XC6SLX9) does not store its configuration internally. It loa
 7. Right-click the flash → **Program**.
 8. Wait for **PROGRAM SUCCEEDED**.
 9. Power-cycle the board. The FPGA will load its new configuration automatically.
+
+---
+
+## WiFi module update (optional accessory, ESP32-C3)
+
+Only applies if your interface has the optional WiFi module installed.
+
+### Normal update (via SD card)
+
+1. Copy `ESP32_FW.BIN` to the root of the microSD card.
+2. Insert the SD card into the interface and power-cycle the ZX81 (or just insert the card if it is already powered — the module checks for the file after a fresh boot).
+3. Wait for the STAT LED to turn **solid green**. During the update the LED blinks pink; it turns solid green once finished successfully, or stays solid yellow if it failed (try again by copying the file once more).
+
+> ⚠️ **Warning:** Do not power off the interface or remove the SD card while the STAT LED is blinking pink.
+
+### Initial / recovery programming (via USB, Arduino IDE)
+
+The module needs to be programmed over USB **the first time** (or if it becomes unresponsive and the SD update above can't run). After that, all further updates can use the SD card method.
+
+**Requirements:**
+- [Arduino IDE](https://www.arduino.cc/en/software) with ESP32 board support installed
+- A USB cable to the ESP32-C3 module
+
+**Board settings** (Tools menu):
+
+| Setting | Value |
+|---------|-------|
+| Board | **ESP32C3 Dev Module** (under esp32 boards, installed via Boards Manager) |
+| USB CDC On Boot | Disabled |
+| CPU Frequency | 160MHz (WiFi) |
+| Flash Frequency | 80MHz |
+| Flash Mode | QIO |
+| Flash Size | 4MB (32Mb) |
+| Upload Speed | 921600 |
+| Core Debug Level | None |
+| JTAG Adapter | Disabled |
+| Zigbee Mode | Disabled |
+
+Leave every other option (Erase All Flash Before Sketch Upload, Partition Scheme, etc.) at the Arduino IDE's own default for this board. Select the correct **Port** for the module, then upload the WiFi module firmware sketch as usual.

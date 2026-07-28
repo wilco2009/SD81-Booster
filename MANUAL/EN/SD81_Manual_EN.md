@@ -1024,6 +1024,12 @@ During the update, the STAT LED blinks pink. If it finishes successfully, it tur
 |:----:|------------------------------------------------------------------|
 | **⚠** | *Do not power off the interface or remove the SD card while the STAT LED is blinking pink.* |
 
+**Initial / recovery programming (via USB):**
+
+The module needs to be programmed over USB **the first time** (or if it stops responding and the SD card update above cannot run). After that, all further updates can use the SD card method described above.
+
+This requires the **Arduino IDE** with ESP32 board support installed, selecting board **ESP32C3 Dev Module**. The exact board settings (upload speed, flash size, etc.) are documented in **FIRMWARE/README_update.md** in the project repository.
+
 # 10. Sound
 
 The SD81 Booster incorporates an AY-3-8910/12 sound chip emulator, the same used by computers such as the ZX Spectrum 128K or Amstrad CPC. This allows playing music with up to three independent voices, plus noise and envelope effects.
@@ -1805,7 +1811,7 @@ The USB-C port on the interface also works as a serial debug port. When connecte
 | **Stop bits**    | 1           |
 | **Flow control** | None        |
 
-With any serial terminal program (PuTTY on Windows, minicom on Linux, CoolTerm on macOS) it is possible to monitor in real time the MCU messages, including: boot progress, SD access errors, firmware update progress, and debug messages from the filesystem, VGM, PEG and speech synthesis.
+With any serial terminal program (PuTTY on Windows, minicom on Linux, CoolTerm on macOS, or the Arduino IDE\'s own Serial Monitor) it is possible to monitor in real time the MCU messages, including: boot progress, SD access errors, firmware update progress, and debug messages from the filesystem, VGM, PEG and speech synthesis.
 
 | **ℹ** | *The production firmware emits basic status messages via the serial port. Recompiling the firmware with the DEBUG macro active produces much more detailed output, useful for advanced diagnostics and development.* |
 |------|------------------------------------------------------------------|
@@ -1991,7 +1997,7 @@ When the STAT LED shows an error but the cause is not clear, the USB-C debug con
 
 10. Connect a USB-C cable between the interface and the computer.
 
-11. Open a serial terminal program (PuTTY, Tera Term, minicom\...) and connect to the CH340 COM/serial port with the parameters: 115200 baud, 8N1, no flow control.
+11. Open a serial terminal program (PuTTY, Tera Term, minicom, the Arduino IDE\'s Serial Monitor\...) and connect to the CH340 COM/serial port with the parameters: 115200 baud, 8N1, no flow control.
 
 12. Power on the ZX81 with the interface connected.
 

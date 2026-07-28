@@ -1059,6 +1059,12 @@ Durante la actualización, el LED STAT parpadea en rosa. Si termina con éxito, 
 |:----:|------------------------------------------------------------------|
 | **⚠** | *No apagues el interface ni extraigas la tarjeta SD mientras el LED STAT parpadea en rosa.* |
 
+**Programación inicial / de recuperación (vía USB):**
+
+El módulo necesita programarse por USB **la primera vez** (o si deja de responder y no se puede usar la actualización por SD de arriba). A partir de ahí, todas las actualizaciones posteriores pueden hacerse por tarjeta SD.
+
+Requiere el **IDE de Arduino** con el soporte de placas ESP32 instalado, seleccionando la placa **ESP32C3 Dev Module**. Los ajustes exactos de la placa (velocidad de subida, tamaño de flash, etc.) están documentados en **FIRMWARE/README_update.md**, dentro del repositorio del proyecto.
+
 # 10. Sonido
 
 El SD81 Booster incorpora un emulador del chip de sonido AY-3-8910/12, el mismo que usaban ordenadores como el ZX Spectrum 128K o el Amstrad CPC. Esto permite reproducir música de hasta tres voces simultáneas, efectos de sonido programables y música en segundo plano, todo ello desde BASIC o desde código máquina.
@@ -1916,7 +1922,7 @@ El puerto USB-C del interface también funciona como puerto serie de depuración
 | **Bits de parada**   | 1              |
 | **Control de flujo** | Ninguno        |
 
-Con cualquier programa de terminal serie (PuTTY en Windows, minicom en Linux, CoolTerm en macOS) es posible monitorizar en tiempo real los mensajes del MCU, incluyendo: progreso del arranque, errores de acceso a la SD, progreso de actualizaciones de firmware, y mensajes de depuración del sistema de archivos, VGM, PEG y síntesis de voz.
+Con cualquier programa de terminal serie (PuTTY en Windows, minicom en Linux, CoolTerm en macOS, o el propio Monitor Serie del IDE de Arduino) es posible monitorizar en tiempo real los mensajes del MCU, incluyendo: progreso del arranque, errores de acceso a la SD, progreso de actualizaciones de firmware, y mensajes de depuración del sistema de archivos, VGM, PEG y síntesis de voz.
 
 |  |  |
 |:----:|------------------------------------------------------------------|
@@ -2103,7 +2109,7 @@ Cuando el LED STAT muestra un error pero no está claro cuál es la causa, la co
 
 14. Conecta un cable USB-C entre el interface y el ordenador.
 
-15. Abre un programa de terminal serie (PuTTY, Tera Term, minicom\...) y conéctate al puerto COM/serie del CH340 con los parámetros: 115200 baudios, 8N1, sin control de flujo.
+15. Abre un programa de terminal serie (PuTTY, Tera Term, minicom, el Monitor Serie del IDE de Arduino\...) y conéctate al puerto COM/serie del CH340 con los parámetros: 115200 baudios, 8N1, sin control de flujo.
 
 16. Enciende el ZX81 con el interface conectado.
 

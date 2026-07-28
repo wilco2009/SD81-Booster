@@ -96,6 +96,19 @@ Use this method only if the normal SD update fails or the application is corrupt
 
 ---
 
+## RTC initialization (required after updating the MCU firmware)
+
+On the first boot after updating the MCU firmware (application), the RTC (Real Time Clock) needs to be initialized:
+
+1. Power off the interface.
+2. Press and hold the **QuickSilva button** (left side of the interface — the second button from the top, i.e. the one closest to the user).
+3. Power on the interface while keeping the button held, for **at least 5 seconds**.
+4. Release the button. The STAT LED lights solid yellow for half a second, then solid blue for half a second, and — if everything goes well — the interface continues the normal boot process until the STAT LED turns solid green.
+
+The date and time are set to a fixed value in 2025, which you can then update with `LOAD *RTC` from the ZX81.
+
+---
+
 ## MCU diagnostics via USB serial console
 
 If an update fails, or the interface behaves oddly and you want to see what is actually happening, connect the USB-C port to a PC (**normal connection, JP7 does not need to be bridged for this**) and open a serial terminal — the Arduino IDE's own Serial Monitor works, or any other terminal program (PuTTY, Tera Term, minicom, CoolTerm, `screen`...).

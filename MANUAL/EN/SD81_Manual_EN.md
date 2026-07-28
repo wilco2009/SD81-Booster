@@ -2042,6 +2042,20 @@ Verify the installed version with:
 
 > LOAD \*VER
 
+**RTC initialization:**
+
+On the first boot after updating the MCU firmware, the RTC (Real Time Clock) needs to be initialized:
+
+1\. Power off the interface.
+
+2\. Press and hold the QuickSilva button (left side of the interface --- the second button from the top, i.e. the one closest to the user).
+
+3\. Power on the interface while keeping the button held, for at least 5 seconds.
+
+4\. Release the button. The STAT LED lights solid yellow for half a second, then solid blue for half a second, and --- if everything goes well --- the interface continues the normal boot process until the STAT LED turns solid green.
+
+The date and time are set to a fixed value in 2025, which you can then update with **LOAD \*RTC** from the ZX81.
+
 **Emergency USB recovery:**
 
 If the interface becomes inoperative, there is a USB-C recovery procedure for advanced users that requires opening the enclosure and manipulating jumper JP7. Detailed instructions are available in the project repository:

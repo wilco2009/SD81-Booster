@@ -96,6 +96,19 @@ Usa este método solo si la actualización normal por SD falla o si la aplicaci�
 
 ---
 
+## Inicialización del RTC (necesaria tras actualizar el firmware del MCU)
+
+En el primer arranque tras actualizar el firmware (aplicación) del MCU, hay que inicializar el RTC (Real Time Clock):
+
+1. Quita tensión al interface.
+2. Mantén pulsado el botón **Quick Silva** (parte izquierda del interface — el segundo pulsador empezando por arriba, es decir, el más cercano al usuario).
+3. Da tensión al interface mientras mantienes pulsado el botón, durante **al menos 5 segundos**.
+4. Suelta el botón. El LED STAT se enciende en amarillo fijo durante medio segundo, luego en azul fijo durante medio segundo y, si todo va bien, el interface continúa con el proceso normal de arranque hasta que el LED STAT se pone verde fijo.
+
+La fecha y la hora quedan fijadas a un valor del año 2025, que después puedes actualizar con `LOAD *RTC` desde el ZX81.
+
+---
+
 ## Diagnóstico del MCU vía consola serie por USB
 
 Si una actualización falla, o el interface se comporta de forma extraña y quieres ver qué está pasando realmente, conecta el puerto USB-C a un PC (**conexión normal, no hace falta puentear JP7 para esto**) y abre una terminal serie — sirve el propio Monitor Serie del IDE de Arduino, o cualquier otro programa de terminal (PuTTY, Tera Term, minicom, CoolTerm, `screen`...).

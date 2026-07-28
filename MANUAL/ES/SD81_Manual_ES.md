@@ -2157,6 +2157,20 @@ Verifica la versión instalada con:
 
 > LOAD \*VER
 
+**Inicialización del RTC:**
+
+En el primer arranque tras actualizar el firmware del MCU, hay que inicializar el RTC (Real Time Clock):
+
+1\. Quita tensión al interface.
+
+2\. Mantén pulsado el botón Quick Silva (parte izquierda del interface --- el segundo pulsador empezando por arriba, es decir, el más cercano al usuario).
+
+3\. Da tensión al interface mientras mantienes pulsado el botón, durante al menos 5 segundos.
+
+4\. Suelta el botón. El LED STAT se enciende en amarillo fijo durante medio segundo, luego en azul fijo durante medio segundo y, si todo va bien, el interface continúa con el proceso normal de arranque hasta que el LED STAT se pone verde fijo.
+
+La fecha y la hora quedan fijadas a un valor del año 2025, que después puedes actualizar con **LOAD \*RTC** desde el ZX81.
+
 **Recuperación de emergencia via USB:**
 
 En caso de que el interface quede inoperativo, existe un procedimiento de recuperación via USB-C orientado a usuarios avanzados que requiere acceder al interior de la carcasa y manipular el jumper JP7. Las instrucciones detalladas están disponibles en el repositorio del proyecto:

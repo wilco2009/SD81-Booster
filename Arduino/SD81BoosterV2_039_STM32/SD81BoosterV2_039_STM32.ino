@@ -139,7 +139,6 @@ void setup() {
   pinMode(Z80_RESET, OUTPUT);
   digitalWrite(Z80_RESET, LOW);
   pinMode(FPGA_RESET, OUTPUT);
-  set_blinking(clPINK, 4);
 
  
   pinMode(LED_BUILTIN, OUTPUT);
@@ -163,10 +162,18 @@ void setup() {
   pinMode(DEBUG_CLOCK, OUTPUT);
   pinMode(QSPIN, INPUT_PULLUP);
 
+  set_status_LED(clBLUE);
+
+  uint64_t ini_time = millis();
+  while (digitalRead(QSPIN)==LOW);
+  RTC_reset = (millis()-ini_time) > 5000;
+  set_status_LED(clGREEN);
+  set_blinking(clPINK, 4);
+
   pinMode(SD_LED, OUTPUT);
   debug_clock = 0;
   digitalWrite(DEBUG_CLOCK, debug_clock);
-  
+
   ioLatch->MODER = 0b0000000011111111; // input-output port
   for (int i = 0; i < sizeof(OUTPUT_LATCH) / sizeof(OUTPUT_LATCH[0]); i++) {
     pinMode(OUTPUT_LATCH[i], OUTPUT);
@@ -221,6 +228,15 @@ void setup() {
     // On any error status: leave the file in place (retry next boot) and
     // continue the normal boot with whatever bitstream is already loaded.
   }
+
+  // Read the FPGA version marker now, while FPGAPROG is still LOW (bus free)
+  // and AFTER any flash_update_from_mcs() above, so a just-flashed new
+  // bitstream's version is picked up on this same boot instead of the next.
+  flash_begin();
+  flash_read(FPGA_VERSION_FLASH_ADDR, &fpgaVersion, 1);
+  flash_end();
+  Serial.print("ℹ️ FPGA version marker: ");
+  Serial.println(fpgaVersion, HEX);
 
   Serial.println("ℹ️ Reconfiguring FPGA...");
   delay(100);

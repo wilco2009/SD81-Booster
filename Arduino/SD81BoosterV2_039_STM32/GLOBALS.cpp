@@ -38,8 +38,14 @@ const char asc_to_asc81 [] PROGMEM = {
   0x0f,0x0f,0x0f,0x0f,0x0f,0x0f,0x0f,0x0f,0x0f,0x0f,0x0f,0x0f,0x0f,0x0f,0x0f,0x0f  //f0..ff
   }; 
 
-uint8_t nQS_en = 1;  
+uint8_t nQS_en = 1;
 uint32_t DAC_freq;
+
+// FPGA bitstream version, read once at boot from a fixed marker byte at the
+// very end of the config SPI flash (see FPGA_VERSION_FLASH_ADDR, FLASH_SPI.h,
+// and FPGA/SD81V2.1000/append_fpga_version.py which stamps it there at build
+// time). 0x00 until that read happens (or if it fails / no marker present).
+uint8_t fpgaVersion = 0;
 
 uint8_t GPIOR0 = 0; // Esta variable tiene que ser sustituida por alguna forma de preservar el valor después de un reset
 

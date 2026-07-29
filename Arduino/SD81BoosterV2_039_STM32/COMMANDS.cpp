@@ -33,7 +33,15 @@ void cmd_nop(void){
 // COMMAND = 1 OK
 void cmd_ver(void){
 //  ToggleClock();
-  SendByteToZ80(VERSION); 
+  SendByteToZ80(VERSION);
+  ToggleClock();
+  reset_commands();
+}
+
+// COMMAND = 0x16 (22) - FPGA bitstream version (see fpgaVersion, read once
+// at boot from the config flash marker, GLOBALS.cpp / SD81BoosterV2_039_STM32.ino)
+void cmd_get_fpga_version(void){
+  SendByteToZ80(fpgaVersion);
   ToggleClock();
   reset_commands();
 }
@@ -2167,7 +2175,7 @@ command_handler commands[] = {
   cmd_enable_mc45,      //19
   cmd_disable_mc45,     //20
   cmd_joy,              //21
-  cmd_spare,            //22
+  cmd_get_fpga_version, //22 (0x16)
   cmd_say,              //23
   cmd_AY_set_reg,       //24   
   cmd_AY_get_reg,       //25

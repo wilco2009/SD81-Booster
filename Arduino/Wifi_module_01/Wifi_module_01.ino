@@ -16,6 +16,10 @@
 
 #define MDNS_HOSTNAME "sd81booster"   // reachable at http://sd81booster.local
 
+// WiFi module (ESP32-C3) own firmware version, shown on the web UI and in
+// /MAN/IP.TXT. Bump this before building a new ESP32_FW.BIN release.
+#define WIFI_FW_VERSION "1.0"
+
 WebServer server(80);
 
 bool     g_upload_active = false;
@@ -81,6 +85,7 @@ void handleList() {
                 "</style>";
   g_list_html += "<img class=\"logo\" src=\"/logo.png\" alt=\"SD81 Booster\">";
   g_list_html += "<h1>File server</h1>";
+  g_list_html += "<p style=\"text-align:center;color:#888\"><small>WiFi module firmware v" WIFI_FW_VERSION "</small></p>";
   g_list_html += "<p>Directory: <b>" + html_escape(dir) + "</b></p>";
   if (dir != "/") {
     g_list_html += "<p><a href=\"/list?path=" + parent_path(dir) + "\">.. (up one level)</a></p>";
@@ -362,6 +367,7 @@ bool wait_for_stm32(uint32_t timeout_ms) {
 void write_ip_help_file() {
   String ip = WiFi.localIP().toString();
   String content = "SD81 Booster WiFi module\n";
+  content += "Firmware version: " WIFI_FW_VERSION "\n";
   content += "IP address: " + ip + "\n";
   content += "http://" + ip + "/\n";
   content += "Also try: http://" + String(MDNS_HOSTNAME) + ".local/\n";

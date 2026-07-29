@@ -14,6 +14,13 @@
 #define FLASH_SECTOR_SIZE   4096UL
 #define FLASH_JEDEC_ID      0xEF4018UL   // expected manufacturer/type/capacity
 
+// FPGA bitstream version marker: a single byte (high nibble=major, low
+// nibble=minor) stamped at the very last address of the 16 MB chip by
+// FPGA/SD81V2.1000/append_fpga_version.py, right after bitgen/promgen
+// produce the real .mcs. Far outside anything the real bitstream (a few
+// hundred KB) or flash_update_from_mcs() ever touches.
+#define FPGA_VERSION_FLASH_ADDR 0xFFFFFFUL
+
 // Acquire/release the SPI2 bus and FLASH_CS pin. Call flash_begin() only
 // while FPGAPROG is held LOW (FPGA not driving these lines).
 void flash_begin();

@@ -82,6 +82,7 @@ CMD_getrow	equ	0x12
 CMD_mc45_on	equ	0x13
 CMD_mc45_off	equ	0x14
 CMD_joy		equ	0x15
+CMD_getFPGAVer	equ	0x16
 CMD_talk	equ	0x17
 CMD_aysend	equ	0x18
 CMD_ayread	equ	0x19
@@ -237,6 +238,23 @@ GetMCUVersion:	in	a,(ClkPort)
 		ld	b,0		; high byte = 0
 		ret
 
+; Returns the FPGA version byte (high nibble=major, low nibble=minor,
+; same format as VERSION/GetMCUVersion) in C. The MCU reads this once at
+; boot straight from the config flash (see FPGA_VERSION_FLASH_ADDR in the
+; STM32 firmware) and just echoes the cached byte here -- same protocol
+; shape as GetMCUVersion, different command code.
+GetFPGAVersion:	in	a,(ClkPort)
+		ld	c,a
+
+		ld	a,CMD_getFPGAVer
+		call	OutWaitDiff	; send GETFPGAVER command
+
+		in	a,(DataPort)
+		ld	b,a
+		call	WaitClkEq
+		ld	c,b
+		ret
+
 ; Check default LOAD/SAVE mode (SD or tape)
 ; Input: C = clock
 ChkTapeMode:	in	a,(ClkPort)
@@ -277,7 +295,7 @@ SDLoadSaveFast:
 SD81SAVECMD:	res	1,(iy+iyFLAGS)	; 0 = SAVE mode
 SaveLoadCommon:	rst	GET_CHAR	; what's the first char after LOAD?
 		cp	.SLOW		; "SLOW" token?
-		jr	z,SDSlowTkn	; Process syntax with SLOW
+		jp	z,SDSlowTkn	; Process syntax with SLOW
 		cp	.FAST		; "FAST" token?
 		jr	z,SDFastTkn	; Process syntax with FAST
 		bit	1,(iy+iyFLAGS)	; Save mode?
@@ -677,6 +695,29 @@ Hex1:
 Print_A_ret:
 		rst	PRINT_A
 		ret
+
+; LOAD *FPGA
+; Prints the FPGA bitstream version (stamped into the config flash at
+; build time, see FPGA/SD81V2.1000/append_fpga_version.py). Separate
+; command from LOAD *VER on purpose: an old ROM/MCU pairing that doesn't
+; know CMD_getFPGAVer would just hang waiting for a reply if we folded
+; this into the existing *VER output format instead.
+CmdFPGA:	call	MustBeEOL	; command must end here
+
+		ld	a,.F
+		rst	PRINT_A
+		ld	a,.P
+		rst	PRINT_A
+		ld	a,.G
+		rst	PRINT_A
+		ld	a,.A
+		rst	PRINT_A
+		ld	a,.colon
+		rst	PRINT_A
+
+		call	GetFPGAVersion
+		ld	a,c
+		jp	VerFromBCD
 
 ; LOAD *DIR
 ; LOAD *DIR <string>
@@ -1877,6 +1918,9 @@ CmdList:
 
 		db	.V,.E,.R + $80
 		dw	CmdVER
+
+		db	.F,.P,.G,.A + $80
+		dw	CmdFPGA
 
 		db	.1,.2,.8,.C + $80
 		dw	Cmd128C

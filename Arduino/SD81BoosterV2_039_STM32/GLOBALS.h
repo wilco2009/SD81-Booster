@@ -80,6 +80,7 @@ extern uint16_t row_array;
 extern uint32_t serial_ini;
 extern boolean serial_end;
 extern uint8_t nQS_en;
+extern uint8_t fpgaVersion;
 
 extern boolean T81_dir;
 

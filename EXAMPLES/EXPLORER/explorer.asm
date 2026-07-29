@@ -185,6 +185,19 @@ vt_refresh:
         ld a,42
 vtr_t1: ld b,a
         call p42_string
+
+        ld a,(list_filter_len)
+        or a
+        jr z,vtr_nofilter
+        ld a,'['
+        call p42_putchar          ; ojo: p42_putchar destruye B, por eso
+        ld hl,list_filter          ; se carga la longitud DESPUES, justo
+        ld a,(list_filter_len)     ; antes de p42_string (no antes, como
+        ld b,a                     ; en el primer intento -- eso causaba
+        call p42_string            ; el texto corrupto)
+        ld a,']'
+        call p42_putchar
+vtr_nofilter:
         ld a,22
         ld c,PATH_ATTR
         call fill_row_attr
@@ -294,21 +307,27 @@ vdp_base:
 
         ld a,1
         call vdp_fillrow_title
-        ld a,3
+        ld a,2
         call vdp_fillrow_opt
-        ld a,5
+        ld a,4
         call vdp_fillrow_opt
-        ld a,7
+        ld a,6
         call vdp_fillrow_opt
-        ld a,9
+        ld a,8
         call vdp_fillrow_opt
-        ld a,12
+        ld a,11
         call vdp_fillrow_opt
-        ld a,14
+        ld a,13
+        call vdp_fillrow_opt
+        ld a,15
         call vdp_fillrow_opt
         ld a,16
         call vdp_fillrow_opt
         ld a,18
+        call vdp_fillrow_opt
+        ld a,19
+        call vdp_fillrow_opt
+        ld a,21
         call vdp_fillrow_opt
 
         ld d,1
@@ -318,13 +337,13 @@ vdp_base:
         ld c,PANEL_TITLE_ATTR
         call panel_print
 
-        ld d,3
+        ld d,2
         ld e,PANEL_TXTCOL
         ld hl,panel_lbl_wrx
         ld b,panel_lbl_wrx_len
         ld c,PANEL_ATTR
         call panel_print
-        ld d,3
+        ld d,2
         ld e,PANEL_VALCOL
         ld a,(cfg_wrx)
         call panel_onoff
@@ -332,13 +351,13 @@ vdp_base:
         ld c,PANEL_ATTR
         call panel_print
 
-        ld d,5
+        ld d,4
         ld e,PANEL_TXTCOL
         ld hl,panel_lbl_fullpag
         ld b,panel_lbl_fullpag_len
         ld c,PANEL_ATTR
         call panel_print
-        ld d,5
+        ld d,4
         ld e,PANEL_VALCOL
         ld a,(cfg_fullpag)
         call panel_onoff
@@ -346,13 +365,13 @@ vdp_base:
         ld c,PANEL_ATTR
         call panel_print
 
-        ld d,7
+        ld d,6
         ld e,PANEL_TXTCOL
         ld hl,panel_lbl_mc45
         ld b,panel_lbl_mc45_len
         ld c,PANEL_ATTR
         call panel_print
-        ld d,7
+        ld d,6
         ld e,PANEL_VALCOL
         ld a,(cfg_mc45)
         call panel_onoff
@@ -360,13 +379,13 @@ vdp_base:
         ld c,PANEL_ATTR
         call panel_print
 
-        ld d,9
+        ld d,8
         ld e,PANEL_TXTCOL
         ld hl,panel_lbl_chr
         ld b,panel_lbl_chr_len
         ld c,PANEL_ATTR
         call panel_print
-        ld d,9
+        ld d,8
         ld e,PANEL_VALCOL
         ld a,(cfg_chr128)
         or a
@@ -379,26 +398,26 @@ vdp_chrval:
         call panel_print
 
         ; -- iconos de flechas del joystick --
-        ld a,11
+        ld a,10
         ld d,PANEL_ICONJOY_COL
         ld b,5
         ld ix,ICON_JOY
         call blit_cols
 
-        ld d,12
+        ld d,11
         ld e,PANEL_TXTCOL
         ld hl,panel_lbl_joy
         ld b,panel_lbl_joy_len
         ld c,PANEL_ATTR
         call panel_print
-        ld d,12
+        ld d,11
         ld e,PANEL_JOY_VALCOL
         ld hl,cfg_joy_keys
         ld b,5
         ld c,PANEL_ATTR
         call panel_print
 
-        ld d,14
+        ld d,13
         ld e,PANEL_TYU_COL
         ld hl,panel_lbl_tyu
         ld b,panel_lbl_tyu_len
@@ -406,24 +425,24 @@ vdp_chrval:
         call panel_print
 
         ; -- iconos STOP/PAUSA/PLAY, cada uno bajo su letra (T/Y/U) --
-        ld a,15
+        ld a,14
         ld d,PANEL_ICONSTOP_COL
         ld b,1
         ld ix,ICON_STOP
         call blit_cols
-        ld a,15
+        ld a,14
         ld d,PANEL_ICONPAUSE_COL
         ld b,2
         ld ix,ICON_PAUSE
         call blit_cols
-        ld a,15
+        ld a,14
         ld d,PANEL_ICONPLAY_COL
         ld b,1
         ld ix,ICON_PLAY
         call blit_cols
 
-        ; -- nombre del VGM cargado (vacio si no hay ninguno) --
-        ld d,16
+        ; -- nombre del VGM/PEB cargado (vacio si no hay ninguno) --
+        ld d,15
         ld e,PANEL_TXTCOL
         ld hl,cfg_vgm_name
         ld a,(cfg_vgm_namelen)
@@ -432,12 +451,74 @@ vdp_chrval:
         call panel_print
 
         ; -- atajo para ver /MAN/IP.TXT (o "NO CONNEXION") --
-        ld d,18
+        ld d,16
         ld e,PANEL_TXTCOL
         ld hl,panel_lbl_ip
         ld b,panel_lbl_ip_len
         ld c,PANEL_ATTR
         call panel_print
+
+        ; -- filtro de listado (tecla "."), en dos lineas: el ancho del
+        ; panel (PANEL_TXTCOL..41, 15 columnas) no da para las 24 --
+        ld d,18
+        ld e,PANEL_TXTCOL
+        ld hl,panel_lbl_filter1
+        ld b,panel_lbl_filter1_len
+        ld c,PANEL_ATTR
+        call panel_print
+        ld d,19
+        ld e,PANEL_TXTCOL
+        ld hl,panel_lbl_filter2
+        ld b,panel_lbl_filter2_len
+        ld c,PANEL_ATTR
+        call panel_print
+
+        ; -- version MCU/ROM/FPGA, ultima linea: "Mx.y,Rx.y,Fx.y" --
+        ld d,21
+        ld e,PANEL_TXTCOL
+        call p42_setxy
+        ld a,PANEL_ATTR
+        ld (cur_attr),a
+        ld a,'M'
+        call p42_putchar
+        ld a,1                    ; CMD_ver (version MCU)
+        call mcu_send
+        call mcu_recv
+        call panel_print_ver
+        ld a,','
+        call p42_putchar
+        ld a,'R'
+        call p42_putchar
+        ld a,(2004h)              ; version ROM (mismo empaquetado, ver VER.txt)
+        call panel_print_ver
+        ld a,','
+        call p42_putchar
+        ld a,'F'
+        call p42_putchar
+        ld a,31                   ; CMD_getFPGAVer
+        call mcu_send
+        call mcu_recv
+        call panel_print_ver
+        ret
+
+; panel_print_ver: A=byte de version empaquetado (nibble alto=mayor,
+; nibble bajo=menor, igual formato que VERSION en el ROM) -> imprime
+; "X.Y" en la posicion actual (xycoords). Destruye AF.
+panel_print_ver:
+        push af
+        rrca
+        rrca
+        rrca
+        rrca
+        and 0Fh
+        add a,'0'
+        call p42_putchar
+        ld a,'.'
+        call p42_putchar
+        pop af
+        and 0Fh
+        add a,'0'
+        call p42_putchar
         ret
 
 ; vdp_fillrow_base/_title/_opt: A=fila -> tiñe toda la anchura de la zona
@@ -495,6 +576,10 @@ panel_lbl_tyu:         defb "T Y U"
 panel_lbl_tyu_len      equ $-panel_lbl_tyu
 panel_lbl_ip:          defb "I IP"
 panel_lbl_ip_len       equ $-panel_lbl_ip
+panel_lbl_filter1:     defb ". FILTER"
+panel_lbl_filter1_len  equ $-panel_lbl_filter1
+panel_lbl_filter2:     defb "(SHIFT+1)=RESET"
+panel_lbl_filter2_len  equ $-panel_lbl_filter2
 ; centrado igual que el titulo (PANEL_TXTCOL..41, 15 columnas)
 PANEL_TYU_COL equ PANEL_TXTCOL+(15-panel_lbl_tyu_len)/2
 
@@ -561,6 +646,10 @@ vt_loop:
         jp z,vt_toggle_chr
         cp 27
         jp z,vt_view_ip
+        cp 28
+        jp z,vt_reset_filter
+        cp 29
+        jp z,vt_edit_filter
         jp vt_loop
 
 ; -------------------------------------------------------------
@@ -615,6 +704,59 @@ vtw_off:
         ld a,85
 vtw_poke:
         ld (2058),a
+        call vt_refresh
+        jp vt_loop
+
+; vt_edit_filter: tecla "." -- pide una cadena con wildcards (precarga el
+; filtro actual, si hay) y la aplica a la carpeta actual via OPENDIR2
+; (ver do_opendir_root/cmd_opendir2, que ya soporta wildcards separando
+; el nombre tras la ultima "/"). Vacio = sin filtro. El filtro persiste
+; al navegar; solo se borra con SHIFT+1 (vt_reset_filter).
+vt_edit_filter:
+        ld a,(list_filter_len)
+        ld (namelen),a
+        or a
+        jr z,vef_noprefill
+        ld hl,list_filter
+        ld de,namebuf
+        ld b,0
+        ld c,a
+        ldir
+vef_noprefill:
+        ld hl,prompt_filter
+        ld b,prompt_filter_len
+        call show_prompt
+        call text_input
+        ld a,(namelen)
+        ld (list_filter_len),a
+        or a
+        jr z,vef_nocopy
+        ld hl,namebuf
+        ld de,list_filter
+        ld b,0
+        ld c,a
+        ldir
+vef_nocopy:
+        call do_opendir_root
+        ld hl,1
+        ld (cur_index),hl
+        ld (win_start),hl
+        call vt_refresh
+        jp vt_loop
+
+prompt_filter:
+        defb "FILTER (WILDCARDS):"
+prompt_filter_len equ $-prompt_filter
+
+; vt_reset_filter: SHIFT+1 -- quita el filtro de listado (si habia) y
+; recarga la carpeta actual sin el.
+vt_reset_filter:
+        xor a
+        ld (list_filter_len),a
+        call do_opendir_root
+        ld hl,1
+        ld (cur_index),hl
+        ld (win_start),hl
         call vt_refresh
         jp vt_loop
 
@@ -746,8 +888,18 @@ vt_vgm_stop:
         ld (cfg_vgm_playing),a
         ld (cfg_vgm_loaded),a
         ld (cfg_vgm_namelen),a
+        ld a,(cfg_media_peb)
+        or a
+        jr nz,vvs_peb
         ld a,35                   ; CMD_stopVGM
         call mcu_send
+        jr vvs_done
+vvs_peb:
+        ld a,42                   ; CMD_STOP_PEG
+        call mcu_send
+        xor a
+        call mcu_send             ; hilo 0
+vvs_done:
         call vt_refresh
         jp vt_loop
 
@@ -760,8 +912,18 @@ vt_vgm_pause:
         jp z,vt_loop
         xor a
         ld (cfg_vgm_playing),a
+        ld a,(cfg_media_peb)
+        or a
+        jr nz,vvp_peb
         ld a,36                   ; CMD_pauseVGM
         call mcu_send
+        jr vvp_done
+vvp_peb:
+        ld a,43                   ; CMD_PAUSE_PEG
+        call mcu_send
+        xor a
+        call mcu_send             ; hilo 0
+vvp_done:
         call vt_refresh
         jp vt_loop
 
@@ -774,8 +936,18 @@ vt_vgm_cont:
         jp z,vt_loop
         ld a,1
         ld (cfg_vgm_playing),a
+        ld a,(cfg_media_peb)
+        or a
+        jr nz,vvc_peb
         ld a,37                   ; CMD_contVGM
         call mcu_send
+        jr vvc_done
+vvc_peb:
+        ld a,44                   ; CMD_CONT_PEG
+        call mcu_send
+        xor a
+        call mcu_send             ; hilo 0
+vvc_done:
         call vt_refresh
         jp vt_loop
 
@@ -1001,6 +1173,8 @@ vt_activate:
         jp z,vt_act_dir
         call is_vgm_ext
         jp z,vt_act_loadvgm
+        call is_peb_ext
+        jp z,vt_act_loadpeb
         call is_txt_ext
         jp z,vt_view_txt
         jp vt_act_loadp
@@ -1093,6 +1267,39 @@ ive_no:
         or 1                    ; asegura NZ
         ret
 
+; is_peb_ext: Z si namebuf/(namelen) termina en ".PEB" (mismo criterio
+; que is_vgm_ext). Destruye AF,DE,HL.
+is_peb_ext:
+        ld a,(namelen)
+        cp 4
+        jr c,ipe_no
+        ld hl,namebuf
+        ld e,a
+        ld d,0
+        add hl,de
+        dec hl
+        dec hl
+        dec hl
+        dec hl
+        ld a,(hl)
+        cp '.'
+        jr nz,ipe_no
+        inc hl
+        ld a,(hl)
+        cp 'P'
+        jr nz,ipe_no
+        inc hl
+        ld a,(hl)
+        cp 'E'
+        jr nz,ipe_no
+        inc hl
+        ld a,(hl)
+        cp 'B'
+        ret
+ipe_no:
+        or 1
+        ret
+
 ; is_txt_ext: Z si namebuf/(namelen) termina en ".TXT" (mismo criterio
 ; que is_vgm_ext). Destruye AF,DE,HL.
 is_txt_ext:
@@ -1153,6 +1360,50 @@ vtlv_short:
         ld a,1
         ld (cfg_vgm_loaded),a
         ld (cfg_vgm_playing),a
+        xor a
+        ld (cfg_media_peb),a
+        jp vt_refresh_and_loop
+
+; vt_act_loadpeb: ENTER sobre un archivo .PEB -- lo carga con SDLOAD_PEG
+; (45, nombre + direccion 0) y arranca el hilo 0 con PLAY_PEG (41,
+; hilo 0 + direccion 0). Mismo hueco de nombre/estado que un VGM (solo
+; puede haber una cosa cargada a la vez); cfg_media_peb indica cual de
+; los dos es, para que T/Y/U (stop/pause/cont) usen los comandos PEG en
+; vez de los de VGM.
+vt_act_loadpeb:
+        ld a,(namelen)
+        ld b,a
+        ld hl,namebuf
+        ld a,45                   ; CMD_SDLOAD_PEG
+        call mcu_send
+        call send_pascal_zx
+        xor a
+        call mcu_send             ; direccion 0
+        call mcu_recv             ; status (sin uso)
+
+        ld a,41                   ; CMD_PLAY_PEG
+        call mcu_send
+        xor a
+        call mcu_send             ; hilo 0
+        xor a
+        call mcu_send             ; direccion 0
+
+        ld a,(namelen)
+        cp VGM_NAME_MAXLEN
+        jr c,vtlp_short
+        ld a,VGM_NAME_MAXLEN
+vtlp_short:
+        ld (cfg_vgm_namelen),a
+        ld c,a
+        ld b,0
+        ld hl,namebuf
+        ld de,cfg_vgm_name
+        ldir
+
+        ld a,1
+        ld (cfg_vgm_loaded),a
+        ld (cfg_vgm_playing),a
+        ld (cfg_media_peb),a
         jp vt_refresh_and_loop
 
 ; -------------------------------------------------------------
@@ -3178,6 +3429,15 @@ calc_attr_addr:
 ; =============================================================
 read_key:
 rk_wait:
+        ld a,0FEh                ; SHIFT+1 = reset del filtro de listado
+        in a,(0FEh)               ; (comprobacion aparte porque SHIFT no
+        bit 0,a                   ; se rastrea como tecla propia en el
+        jr nz,rk_normal1           ; resto de la matriz)
+        ld a,0F7h
+        in a,(0FEh)
+        bit 0,a
+        jp z,rk_resetfilter
+rk_normal1:
         ld a,0F7h
         in a,(0FEh)
         bit 0,a
@@ -3210,6 +3470,8 @@ rk_wait:
         jp z,rk_n
         bit 2,a
         jp z,rk_m
+        bit 1,a
+        jp z,rk_dot
         ld a,0FDh
         in a,(0FEh)
         bit 2,a
@@ -3303,6 +3565,12 @@ rk_u:
 rk_i:
         ld a,27
         jr rk_deb
+rk_resetfilter:
+        ld a,28
+        jr rk_deb
+rk_dot:
+        ld a,29
+        jr rk_deb
 rk_a:
         ld a,24
         jr rk_deb
@@ -3349,8 +3617,8 @@ rk_rel:
         jr nz,rk_stillp
         ld a,7Fh
         in a,(0FEh)
-        and 0Dh
-        cp 0Dh
+        and 0Fh
+        cp 0Fh
         jr nz,rk_stillp
         ld a,0FDh
         in a,(0FEh)
@@ -3369,8 +3637,8 @@ rk_rel:
         jr nz,rk_stillp
         ld a,0FEh
         in a,(0FEh)
-        and 1Eh
-        cp 1Eh
+        and 1Fh
+        cp 1Fh
         jr nz,rk_stillp
         jr rk_relok
 rk_stillp:
@@ -3753,8 +4021,15 @@ do_opendir:
         jp cmd_str_zx
 
 do_opendir_root:
+        ld a,(list_filter_len)
+        or a
+        jr nz,dor_filtered
         ld hl,starmask
         ld b,1
+        jp do_opendir
+dor_filtered:
+        ld hl,list_filter
+        ld b,a
         jp do_opendir
 starmask: defb "*"
 
@@ -4267,6 +4542,13 @@ cfg_panel:      defb 0          ; 0=panel oculto, 1=panel de config visible
 list_maxchars:  defb 42         ; ancho de texto vigente del listado (recalc. en vt_refresh)
 list_attrw:     defb 32         ; ancho de atributo vigente del listado (idem)
 
+; -- filtro de listado (tecla W, solo con el panel oculto): wildcards que
+; se añaden a la carpeta actual al pedir OPENDIR2 (ver do_opendir_root).
+; Se resetea al navegar de verdad (do_cd), no al recargar la misma
+; carpeta (mkdir/borrar/renombrar/pegar) --
+list_filter_len: defb 0          ; 0 = sin filtro (usa "*")
+list_filter:      defs TI_MAXLEN
+
 ; -- panel de configuracion: estado local de cada opcion (no hay forma de
 ; preguntarselo al firmware, asi que el explorador fuerza un estado inicial
 ; conocido en start y lo va llevando al alternar cada tecla) --
@@ -4275,10 +4557,11 @@ cfg_fullpag:    defb 0          ; 0=OFF,1=ON
 cfg_mc45:       defb 0          ; 0=OFF,1=ON
 cfg_chr128:     defb 0          ; 0=CHR64,1=CHR128
 cfg_joy_keys:   defb "QAOP "    ; teclas arriba/abajo/izda/dcha/fuego
-cfg_vgm_loaded:   defb 0        ; 0=nada cargado, 1=hay un VGM cargado (sonando o en pausa)
+cfg_vgm_loaded:   defb 0        ; 0=nada cargado, 1=hay algo cargado (VGM o PEB, sonando o en pausa)
 cfg_vgm_playing:  defb 0        ; 0=parado/en pausa, 1=sonando
 cfg_vgm_namelen:  defb 0
 cfg_vgm_name:     defs VGM_NAME_MAXLEN
+cfg_media_peb:    defb 0        ; 0=lo cargado es un VGM, 1=es un PEB (que comandos usan T/Y/U)
 blit_row_reg:   defb 0          ; temporales de blit_cols (fila/columna/anchura)
 blit_col_reg:   defb 0
 blit_w_reg:     defb 0

@@ -82,7 +82,6 @@ CMD_getrow	equ	0x12
 CMD_mc45_on	equ	0x13
 CMD_mc45_off	equ	0x14
 CMD_joy		equ	0x15
-CMD_getFPGAVer	equ	0x16
 CMD_talk	equ	0x17
 CMD_aysend	equ	0x18
 CMD_ayread	equ	0x19
@@ -91,6 +90,7 @@ CMD_chars128	equ	0x1B
 CMD_chars64	equ	0x1C
 CMD_pages64	equ	0x1D
 CMD_pages32	equ	0x1E
+CMD_getFPGAVer	equ	0x1F
 CMD_getbyte	equ	0x20
 CMD_setbyte	equ	0x21
 CMD_loadVGM	equ	0x22

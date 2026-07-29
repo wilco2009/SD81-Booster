@@ -38,7 +38,7 @@ void cmd_ver(void){
   reset_commands();
 }
 
-// COMMAND = 0x16 (22) - FPGA bitstream version (see fpgaVersion, read once
+// COMMAND = 0x1F (31) - FPGA bitstream version (see fpgaVersion, read once
 // at boot from the config flash marker, GLOBALS.cpp / SD81BoosterV2_039_STM32.ino)
 void cmd_get_fpga_version(void){
   SendByteToZ80(fpgaVersion);
@@ -2175,7 +2175,11 @@ command_handler commands[] = {
   cmd_enable_mc45,      //19
   cmd_disable_mc45,     //20
   cmd_joy,              //21
-  cmd_get_fpga_version, //22 (0x16)
+  cmd_spare,            //22 (0x16) -- reserved for the documented but never
+                         // implemented BINARY_SAY MCU command; do not reuse
+                         // (see cmd_binary_say note near cmd_say if it's ever
+                         // added for real -- the emulator already treats 0x16
+                         // as CMD_binary_say, so this slot must match it).
   cmd_say,              //23
   cmd_AY_set_reg,       //24   
   cmd_AY_get_reg,       //25
@@ -2184,7 +2188,7 @@ command_handler commands[] = {
   cmd_sel_64_chars,     //28
   cmd_fullpaging,       //29
   cmd_halfpaging,       //30
-  cmd_spare,            //31
+  cmd_get_fpga_version, //31 (0x1F)
   cmd_getbyte,          //32
   cmd_setbyte,          //33
   

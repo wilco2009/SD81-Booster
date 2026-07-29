@@ -2088,6 +2088,10 @@ The FPGA (Xilinx Spartan-6 XC6SLX9) loads its configuration on each boot from an
 |:----:|------------------------------------------------------------------|
 | **⚠** | *Do not power off the ZX81 or remove the SD card during the update. If the process is interrupted, the system will detect this and automatically retry on the next boot --- the SD81.MCS file is not deleted from the SD until the update has been confirmed to complete successfully.* |
 
+Verify the installed version with:
+
+LOAD \*FPGA
+
 # 18. Glossary
 
 | **Term** | **Definition** |

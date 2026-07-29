@@ -2203,6 +2203,10 @@ La FPGA (Xilinx Spartan-6 XC6SLX9) carga su configuración en cada arranque desd
 |:----:|------------------------------------------------------------------|
 | **⚠** | *No apagues el ZX81 ni extraigas la tarjeta SD durante la actualización. Si el proceso se interrumpe, el sistema lo detectará y reintentará automáticamente en el siguiente arranque --- el archivo SD81.MCS no se borra de la SD hasta confirmar que la actualización se completó correctamente.* |
 
+Verifica la versión instalada con:
+
+LOAD \*FPGA
+
 # 18. Glosario
 
 | **Término** | **Definición** |

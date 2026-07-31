@@ -1925,7 +1925,124 @@ void cmd_rtc(){
 
   Serial.println("fin");
   SendByteToZ80(error); // ... and Status
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en
+  // cmd_opendir2 sobre la ventana de carrera -- este comando se llamara
+  // muy seguido (cada refresco del listado, para el reloj en pantalla).
+  reset_commands();
   ToggleClock();       // Final clock toggle
+}
+
+#define NTP_CFG_PATH       "/SYS/NTP.CFG"
+#define NTP_SYNC_FLAG_PATH "/SYS/NTP_SYNC_NOW.FLAG"
+
+// Actualiza (o anade si no existe) una linea "KEY=valor" en /SYS/NTP.CFG,
+// preservando el resto del fichero tal cual (formato compartido con el
+// ESP32, ver WIFI_PROTOCOL.h). Crea el fichero si no existia.
+bool ntp_cfg_write_field(const char* key, const char* value) {
+  char buf[256];
+  int len = 0;
+
+  FsFile f = sd.open(NTP_CFG_PATH, O_RDONLY);
+  if (f) {
+    len = f.read(buf, sizeof(buf) - 1);
+    if (len < 0) len = 0;
+    f.close();
+  }
+  buf[len] = 0;
+
+  char keyPrefix[16];
+  snprintf(keyPrefix, sizeof(keyPrefix), "%s=", key);
+  size_t keyLen = strlen(keyPrefix);
+
+  char outBuf[256];
+  int outPos = 0;
+  bool found = false;
+  int pos = 0;
+
+  while (pos < len) {
+    int lineStart = pos;
+    int lineEnd = lineStart;
+    while (lineEnd < len && buf[lineEnd] != '\n') lineEnd++;
+    int lineLen = lineEnd - lineStart;
+
+    if ((size_t)lineLen >= keyLen && strncmp(&buf[lineStart], keyPrefix, keyLen) == 0) {
+      outPos += snprintf(&outBuf[outPos], sizeof(outBuf) - outPos, "%s%s\n", keyPrefix, value);
+      found = true;
+    } else if (lineLen > 0) {
+      memcpy(&outBuf[outPos], &buf[lineStart], lineLen);
+      outPos += lineLen;
+      outBuf[outPos++] = '\n';
+    }
+    pos = lineEnd + 1;
+  }
+
+  if (!found) {
+    outPos += snprintf(&outBuf[outPos], sizeof(outBuf) - outPos, "%s%s\n", keyPrefix, value);
+  }
+
+  FsFile wf;
+  if (!wf.open(NTP_CFG_PATH, O_WRONLY | O_CREAT | O_TRUNC)) return false;
+  wf.write((const uint8_t*)outBuf, outPos);
+  wf.close();
+  return true;
+}
+
+// LOAD *SUMMER [STOP] - interruptor manual de horario de verano (DST). El
+// ESP32 lo lee de /SYS/NTP.CFG al sincronizar via NTP (ver sync_time_from_ntp
+// en Wifi_module_01.ino) - no hay deteccion automatica de zona horaria/DST.
+void cmd_enable_dst(){
+  ntp_cfg_write_field("DST", "1");
+  ToggleClock();
+  reset_commands();
+}
+
+void cmd_disable_dst(){
+  ntp_cfg_write_field("DST", "0");
+  ToggleClock();
+  reset_commands();
+}
+
+// LOAD *NTP="<server>" - ajusta el servidor NTP en /SYS/NTP.CFG. Mismo
+// patron que cmd_rtc/cmd_say: longitud + bucle de caracteres en el buffer
+// compartido `params[]`.
+void cmd_ntp_setserver(){
+  ToggleClock();
+  uint8_t param_len = GetByteFromZ80_IT();
+  for (uint8_t i=0; i<param_len; i++){
+    ToggleClock();
+    byte ch = GetByteFromZ80_IT();
+    params[i] = (char) asc81_to_ascii[ch];
+  }
+  params[param_len] = 0;
+  uint8_t error = (param_len == 0 || !ntp_cfg_write_field("SERVER", params)) ? 3 : 0;
+  SendByteToZ80(error);
+  ToggleClock();
+  reset_commands();
+}
+
+// LOAD *NTP [+|-]<n> - ajusta el offset UTC (horas, con signo) en
+// /SYS/NTP.CFG. Mismo patron que cmd_getbyte: un byte de entrada, un byte
+// de estado de salida.
+void cmd_ntp_setoffset(){
+  ToggleClock();
+  int8_t offset = (int8_t) GetByteFromZ80_IT();
+  char valstr[8];
+  snprintf(valstr, sizeof(valstr), "%d", offset);
+  uint8_t error = ntp_cfg_write_field("UTCOFFSET", valstr) ? 0 : 2;
+  SendByteToZ80(error);
+  ToggleClock();
+  reset_commands();
+}
+
+// LOAD *NTP (a secas) - fuerza una sincronizacion NTP inmediata. El STM32 no
+// puede iniciar comunicacion con el ESP32 (que es SIEMPRE el iniciador segun
+// WIFI_PROTOCOL.h), asi que se limita a dejar un fichero-bandera vacio que
+// el ESP32 comprueba periodicamente en su loop() y borra tras sincronizar.
+// Sin respuesta de estado - mismo patron "fire and forget" que RAM48/MC45.
+void cmd_ntp_sync(){
+  FsFile f;
+  if (f.open(NTP_SYNC_FLAG_PATH, O_WRONLY | O_CREAT | O_TRUNC)) f.close();
+  ToggleClock();
   reset_commands();
 }
 
@@ -2221,5 +2338,10 @@ command_handler commands[] = {
   cmd_f_close,          //57
   cmd_f_open_zx81,      //58 (0x3A) fopen con nombre en codigo ZX81
   cmd_f_stat,           //59 (0x3B) fstat: tamaño + fecha/hora de creacion
+  cmd_enable_dst,       //60 (0x3C) LOAD *SUMMER
+  cmd_disable_dst,      //61 (0x3D) LOAD *SUMMER STOP
+  cmd_ntp_setserver,    //62 (0x3E) LOAD *NTP="<server>"
+  cmd_ntp_setoffset,    //63 (0x3F) LOAD *NTP [+|-]<n>
+  cmd_ntp_sync,         //64 (0x40) LOAD *NTP (fuerza sincronizacion)
   cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

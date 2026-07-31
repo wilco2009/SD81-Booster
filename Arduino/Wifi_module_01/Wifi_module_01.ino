@@ -86,6 +86,7 @@ void handleList() {
   g_list_html += "<img class=\"logo\" src=\"/logo.png\" alt=\"SD81 Booster\">";
   g_list_html += "<h1>File server</h1>";
   g_list_html += "<p style=\"text-align:center;color:#888\"><small>WiFi module firmware v" WIFI_FW_VERSION "</small></p>";
+  g_list_html += "<p style=\"text-align:center\"><a href=\"/ntp\">NTP time settings</a></p>";
   g_list_html += "<p>Directory: <b>" + html_escape(dir) + "</b></p>";
   if (dir != "/") {
     g_list_html += "<p><a href=\"/list?path=" + parent_path(dir) + "\">.. (up one level)</a></p>";
@@ -247,6 +248,82 @@ void handleDelete() {
   server.send(303);
 }
 
+void handleNtpPage() {
+  NtpConfig cfg;
+  wifi_client_read_ntp_config(&cfg); // on transport error just shows a blank/default form
+
+  String html = "<style>"
+                "body{font-family:sans-serif;max-width:600px;margin:0 auto;padding:0 10px}"
+                "h1{text-align:center;margin-top:0}"
+                "label{display:block;margin-top:12px}"
+                "</style>";
+  html += "<h1>NTP time settings</h1>";
+  html += "<p><a href=\"/list?path=/\">&laquo; Back to file server</a></p>";
+
+  if (server.hasArg("synced")) {
+    html += server.arg("synced") == "1"
+      ? "<p style=\"color:green\">Time synced successfully.</p>"
+      : "<p style=\"color:red\">Sync failed - check the server address and that the network can reach it.</p>";
+  }
+
+  html += "<form method=\"POST\" action=\"/ntp/save\">";
+  html += "<label>NTP server<br><input type=\"text\" name=\"server\" value=\"" +
+          html_escape(String(cfg.server)) + "\" placeholder=\"pool.ntp.org\"></label>";
+  html += String("<label><input type=\"checkbox\" name=\"enabled\" value=\"1\"") +
+          (cfg.sync_enabled ? " checked" : "") + "> Sync automatically at boot</label>";
+  html += "<label>UTC offset (hours)<br><input type=\"number\" name=\"utcoffset\" value=\"" +
+          String(cfg.utc_offset_hours) + "\"></label>";
+  html += String("<label><input type=\"checkbox\" name=\"dst\" value=\"1\"") +
+          (cfg.dst ? " checked" : "") + "> Summer time (DST, +1h)</label>";
+  html += "<p><input type=\"submit\" value=\"Save\"></p>";
+  html += "</form>";
+
+  html += "<form method=\"POST\" action=\"/ntp/sync\">"
+          "<input type=\"submit\" value=\"Sync time now\"></form>";
+
+  time_t now = time(nullptr);
+  if (now > 24L * 3600L) { // sanity check: skip if the ESP32 clock still looks unset (epoch 1970)
+    struct tm t;
+    localtime_r(&now, &t);
+    char buf[32];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &t);
+    html += "<p><small>ESP32 system time (last successful sync): " + String(buf) + "</small></p>";
+  }
+
+  server.send(200, "text/html", html);
+}
+
+void handleNtpSave() {
+  String server_addr = server.hasArg("server") ? server.arg("server") : "";
+  server_addr.replace("\n", ""); server_addr.replace("\r", ""); server_addr.trim();
+  bool enabled = server.hasArg("enabled");
+  int utcoffset = server.hasArg("utcoffset") ? server.arg("utcoffset").toInt() : 0;
+  bool dst = server.hasArg("dst");
+
+  String content = "SERVER=" + server_addr + "\n";
+  content += "MODE="; content += (enabled ? "SERVER" : "LOCAL"); content += "\n";
+  content += "UTCOFFSET=" + String(utcoffset) + "\n";
+  content += "DST="; content += (dst ? "1" : "0"); content += "\n";
+
+  uint8_t handle;
+  if (wifi_client_write_open("/SYS/NTP.CFG", &handle)) {
+    wifi_client_write_chunk(handle, (const uint8_t*)content.c_str(), content.length());
+    uint32_t total;
+    wifi_client_write_close(handle, &total);
+  } else {
+    Serial.println("Error: could not write /SYS/NTP.CFG");
+  }
+
+  server.sendHeader("Location", "/ntp");
+  server.send(303);
+}
+
+void handleNtpSyncNow() {
+  bool ok = sync_time_from_ntp();
+  server.sendHeader("Location", String("/ntp?synced=") + (ok ? "1" : "0"));
+  server.send(303);
+}
+
 // Writes a short text note explaining why the update was rejected, so the
 // SD card carries visible evidence instead of the update silently vanishing.
 void mark_firmware_update_failed(const char* reason) {
@@ -338,6 +415,57 @@ void check_and_apply_firmware_update() {
     wifi_client_delete(FW_UPDATE_PATH);
     mark_firmware_update_failed(reason);
   }
+}
+
+#define NTP_SYNC_TIMEOUT_MS 5000   // patience waiting for the NTP reply itself
+
+// Reads /SYS/NTP.CFG and, if MODE=SERVER, fetches the current time from the
+// configured NTP server and pushes it to the STM32's RTC via CMD_SET_TIME.
+// Called once per boot, right after connecting to WiFi - the STM32's own
+// battery-backed RTC keeps good enough time between boots, no need to
+// resync periodically - and also on demand from the "/ntp/sync" web button.
+// If NTP is disabled, unreachable, or the config file is missing, this
+// simply does nothing and the RTC keeps whatever it had. Returns true only
+// if the STM32's RTC was actually updated.
+bool sync_time_from_ntp() {
+  NtpConfig cfg;
+  if (!wifi_client_read_ntp_config(&cfg)) {
+    Serial.println("NTP: transport error reading /SYS/NTP.CFG, skipping.");
+    return false;
+  }
+  if (!cfg.sync_enabled) {
+    Serial.println("NTP: disabled (MODE=LOCAL or no /SYS/NTP.CFG) - RTC left untouched.");
+    return false;
+  }
+
+  Serial.print("NTP: syncing from "); Serial.print(cfg.server);
+  Serial.print(" (UTC"); Serial.print(cfg.utc_offset_hours >= 0 ? "+" : ""); Serial.print(cfg.utc_offset_hours);
+  Serial.print(cfg.dst ? ", DST on)" : ", DST off)"); Serial.println("...");
+
+  long gmt_offset_sec = (long)cfg.utc_offset_hours * 3600L;
+  int  dst_offset_sec = cfg.dst ? 3600 : 0;
+  configTime(gmt_offset_sec, dst_offset_sec, cfg.server);
+
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, NTP_SYNC_TIMEOUT_MS)) {
+    Serial.println("NTP: no reply from server - RTC left untouched.");
+    return false;
+  }
+
+  uint8_t year = (uint8_t)((timeinfo.tm_year + 1900) % 100);
+  uint8_t month = (uint8_t)(timeinfo.tm_mon + 1);
+  uint8_t day = (uint8_t)timeinfo.tm_mday;
+  uint8_t hour = (uint8_t)timeinfo.tm_hour;
+  uint8_t minute = (uint8_t)timeinfo.tm_min;
+  uint8_t second = (uint8_t)timeinfo.tm_sec;
+
+  if (wifi_client_set_time(year, month, day, hour, minute, second)) {
+    Serial.printf("NTP: STM32 RTC updated to %02d/%02d/%02d %02d:%02d:%02d\n",
+                  day, month, year, hour, minute, second);
+    return true;
+  }
+  Serial.println("NTP: STM32 rejected or did not acknowledge the new time.");
+  return false;
 }
 
 // Both MCUs boot at roughly the same time, but the STM32 typically takes
@@ -450,6 +578,7 @@ void setup() {
 
   Serial.print("IP: "); Serial.println(WiFi.localIP());
   write_ip_help_file();
+  sync_time_from_ntp();
 
   if (MDNS.begin(MDNS_HOSTNAME)) {
     MDNS.addService("http", "tcp", 80);
@@ -465,10 +594,38 @@ void setup() {
   server.on("/delete", HTTP_POST, handleDelete);
   server.on("/download", HTTP_GET, handleDownload);
   server.on("/logo.png", HTTP_GET, handleLogo);
+  server.on("/ntp", HTTP_GET, handleNtpPage);
+  server.on("/ntp/save", HTTP_POST, handleNtpSave);
+  server.on("/ntp/sync", HTTP_POST, handleNtpSyncNow);
   server.begin();
   Serial.println("Server ready.");
 }
 
+#define NTP_SYNC_FLAG_PATH      "/SYS/NTP_SYNC_NOW.FLAG"
+#define NTP_SYNC_FLAG_POLL_MS   5000   // how often to check for it in loop()
+
+// The STM32 can't initiate anything on this UART (it only ever responds -
+// see WIFI_PROTOCOL.h), so LOAD *NTP on the Z80 side can't tell the ESP32
+// directly to resync. Instead it just drops this empty flag file on the SD
+// card (cmd_ntp_sync in COMMANDS.cpp); polling for it here, the same way the
+// web UI's "Sync time now" button triggers sync_time_from_ntp() on demand,
+// is what actually acts on it.
+void check_ntp_sync_flag() {
+  static uint32_t last_check = 0;
+  if (millis() - last_check < NTP_SYNC_FLAG_POLL_MS) return;
+  last_check = millis();
+
+  uint8_t handle;
+  uint32_t size;
+  if (!wifi_client_read_open(NTP_SYNC_FLAG_PATH, &handle, &size)) return; // no flag pending
+  wifi_client_read_close(handle);
+
+  Serial.println("NTP: sync requested via LOAD *NTP - syncing now...");
+  wifi_client_delete(NTP_SYNC_FLAG_PATH);
+  sync_time_from_ntp();
+}
+
 void loop() {
   server.handleClient();
+  check_ntp_sync_flag();
 }

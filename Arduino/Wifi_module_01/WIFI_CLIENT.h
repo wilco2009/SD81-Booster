@@ -27,6 +27,13 @@ struct WifiNetwork {
   char pass[WIFI_PROTO_MAX_PASS + 1];
 };
 
+struct NtpConfig {
+  bool    sync_enabled;      // MODE=SERVER en /SYS/NTP.CFG (false = MODE=LOCAL, fichero ausente, o valor no reconocido)
+  char    server[64];
+  int     utc_offset_hours;  // UTCOFFSET= - horas enteras respecto a UTC, puede ser negativo
+  bool    dst;               // DST=1 - suma +1h extra, interruptor manual del usuario
+};
+
 void wifi_client_init();
 
 // Peticion generica (bajo nivel) - usar las de mas arriba cuando encajen.
@@ -51,5 +58,18 @@ bool wifi_client_mkdir(const char* path);
 // transporte al pedir el fichero - que no exista o este vacio da
 // *out_count=0 con return true, no es un error.
 bool wifi_client_read_wifi_networks(WifiNetwork* networks, uint8_t max_networks, uint8_t* out_count);
+
+// Descarga /SYS/NTP.CFG (mismo mecanismo que WIFI.CFG) y lo interpreta aqui:
+// lineas CLAVE=VALOR (SERVER, MODE, UTCOFFSET, DST - ver WIFI_PROTOCOL.h).
+// Si el fichero no existe o no se puede leer, devuelve true con
+// out->sync_enabled=false (no es un error, simplemente no hay NTP
+// configurado) - solo devuelve false ante un fallo de transporte real.
+bool wifi_client_read_ntp_config(NtpConfig* out);
+
+// Envia la hora local ya calculada (UTC + UTCOFFSET + DST) para que el
+// STM32 ajuste su RTC. year es de 2 digitos (25 = 2025), como ya usa
+// LOAD *RTC= en el firmware del STM32.
+bool wifi_client_set_time(uint8_t year, uint8_t month, uint8_t day,
+                           uint8_t hour, uint8_t minute, uint8_t second);
 
 #endif

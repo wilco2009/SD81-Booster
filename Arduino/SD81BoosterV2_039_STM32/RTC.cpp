@@ -1,6 +1,8 @@
 // #define STARTUP_RTC
 #include "RTC.h"
 
+bool RTC_reset = false;
+
 STM32RTC& rtc = STM32RTC::getInstance(); // Obtiene la instancia del objeto RTC
 
 // Definir un valor "mágico" para nuestra bandera
@@ -92,40 +94,49 @@ void rtc_init(void){
   // Habilitar acceso al dominio de respaldo (NECESARIO para acceder a registros del RTC/reloj)
   HAL_PWR_EnableBkUpAccess();
 
-#ifdef STARTUP_RTC
-  // El dominio de respaldo (backup domain) retiene entre resets la fuente de
-  // reloj del RTC ya configurada (RCC->BDCR). Si quedó en un estado
-  // inconsistente (p.ej. tras manipular la placa cerca del cristal de 32kHz),
-  // rtc.begin() con LSE_CLOCK puede quedarse esperando indefinidamente a que
-  // LSERDY se active, ya que solo un reset del backup domain lo desbloquea.
-  // Por eso comprobamos LSERDY ANTES de intentarlo: si ya está listo, no
-  // tocamos nada (evita perder la hora guardada en cada arranque); si no,
-  // forzamos el reset una sola vez y reintentamos.
-  if (__HAL_RCC_GET_FLAG(RCC_FLAG_LSERDY) == RESET) {
-    Serial.print("⚠️ LSE not ready — resetting backup domain...\n\r");
-    __HAL_RCC_BACKUPRESET_FORCE();
-    delay(10);
-    __HAL_RCC_BACKUPRESET_RELEASE();
-    HAL_PWR_EnableBkUpAccess();   // el reset también borra este permiso
-    Serial.print("✅ Backup domain reset done.\n\r");
-  }
+// #ifdef STARTUP_RTC
+  if (RTC_reset){
+    set_blinking_off();
+    for (int i=0; i < 3; i++){
+      set_status_LED(clYELLOW);
+      delay(500);
+      set_status_LED(clBLUE);
+      delay(500);
+    }
+    // El dominio de respaldo (backup domain) retiene entre resets la fuente de
+    // reloj del RTC ya configurada (RCC->BDCR). Si quedó en un estado
+    // inconsistente (p.ej. tras manipular la placa cerca del cristal de 32kHz),
+    // rtc.begin() con LSE_CLOCK puede quedarse esperando indefinidamente a que
+    // LSERDY se active, ya que solo un reset del backup domain lo desbloquea.
+    // Por eso comprobamos LSERDY ANTES de intentarlo: si ya está listo, no
+    // tocamos nada (evita perder la hora guardada en cada arranque); si no,
+    // forzamos el reset una sola vez y reintentamos.
+    if (__HAL_RCC_GET_FLAG(RCC_FLAG_LSERDY) == RESET) {
+      Serial.print("⚠️ LSE not ready — resetting backup domain...\n\r");
+      __HAL_RCC_BACKUPRESET_FORCE();
+      delay(10);
+      __HAL_RCC_BACKUPRESET_RELEASE();
+      HAL_PWR_EnableBkUpAccess();   // el reset también borra este permiso
+      Serial.print("✅ Backup domain reset done.\n\r");
+    }
 
-  // Arrancar el LSE con HAL_RCC_OscConfig(), que SÍ respeta un timeout real
-  // (RCC_LSE_TIMEOUT_VALUE, ~5s) — a diferencia de rtc.begin() con LSE_CLOCK,
-  // que puede quedarse esperando indefinidamente a LSERDY si el cristal de
-  // 32kHz no llega a oscilar (p.ej. problema físico de soldadura). Si el LSE
-  // no arranca a tiempo, caemos a LSI en vez de colgar el arranque entero.
-  RCC_OscInitTypeDef oscInit = {0};
-  oscInit.OscillatorType = RCC_OSCILLATORTYPE_LSE;
-  oscInit.LSEState = RCC_LSE_ON;
-  if (HAL_RCC_OscConfig(&oscInit) == HAL_OK) {
-    Serial.print("✅ LSE oscillator started.\n\r");
-    rtc.setClockSource(STM32RTC::LSE_CLOCK);
-  } else {
-    Serial.print("❌ LSE failed to start within timeout (crystal/soldering?) — falling back to LSI.\n\r");
-    rtc.setClockSource(STM32RTC::LSI_CLOCK);
+    // Arrancar el LSE con HAL_RCC_OscConfig(), que SÍ respeta un timeout real
+    // (RCC_LSE_TIMEOUT_VALUE, ~5s) — a diferencia de rtc.begin() con LSE_CLOCK,
+    // que puede quedarse esperando indefinidamente a LSERDY si el cristal de
+    // 32kHz no llega a oscilar (p.ej. problema físico de soldadura). Si el LSE
+    // no arranca a tiempo, caemos a LSI en vez de colgar el arranque entero.
+    RCC_OscInitTypeDef oscInit = {0};
+    oscInit.OscillatorType = RCC_OSCILLATORTYPE_LSE;
+    oscInit.LSEState = RCC_LSE_ON;
+    if (HAL_RCC_OscConfig(&oscInit) == HAL_OK) {
+      Serial.print("✅ LSE oscillator started.\n\r");
+      rtc.setClockSource(STM32RTC::LSE_CLOCK);
+    } else {
+      Serial.print("❌ LSE failed to start within timeout (crystal/soldering?) — falling back to LSI.\n\r");
+      rtc.setClockSource(STM32RTC::LSI_CLOCK);
+    }
   }
-#endif
+// #endif
 
   rtc.setClockSource(STM32RTC::LSE_CLOCK);
   // Intentar iniciar el RTC. Esto debería habilitar el reloj y establecer la fuente.
@@ -213,6 +224,7 @@ void rtc_init(void){
     //Serial.println("RTC ya fue inicializado (bandera encontrada). No se reconfigura.");
   }
   Serial.print("✅ RTC initiated and verified.\n\r");
+  set_status_led_ok();
 }
 
 

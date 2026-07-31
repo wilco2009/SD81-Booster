@@ -110,6 +110,11 @@ CMD_std48k_on	equ	0x30
 CMD_std48k_off	equ	0x31
 CMD_rtc		equ	0x32
 CMD_batt	equ	0x34
+CMD_dst_on	equ	0x3C
+CMD_dst_off	equ	0x3D
+CMD_ntp_setserver equ	0x3E
+CMD_ntp_setoffset equ	0x3F
+CMD_ntp_sync	equ	0x40
 
 ; ROM restart routines
 ERROR_1		equ	08H
@@ -1755,6 +1760,92 @@ DateSet:	rst	NEXT_CHAR	; Skip = sign
 		jp	ReportStatus
 
 
+; LOAD *SUMMER [STOP] - interruptor manual de horario de verano (DST), leido
+; por el ESP32 de /SYS/NTP.CFG al sincronizar via NTP - ver CmdNTP mas abajo.
+; No hay deteccion automatica de zona horaria/DST, el usuario lo cambia el
+; mismo dos veces al ano, igual que con cualquier otro reloj.
+CmdSUMMER:	ld	bc,CMD_dst_on*256 + CMD_dst_off
+		jp	CMD_ONOFF_BC	; (jp: destino demasiado lejos para jr)
+
+
+; LOAD *NTP [ = <string> | [+|-]<number> ]
+; No argumento (fin de linea) -> fuerza una sincronizacion NTP inmediata
+; = <string>                  -> ajusta el servidor NTP
+; [+|-]<numero>                -> ajusta el offset UTC en horas (con signo)
+; NOTA: FIND_INT (usada tambien por CmdROW/CmdBORDER/etc.) NUNCA admite
+; numeros negativos - internamente comprueba el carry de FP-TO-BC y salta
+; directo a REPORT-B si es negativo, antes de devolver el control aqui. Por
+; eso el signo "-" se gestiona a mano abajo: se lee solo la MAGNITUD
+; (siempre positiva) con CLASS_6/FIND_INT, y si el signo era "-" se niega
+; el byte ya en C mediante complemento a dos, sin pasarle nunca un valor
+; negativo a FIND_INT.
+CmdNTP:		cp	.equal		; LOAD *NTP=string ?
+		jp	z,NtpServerSet	; (jp: destino demasiado lejos para jr)
+		cp	.nl		; LOAD *NTP (a secas, fin de linea)?
+		jp	z,NtpForceSync	; (jp: destino demasiado lejos para jr)
+		cp	.minus		; signo - ?
+		jr	z,NtpOffsetNeg
+		cp	.plus		; signo + opcional (positivo)
+		jr	nz,NtpOffsetPos	; ni + ni -, numero positivo directo
+		rst	NEXT_CHAR	; saltar el +
+
+NtpOffsetPos:	call	CLASS_6		; Leer magnitud (siempre >=0)
+		call	MustBeEOL	; La linea debe terminar aqui
+		call	FIND_INT	; magnitud a BC
+
+		ld	a,b		; validar que cabe en 0..127
+		or	a
+		jp	nz,ReportB	; B<>0 -> claramente >255
+		ld	a,c
+		cp	128
+		jp	nc,ReportB	; positivo debe caber en 0..127
+		ld	e,c
+		jr	NtpOffsetSend
+
+NtpOffsetNeg:	rst	NEXT_CHAR	; saltar el -
+		call	CLASS_6		; Leer magnitud (siempre >=0)
+		call	MustBeEOL	; La linea debe terminar aqui
+		call	FIND_INT	; magnitud a BC
+
+		ld	a,b		; validar que cabe en 0..128 (-128..0)
+		or	a
+		jp	nz,ReportB	; B<>0 -> claramente >255
+		ld	a,c
+		cp	129
+		jp	nc,ReportB	; magnitud debe caber en 0..128
+		xor	a
+		sub	c		; A = -magnitud (complemento a 2)
+		ld	e,a
+
+NtpOffsetSend:	in	a,(ClkPort)	; E = byte de offset (con signo) a enviar
+		ld	c,a
+
+		ld	a,CMD_ntp_setoffset
+		call	OutWaitDiff
+
+		ld	a,e
+		call	OutWaitEq
+		jp	ReportStatus
+
+NtpServerSet:	rst	NEXT_CHAR	; Skip = sign
+		call	GetStrExpr	; Read string expression
+		call	MustBeEOL	; Line ends here; end of syntax check
+		call	ExpectShortStr	; Fetch and check string length
+
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_ntp_setserver
+		call	OutWaitDiff
+
+		call	SendString	; Send from DE for B bytes
+		jp	ReportStatus
+
+NtpForceSync:	in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_ntp_sync
+		jp	OutWaitDiff	; fire-and-forget, sin respuesta de estado
+
+
 SD_RESET:	ld	a,$F7		; Check keyboard row 1-5
 		in	a,($FE)
 		ld	d,a		; Store in D
@@ -1982,6 +2073,12 @@ CmdList:
 		db	.R,.T,.C + $80
 		dw	CmdRTC
 
+		db	.N,.T,.P + $80
+		dw	CmdNTP
+
+		db	.S,.U,.M,.M,.E,.R + $80
+		dw	CmdSUMMER
+
 		db	.W,.R,.X + $80
 		dw	CmdWRX
 
@@ -2030,6 +2127,8 @@ ErrMsgLen	equ	$ - ErrMsgAdr
 .lp		equ	16
 .rp		equ	17
 .equal		equ	20
+.plus		equ	21
+.minus		equ	22
 .star		equ	23
 .slash		equ	24
 .comma		equ	26

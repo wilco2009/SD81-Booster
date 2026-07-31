@@ -192,19 +192,19 @@ bool wifi_client_mkdir(const char* path) {
   return r.ok && r.len >= 1 && r.payload[0] == ST_OK;
 }
 
-bool wifi_client_read_wifi_networks(WifiNetwork* networks, uint8_t max_networks, uint8_t* out_count) {
-  *out_count = 0;
+// Descarga un fichero de texto pequeno entero a un String via READ_OPEN/
+// READ_CHUNK/READ_CLOSE. *out_existed queda a false (return true) si el
+// fichero simplemente no existe/no se pudo abrir - no es un error de
+// transporte. Devuelve false solo ante un fallo de transporte real.
+static bool download_text_file(const char* path, String* content, bool* out_existed) {
+  *out_existed = false;
 
   uint8_t handle;
   uint32_t file_size;
-  if (!wifi_client_read_open("/SYS/WIFI.CFG", &handle, &file_size)) {
-    // Fichero inexistente u otro fallo de apertura - no es un error de
-    // transporte, simplemente no hay configuracion guardada todavia.
-    return true;
-  }
+  if (!wifi_client_read_open(path, &handle, &file_size)) return true;
+  *out_existed = true;
 
-  String content;
-  content.reserve(file_size + 1);
+  content->reserve(file_size + 1);
   uint32_t offset = 0;
   bool eof = false;
   bool transport_ok = true;
@@ -216,13 +216,22 @@ bool wifi_client_read_wifi_networks(WifiNetwork* networks, uint8_t max_networks,
       transport_ok = false;
       break;
     }
-    for (uint16_t i = 0; i < len; i++) content += (char)buf[i];
+    for (uint16_t i = 0; i < len; i++) *content += (char)buf[i];
     offset += len;
     if (len == 0 && !eof) break; // evita bucle infinito si el STM32 no marca eof
   }
 
   wifi_client_read_close(handle);
-  if (!transport_ok) return false;
+  return transport_ok;
+}
+
+bool wifi_client_read_wifi_networks(WifiNetwork* networks, uint8_t max_networks, uint8_t* out_count) {
+  *out_count = 0;
+
+  String content;
+  bool existed;
+  if (!download_text_file("/SYS/WIFI.CFG", &content, &existed)) return false;
+  if (!existed) return true;
 
   // Formato: pares de lineas SSID/password, uno tras otro. Lineas separadas
   // por \n (y \r opcional, por si el fichero se edito en Windows).
@@ -253,4 +262,55 @@ bool wifi_client_read_wifi_networks(WifiNetwork* networks, uint8_t max_networks,
 
   *out_count = stored;
   return true;
+}
+
+bool wifi_client_read_ntp_config(NtpConfig* out) {
+  out->sync_enabled = false;
+  out->server[0] = 0;
+  out->utc_offset_hours = 0;
+  out->dst = false;
+
+  String content;
+  bool existed;
+  if (!download_text_file("/SYS/NTP.CFG", &content, &existed)) return false;
+  if (!existed) return true; // sin fichero = NTP desactivado, no es un error
+
+  // Formato: lineas CLAVE=VALOR, una por linea (ver WIFI_PROTOCOL.h).
+  int pos = 0;
+  int len = content.length();
+  while (pos <= len) {
+    int nl = content.indexOf('\n', pos);
+    String line = (nl == -1) ? content.substring(pos) : content.substring(pos, nl);
+    while (line.endsWith("\r")) line.remove(line.length() - 1);
+
+    int eq = line.indexOf('=');
+    if (eq > 0) {
+      String key = line.substring(0, eq);
+      String val = line.substring(eq + 1);
+      key.trim(); val.trim();
+      key.toUpperCase();
+      if (key == "SERVER") {
+        val.toCharArray(out->server, sizeof(out->server));
+      } else if (key == "MODE") {
+        val.toUpperCase();
+        out->sync_enabled = (val == "SERVER");
+      } else if (key == "UTCOFFSET") {
+        out->utc_offset_hours = val.toInt();
+      } else if (key == "DST") {
+        out->dst = (val.toInt() != 0);
+      }
+    }
+
+    if (nl == -1) break;
+    pos = nl + 1;
+  }
+
+  return true;
+}
+
+bool wifi_client_set_time(uint8_t year, uint8_t month, uint8_t day,
+                           uint8_t hour, uint8_t minute, uint8_t second) {
+  uint8_t buf[6] = { year, month, day, hour, minute, second };
+  WifiProtoResp r = wifi_client_request(CMD_SET_TIME, buf, 6);
+  return r.ok && r.len >= 1 && r.payload[0] == ST_OK;
 }

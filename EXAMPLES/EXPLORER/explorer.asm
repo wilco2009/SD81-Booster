@@ -43,12 +43,15 @@ NORM_ATTR       equ 038h        ; papel blanco, tinta negra
 SEL_ATTR        equ 00Fh        ; papel azul, tinta blanca (resaltado)
 PATH_ATTR       equ 020h        ; papel verde, tinta negra
 MAXVIS          equ 21
+CLOCK_TICK_THRESHOLD equ 2000   ; pasadas de rk_wait por refresco del reloj
+                                 ; en vivo -- sin calibrar en hardware real
 PANEL_ATTRCOL0  equ 20          ; 1ª columna de atributo (0-31) del panel de config.
 LIST_ATTRCOLS   equ PANEL_ATTRCOL0      ; columnas de atributo de la lista con panel activo
 LIST_MAXCHARS   equ 26          ; caracteres (6px) que caben en LIST_ATTRCOLS sin invadir el panel
 PANEL_TXTCOL    equ 27          ; columna de texto (6px) donde arranca el panel
 PANEL_VALCOL    equ 37          ; columna donde arranca el valor (ON/OFF/128/64) de cada opcion
 PANEL_ATTR      equ 028h        ; papel cian, tinta negra (filas de opciones)
+PANEL_KEY_ON_ATTR equ 02Ah      ; papel cian, tinta roja (letra de tecla activa)
 PANEL_BASE_ATTR equ PANEL_ATTR  ; fondo base del panel: tambien cian
 PANEL_TITLE_ATTR equ 01Fh       ; papel magenta, tinta blanca (fila del titulo) -- prueba
 ; columnas de bytes (0-31) donde pegar con blit_cols cada icono -- salen
@@ -154,6 +157,57 @@ start:
         jp vt_loop
 
 ; -------------------------------------------------------------
+; vt_update_clock: pide la hora (CMD_rtc=50, modo lectura) y repinta,
+; en cian, la fecha (DD/MM/AA) a la izquierda y la hora (HH:MM:SS) a la
+; derecha de la fila 0. Se llama desde vt_refresh (repintado completo) y
+; tambien, si (clock_screen_active)=1, desde read_key mientras espera
+; tecla (ver rk_wait) para que se actualice sola sin tocar nada.
+; -------------------------------------------------------------
+vt_update_clock:
+        ld hl,rtc_buf
+        call rtc_fetch
+        ld a,05h                 ; tinta cian, papel negro
+        ld (cur_attr),a
+        ld d,0
+        ld e,0
+        call p42_setxy
+        ld a,(rtc_buf+8)         ; DD/MM/AA (rtc_buf = "yyyy-mm-dd ...")
+        call p42_putchar
+        ld a,(rtc_buf+9)
+        call p42_putchar
+        ld a,'/'
+        call p42_putchar
+        ld a,(rtc_buf+5)
+        call p42_putchar
+        ld a,(rtc_buf+6)
+        call p42_putchar
+        ld a,'/'
+        call p42_putchar
+        ld a,(rtc_buf+2)
+        call p42_putchar
+        ld a,(rtc_buf+3)
+        call p42_putchar
+        ld e,32
+        call p42_setxy
+        ld a,(rtc_buf+11)
+        call p42_putchar
+        ld a,(rtc_buf+12)
+        call p42_putchar
+        ld a,':'
+        call p42_putchar
+        ld a,(rtc_buf+14)
+        call p42_putchar
+        ld a,(rtc_buf+15)
+        call p42_putchar
+        ld a,':'
+        call p42_putchar
+        ld a,(rtc_buf+17)
+        call p42_putchar
+        ld a,(rtc_buf+18)
+        call p42_putchar
+        ret
+
+; -------------------------------------------------------------
 ; vt_refresh: repintado COMPLETO (video_clear + marco + ruta + listado),
 ; con (win_start)/(cur_index) actuales. Identico a refresh_screen del
 ; explorador real. Usado en el arranque y por PgUp/PgDn/activar carpeta,
@@ -170,6 +224,10 @@ vt_refresh:
         call blit_row
         call vt_update_clip_icons ; re-tenir C/X si hay algo marcado (el
                                   ; blit anterior los deja en negro)
+
+        call vt_update_clock
+        ld a,1
+        ld (clock_screen_active),a
 
         ld de,0
         call get_row
@@ -313,8 +371,6 @@ vdp_base:
         call vdp_fillrow_opt
         ld a,6
         call vdp_fillrow_opt
-        ld a,8
-        call vdp_fillrow_opt
         ld a,11
         call vdp_fillrow_opt
         ld a,13
@@ -337,55 +393,37 @@ vdp_base:
         ld c,PANEL_TITLE_ATTR
         call panel_print
 
+        ; -- fila 2: W WRX + M MC45 (letra de la tecla en rojo si activo,
+        ; negro si no -- en vez del ON/OFF a la derecha) --
         ld d,2
         ld e,PANEL_TXTCOL
         ld hl,panel_lbl_wrx
         ld b,panel_lbl_wrx_len
-        ld c,PANEL_ATTR
-        call panel_print
-        ld d,2
-        ld e,PANEL_VALCOL
         ld a,(cfg_wrx)
-        call panel_onoff
-        ld b,3
-        ld c,PANEL_ATTR
-        call panel_print
+        call panel_print_key
+        ld d,2
+        ld e,PANEL_TXTCOL+8
+        ld hl,panel_lbl_mc45
+        ld b,panel_lbl_mc45_len
+        ld a,(cfg_mc45)
+        call panel_print_key
 
+        ; -- fila 4: F FULLP --
         ld d,4
         ld e,PANEL_TXTCOL
         ld hl,panel_lbl_fullpag
         ld b,panel_lbl_fullpag_len
-        ld c,PANEL_ATTR
-        call panel_print
-        ld d,4
-        ld e,PANEL_VALCOL
         ld a,(cfg_fullpag)
-        call panel_onoff
-        ld b,3
-        ld c,PANEL_ATTR
-        call panel_print
+        call panel_print_key
 
+        ; -- fila 6: A CHR (subida desde la 8) --
         ld d,6
-        ld e,PANEL_TXTCOL
-        ld hl,panel_lbl_mc45
-        ld b,panel_lbl_mc45_len
-        ld c,PANEL_ATTR
-        call panel_print
-        ld d,6
-        ld e,PANEL_VALCOL
-        ld a,(cfg_mc45)
-        call panel_onoff
-        ld b,3
-        ld c,PANEL_ATTR
-        call panel_print
-
-        ld d,8
         ld e,PANEL_TXTCOL
         ld hl,panel_lbl_chr
         ld b,panel_lbl_chr_len
         ld c,PANEL_ATTR
         call panel_print
-        ld d,8
+        ld d,6
         ld e,PANEL_VALCOL
         ld a,(cfg_chr128)
         or a
@@ -549,6 +587,32 @@ panel_print:
         call p42_setxy
         jp p42_string
 
+; panel_print_key: D=fila,E=columna,HL=puntero etiqueta,B=longitud,
+; A=1 si la opcion esta activa (letra de tecla en verde) o 0 (en negro,
+; igual que el resto del texto -- no hay ON/OFF a la derecha, el estado
+; lo indica el color de la letra). Destruye AF,BC,DE,HL.
+panel_print_key:
+        or a
+        ld a,PANEL_ATTR
+        jr z,ppk_setxy
+        ld a,PANEL_KEY_ON_ATTR
+ppk_setxy:
+        push af
+        call p42_setxy
+        pop af
+        ld (cur_attr),a
+        dec b                     ; longitud restante
+        ld a,(hl)
+        inc hl                    ; hl ya apunta al resto de la cadena
+        push bc                   ; p42_putchar destruye B, C **y HL**
+        push hl                   ; (usa el juego alterno con exx, pero
+        call p42_putchar          ; antes toca H/L del principal)
+        pop hl
+        pop bc
+        ld a,PANEL_ATTR
+        ld (cur_attr),a
+        jp p42_string
+
 ; panel_onoff: A=0/1 -> HL=puntero a cadena de 3 caracteres "OFF"/"ON "
 panel_onoff:
         or a
@@ -564,7 +628,7 @@ PANEL_TITLE_COL equ PANEL_TXTCOL+(15-panel_title_len)/2
 
 panel_lbl_wrx:         defb "W WRX"
 panel_lbl_wrx_len      equ $-panel_lbl_wrx
-panel_lbl_fullpag:     defb "F FULLPAG"
+panel_lbl_fullpag:     defb "F FULLP"
 panel_lbl_fullpag_len  equ $-panel_lbl_fullpag
 panel_lbl_mc45:        defb "M MC45"
 panel_lbl_mc45_len     equ $-panel_lbl_mc45
@@ -1543,6 +1607,8 @@ noconn_msg_len  equ $-noconn_msg
 ; releer el fichero en cada desplazamiento (aceptable para el tamaño
 ; tipico de estos archivos).
 vwr_render:
+        xor a
+        ld (clock_screen_active),a
         ld a,(viewer_handle)
         call f_rewind
         ld hl,0
@@ -1952,6 +2018,8 @@ hexr_pgdn_ok:
 ; se puede usar esa heuristica), salta con f_seek y lee con f_read.
 ; Para en el primer offset que ya no exista (fin real del fichero).
 hexr_render:
+        xor a
+        ld (clock_screen_active),a
         call video_clear
         ld ix,BG_ROW0
         xor a
@@ -2550,6 +2618,8 @@ vtp_send:
 ; copia literal de explorer.asm.
 ; =============================================================
 show_prompt:
+        xor a
+        ld (clock_screen_active),a
         push hl
         push bc
         call video_clear
@@ -3429,6 +3499,24 @@ calc_attr_addr:
 ; =============================================================
 read_key:
 rk_wait:
+        ; -- reloj en vivo: si estamos en el listado principal (no en un
+        ; visor/dialogo), cuenta pasadas de este bucle y cada
+        ; CLOCK_TICK_THRESHOLD lo repinta -- valor a calibrar en hardware
+        ; real, no hay temporizador de verdad, es solo un contador --
+        ld a,(clock_screen_active)
+        or a
+        jr z,rk_noclock
+        ld hl,(clock_counter)
+        inc hl
+        ld (clock_counter),hl
+        ld de,CLOCK_TICK_THRESHOLD
+        or a
+        sbc hl,de
+        jr c,rk_noclock
+        ld hl,0
+        ld (clock_counter),hl
+        call vt_update_clock
+rk_noclock:
         ld a,0FEh                ; SHIFT+1 = reset del filtro de listado
         in a,(0FEh)               ; (comprobacion aparte porque SHIFT no
         bit 0,a                   ; se rastrea como tecla propia en el
@@ -3846,6 +3934,29 @@ fst_loop2:
         pop bc
         djnz fst_loop2
         jp mcu_recv
+
+; rtc_fetch: HL=destino (22 bytes) -- CMD_rtc (50) en modo lectura
+; (parametro de longitud 0): rellena HL con "yyyy-mm-dd hh:mm:ss.cc" ya
+; convertido de ZX81 a ASCII (zx_to_ascii, igual que los nombres de
+; archivo que devuelve get_row), y descarta el byte de estado final.
+; Destruye AF,BC,HL.
+rtc_fetch:
+        ld a,50                   ; CMD_rtc
+        call mcu_send
+        xor a
+        call mcu_send             ; longitud de parametro = 0 (leer)
+        ld b,22
+rtcf_loop:
+        push bc
+        push hl
+        call mcu_recv
+        call zx_to_ascii
+        pop hl
+        ld (hl),a
+        inc hl
+        pop bc
+        djnz rtcf_loop
+        jp mcu_recv               ; status final (descartado)
 
 ; f_seek: A=handle, DE:HL=offset de 32 bits (DE=palabra alta, HL=palabra
 ; baja) -> A=status. Usado por el visor hexadecimal para saltar
@@ -4542,12 +4653,18 @@ cfg_panel:      defb 0          ; 0=panel oculto, 1=panel de config visible
 list_maxchars:  defb 42         ; ancho de texto vigente del listado (recalc. en vt_refresh)
 list_attrw:     defb 32         ; ancho de atributo vigente del listado (idem)
 
+clock_screen_active: defb 0     ; 1 = el listado principal esta activo (row0
+                                 ; muestra el reloj); 0 en visores/dialogos
+clock_counter:       defw 0     ; contador de pasadas de rk_wait (ver read_key)
+
 ; -- filtro de listado (tecla W, solo con el panel oculto): wildcards que
 ; se añaden a la carpeta actual al pedir OPENDIR2 (ver do_opendir_root).
 ; Se resetea al navegar de verdad (do_cd), no al recargar la misma
 ; carpeta (mkdir/borrar/renombrar/pegar) --
 list_filter_len: defb 0          ; 0 = sin filtro (usa "*")
 list_filter:      defs TI_MAXLEN
+
+rtc_buf: defs 22        ; "yyyy-mm-dd hh:mm:ss.cc" (ver rtc_fetch)
 
 ; -- panel de configuracion: estado local de cada opcion (no hay forma de
 ; preguntarselo al firmware, asi que el explorador fuerza un estado inicial

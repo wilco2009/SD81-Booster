@@ -2,6 +2,7 @@
 #include "WIFI_PROTOCOL.h"
 #include "SD_handle.h"
 #include "GLOBALS.h"
+#include "RTC.h"
 
 // Todas las peticiones las inicia el ESP32; el STM32 solo responde. Handles
 // propios (independientes de f_handle[]/f_opened[], que usa el interprete de
@@ -353,6 +354,36 @@ static void handle_mkdir(const uint8_t* payload, uint16_t len) {
   send_status_only(CMD_MKDIR, ok ? ST_OK : ST_IO_ERROR);
 }
 
+// El ESP32 ya calcula la hora local final (UTC + UTCOFFSET + DST, ver
+// /SYS/NTP.CFG en WIFI_PROTOCOL.h) - aqui solo se ajusta el RTC, igual que
+// hace el comando BASIC "LOAD *RTC=" en COMMANDS.cpp.
+static void handle_set_time(const uint8_t* payload, uint16_t len) {
+  if (len < 6) { send_status_only(CMD_SET_TIME, ST_IO_ERROR); return; }
+
+  int year = payload[0], month = payload[1], day = payload[2];
+  int hours = payload[3], minutes = payload[4], seconds = payload[5];
+
+  if (!isDate(year, month, day) || !isTime(hours, minutes, seconds, 0)) {
+    send_status_only(CMD_SET_TIME, ST_IO_ERROR);
+    return;
+  }
+
+  rtc.setHours(hours);
+  rtc.setMinutes(minutes);
+  rtc.setSeconds(seconds);
+  rtc.setTime(hours, minutes, seconds);
+
+  rtc.setDay(day);
+  rtc.setMonth(month);
+  rtc.setYear(year);
+  rtc.setDate(day, month, year);
+
+  Serial.printf("Reloj actualizado via NTP (WiFi) a %02d/%02d/%02d %02d:%02d:%02d\n",
+                day, month, year, hours, minutes, seconds);
+
+  send_status_only(CMD_SET_TIME, ST_OK);
+}
+
 // /SYS/WIFI.CFG ya no tiene un comando dedicado (era CMD_GET_WIFI_CFG,
 // retirado por una condicion de carrera SD dificil de depurar entre esta
 // funcion y la ISR get_ctrl_reg - ver memoria del proyecto). Se sirve como
@@ -387,6 +418,7 @@ void wifi_handler_poll() {
     case CMD_WRITE_CLOSE:  handle_write_close(rx_payload, len); break;
     case CMD_DELETE:       handle_delete(rx_payload, len); break;
     case CMD_MKDIR:        handle_mkdir(rx_payload, len); break;
+    case CMD_SET_TIME:     handle_set_time(rx_payload, len); break;
     default: break;   // comando desconocido: se ignora
   }
 }

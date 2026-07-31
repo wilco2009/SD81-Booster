@@ -42,6 +42,7 @@ enum WifiProtoCmd : uint8_t {
   CMD_WRITE_CLOSE  = 0x09,
   CMD_DELETE       = 0x0A,  // fichero O directorio (vacio) - el STM32 decide segun el tipo
   CMD_MKDIR        = 0x0C,
+  CMD_SET_TIME     = 0x0D,
   // 0x0B (antiguo CMD_GET_WIFI_CFG) retirado - ver nota mas abajo sobre WIFI.CFG
 };
 
@@ -76,6 +77,12 @@ enum WifiProtoStatus : uint8_t {
 //                                                        estar VACIO - equivale a rmdir, no
 //                                                        borrado recursivo)
 // MKDIR         req: path(str)                          resp: status
+// SET_TIME      req: year(1B, 2 digitos, 0-99),          resp: status
+//               month(1B, 1-12), day(1B, 1-31),
+//               hour(1B, 0-23), minute(1B, 0-59),
+//               second(1B, 0-59)
+//               (hora local ya calculada por el ESP32 - offset UTC + DST
+//               aplicados alli, el STM32 solo ajusta su RTC tal cual)
 //
 // "path(str)": length-prefixed, 1 byte de longitud + bytes UTF-8/ASCII (NO terminador nulo
 // en el cable), maximo WIFI_PROTO_MAX_PATH-1 bytes de nombre.
@@ -97,6 +104,29 @@ enum WifiProtoStatus : uint8_t {
 //   passwordtrabajo
 // WIFI_PROTO_MAX_NETWORKS/MAX_SSID/MAX_PASS son limites de parseo del lado ESP32
 // unicamente - el STM32 ni los conoce ni los necesita.
+//
+// --- Sincronizacion horaria NTP (/SYS/NTP.CFG) ------------------------------
+// Mismo patron que WIFI.CFG: no hay comando de lectura dedicado, el ESP32
+// descarga /SYS/NTP.CFG via READ_OPEN/READ_CHUNK/READ_CLOSE y lo interpreta
+// el mismo. Formato clave=valor, una por linea:
+//   SERVER=pool.ntp.org
+//   MODE=SERVER
+//   UTCOFFSET=1
+//   DST=1
+// SERVER: host del servidor NTP. MODE=LOCAL desactiva la sincronizacion por
+// completo (o si el fichero no existe/no se puede leer - comportamiento por
+// defecto, no rompe nada para quien no lo configure). UTCOFFSET: horas
+// enteras respecto a UTC (puede ser negativo). DST: 0/1, suma +1h extra en
+// horario de verano - interruptor manual, el usuario lo cambia el mismo dos
+// veces al ano, no hay deteccion automatica de DST/zona horaria.
+//
+// Cuando MODE=SERVER y consigue conectar al servidor NTP, el ESP32 calcula
+// la hora local final (UTC + UTCOFFSET + DST) y se la envia al STM32 con
+// CMD_SET_TIME - UNA sola vez, justo despues de conectar al WiFi (el RTC con
+// bateria del STM32 ya mantiene bien la hora entre medias, no hace falta
+// resincronizar periodicamente). Si no hay Internet o el fichero dice
+// MODE=LOCAL, simplemente no se manda CMD_SET_TIME y el RTC sigue con lo que
+// ya tenia.
 
 // CRC8 (poli 0x07, sin reflejar, init 0x00) - identico en ambos lados
 static inline uint8_t wifi_proto_crc8(const uint8_t* data, uint16_t len) {

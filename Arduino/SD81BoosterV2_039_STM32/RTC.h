@@ -5,6 +5,7 @@
 #include <STM32RTC.h>
 
 extern STM32RTC& rtc;
+extern bool RTC_reset;
 
 void rtcInit(void);
 void rtc_init(void);

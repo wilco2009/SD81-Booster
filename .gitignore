@@ -114,6 +114,9 @@
 /z80rom/sdmodrom.bin
 /z80rom/SDBOOST.ROM
 
+# ── Obsolete docs (superseded by MANUAL/) ──────────────────
+/obsoleto/
+
 # ── Release binaries ────────────────────────────────────────
 # Firmware update goes via SD card, not via the repo; the update
 # scripts/binaries are attached to each Codeberg release instead.

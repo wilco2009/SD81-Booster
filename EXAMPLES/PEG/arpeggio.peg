@@ -1,0 +1,21 @@
+; ARPEGGIO.PEG - 3-note arpeggio (C major approximation)
+; Cycles through 3 notes at 60ms each, 8 cycles = 1.44 seconds
+; Periods approx: 180 (A4), 144 (C#5), 120 (E5)
+
+        LD  R7, 3Eh     ; tone A only
+        LD  R1, 0
+        LD  R8, 12      ; amplitude
+        LD  V2, 8       ; 8 arpeggio cycles
+
+arp:
+        LD  R0, 180     ; root note
+        WAIT 60
+        LD  R0, 144     ; third
+        WAIT 60
+        LD  R0, 120     ; fifth
+        WAIT 60
+        DJNZ V2, arp
+
+        LD  R8, 0
+        LD  R7, 3Fh
+        HALT

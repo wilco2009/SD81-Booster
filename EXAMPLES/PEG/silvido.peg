@@ -1,0 +1,31 @@
+; WHISTLE.PEG — Silbido de admiración (wolf whistle)
+; Canal A tono, período baja (sube agudo) y luego sube (baja grave)
+
+        LD  R7, 3Eh     ; Mixer: sólo tono canal A (0b00111110)
+        LD  R1, 0       ; Período alto = 0 (períodos < 256)
+        LD  R8, 12      ; Amplitud
+
+        ; === SUBIDA RÁPIDA ===
+        LD  V0, 180     ; Período inicial (grave)
+        LD  V1, 12      ; 12 pasos
+rise:
+        LD  R0, V0      ; Actualizar período canal A
+        WAIT 25         ; 25 ms por paso
+        SUB V0, 9       ; Período baja → tono sube
+        DJNZ V1, rise
+
+        ; === PAUSA ===
+        WAIT 60
+
+        ; === BAJADA LENTA ===
+        LD  V0, 90      ; Retomar desde agudo
+        LD  V1, 14      ; 14 pasos
+fall:
+        LD  R0, V0      ; Actualizar período canal A
+        WAIT 40         ; 40 ms por paso
+        ADD V0, 10      ; Período sube → tono baja
+        DJNZ V1, fall
+
+        LD  R8, 0
+        LD  R7, 3Fh
+        HALT

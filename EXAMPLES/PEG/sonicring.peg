@@ -1,0 +1,37 @@
+; SONICRING.PEG - Anillo (replica exacta de ringSound()/updateRingSound()
+; del port zx81sd de sonic-boriel, functions.bas)
+;
+; Arpegio ascendente de 3 notas: F#5 (periodo 137), B5 (periodo 103),
+; D#6 (periodo 82). Las dos primeras notas duran 1 frame cada una
+; (20ms a 50Hz); la tercera se sostiene mientras el volumen decae en
+; pasos de un frame: 10 -> 8 -> 6 -> 4 -> 2 -> 1 -> 0 (fundido metalico).
+
+        LD  R7, 3Eh     ; tono A solamente
+        LD  R1, 0       ; periodo grueso = 0 (todas las notas)
+
+        LD  R0, 137     ; nota 1: F#5
+        LD  R8, 15
+        WAIT 20
+
+        LD  R0, 103     ; nota 2: B5
+        LD  R8, 12
+        WAIT 20
+
+        LD  R0, 82      ; nota 3: D#6 (se mantiene el resto del efecto)
+        LD  R8, 10
+        WAIT 20
+
+        LD  R8, 8       ; fundido de volumen, un paso por frame
+        WAIT 20
+        LD  R8, 6
+        WAIT 20
+        LD  R8, 4
+        WAIT 20
+        LD  R8, 2
+        WAIT 20
+        LD  R8, 1
+        WAIT 20
+
+        LD  R8, 0       ; silencio
+        LD  R7, 3Fh
+        HALT

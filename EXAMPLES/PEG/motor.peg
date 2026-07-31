@@ -1,0 +1,38 @@
+; MOTOR.PEG - Space engine / motor rumble
+; Channel A: tone + noise mix, period oscillates slowly
+; 4 oscillation cycles then fade out
+; R7=36h: tone A + noise A (0b00110110)
+
+        LD  R7, 36h     ; tone A + noise A
+        LD  R6, 15      ; noise period
+        LD  R8, 12      ; amplitude
+        LD  V0, 4       ; oscillation cycles
+
+cycle:
+        LD  V1, 10      ; steps up
+        LD  V2, 180     ; start period
+up:
+        LD  R0, V2
+        WAIT 40
+        ADD V2, 4       ; period rises -> pitch drops
+        DJNZ V1, up
+
+        LD  V1, 10      ; steps down
+down:
+        LD  R0, V2
+        WAIT 40
+        SUB V2, 4       ; period drops -> pitch rises
+        DJNZ V1, down
+
+        DJNZ V0, cycle
+
+        ; Fade out
+        LD  V1, 12
+fade:
+        LD  R8, V1
+        WAIT 50
+        DJNZ V1, fade
+
+        LD  R8, 0
+        LD  R7, 3Fh
+        HALT

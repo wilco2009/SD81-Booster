@@ -112,3 +112,17 @@
 # ── Z80 ROM ────────────────────────────────────────────────
 /z80rom/sdmodrom.o
 /z80rom/sdmodrom.bin
+/z80rom/SDBOOST.ROM
+
+# ── Release binaries ────────────────────────────────────────
+# Firmware update goes via SD card, not via the repo; the update
+# scripts/binaries are attached to each Codeberg release instead.
+/FIRMWARE/
+# SD card reference content is attached to each release instead.
+/SD Content/
+/SD Content.zip
+# Stray FPGA bitstream / flashing tool copies
+/FPGA/SD81V2.1000/sd81.mcs
+/FPGA/SD81V2.1000/sd81.mcs.bak
+/Arduino/flash.zip
+/Arduino/flash/

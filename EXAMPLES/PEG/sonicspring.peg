@@ -1,0 +1,26 @@
+; SONIC_SPRING.PEG - Muelle / resorte (referencia: sonido de spring de Sonic)
+; Barrido ascendente mas largo y suave que el salto, sin corte brusco:
+; el volumen decae progresivamente al llegar arriba. ~320ms.
+
+        LD  R7, 3Eh     ; tono A solamente
+        LD  R1, 0
+        LD  R8, 15      ; amplitud
+        LD  V0, 20      ; pasos del barrido
+        LD  V1, 220     ; periodo inicial (muy grave)
+
+ssweep:
+        LD  R0, V1
+        WAIT 14
+        SUB V1, 9       ; sube el tono progresivamente
+        DJNZ V0, ssweep
+
+        ; cola: se apaga con fundido, no de golpe
+        LD  V2, 8
+sfade:
+        LD  R8, V2
+        WAIT 12
+        DJNZ V2, sfade
+
+        LD  R8, 0
+        LD  R7, 3Fh
+        HALT

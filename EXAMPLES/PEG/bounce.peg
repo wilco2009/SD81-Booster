@@ -1,0 +1,26 @@
+; BOUNCE.PEG - Bouncing ball
+; 5 bounces, each a descending pitch sweep (impact -> silence)
+; Inner loop: 10 steps x 18ms = 180ms per bounce
+
+        LD  R7, 3Eh     ; tone A only
+        LD  R1, 0
+        LD  R8, 10      ; amplitude
+        LD  V0, 5       ; bounce counter
+
+bounce:
+        LD  V1, 10      ; sweep steps
+        LD  V2, 60      ; start period (high pitch = impact)
+inner:
+        LD  R0, V2
+        WAIT 18
+        ADD V2, 10      ; pitch drops
+        DJNZ V1, inner
+
+        LD  R8, 0       ; silence between bounces
+        WAIT 25
+        LD  R8, 10
+        DJNZ V0, bounce
+
+        LD  R8, 0
+        LD  R7, 3Fh
+        HALT

@@ -1,0 +1,22 @@
+; HEARTBEAT.PEG - Heart beat
+; Double noise pulse (lub-dub) repeated 4 times
+; R7=37h: noise A only
+
+        LD  R6, 18      ; noise period (medium low)
+        LD  R7, 37h     ; noise A only (0b00110111)
+        LD  R8, 0
+        LD  V0, 4       ; 4 heartbeats
+
+beat:
+        LD  R8, 12      ; lub
+        WAIT 70
+        LD  R8, 0
+        WAIT 80
+        LD  R8, 10      ; dub
+        WAIT 50
+        LD  R8, 0
+        WAIT 500        ; pause between beats
+        DJNZ V0, beat
+
+        LD  R7, 3Fh
+        HALT

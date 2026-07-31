@@ -1,0 +1,31 @@
+; SIREN.PEG - Police/ambulance siren
+; Nested loops: outer=3 cycles, inner=15 steps up + 15 steps down
+; Total: 3 x (15x20 + 15x20)ms = 1.8 seconds
+
+        LD  R7, 3Eh     ; tone A only
+        LD  R1, 0
+        LD  R8, 12      ; amplitude
+        LD  V2, 3       ; number of full up-down cycles
+
+cycle:
+        LD  V0, 80      ; period start (low = high pitch)
+        LD  V1, 15      ; 15 steps up
+up:
+        LD  R0, V0
+        WAIT 20
+        ADD V0, 8       ; period increases -> pitch drops (wailing up)
+        DJNZ V1, up
+
+        LD  V0, 200     ; period start (high = low pitch)
+        LD  V1, 15      ; 15 steps down
+down:
+        LD  R0, V0
+        WAIT 20
+        SUB V0, 8       ; period decreases -> pitch rises (wailing down)
+        DJNZ V1, down
+
+        DJNZ V2, cycle
+
+        LD  R8, 0
+        LD  R7, 3Fh
+        HALT

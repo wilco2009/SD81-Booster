@@ -1,0 +1,19 @@
+; --- Inicialización ---
+LD R7, 0xFE     ; Habilitar canal A (onda cuadrada), apagar ruido
+; --- Nota 1: F#5 (Periodo 137 / 0x89) ---
+LD R0, 0x89     ; Periodo Fino A = 0x89
+LD R1, 0x00     ; Periodo Grueso A = 0x00
+LD R8, 0x0F     ; Volumen Canal A = 15 (Máximo)
+WAIT 20         ; Esperar 20 ms
+; --- Nota 2: B5 (Periodo 103 / 0x67) ---
+LD R0, 0x67     ; Periodo Fino A = 0x67
+LD R8, 0x0C     ; Volumen Canal A = 12
+WAIT 20         ; Esperar 20 ms
+; --- Nota 3: D#6 (Periodo 82 / 0x52) con Fade Out ---
+LD R0, 0x52     ; Periodo Fino A = 0x52
+LD R8, 0x0A     ; Volumen Canal A = 10
+WAIT 40         ; Dejar sonar un poco más (40 ms)
+LD R8, 0x05     ; Volumen Canal A = 5
+WAIT 40         ; Esperar 40 ms
+LD R8, 0x00     ; Volumen Canal A = 0
+HALT            ; Fin del efecto

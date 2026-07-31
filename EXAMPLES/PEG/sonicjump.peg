@@ -1,0 +1,23 @@
+; SONICJUMP.PEG - Salto (replica exacta de jumpSound()/updateJumpSound()
+; del port zx81sd de sonic-boriel, functions.bas)
+;
+; Barrido de tono ascendente en pasos discretos, uno por frame (20ms a
+; 50Hz), sin envolvente de volumen: el volumen queda fijo en 10 durante
+; todo el barrido y se corta en seco al final. Periodo: 240 -> 220 ->
+; 200 -> 180 -> 160 -> 140 -> 120 (7 pasos, resta de 20 por paso).
+
+        LD  R7, 3Eh     ; tono A solamente
+        LD  R1, 0       ; periodo grueso = 0
+        LD  R8, 10      ; volumen fijo (sin decaimiento)
+        LD  V0, 7       ; 7 pasos, uno por frame
+        LD  V1, 240     ; periodo inicial
+
+jsweep:
+        LD  R0, V1
+        WAIT 20         ; 1 frame @ 50Hz
+        SUB V1, 20
+        DJNZ V0, jsweep
+
+        LD  R8, 0       ; corte seco (sin fundido)
+        LD  R7, 3Fh
+        HALT

@@ -1,0 +1,18 @@
+; LASER.PEG - Laser/phaser shot
+; Channel A tone sweep: high pitch to low, 18 steps x 12ms = 216ms
+
+        LD  R7, 3Eh     ; tone A only (0b00111110)
+        LD  R1, 0       ; period high byte = 0
+        LD  R8, 12      ; amplitude
+        LD  V0, 30      ; initial period (high pitch)
+        LD  V1, 18      ; 18 steps
+
+laser:
+        LD  R0, V0
+        WAIT 12
+        ADD V0, 10      ; period increases -> pitch drops
+        DJNZ V1, laser
+
+        LD  R8, 0
+        LD  R7, 3Fh     ; disable all
+        HALT

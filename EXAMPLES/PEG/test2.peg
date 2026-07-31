@@ -1,6 +1,0 @@
-aaa:	LD V3,1
-		SHL V3,8
-		jr aaa
-		HALT
-		
-

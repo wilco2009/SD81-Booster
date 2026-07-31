@@ -1,0 +1,15 @@
+; COIN.PEG - Coin / pickup sound
+; Three rising tones, 240ms total
+
+        LD  R7, 3Eh     ; tone A only
+        LD  R1, 0
+        LD  R8, 12      ; amplitude
+        LD  R0, 150     ; note 1 (mid)
+        WAIT 60
+        LD  R0, 100     ; note 2 (higher)
+        WAIT 80
+        LD  R0, 75      ; note 3 (highest)
+        WAIT 100
+        LD  R8, 0
+        LD  R7, 3Fh
+        HALT

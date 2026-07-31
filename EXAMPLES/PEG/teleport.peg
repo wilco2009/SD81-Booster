@@ -1,0 +1,27 @@
+; TELEPORT.PEG - Teleportation effect
+; Rising tone + noise sweep (500ms) then amplitude fade (480ms)
+; R7=36h: tone A + noise A
+
+        LD  R7, 36h     ; tone A + noise A
+        LD  R6, 12      ; noise period
+        LD  R1, 0       ; tone period high = 0
+        LD  R8, 12      ; amplitude
+        LD  V0, 220     ; start period (low pitch)
+        LD  V1, 20      ; 20 sweep steps
+
+sweep:
+        LD  R0, V0
+        WAIT 25
+        SUB V0, 9       ; period drops -> pitch rises
+        DJNZ V1, sweep
+
+        ; Fade out
+        LD  V1, 12
+fade:
+        LD  R8, V1
+        WAIT 40
+        DJNZ V1, fade
+
+        LD  R8, 0
+        LD  R7, 3Fh
+        HALT

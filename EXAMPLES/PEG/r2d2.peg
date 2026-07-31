@@ -1,0 +1,23 @@
+; R2D2.PEG - R2D2-style random chirps
+; Pseudo-random frequency via ADD+XOR arithmetic on variables
+; V0=frequency seed, V1=offset (both evolve each step)
+; 40 chirps x 30ms = 1.2 seconds
+
+        LD  R7, 3Eh     ; tone A only
+        LD  R1, 0
+        LD  R8, 12      ; amplitude
+        LD  V0, 73      ; seed
+        LD  V1, 37      ; offset
+        LD  V2, 40      ; chirp count
+
+chirp:
+        LD  R0, V0      ; set period from current seed
+        WAIT 30
+        ADD V0, V1      ; V0 += V1  (var+var)
+        XOR V0, V1      ; V0 ^= V1  (creates variation)
+        ADD V1, 17      ; V1 advances slowly (var+const)
+        DJNZ V2, chirp
+
+        LD  R8, 0
+        LD  R7, 3Fh
+        HALT

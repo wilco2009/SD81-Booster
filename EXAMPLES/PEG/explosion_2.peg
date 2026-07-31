@@ -1,0 +1,19 @@
+; --- Inicialización ---
+LD R7, 0xF7     ; Mixer: Activar Ruido en Canal A, apagar ondas cuadradas
+; --- Golpe Inicial Agudo (Pólvora) ---
+LD R6, 0x05     ; Frecuencia de Ruido rápida (5)
+LD R8, 0x0F     ; Volumen Máximo (15)
+WAIT 30         ; Esperar 30 ms
+; --- Cuerpo Grave de la Explosión ---
+LD R6, 0x1C     ; Frecuencia de Ruido gorda (28)
+LD R8, 0x0E     ; Volumen 14
+WAIT 60         ; Esperar 60 ms
+; --- Fase de Disipación / Fade Out ---
+LD R8, 0x0A     ; Volumen 10
+WAIT 60         ; Esperar 60 ms
+LD R8, 0x06     ; Volumen 6
+WAIT 60         ; Esperar 60 ms
+LD R8, 0x03     ; Volumen 3
+WAIT 80         ; Esperar 80 ms
+LD R8, 0x00     ; Volumen 0 (Silencio)
+HALT            ; Fin del efecto

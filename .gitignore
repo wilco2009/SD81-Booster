@@ -116,6 +116,18 @@
 
 # ── Obsolete docs (superseded by MANUAL/) ──────────────────
 /obsoleto/
+# Old STM32 firmware version, superseded by SD81BoosterV2_039_STM32
+/Arduino/SD81BoosterV2_038_STM32/
+
+# ── 3D-printable case files (kept locally, not in repo) ────
+/STL/
+
+# ── Dev-only scratch tests, not release content ─────────────
+/test/
+
+# Old VGM test files superseded by the curated set in EXAMPLES/VGM
+/EXAMPLES/P/VGM/
+/EXAMPLES/P/CARTOONS/
 
 # ── Release binaries ────────────────────────────────────────
 # Firmware update goes via SD card, not via the repo; the update

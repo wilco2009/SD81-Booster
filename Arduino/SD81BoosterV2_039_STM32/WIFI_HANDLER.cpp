@@ -326,6 +326,21 @@ static void handle_write_close(const uint8_t* payload, uint16_t len) {
   wifi_send_frame(CMD_WRITE_CLOSE, tx_payload, 5);
 }
 
+// Igual que el sync() de dentro de handle_write_close, pero sin cerrar el
+// handle - para escritores de larga duracion (p.ej. el log del ESP32, ver
+// SD_LOG.cpp) que quieren que el fichero sea legible por otros de forma
+// periodica sin perder el progreso reabriendo (WRITE_OPEN siempre trunca).
+static void handle_write_sync(const uint8_t* payload, uint16_t len) {
+  if (len < 1) { send_status_only(CMD_WRITE_SYNC, ST_IO_ERROR); return; }
+  uint8_t h = payload[0];
+  if (h >= WIFI_NUM_HANDLES || !wifi_handle_used[h]) {
+    send_status_only(CMD_WRITE_SYNC, ST_BAD_HANDLE);
+    return;
+  }
+  wifi_handle[h].sync();
+  send_status_only(CMD_WRITE_SYNC, ST_OK);
+}
+
 static void handle_delete(const uint8_t* payload, uint16_t len) {
   char path[WIFI_PROTO_MAX_PATH];
   if (!extract_path(payload, len, path)) { send_status_only(CMD_DELETE, ST_IO_ERROR); return; }
@@ -419,6 +434,7 @@ void wifi_handler_poll() {
     case CMD_DELETE:       handle_delete(rx_payload, len); break;
     case CMD_MKDIR:        handle_mkdir(rx_payload, len); break;
     case CMD_SET_TIME:     handle_set_time(rx_payload, len); break;
+    case CMD_WRITE_SYNC:   handle_write_sync(rx_payload, len); break;
     default: break;   // comando desconocido: se ignora
   }
 }

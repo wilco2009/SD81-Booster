@@ -44,6 +44,10 @@ bool wifi_client_list_dir(const char* path, void (*on_entry)(const WifiDirEntry&
 bool wifi_client_write_open(const char* path, uint8_t* out_handle);
 bool wifi_client_write_chunk(uint8_t handle, const uint8_t* data, uint16_t len);
 bool wifi_client_write_close(uint8_t handle, uint32_t* out_total);
+// Fuerza el tamano/contenido en disco de un handle de escritura abierto,
+// SIN cerrarlo - para escritores de larga duracion (ver SD_LOG.cpp) que
+// quieren que el fichero sea legible por otros de forma periodica.
+bool wifi_client_write_sync(uint8_t handle);
 bool wifi_client_read_open(const char* path, uint8_t* out_handle, uint32_t* out_size);
 bool wifi_client_read_chunk(uint8_t handle, uint32_t offset, uint8_t* buf, uint16_t* out_len, bool* out_eof);
 bool wifi_client_read_close(uint8_t handle);
@@ -71,5 +75,10 @@ bool wifi_client_read_ntp_config(NtpConfig* out);
 // LOAD *RTC= en el firmware del STM32.
 bool wifi_client_set_time(uint8_t year, uint8_t month, uint8_t day,
                            uint8_t hour, uint8_t minute, uint8_t second);
+
+// Descarga un fichero de texto pequeno cualquiera (mismo mecanismo que
+// WIFI.CFG/NTP.CFG) sin interpretarlo. *out queda vacio si el fichero no
+// existe (no es un error). Devuelve false solo ante un fallo de transporte.
+bool wifi_client_read_text_file(const char* path, String* out);
 
 #endif

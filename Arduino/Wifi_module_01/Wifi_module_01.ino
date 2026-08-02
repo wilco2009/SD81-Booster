@@ -2,9 +2,17 @@
 #include <WebServer.h>
 #include <Update.h>
 #include <ESPmDNS.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 
 #include "WIFI_CLIENT.h"
 #include "LOGO.h"
+#include "VERSION_CHECK.h"
+
+// SD_LOG.h ultimo a proposito: redefine "Serial" como macro para el resto
+// de este fichero (espeja toda la salida a /SYS/ESP32_LOG.TXT ademas del
+// USB) - no debe afectar a las cabeceras de las librerias de arriba.
+#include "SD_LOG.h"
 
 // Fixed path on the SD card for a pending ESP32 firmware image. If present at
 // boot, it gets flashed via the Update library and deleted on success - same
@@ -18,12 +26,13 @@
 
 // WiFi module (ESP32-C3) own firmware version, shown on the web UI and in
 // /MAN/IP.TXT. Bump this before building a new ESP32_FW.BIN release.
-#define WIFI_FW_VERSION "1.0"
+#define WIFI_FW_VERSION "1.1"
 
 WebServer server(80);
 
 bool     g_upload_active = false;
 uint8_t  g_upload_handle = 0;
+bool     g_upload_ok = false;
 
 String   g_list_html;
 
@@ -37,6 +46,23 @@ String parent_path(const String& dir) {
   int slash = dir.lastIndexOf('/');
   if (slash <= 0) return "/";
   return dir.substring(0, slash);
+}
+
+// Percent-encoding for values placed inside a query string (distinct from
+// html_escape, which is for values placed inside HTML markup).
+String url_encode(const String& s) {
+  String out;
+  for (size_t i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if (isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      out += c;
+    } else {
+      char buf[4];
+      snprintf(buf, sizeof(buf), "%%%02X", (unsigned char)c);
+      out += buf;
+    }
+  }
+  return out;
 }
 
 String html_escape(const String& s) {
@@ -86,7 +112,7 @@ void handleList() {
   g_list_html += "<img class=\"logo\" src=\"/logo.png\" alt=\"SD81 Booster\">";
   g_list_html += "<h1>File server</h1>";
   g_list_html += "<p style=\"text-align:center;color:#888\"><small>WiFi module firmware v" WIFI_FW_VERSION "</small></p>";
-  g_list_html += "<p style=\"text-align:center\"><a href=\"/ntp\">NTP time settings</a></p>";
+  g_list_html += "<p style=\"text-align:center\"><a href=\"/ntp\">NTP time settings</a> | <a href=\"/update\">Firmware update</a></p>";
   g_list_html += "<p>Directory: <b>" + html_escape(dir) + "</b></p>";
   if (dir != "/") {
     g_list_html += "<p><a href=\"/list?path=" + parent_path(dir) + "\">.. (up one level)</a></p>";
@@ -134,6 +160,7 @@ void handleUpload() {
   HTTPUpload& upload = server.upload();
 
   if (upload.status == UPLOAD_FILE_START) {
+    g_upload_ok = false;
     String dir = server.hasArg("dir") ? server.arg("dir") : "/";
     if (dir.length() == 0) dir = "/";
     // upload.filename may include subfolders (e.g. "MyFolder/sub/game.p") if
@@ -170,6 +197,7 @@ void handleUpload() {
     uint32_t total = 0;
     if (wifi_client_write_close(g_upload_handle, &total)) {
       Serial.print("Upload complete: "); Serial.print(total); Serial.println(" bytes");
+      g_upload_ok = true;
     } else {
       Serial.println("Error: WRITE_CLOSE failed");
     }
@@ -180,6 +208,16 @@ void handleUpload() {
 void handleUploadDone() {
   String dir = server.hasArg("dir") ? server.arg("dir") : "/";
   if (dir.length() == 0) dir = "/";
+  // La subida manual desde el explorador de ficheros (formulario HTML normal)
+  // espera la redireccion de siempre a /list. El JS de /update en cambio
+  // manda un campo extra "ajax=1" y necesita el resultado real: /upload
+  // devolvia SIEMPRE 303 pasara lo que pasara (exito o fallo silencioso en
+  // el STM32), asi que el instalador nunca se enteraba de que no se habia
+  // escrito nada en la SD.
+  if (server.hasArg("ajax")) {
+    server.send(g_upload_ok ? 200 : 500, "text/plain", g_upload_ok ? "ok" : "upload failed");
+    return;
+  }
   server.sendHeader("Location", "/list?path=" + dir);
   server.send(303);
 }
@@ -231,6 +269,64 @@ void handleDownload() {
   }
 
   wifi_client_read_close(handle);
+}
+
+// El navegador no puede hacer fetch() directo a los assets de una release
+// de GitHub: la URL de descarga redirige a
+// release-assets.githubusercontent.com (blob de Azure), que no manda
+// Access-Control-Allow-Origin - un fetch() cruzado ahi falla con "Failed to
+// fetch" aunque el fichero se descargue bien por cualquier otra via
+// (curl, navegacion normal...). Este endpoint hace de proxy: el ESP32 SI
+// puede pedirlo (no esta sujeto a CORS, no es un navegador) y retransmite
+// los bytes tal cual a quien pidio /proxy, que al ser mismo origen no
+// tropieza con CORS. No decodifica ni escribe nada a la SD - el trabajo
+// pesado (ZIP+inflate+subida) lo sigue haciendo el JS del navegador.
+void handleProxyDownload() {
+  if (!server.hasArg("url")) {
+    server.send(400, "text/plain", "Missing url parameter");
+    return;
+  }
+  String url = server.arg("url");
+  // Solo se permite reenviar hacia GitHub - evita que este endpoint se
+  // pueda usar como proxy abierto hacia cualquier URL.
+  if (!url.startsWith("https://github.com/")) {
+    server.send(403, "text/plain", "URL not allowed");
+    return;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  if (!http.begin(client, url)) {
+    server.send(502, "text/plain", "Could not connect to GitHub");
+    return;
+  }
+  http.addHeader("User-Agent", "SD81Booster-ESP32");
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    Serial.print("Proxy: upstream HTTP "); Serial.println(code);
+    http.end();
+    server.send(502, "text/plain", "Upstream HTTP error " + String(code));
+    return;
+  }
+
+  int remaining = http.getSize(); // -1 si desconocido (chunked)
+  if (remaining >= 0) server.setContentLength(remaining);
+  server.send(200, "application/octet-stream", "");
+
+  WiFiClient* stream = http.getStreamPtr();
+  uint8_t buf[1024];
+  while (http.connected() && remaining != 0) {
+    size_t avail = stream->available();
+    if (avail == 0) { delay(1); continue; }
+    size_t want = avail > sizeof(buf) ? sizeof(buf) : avail;
+    int n = stream->readBytes(buf, want);
+    if (n <= 0) break;
+    server.sendContent((const char*)buf, n);
+    if (remaining > 0) remaining -= n;
+  }
+  http.end();
 }
 
 void handleDelete() {
@@ -324,6 +420,243 @@ void handleNtpSyncNow() {
   server.send(303);
 }
 
+// Resultado de la ultima comprobacion de actualizaciones, valido hasta el
+// siguiente arranque - "/update/check" lo rellena, "/update" lo lee para
+// generar el JS de instalacion. No hace falta persistirlo en la SD: el
+// usuario comprueba y aplica en la misma sesion de navegador.
+//
+// La consulta y descarga van contra un MIRROR en GitHub del repo (ver
+// VERSION_CHECK.h), no contra Codeberg directamente: Codeberg protege todo
+// su dominio (API, descargas, vistas raw, hasta peticiones fetch() desde un
+// navegador real) con un sistema anti-bot que bloquea cualquier cliente que
+// no sea una navegacion de pagina completa - probado a mano contra curl,
+// PowerShell y Chrome via fetch(), los tres bloqueados por igual (ver
+// memoria del proyecto). GitHub no tiene ese problema.
+bool         g_update_checked = false;
+ReleaseInfo  g_latest_release;
+
+// Un JS helper para meter un String de C++ como literal de cadena JS -
+// distinto de html_escape (para marcado HTML): aqui hace falta escapar
+// comillas y backslashes, no & < >.
+String js_string_literal(const String& s) {
+  String out = "\"";
+  for (size_t i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if (c == '"' || c == '\\') out += '\\';
+    out += c;
+  }
+  out += "\"";
+  return out;
+}
+
+void handleUpdatePage() {
+  String installed = version_check_get_installed();
+
+  String html = "<style>"
+                "body{font-family:sans-serif;max-width:600px;margin:0 auto;padding:0 10px}"
+                "h1{text-align:center;margin-top:0}"
+                "#log{background:#1e1e1e;color:#a8d8a8;font-family:monospace;font-size:12px;"
+                "padding:8px;height:200px;overflow-y:auto;white-space:pre-wrap;display:none}"
+                "</style>";
+  html += "<h1>Firmware update</h1>";
+  html += "<p><a href=\"/list?path=/\">&laquo; Back to file server</a></p>";
+  html += "<p>Installed version: <b>" + (installed.length() ? html_escape(installed) : String("unknown (pre-1.1.0)")) + "</b></p>";
+
+  if (server.hasArg("err")) {
+    html += "<p style=\"color:red\">" + html_escape(server.arg("err")) + "</p>";
+  }
+
+  if (g_update_checked) {
+    if (g_latest_release.tag == installed) {
+      html += "<p style=\"color:green\">Already up to date.</p>";
+      html += "<form method=\"POST\" action=\"/update/check\"><input type=\"submit\" value=\"Check again\"></form>";
+    } else {
+      html += "<p>Update available: <b>" + html_escape(g_latest_release.tag) + "</b></p>";
+      // La descarga, descompresion (DecompressionStream nativo del
+      // navegador) y subida (reutilizando /upload, ya probado) se hacen
+      // aqui en JS, en el propio PC del usuario - el ESP32 solo recibe los
+      // ficheros ya descomprimidos uno a uno, igual que en una subida
+      // manual. Evita que el ESP32 tenga que descargar+descomprimir+
+      // escribir un ZIP entero de forma sincrona (con hardware real esto
+      // superaba el timeout del watchdog y reiniciaba el ESP32 a medias -
+      // ver memoria del proyecto).
+      html += "<p><button id=\"installBtn\" onclick=\"installUpdate()\">Install update</button></p>";
+      html += "<pre id=\"log\"></pre>";
+      html += "<script>\n"
+              "const FW_URL = " + js_string_literal(g_latest_release.firmware_zip_url) + ";\n"
+              "const SD_URL = " + js_string_literal(g_latest_release.sdcontent_zip_url) + ";\n"
+              "const TAG = " + js_string_literal(g_latest_release.tag) + ";\n"
+              "\n"
+              "function rd16(dv,o){return dv.getUint16(o,true);}\n"
+              "function rd32(dv,o){return dv.getUint32(o,true);}\n"
+              "\n"
+              "function parseZipEntries(bytes){\n"
+              "  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);\n"
+              "  const EOCD = 0x06054b50;\n"
+              "  let eocd = -1;\n"
+              "  const minPos = Math.max(0, bytes.length - 65557);\n"
+              "  for (let p = bytes.length - 22; p >= minPos; p--) {\n"
+              "    if (rd32(dv,p) === EOCD) { eocd = p; break; }\n"
+              "  }\n"
+              "  if (eocd < 0) throw new Error('EOCD not found');\n"
+              "  const total = rd16(dv, eocd+10);\n"
+              "  const cdOff = rd32(dv, eocd+16);\n"
+              "  const entries = [];\n"
+              "  let p = cdOff;\n"
+              "  for (let i = 0; i < total; i++) {\n"
+              "    if (rd32(dv,p) !== 0x02014b50) throw new Error('bad central dir entry');\n"
+              "    const method = rd16(dv, p+10);\n"
+              "    const csize = rd32(dv, p+20);\n"
+              "    const nlen = rd16(dv, p+28);\n"
+              "    const elen = rd16(dv, p+30);\n"
+              "    const clen = rd16(dv, p+32);\n"
+              "    const localOffset = rd32(dv, p+42);\n"
+              "    const name = new TextDecoder().decode(bytes.subarray(p+46, p+46+nlen));\n"
+              "    entries.push({name, method, csize, localOffset});\n"
+              "    p += 46 + nlen + elen + clen;\n"
+              "  }\n"
+              "  return entries;\n"
+              "}\n"
+              "\n"
+              "async function extractEntry(bytes, entry){\n"
+              "  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);\n"
+              "  const lp = entry.localOffset;\n"
+              "  if (rd32(dv,lp) !== 0x04034b50) throw new Error('bad local header for ' + entry.name);\n"
+              "  const nlen = rd16(dv, lp+26);\n"
+              "  const elen = rd16(dv, lp+28);\n"
+              "  const start = lp + 30 + nlen + elen;\n"
+              "  const compressed = bytes.subarray(start, start + entry.csize);\n"
+              "  if (entry.method === 0) return compressed;\n"
+              "  if (entry.method !== 8) throw new Error('unsupported method ' + entry.method + ' for ' + entry.name);\n"
+              "  const ds = new DecompressionStream('deflate-raw');\n"
+              "  const writer = ds.writable.getWriter();\n"
+              "  writer.write(compressed); writer.close();\n"
+              "  const chunks = []; const reader = ds.readable.getReader();\n"
+              "  for (;;) { const {done, value} = await reader.read(); if (done) break; chunks.push(value); }\n"
+              "  let total = 0; for (const c of chunks) total += c.length;\n"
+              "  const out = new Uint8Array(total); let off = 0;\n"
+              "  for (const c of chunks) { out.set(c, off); off += c.length; }\n"
+              "  return out;\n"
+              "}\n"
+              "\n"
+              "// Si todas las entradas (no-carpeta) comparten el mismo primer\n"
+              "// segmento de ruta (p.ej. 'FIRMWARE/'), se quita - para que\n"
+              "// firmware.bin etc. acaben en la raiz de la SD en vez de en una\n"
+              "// subcarpeta que imite la del ZIP. Si no hay un prefijo comun\n"
+              "// (como en el ZIP de contenido de SD, con SYS/, MAN/, AUTOEXEC.P\n"
+              "// suelto...) no se toca nada.\n"
+              "function detectCommonPrefix(entries){\n"
+              "  const files = entries.filter(e => !e.name.endsWith('/'));\n"
+              "  if (files.length === 0) return '';\n"
+              "  const slash = files[0].name.indexOf('/');\n"
+              "  if (slash < 0) return '';\n"
+              "  const prefix = files[0].name.substring(0, slash+1);\n"
+              "  for (const f of files) if (!f.name.startsWith(prefix)) return '';\n"
+              "  return prefix;\n"
+              "}\n"
+              "\n"
+              "async function uploadFile(path, data){\n"
+              "  const form = new FormData();\n"
+              "  form.append('dir', '/');\n"
+              "  form.append('file', new Blob([data]), path);\n"
+              "  const r = await fetch('/upload?ajax=1', {method:'POST', body: form});\n"
+              "  if (!r.ok) throw new Error('upload failed for ' + path + ' (HTTP ' + r.status + ')');\n"
+              "}\n"
+              "\n"
+              "async function processZip(url, log){\n"
+              "  log('Downloading ' + url + ' ...');\n"
+              // Descarga via /proxy (mismo origen) en vez de fetch() directo a
+              // GitHub: el blob real del asset no manda cabeceras CORS y un
+              // fetch() cruzado fallaria con 'Failed to fetch'.
+              "  const resp = await fetch('/proxy?url=' + encodeURIComponent(url));\n"
+              "  if (!resp.ok) throw new Error('HTTP ' + resp.status + ' fetching ' + url);\n"
+              "  const bytes = new Uint8Array(await resp.arrayBuffer());\n"
+              "  log('Downloaded (' + bytes.length + ' bytes), parsing ZIP...');\n"
+              "  const entries = parseZipEntries(bytes);\n"
+              "  const prefix = detectCommonPrefix(entries);\n"
+              "  const files = entries.filter(e => !e.name.endsWith('/'));\n"
+              "  let n = 0;\n"
+              "  for (const entry of files) {\n"
+              "    n++;\n"
+              "    const target = entry.name.startsWith(prefix) ? entry.name.substring(prefix.length) : entry.name;\n"
+              "    log('[' + n + '/' + files.length + '] ' + target + ' ...');\n"
+              "    const data = await extractEntry(bytes, entry);\n"
+              "    await uploadFile(target, data);\n"
+              "  }\n"
+              "  log('Done: ' + url);\n"
+              "}\n"
+              "\n"
+              "async function installUpdate(){\n"
+              "  const logEl = document.getElementById('log');\n"
+              "  logEl.style.display = 'block';\n"
+              "  const log = (m) => { logEl.textContent += m + \"\\n\"; logEl.scrollTop = logEl.scrollHeight; };\n"
+              "  document.getElementById('installBtn').disabled = true;\n"
+              "  try {\n"
+              "    await processZip(FW_URL, log);\n"
+              "    await processZip(SD_URL, log);\n"
+              "    log('Marking installed version...');\n"
+              "    await fetch('/update/finish', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'tag=' + encodeURIComponent(TAG)});\n"
+              // El ESP32 solo puede reiniciarse a si mismo (necesario para
+              // que aplique su propio ESP32_FW.BIN, si venia en el ZIP) -
+              // no puede resetear el STM32/interface completo por software
+              // (no hay comando de reset remoto en el protocolo), y ese
+              // reset es imprescindible para que el STM32 detecte
+              // firmware.bin/SD81.MCS en la raiz de la SD y los aplique.
+              "    log('Files uploaded. Power-cycle the SD81 Booster now (unplug and plug it back in) to apply the update.');\n"
+              "  } catch (e) {\n"
+              "    log('ERROR: ' + e.message);\n"
+              "    document.getElementById('installBtn').disabled = false;\n"
+              "  }\n"
+              "}\n"
+              "</script>\n";
+    }
+  } else {
+    html += "<form method=\"POST\" action=\"/update/check\"><input type=\"submit\" value=\"Check for updates\"></form>";
+  }
+
+  server.send(200, "text/html", html);
+}
+
+void handleUpdateCheck() {
+  g_update_checked = version_check_fetch_latest(&g_latest_release);
+  if (!g_update_checked) {
+    server.sendHeader("Location", "/update?err=" + url_encode("Could not reach the GitHub mirror - check the network and try again."));
+  } else {
+    server.sendHeader("Location", "/update");
+  }
+  server.send(303);
+}
+
+// Llamado por el JS de installUpdate() SOLO tras haber subido ya todos los
+// ficheros de los dos ZIP via /upload - aqui no se descarga ni descomprime
+// nada, solo se deja constancia de la version instalada.
+//
+// Deliberadamente NO se llama a ESP.restart() aqui. El ESP32 solo puede
+// reiniciarse a si mismo, no al STM32/interface completo (no existe
+// comando de reset remoto en WIFI_PROTOCOL.h) - la parte STM32/FPGA/ROM de
+// la actualizacion (firmware.bin/SD81.MCS/SDBOOST.ROM) solo se aplica en el
+// arranque fisico del STM32. Si el ESP32 se reiniciara YA para aplicar su
+// propio ESP32_FW.BIN (ver FW_UPDATE_PATH mas arriba) y el usuario le
+// hiciera el power-cycle a la interfaz completa mientras el ESP32 todavia
+// esta escribiendo su propia flash, se arriesgaria a corromper ese
+// autoflasheo a medias. Dejando el ESP32_FW.BIN pendiente en la SD sin
+// tocarlo, el UNICO power-cycle que el usuario tiene que hacer de todos
+// modos (para el STM32) tambien dispara, de paso, el autoflasheo del ESP32
+// - todo en un solo ciclo de encendido, sin ventana de riesgo.
+void handleUpdateFinish() {
+  String tag = server.hasArg("tag") ? server.arg("tag") : "";
+  if (tag.length() > 0) {
+    uint8_t handle;
+    if (wifi_client_write_open("/SYS/VERSION.TXT", &handle)) {
+      wifi_client_write_chunk(handle, (const uint8_t*)tag.c_str(), tag.length());
+      uint32_t total;
+      wifi_client_write_close(handle, &total);
+    }
+  }
+  sdlog_close(); // vuelca el log a la SD antes de que el usuario corte la alimentacion
+  server.send(200, "text/plain", "ok");
+}
+
 // Writes a short text note explaining why the update was rejected, so the
 // SD card carries visible evidence instead of the update silently vanishing.
 void mark_firmware_update_failed(const char* reason) {
@@ -400,6 +733,7 @@ void check_and_apply_firmware_update() {
     wifi_client_delete(FW_UPDATE_PATH);
     wifi_client_delete(FW_UPDATE_FAILED_PATH); // clear any stale failure note from a previous attempt
     delay(200);
+    sdlog_close();
     ESP.restart();
     return;
   }
@@ -544,6 +878,7 @@ void setup() {
   } else {
     Serial.println("STM32 did not respond within the timeout - continuing anyway.");
   }
+  sdlog_try_flush(); // primer intento de volcado, para no perder los mensajes de arranque
 
   check_and_apply_firmware_update();
 
@@ -593,10 +928,14 @@ void setup() {
   server.on("/mkdir", HTTP_POST, handleMkdir);
   server.on("/delete", HTTP_POST, handleDelete);
   server.on("/download", HTTP_GET, handleDownload);
+  server.on("/proxy", HTTP_GET, handleProxyDownload);
   server.on("/logo.png", HTTP_GET, handleLogo);
   server.on("/ntp", HTTP_GET, handleNtpPage);
   server.on("/ntp/save", HTTP_POST, handleNtpSave);
   server.on("/ntp/sync", HTTP_POST, handleNtpSyncNow);
+  server.on("/update", HTTP_GET, handleUpdatePage);
+  server.on("/update/check", HTTP_POST, handleUpdateCheck);
+  server.on("/update/finish", HTTP_POST, handleUpdateFinish);
   server.begin();
   Serial.println("Server ready.");
 }
@@ -628,4 +967,5 @@ void check_ntp_sync_flag() {
 void loop() {
   server.handleClient();
   check_ntp_sync_flag();
+  sdlog_try_flush();
 }

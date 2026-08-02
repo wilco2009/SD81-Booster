@@ -155,6 +155,12 @@ bool wifi_client_write_close(uint8_t handle, uint32_t* out_total) {
   return true;
 }
 
+bool wifi_client_write_sync(uint8_t handle) {
+  uint8_t buf[1] = { handle };
+  WifiProtoResp r = wifi_client_request(CMD_WRITE_SYNC, buf, 1);
+  return r.ok && r.len >= 1 && r.payload[0] == ST_OK;
+}
+
 bool wifi_client_read_open(const char* path, uint8_t* out_handle, uint32_t* out_size) {
   WifiProtoResp r = wifi_client_request_path(CMD_READ_OPEN, path, NULL, 0);
   if (!r.ok || r.len < 6 || r.payload[0] != ST_OK) return false;
@@ -313,4 +319,10 @@ bool wifi_client_set_time(uint8_t year, uint8_t month, uint8_t day,
   uint8_t buf[6] = { year, month, day, hour, minute, second };
   WifiProtoResp r = wifi_client_request(CMD_SET_TIME, buf, 6);
   return r.ok && r.len >= 1 && r.payload[0] == ST_OK;
+}
+
+bool wifi_client_read_text_file(const char* path, String* out) {
+  out->remove(0, out->length());
+  bool existed;
+  return download_text_file(path, out, &existed);
 }

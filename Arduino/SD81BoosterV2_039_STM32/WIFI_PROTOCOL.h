@@ -43,6 +43,7 @@ enum WifiProtoCmd : uint8_t {
   CMD_DELETE       = 0x0A,  // fichero O directorio (vacio) - el STM32 decide segun el tipo
   CMD_MKDIR        = 0x0C,
   CMD_SET_TIME     = 0x0D,
+  CMD_WRITE_SYNC   = 0x0E,  // fuerza el tamano en disco de un handle abierto SIN cerrarlo
   // 0x0B (antiguo CMD_GET_WIFI_CFG) retirado - ver nota mas abajo sobre WIFI.CFG
 };
 
@@ -83,6 +84,13 @@ enum WifiProtoStatus : uint8_t {
 //               second(1B, 0-59)
 //               (hora local ya calculada por el ESP32 - offset UTC + DST
 //               aplicados alli, el STM32 solo ajusta su RTC tal cual)
+// WRITE_SYNC    req: handle(1B)                         resp: status
+//               (fuerza el tamano/contenido en disco de un handle que se
+//               mantiene abierto mucho tiempo sin cerrarlo - WRITE_CHUNK
+//               por si solo NO actualiza el tamano visible del fichero
+//               hasta el WRITE_CLOSE; util para logs u otros escritores de
+//               larga duracion que quieren que el fichero sea legible por
+//               otros antes de terminar)
 //
 // "path(str)": length-prefixed, 1 byte de longitud + bytes UTF-8/ASCII (NO terminador nulo
 // en el cable), maximo WIFI_PROTO_MAX_PATH-1 bytes de nombre.

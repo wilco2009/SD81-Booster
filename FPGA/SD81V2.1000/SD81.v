@@ -489,7 +489,116 @@ Port $7FEF (01111111 11101111) - IN:
 			//  control dbuf a system_clk, junto al pseudo-bloque 8 del mapper)
 		end
 	end
-	
+
+	// ========================================================================
+	// Sprites 8x8 (1 byte/scanline + mascara), almacenados en distributed RAM
+	// (LUTs), no en BRAM (la BRAM esta a 32/32, sin margen). Boceto probado
+	// aparte en sprite_slot.v / sprite_array_demo.v; ver ese fichero para el
+	// razonamiento de diseno (alineado a byte, sin barrel shifter) y el coste
+	// medido en LUTs/FF por sprite.
+	//
+	// Coordenadas libres por pixel en ambos ejes, desplazadas 32 pixeles
+	// respecto a la pantalla para permitir entrar/salir con recorte suave:
+	// la posicion 32 del sprite es el pixel 0 de la pantalla. Por eso X va de
+	// 0 a 318 y necesita dos POKEs (parte baja + bit alto), mientras que Y va
+	// de 0 a 255 y cabe en uno. Lo que caiga fuera de (0,0)-(255,191) no se
+	// dibuja (ver spr_in_display mas abajo).
+	//
+	// POKE 2100,n           -> selecciona el sprite n (0..NUM_SPRITES-1)
+	// POKE 2101,enable       -> activa/desactiva el sprite seleccionado
+	// POKE 2102,x_low        -> X, 8 bits bajos
+	// POKE 2103,x_high       -> X, bit 8 (0 o 1)
+	// POKE 2104,y_pos        -> Y (0-255), 32 = primera linea visible
+	// POKE 2105..2112,byte   -> 8 filas de pixel
+	// POKE 2113..2120,byte   -> 8 filas de mascara (bit=1 -> pixel visible)
+	// ========================================================================
+	localparam NUM_SPRITES = 24;		// punto de partida; cambiar solo aqui
+
+	localparam SPR_SEL_ADDR  = 16'd2100;
+	localparam SPR_BASE_ADDR = 16'd2101;
+
+	wire sprite_poke_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) &&
+								 (Addr >= SPR_SEL_ADDR) && (Addr < SPR_BASE_ADDR+20);
+
+	reg [7:0] spr_sel = 8'd0;
+	always @(posedge sprite_poke_wr or negedge nRESET) begin
+		if (nRESET == 1'b0) spr_sel <= 8'd0;
+		else if (Addr == SPR_SEL_ADDR) spr_sel <= data;
+	end
+
+	wire       spr_field_wr = sprite_poke_wr && (Addr >= SPR_BASE_ADDR);
+	wire [4:0] spr_field    = Addr[4:0] - SPR_BASE_ADDR[4:0];
+
+	// Origen de coordenadas de los sprites: columna 0 / fila 0 = esquina
+	// superior izquierda del area visible, para que el programador use las
+	// mismas coordenadas que ve en pantalla.
+	//
+	// SPR_X_FUDGE / SPR_Y_FUDGE compensan el retardo del pipeline de video:
+	// pixel_cnt/line_cnt van por delante de lo que sale por el pin (el propio
+	// diseno ya usa offsets de este tipo, ver isborder_sp con SCR_START_X+20
+	// y scr_col1 con -6). Son los numeros a retocar si el sprite sale
+	// desplazado; ajustados sobre hardware real con EXAMPLES/SPRITES.
+	localparam SPR_X_FUDGE = 9'd20;
+	localparam SPR_Y_FUDGE = 9'd6;
+	wire [8:0] spr_x_pixel_base = SCR_START_X + SPR_X_FUDGE;
+	wire [8:0] spr_y_line_base  = SCR_START_Y - SPR_Y_FUDGE;
+
+	// Posicion de barrido en pixeles de PANTALLA (0,0 = esquina sup. izq. del
+	// area visible). Si el barrido va por delante del area visible la resta da
+	// la vuelta y queda un valor grande, con lo que las comparaciones de
+	// recorte fallan solas -- no hacen falta comparaciones con signo.
+	wire [8:0] spr_screen_x = pixel_cnt - spr_x_pixel_base;
+	wire [8:0] spr_screen_y = line_cnt  - spr_y_line_base;
+
+	// Recorte: nada se dibuja fuera de (0,0)-(255,191). Se hace una sola vez
+	// aqui, no dentro de cada sprite_slot (1 puerta en vez de NUM_SPRITES).
+	wire spr_in_display = (spr_screen_x < 9'd256) && (spr_screen_y < 9'd192);
+
+	// Coordenadas de sprite = pixel de pantalla + 32 (ver cabecera del mapa
+	// de POKEs y sprite_slot.v)
+	wire [8:0] spr_pos_x = spr_screen_x + 9'd32;
+	wire [8:0] spr_pos_y = spr_screen_y + 9'd32;
+
+	wire [NUM_SPRITES-1:0] spr_active;
+	wire [NUM_SPRITES-1:0] spr_pixel;
+
+	genvar si;
+	generate
+		for (si = 0; si < NUM_SPRITES; si = si + 1) begin : SPRITES
+			wire this_spr_sel = spr_field_wr && (spr_sel == si);
+			sprite_slot sprite_inst (
+				.clk(pixel_clk),
+				.reset(~nRESET),
+				.cfg_sel(this_spr_sel),
+				.cfg_field(spr_field),
+				.cfg_data(data),
+				.cfg_we(spr_field_wr),
+				.pos_x(spr_pos_x),
+				.pos_y(spr_pos_y),
+				.active(spr_active[si]),
+				.pixel_out(spr_pixel[si])
+			);
+		end
+	endgenerate
+
+	// Prioridad: gana el sprite de indice mas alto que este activo en el
+	// pixel actual (mismo criterio usado en sprite_array_demo.v)
+	integer spi;
+	reg sprite_hit, sprite_pixel_final;
+	always @(*) begin
+		sprite_hit         = 1'b0;
+		sprite_pixel_final = 1'b0;
+		for (spi = 0; spi < NUM_SPRITES; spi = spi + 1) begin
+			if (spr_active[spi]) begin
+				sprite_hit         = 1'b1;
+				sprite_pixel_final = spr_pixel[spi];
+			end
+		end
+	end
+
+	// Recorte final al area visible (ver spr_in_display)
+	wire sprite_active_final = sprite_hit & spr_in_display;
+
 	wire isAttrMem = (nM1==1'b1)&&(nMREQ==1'b0) || (nRESET==1'b0);
 		
 	wire [7:0] shadowram_dout;
@@ -987,7 +1096,12 @@ assign DEBUG_RDY = 1'b0;
 	end
 	
 	assign backporch = HSYNCcnt >=  32 && HSYNCcnt <= 48; //HSYNCcnt[7:4]==7'b0010;
-	wire video = serial_output; //~sfast_mode_en?serial_output:serial_output_fast;
+	// sprites: se dibujan encima de fondo/borde, en cualquier modo de video.
+	// Ojo con la polaridad: aqui video=1 es PAPEL y video=0 es TINTA (ver
+	// serial_output = ~shift_register[7] y cred = ~video? ink: paper mas
+	// abajo), asi que el bit del sprite se invierte -- un bit a 1 en los datos
+	// del sprite debe pintar tinta, igual que un bit a 1 en el char/HiRes.
+	wire video = sprite_active_final ? ~sprite_pixel_final : serial_output; //~sfast_mode_en?serial_output:serial_output_fast;
 	wire luminance =  ~(hsync | vsync );
 	
 	wire cred = ~video? ink_active[1]: paper_active[1];

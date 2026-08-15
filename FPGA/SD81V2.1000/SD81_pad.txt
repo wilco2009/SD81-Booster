@@ -1,7 +1,7 @@
 Release 14.7 - par P.20131013 (lin64)
 Copyright (c) 1995-2013 Xilinx, Inc.  All rights reserved.
 
-Sun Jul 26 13:17:27 2026
+Sat Aug 15 18:23:07 2026
 
 
 INFO: The IO information is provided in three file formats as part of the Place and Route (PAR) process.  These formats are:
@@ -34,7 +34,7 @@ Pinout by Pin Number:
 |P12       |nOE_OL       |IOB      |IO_L49P_3                 |INPUT    |LVCMOS33   |3             |          |         |           |NONE     |       |LOCATED   |NO         |NONE            |
 |P13       |             |         |GND                       |         |           |              |          |         |           |         |       |          |           |                |
 |P14       |nMEM_OEm     |IOB      |IO_L44N_GCLK20_3          |INPUT    |LVCMOS33   |3             |          |         |           |NONE     |       |UNLOCATED |NO         |NONE            |
-|P15       |CFG_DATA     |IOB      |IO_L44P_GCLK21_3          |INPUT    |LVCMOS33   |3             |          |         |           |NONE     |       |LOCATED   |NO         |NONE            |
+|P15       |CFG_DATA     |IOB      |IO_L44P_GCLK21_3          |INPUT    |LVCMOS33   |3             |          |         |           |NONE     |       |LOCATED   |YES        |NONE            |
 |P16       |CFG_RESET    |IOB      |IO_L43N_GCLK22_IRDY2_3    |INPUT    |LVCMOS33   |3             |          |         |           |NONE     |       |LOCATED   |NO         |NONE            |
 |P17       |CFG_CLK      |IOB      |IO_L43P_GCLK23_3          |INPUT    |LVCMOS33   |3             |          |         |           |NONE     |       |LOCATED   |NO         |NONE            |
 |P18       |             |         |VCCO_3                    |         |           |3             |          |         |           |         |3.30   |          |           |                |

@@ -39,7 +39,8 @@ module sprite_slot(
 
 	// --- Salida hacia el compositor ---
 	output wire        active,		// este sprite pone un pixel AHORA
-	output wire        pixel_out		// valor del pixel (solo valido si active)
+	output wire        pixel_out,		// valor del pixel (solo valido si active)
+	output wire [7:0]  color_out		// {tinta[3:0],papel[3:0]} -- mismo formato que attr_o en SD81.v
 );
 
 	// Offsets de campo dentro del bloque de configuracion del sprite
@@ -47,15 +48,19 @@ module sprite_slot(
 	localparam FIELD_XPOS_L = 5'd1;	// X, 8 bits bajos
 	localparam FIELD_XPOS_H = 5'd2;	// X, bit 8 (0 o 1)
 	localparam FIELD_YPOS   = 5'd3;
-	localparam FIELD_DATA0  = 5'd4;	// filas 0..7  -> offsets 4..11
-	localparam FIELD_MASK0  = 5'd12;	// filas 0..7  -> offsets 12..19
+	localparam FIELD_COLOR  = 5'd4;	// {tinta[3:0],papel[3:0]}, valido en CHROMA y SPECTRUM
+	localparam FIELD_DATA0  = 5'd5;	// filas 0..7  -> offsets 5..12
+	localparam FIELD_MASK0  = 5'd13;	// filas 0..7  -> offsets 13..20
 
 	reg        enable = 1'b0;
 	reg [8:0]  x_pos  = 9'd0;
 	reg [7:0]  y_pos  = 8'd0;
+	reg [7:0]  color  = 8'hF0;		// por defecto: tinta blanca (15), papel negro (0)
 
 	reg [7:0]  data_mem [0:7];
 	reg [7:0]  mask_mem [0:7];
+
+	assign color_out = color;
 
 	always @(posedge clk) begin
 		if (reset) begin
@@ -66,6 +71,7 @@ module sprite_slot(
 				FIELD_XPOS_L: x_pos[7:0]  <= cfg_data;
 				FIELD_XPOS_H: x_pos[8]    <= cfg_data[0];
 				FIELD_YPOS:   y_pos       <= cfg_data;
+				FIELD_COLOR:  color       <= cfg_data;
 				default: begin
 					if (cfg_field >= FIELD_DATA0 && cfg_field < FIELD_DATA0+8)
 						data_mem[cfg_field-FIELD_DATA0] <= cfg_data;

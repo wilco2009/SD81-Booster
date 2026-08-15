@@ -30,7 +30,8 @@ module sprite_array_demo #(
 	input  wire [8:0]  line_cnt,
 
 	output wire        sprite_active,
-	output wire        sprite_pixel
+	output wire        sprite_pixel,
+	output wire [7:0]  sprite_color
 );
 
 	localparam SEL_ADDR   = 16'd2100;
@@ -44,11 +45,12 @@ module sprite_array_demo #(
 		else if (wr && addr == SEL_ADDR) sel_sprite <= data;
 	end
 
-	wire        field_wr    = wr && (addr >= BASE_ADDR) && (addr < BASE_ADDR+20);
+	wire        field_wr    = wr && (addr >= BASE_ADDR) && (addr < BASE_ADDR+21);
 	wire [4:0]  field       = addr[4:0] - BASE_ADDR[4:0];
 
 	wire [NUM_SPRITES-1:0] slot_active;
 	wire [NUM_SPRITES-1:0] slot_pixel;
+	wire [7:0] slot_color [0:NUM_SPRITES-1];
 
 	genvar i;
 	generate
@@ -64,7 +66,8 @@ module sprite_array_demo #(
 				.pos_x(pixel_cnt),
 				.pos_y(line_cnt),
 				.active(slot_active[i]),
-				.pixel_out(slot_pixel[i])
+				.pixel_out(slot_pixel[i]),
+				.color_out(slot_color[i])
 			);
 		end
 	endgenerate
@@ -73,18 +76,22 @@ module sprite_array_demo #(
 	// (placeholder -- cambiar por la regla de prioridad que se quiera)
 	integer j;
 	reg active_r, pixel_r;
+	reg [7:0] color_r;
 	always @(*) begin
 		active_r = 1'b0;
 		pixel_r  = 1'b0;
+		color_r  = 8'hF0;
 		for (j = 0; j < NUM_SPRITES; j = j + 1) begin
 			if (slot_active[j]) begin
 				active_r = 1'b1;
 				pixel_r  = slot_pixel[j];
+				color_r  = slot_color[j];
 			end
 		end
 	end
 
 	assign sprite_active = active_r;
 	assign sprite_pixel  = pixel_r;
+	assign sprite_color  = color_r;
 
 endmodule

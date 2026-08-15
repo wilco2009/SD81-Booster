@@ -509,8 +509,11 @@ Port $7FEF (01111111 11101111) - IN:
 	// POKE 2102,x_low        -> X, 8 bits bajos
 	// POKE 2103,x_high       -> X, bit 8 (0 o 1)
 	// POKE 2104,y_pos        -> Y (0-255), 32 = primera linea visible
-	// POKE 2105..2112,byte   -> 8 filas de pixel
-	// POKE 2113..2120,byte   -> 8 filas de mascara (bit=1 -> pixel visible)
+	// POKE 2105,color        -> tinta*16+papel (0-15 cada uno), vale para
+	//                           CHROMA y SPECTRUM por igual (se aplica
+	//                           despues de que attr_o resuelve el modo)
+	// POKE 2106..2113,byte   -> 8 filas de pixel
+	// POKE 2114..2121,byte   -> 8 filas de mascara (bit=1 -> pixel visible)
 	// ========================================================================
 	localparam NUM_SPRITES = 24;		// punto de partida; cambiar solo aqui
 
@@ -518,7 +521,7 @@ Port $7FEF (01111111 11101111) - IN:
 	localparam SPR_BASE_ADDR = 16'd2101;
 
 	wire sprite_poke_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) &&
-								 (Addr >= SPR_SEL_ADDR) && (Addr < SPR_BASE_ADDR+20);
+								 (Addr >= SPR_SEL_ADDR) && (Addr < SPR_BASE_ADDR+21);
 
 	reg [7:0] spr_sel = 8'd0;
 	always @(posedge sprite_poke_wr or negedge nRESET) begin
@@ -540,8 +543,14 @@ Port $7FEF (01111111 11101111) - IN:
 	// desplazado; ajustados sobre hardware real con EXAMPLES/SPRITES.
 	localparam SPR_X_FUDGE = 9'd20;
 	localparam SPR_Y_FUDGE = 9'd6;
-	wire [8:0] spr_x_pixel_base = SCR_START_X + SPR_X_FUDGE;
-	wire [8:0] spr_y_line_base  = SCR_START_Y - SPR_Y_FUDGE;
+	// El modo Spectrum (sfSP_en) tiene su propia latencia de pipeline,
+	// distinta del modo nativo/texto (calibrado a ojo sobre hardware real:
+	// en Spectrum recortaba 1px de menos por la izquierda y 6px de menos
+	// por arriba respecto al modo nativo, que se dejo intacto).
+	localparam SPR_X_FUDGE_SPECTRUM = 9'd21;
+	localparam SPR_Y_FUDGE_SPECTRUM = 9'd0;
+	wire [8:0] spr_x_pixel_base = SCR_START_X + (sfSP_en ? SPR_X_FUDGE_SPECTRUM : SPR_X_FUDGE);
+	wire [8:0] spr_y_line_base  = SCR_START_Y - (sfSP_en ? SPR_Y_FUDGE_SPECTRUM : SPR_Y_FUDGE);
 
 	// Posicion de barrido en pixeles de PANTALLA (0,0 = esquina sup. izq. del
 	// area visible). Si el barrido va por delante del area visible la resta da
@@ -561,6 +570,7 @@ Port $7FEF (01111111 11101111) - IN:
 
 	wire [NUM_SPRITES-1:0] spr_active;
 	wire [NUM_SPRITES-1:0] spr_pixel;
+	wire [7:0] spr_color [0:NUM_SPRITES-1];
 
 	genvar si;
 	generate
@@ -576,7 +586,8 @@ Port $7FEF (01111111 11101111) - IN:
 				.pos_x(spr_pos_x),
 				.pos_y(spr_pos_y),
 				.active(spr_active[si]),
-				.pixel_out(spr_pixel[si])
+				.pixel_out(spr_pixel[si]),
+				.color_out(spr_color[si])
 			);
 		end
 	endgenerate
@@ -585,13 +596,16 @@ Port $7FEF (01111111 11101111) - IN:
 	// pixel actual (mismo criterio usado en sprite_array_demo.v)
 	integer spi;
 	reg sprite_hit, sprite_pixel_final;
+	reg [7:0] sprite_color_final;
 	always @(*) begin
-		sprite_hit         = 1'b0;
-		sprite_pixel_final = 1'b0;
+		sprite_hit          = 1'b0;
+		sprite_pixel_final  = 1'b0;
+		sprite_color_final  = 8'hF0;
 		for (spi = 0; spi < NUM_SPRITES; spi = spi + 1) begin
 			if (spr_active[spi]) begin
-				sprite_hit         = 1'b1;
-				sprite_pixel_final = spr_pixel[spi];
+				sprite_hit          = 1'b1;
+				sprite_pixel_final  = spr_pixel[spi];
+				sprite_color_final  = spr_color[spi];
 			end
 		end
 	end
@@ -1043,7 +1057,9 @@ assign DEBUG_RDY = 1'b0;
 			5'b1x111: attr_o <= {border_ink, 			sp_border};				// pattern, inverse
 		endcase
 	end
-	assign {ink_active,paper_active} = attr_o;
+	// Color de sprites: se aplica DESPUES de que attr_o resuelva el modo
+	// (CHROMA o SPECTRUM), asi que vale para los dos sin logica adicional.
+	assign {ink_active,paper_active} = sprite_active_final ? sprite_color_final : attr_o;
 						
 	
 	reg [7:0] current_attr;

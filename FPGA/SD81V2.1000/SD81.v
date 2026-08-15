@@ -509,11 +509,12 @@ Port $7FEF (01111111 11101111) - IN:
 	// POKE 2102,x_low        -> X, 8 bits bajos
 	// POKE 2103,x_high       -> X, bit 8 (0 o 1)
 	// POKE 2104,y_pos        -> Y (0-255), 32 = primera linea visible
-	// POKE 2105,color        -> tinta*16+papel (0-15 cada uno), vale para
-	//                           CHROMA y SPECTRUM por igual (se aplica
-	//                           despues de que attr_o resuelve el modo)
-	// POKE 2106..2113,byte   -> 8 filas de pixel
-	// POKE 2114..2121,byte   -> 8 filas de mascara (bit=1 -> pixel visible)
+	// POKE 2105..2112,byte   -> color por FILA, tinta*16+papel (0-15 cada
+	//                           uno), una fila puede llevar un color distinto;
+	//                           vale para CHROMA y SPECTRUM por igual (se
+	//                           aplica despues de que attr_o resuelve el modo)
+	// POKE 2113..2120,byte   -> 8 filas de pixel
+	// POKE 2121..2128,byte   -> 8 filas de mascara (bit=1 -> pixel visible)
 	// ========================================================================
 	localparam NUM_SPRITES = 24;		// punto de partida; cambiar solo aqui
 
@@ -521,7 +522,7 @@ Port $7FEF (01111111 11101111) - IN:
 	localparam SPR_BASE_ADDR = 16'd2101;
 
 	wire sprite_poke_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) &&
-								 (Addr >= SPR_SEL_ADDR) && (Addr < SPR_BASE_ADDR+21);
+								 (Addr >= SPR_SEL_ADDR) && (Addr < SPR_BASE_ADDR+28);
 
 	reg [7:0] spr_sel = 8'd0;
 	always @(posedge sprite_poke_wr or negedge nRESET) begin

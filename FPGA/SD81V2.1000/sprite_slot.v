@@ -1,11 +1,13 @@
 // ============================================================================
-// sprite_slot.v -- Slot de un sprite 8x8 (1 byte/scanline + mascara)
+// sprite_slot.v -- Slot de un sprite 8x8 (1 byte/scanline + mascara + color)
 // ============================================================================
-// Almacenamiento: 8 bytes de pixel + 8 bytes de mascara = 16 bytes, en dos
-// distributed RAM de 8 posiciones x 8 bits (el sintetizador las mapea a LUTs,
-// no a BRAM -- la BRAM esta a 32/32, sin margen).
+// Almacenamiento: 8 bytes de pixel + 8 bytes de mascara + 8 bytes de color =
+// 24 bytes, en tres distributed RAM de 8 posiciones x 8 bits (el sintetizador
+// las mapea a LUTs, no a BRAM -- la BRAM esta a 32/32, sin margen).
 // Mascara: bit=1 -> el pixel del sprite se dibuja (sustituye al fondo).
 //          bit=0 -> transparente, se ve el fondo.
+// Color: UN byte {tinta[3:0],papel[3:0]} POR FILA (mismo formato que attr_o
+// en SD81.v), no por sprite entero -- permite sprites con varios colores.
 //
 // Posicionamiento libre por pixel en AMBOS ejes (no alineado a caracter).
 //
@@ -40,7 +42,7 @@ module sprite_slot(
 	// --- Salida hacia el compositor ---
 	output wire        active,		// este sprite pone un pixel AHORA
 	output wire        pixel_out,		// valor del pixel (solo valido si active)
-	output wire [7:0]  color_out		// {tinta[3:0],papel[3:0]} -- mismo formato que attr_o en SD81.v
+	output wire [7:0]  color_out		// {tinta[3:0],papel[3:0]} de la FILA actual
 );
 
 	// Offsets de campo dentro del bloque de configuracion del sprite
@@ -48,19 +50,17 @@ module sprite_slot(
 	localparam FIELD_XPOS_L = 5'd1;	// X, 8 bits bajos
 	localparam FIELD_XPOS_H = 5'd2;	// X, bit 8 (0 o 1)
 	localparam FIELD_YPOS   = 5'd3;
-	localparam FIELD_COLOR  = 5'd4;	// {tinta[3:0],papel[3:0]}, valido en CHROMA y SPECTRUM
-	localparam FIELD_DATA0  = 5'd5;	// filas 0..7  -> offsets 5..12
-	localparam FIELD_MASK0  = 5'd13;	// filas 0..7  -> offsets 13..20
+	localparam FIELD_COLOR0 = 5'd4;	// filas 0..7  -> offsets 4..11
+	localparam FIELD_DATA0  = 5'd12;	// filas 0..7  -> offsets 12..19
+	localparam FIELD_MASK0  = 5'd20;	// filas 0..7  -> offsets 20..27
 
 	reg        enable = 1'b0;
 	reg [8:0]  x_pos  = 9'd0;
 	reg [7:0]  y_pos  = 8'd0;
-	reg [7:0]  color  = 8'hF0;		// por defecto: tinta blanca (15), papel negro (0)
 
-	reg [7:0]  data_mem [0:7];
-	reg [7:0]  mask_mem [0:7];
-
-	assign color_out = color;
+	reg [7:0]  color_mem [0:7];	// {tinta[3:0],papel[3:0]} por fila
+	reg [7:0]  data_mem  [0:7];
+	reg [7:0]  mask_mem  [0:7];
 
 	always @(posedge clk) begin
 		if (reset) begin
@@ -71,9 +71,10 @@ module sprite_slot(
 				FIELD_XPOS_L: x_pos[7:0]  <= cfg_data;
 				FIELD_XPOS_H: x_pos[8]    <= cfg_data[0];
 				FIELD_YPOS:   y_pos       <= cfg_data;
-				FIELD_COLOR:  color       <= cfg_data;
 				default: begin
-					if (cfg_field >= FIELD_DATA0 && cfg_field < FIELD_DATA0+8)
+					if (cfg_field >= FIELD_COLOR0 && cfg_field < FIELD_COLOR0+8)
+						color_mem[cfg_field-FIELD_COLOR0] <= cfg_data;
+					else if (cfg_field >= FIELD_DATA0 && cfg_field < FIELD_DATA0+8)
 						data_mem[cfg_field-FIELD_DATA0] <= cfg_data;
 					else if (cfg_field >= FIELD_MASK0 && cfg_field < FIELD_MASK0+8)
 						mask_mem[cfg_field-FIELD_MASK0] <= cfg_data;
@@ -93,11 +94,12 @@ module sprite_slot(
 	wire [2:0]  col = x_diff[2:0];
 	wire [2:0]  row = y_diff[2:0];
 
-	wire [7:0]  row_data = data_mem[row];
-	wire [7:0]  row_mask = mask_mem[row];
-	wire        mask_bit = row_mask[3'd7-col];
+	wire [7:0]  row_data  = data_mem[row];
+	wire [7:0]  row_mask  = mask_mem[row];
+	wire        mask_bit  = row_mask[3'd7-col];
 
 	assign active    = enable && x_match && y_match && mask_bit;
 	assign pixel_out = row_data[3'd7-col];
+	assign color_out = color_mem[row];
 
 endmodule

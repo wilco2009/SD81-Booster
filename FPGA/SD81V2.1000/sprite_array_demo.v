@@ -45,7 +45,7 @@ module sprite_array_demo #(
 		else if (wr && addr == SEL_ADDR) sel_sprite <= data;
 	end
 
-	wire        field_wr    = wr && (addr >= BASE_ADDR) && (addr < BASE_ADDR+21);
+	wire        field_wr    = wr && (addr >= BASE_ADDR) && (addr < BASE_ADDR+28);
 	wire [4:0]  field       = addr[4:0] - BASE_ADDR[4:0];
 
 	wire [NUM_SPRITES-1:0] slot_active;

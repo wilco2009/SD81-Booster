@@ -1,3 +1,4 @@
+//#define salva
 #include <setjmp.h>
 #include <EEPROM.h>
 #include <SPI.h>
@@ -105,6 +106,12 @@ void setup() {
   pinMode(ST_LED_B, OUTPUT);
 
   set_blinking(clRED, 4);
+  
+  #ifdef salva
+  set_blinking_off();
+  set_status_LED(clRED);
+  #endif
+
   //asm(".global _printf_float"); // Link FP-enabled printf library
   Serial.begin(SERIAL_SPEED);
 
@@ -113,6 +120,10 @@ void setup() {
   log_0("ℹ️ INIT");
   start_reset_Z80();
   set_blinking(clORANGE, 4);
+  #ifdef salva
+  set_blinking_off();
+  set_status_LED(clBLUE);
+  #endif
 
   pinMode(A18b, INPUT);
   pinMode(A17b, INPUT);
@@ -169,6 +180,10 @@ void setup() {
   RTC_reset = (millis()-ini_time) > 5000;
   set_status_LED(clGREEN);
   set_blinking(clPINK, 4);
+  #ifdef salva
+  set_blinking_off();
+  set_status_LED(clGREEN);
+  #endif
 
   pinMode(SD_LED, OUTPUT);
   debug_clock = 0;
@@ -242,6 +257,12 @@ void setup() {
   delay(100);
   digitalWrite(FPGAPROG, HIGH);
   while (!digitalRead(FPGA_DONE));
+  #ifdef salva
+  set_blinking_off();
+  set_status_LED(clRED);
+  LED_error(clGREEN);
+  #endif
+
   Serial.println("✅ FPGA reconfigured.");
  
   set_SDLed(LED_OFF);

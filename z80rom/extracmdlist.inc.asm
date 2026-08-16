@@ -18,3 +18,15 @@
 
 		db	.H,.E,.X + $80
 		dw	CmdHEX
+
+		db	.S,.P,.R,.C,.O,.L + $80
+		dw	CmdSPRCOL
+
+		db	.S,.P,.R,.P,.I,.X + $80
+		dw	CmdSPRPIX
+
+		db	.S,.P,.R,.M,.A,.S,.K + $80
+		dw	CmdSPRMASK
+
+		db	.S,.P,.R,.I,.T,.E + $80
+		dw	CmdSPRITE

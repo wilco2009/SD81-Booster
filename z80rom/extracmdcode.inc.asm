@@ -194,6 +194,136 @@ CmdHEX:		call	CLASS_6		; Read address
 		call	FIND_INT	; retrieve stacked address
 		pop	hl		; length
 		pop	de		; address
+		jp	HexDecodeCommon
+
+; LOAD *SPRCOL  <n>,"<16 hex chars>"  -- 8 bytes of per-row colour (2105-2112)
+; LOAD *SPRPIX  <n>,"<16 hex chars>"  -- 8 bytes of pixel data     (2113-2120)
+; LOAD *SPRMASK <n>,"<16 hex chars>"  -- 8 bytes of mask           (2121-2128)
+; Loads one of the three 8-byte blocks of hardware sprite <n> (0-23) without
+; needing to remember its POKE address. Equivalent to POKE 2100,<n> followed
+; by LOAD *HEX <address>,"<16 chars>". Position/enable is separate, see
+; LOAD *SPRITE.
+; NOTA sobre la estructura: MustBeEOL acaba en SyntaxDone, que durante el
+; chequeo de sintaxis hace "pop hl" para descartar la direccion de retorno
+; del comando. Como el despachador entra al comando con jp (hl) (no con
+; call), MustBeEOL TIENE que llamarse desde el nivel superior de la rutina
+; del comando y sin nada nuestro apilado, o se descarta el valor equivocado
+; y la pila queda corrompida. Por eso el analisis comun (SprParseArgs) NO
+; incluye MustBeEOL, y la direccion base del bloque se carga despues.
+CmdSPRCOL:	call	SprParseArgs	; <n>,"<hex>" (sin MustBeEOL)
+		call	MustBeEOL	; err if not EOL; stop syntax check
+		ld	bc,2105		; colour rows
+		jr	SprBlockTail
+CmdSPRPIX:	call	SprParseArgs
+		call	MustBeEOL
+		ld	bc,2113		; pixel rows
+		jr	SprBlockTail
+CmdSPRMASK:	call	SprParseArgs
+		call	MustBeEOL
+		ld	bc,2121		; mask rows
+		; fall through to SprBlockTail
+
+; A partir de aqui solo se ejecuta en tiempo de ejecucion (MustBeEOL no
+; retorna durante el chequeo de sintaxis), asi que ya es seguro apilar.
+SprBlockTail:	push	bc		; block base address, recovered below
+		call	STK_FETCH	; retrieve string parameters
+		push	de
+		push	bc
+		call	FIND_INT	; retrieve stacked sprite number
+		ld	a,b
+		or	a		; sprite number must fit in one byte
+		jp	nz,REPORT_B
+		ld	a,c
+		cp	24		; valid range is 0-23
+		jp	nc,REPORT_B
+		ld	(2100),a	; select sprite (same as POKE 2100,<n>)
+		pop	hl		; string length (hex chars)
+		pop	de		; string pointer
+		ld	a,h
+		or	a		; must be a short string (<256 chars)
+		jp	nz,REPORT_A
+		ld	a,l
+		cp	16		; must be EXACTLY 16 hex chars (8 bytes)
+		jp	nz,REPORT_A
+		pop	bc		; block base address
+		jp	HexDecodeCommon
+
+; Analisis comun de "<n>,"<hex>"" -- deja A con el caracter siguiente para
+; que el llamante haga MustBeEOL. Ver la nota de arriba sobre por que
+; MustBeEOL no puede ir aqui dentro.
+SprParseArgs:	call	CLASS_6		; Read sprite number
+		call	MustBeComma	; Must be followed by a comma
+		call	SCANNING	; read string expression
+		jp	MustBeString	; error if not a string, and return
+
+; LOAD *SPRITE <n>,<x>,<y>
+; Selects hardware sprite <n> (0-23), sets its position and enables it.
+; <x> is 0-318, <y> is 0-255; coordinate 32 in both axes is the top-left
+; corner of the screen (see the sprite coordinate system in the manual).
+; Equivalent to: POKE 2100,<n> / POKE 2102,<x_low> / POKE 2103,<x_high> /
+; POKE 2104,<y> / POKE 2101,1.
+;
+; LOAD *SPRITE <n> STOP hides sprite <n> (POKE 2101,0) without touching its
+; position or graphic data.
+; NOTA: FIND_INT recupera los parametros apilados en orden INVERSO al de
+; lectura (aqui: Y, luego X, luego n) -- hay que seleccionar el sprite con
+; POKE 2100,n ANTES de escribir su posicion, o la posicion se escribe sobre
+; el sprite que estuviera seleccionado por la sentencia ANTERIOR. Por eso X
+; e Y se apilan (igual que CmdPOKE apila el dato mientras calcula la
+; direccion) y no se escriben hasta tener n validado y seleccionado.
+CmdSPRITE:	call	CLASS_6		; Read sprite number (leaves next char in A)
+		cp	.STOP
+		jr	z,SprHide
+		call	MustBeComma	; must be a comma before X
+		call	CLASS_6		; Read X (0-318)
+		call	MustBeComma	; must be a comma before Y
+		call	CLASS_6		; Read Y (0-255)
+		call	MustBeEOL
+		call	FIND_INT	; BC = Y (last pushed, first popped)
+		ld	a,b
+		or	a		; Y must fit in one byte
+		jp	nz,REPORT_B
+		ld	a,c
+		push	af		; stash Y until the sprite is selected
+		call	FIND_INT	; BC = X
+		ld	hl,318
+		or	a		; clear carry for the subtraction
+		sbc	hl,bc
+		jp	c,REPORT_B	; X must be 0-318
+		push	bc		; stash X (C=low, B=high) until selected
+		call	FIND_INT	; BC = sprite number n
+		ld	a,b
+		or	a
+		jp	nz,REPORT_B
+		ld	a,c
+		cp	24		; valid range is 0-23
+		jp	nc,REPORT_B
+		ld	(2100),a	; select sprite FIRST
+		pop	bc		; X back (C=low, B=high)
+		ld	a,c
+		ld	(2102),a	; x_low
+		ld	a,b
+		ld	(2103),a	; x_high
+		pop	af		; Y back
+		ld	(2104),a	; y_pos
+		ld	a,1
+		ld	(2101),a	; enable
+		ret
+SprHide:	rst	NEXT_CHAR	; skip STOP token
+		call	MustBeEOL
+		call	FIND_INT	; BC = sprite number n
+		ld	a,b
+		or	a
+		jp	nz,REPORT_B
+		ld	a,c
+		cp	24
+		jp	nc,REPORT_B
+		ld	(2100),a	; select sprite
+		xor	a
+		ld	(2101),a	; disable
+		ret
+
+HexDecodeCommon:
 		bit	0,l		; length must be even
 		jp	nz,REPORT_A	; Invalid argument otherwise
 		ld	a,h

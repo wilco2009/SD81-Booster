@@ -516,7 +516,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// POKE 2113..2120,byte   -> 8 filas de pixel
 	// POKE 2121..2128,byte   -> 8 filas de mascara (bit=1 -> pixel visible)
 	// ========================================================================
-	localparam NUM_SPRITES = 24;		// punto de partida; cambiar solo aqui
+	localparam NUM_SPRITES = 32;		// punto de partida; cambiar solo aqui
 
 	localparam SPR_SEL_ADDR  = 16'd2100;
 	localparam SPR_BASE_ADDR = 16'd2101;

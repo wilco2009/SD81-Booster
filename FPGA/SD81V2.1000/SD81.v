@@ -1035,7 +1035,15 @@ assign DEBUG_RDY = 1'b0;
 	wire [3:0] sp_paper = {current_attr [5:3]!=0?current_attr [6]:0,current_attr [5:3]};
 	wire [3:0] sp_ink = {current_attr [2:0]!=0?current_attr [6]:0,current_attr [2:0]};
 	
-	wire isborder_b = sfSP_en? isborder_sp: isborder;
+	// OJO: "isborder" es un registro que SOLO se actualiza dentro de la rama
+	// ~sfast_mode_en del generador de video (ver mas abajo), asi que en modo
+	// Superfast se queda congelado con su ultimo valor (inicial = 1). Usarlo
+	// ahi hacia que attr_cond creyera que TODA la pantalla es borde y pintara
+	// con border_color, ignorando el atributo leido -> el color de Chroma no
+	// se veia en Superfast texto ni en HiRes nativo (en Spectrum si, porque
+	// ese si usaba isborder_sp). isborder_sp es combinacional y vale para los
+	// tres submodos Superfast: el area activa es la misma.
+	wire isborder_b = sfast_mode_en? isborder_sp: isborder;
 	wire inv_b = sfSP_en? sp_inv: inverse_video;
 
 	wire [4:0] attr_cond = {sfSP_en,sfast_mode_en,isborder_b,bpattern_en,inv_b};

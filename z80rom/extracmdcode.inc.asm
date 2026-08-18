@@ -196,13 +196,17 @@ CmdHEX:		call	CLASS_6		; Read address
 		pop	de		; address
 		jp	HexDecodeCommon
 
+; Numero de sprites de hardware -- DEBE coincidir con NUM_SPRITES en SD81.v.
+; Unico sitio a tocar aqui si ese valor cambia.
+SPR_COUNT equ 32
+
 ; LOAD *SPRCOL  <n>,"<16 hex chars>"  -- 8 bytes of per-row colour (2105-2112)
 ; LOAD *SPRPIX  <n>,"<16 hex chars>"  -- 8 bytes of pixel data     (2113-2120)
 ; LOAD *SPRMASK <n>,"<16 hex chars>"  -- 8 bytes of mask           (2121-2128)
-; Loads one of the three 8-byte blocks of hardware sprite <n> (0-23) without
-; needing to remember its POKE address. Equivalent to POKE 2100,<n> followed
-; by LOAD *HEX <address>,"<16 chars>". Position/enable is separate, see
-; LOAD *SPRITE.
+; Loads one of the three 8-byte blocks of hardware sprite <n> (0 to
+; SPR_COUNT-1) without needing to remember its POKE address. Equivalent to
+; POKE 2100,<n> followed by LOAD *HEX <address>,"<16 chars>". Position/
+; enable is separate, see LOAD *SPRITE.
 ; NOTA sobre la estructura: MustBeEOL acaba en SyntaxDone, que durante el
 ; chequeo de sintaxis hace "pop hl" para descartar la direccion de retorno
 ; del comando. Como el despachador entra al comando con jp (hl) (no con
@@ -234,7 +238,7 @@ SprBlockTail:	push	bc		; block base address, recovered below
 		or	a		; sprite number must fit in one byte
 		jp	nz,REPORT_B
 		ld	a,c
-		cp	24		; valid range is 0-23
+		cp	SPR_COUNT	; valid range is 0..SPR_COUNT-1
 		jp	nc,REPORT_B
 		ld	(2100),a	; select sprite (same as POKE 2100,<n>)
 		pop	hl		; string length (hex chars)
@@ -257,7 +261,8 @@ SprParseArgs:	call	CLASS_6		; Read sprite number
 		jp	MustBeString	; error if not a string, and return
 
 ; LOAD *SPRITE <n>,<x>,<y>
-; Selects hardware sprite <n> (0-23), sets its position and enables it.
+; Selects hardware sprite <n> (0 to SPR_COUNT-1), sets its position and
+; enables it.
 ; <x> is 0-318, <y> is 0-255; coordinate 32 in both axes is the top-left
 ; corner of the screen (see the sprite coordinate system in the manual).
 ; Equivalent to: POKE 2100,<n> / POKE 2102,<x_low> / POKE 2103,<x_high> /
@@ -296,7 +301,7 @@ CmdSPRITE:	call	CLASS_6		; Read sprite number (leaves next char in A)
 		or	a
 		jp	nz,REPORT_B
 		ld	a,c
-		cp	24		; valid range is 0-23
+		cp	SPR_COUNT	; valid range is 0..SPR_COUNT-1
 		jp	nc,REPORT_B
 		ld	(2100),a	; select sprite FIRST
 		pop	bc		; X back (C=low, B=high)
@@ -316,7 +321,7 @@ SprHide:	rst	NEXT_CHAR	; skip STOP token
 		or	a
 		jp	nz,REPORT_B
 		ld	a,c
-		cp	24
+		cp	SPR_COUNT
 		jp	nc,REPORT_B
 		ld	(2100),a	; select sprite
 		xor	a

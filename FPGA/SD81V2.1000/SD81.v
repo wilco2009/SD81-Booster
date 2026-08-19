@@ -550,8 +550,19 @@ Port $7FEF (01111111 11101111) - IN:
 	// por arriba respecto al modo nativo, que se dejo intacto).
 	localparam SPR_X_FUDGE_SPECTRUM = 9'd21;
 	localparam SPR_Y_FUDGE_SPECTRUM = 9'd0;
-	wire [8:0] spr_x_pixel_base = SCR_START_X + (sfSP_en ? SPR_X_FUDGE_SPECTRUM : SPR_X_FUDGE);
-	wire [8:0] spr_y_line_base  = SCR_START_Y - (sfSP_en ? SPR_Y_FUDGE_SPECTRUM : SPR_Y_FUDGE);
+	// Superfast texto/HiRes nativo (sfast_mode_en, pero no Spectrum): calibrado
+	// sobre hardware real con la herramienta de calibracion (cruz + cuadricula
+	// de referencia + comparacion directa contra el emulador), confirmando que
+	// la desviacion es la misma con Chroma activado o apagado -- es propia del
+	// modo Superfast, no del color. En X necesita 1px mas que el modo nativo
+	// (igual que Spectrum, 21 en vez de 20). En Y coincide EXACTAMENTE con
+	// Spectrum (0), no con el modo nativo (6): los tres submodos Superfast
+	// comparten la misma temporizacion en Y: solo el modo verdaderamente
+	// nativo (sin Superfast) difiere.
+	localparam SPR_X_FUDGE_SFTEXT = 9'd21;
+	wire [8:0] spr_x_pixel_base = SCR_START_X + (sfSP_en ? SPR_X_FUDGE_SPECTRUM :
+	                                              sfast_mode_en ? SPR_X_FUDGE_SFTEXT : SPR_X_FUDGE);
+	wire [8:0] spr_y_line_base  = SCR_START_Y - (sfast_mode_en ? SPR_Y_FUDGE_SPECTRUM : SPR_Y_FUDGE);
 
 	// Posicion de barrido en pixeles de PANTALLA (0,0 = esquina sup. izq. del
 	// area visible). Si el barrido va por delante del area visible la resta da

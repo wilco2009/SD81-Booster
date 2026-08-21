@@ -30,3 +30,6 @@
 
 		db	.S,.P,.R,.I,.T,.E + $80
 		dw	CmdSPRITE
+
+		db	.S,.C,.R,.O,.L,.L + $80
+		dw	CmdSCROLL

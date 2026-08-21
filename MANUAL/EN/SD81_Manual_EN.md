@@ -2437,9 +2437,11 @@ LOAD \*COLOR : REM enable colour, border white (7) by default
 
 LOAD \*COLOR \<colour\> : REM enable colour, border = \<colour\> (0-15)
 
+LOAD \*COLOR \<colour\>,\<mode\> : REM colour = \<colour\> (0-15), Chroma mode = \<mode\> (0-1)
+
 LOAD \*COLOR STOP : REM disable colour
 
-(equivalent to the OUT 7FEFh above; sets bit 5 and the character-code mode automatically. **\<colour\>** is the port's low 4 bits, brightness + GRB combined into 0-15.
+(equivalent to the OUT 7FEFh above; sets bit 5 and the character-code mode automatically. **\<colour\>** is the port's low 4 bits, brightness + GRB combined into 0-15. **\<mode\>** is optional (0 = character-code colour table, 1 = attribute file; 0 if omitted). Mode 1 is only implemented in hardware for the Superfast submodes: in native mode (Superfast off) it has no real effect.
 
 **VSync synchronisation:**
 
@@ -2491,6 +2493,18 @@ LOAD \*SFSP \<address\> : REM Superfast Spectrum HiRes, HFILE = \<address\>
 LOAD \*SFAST STOP : REM disable (equivalent to \*SFHR STOP / \*SFSP STOP)
 
 (equivalent to the POKEs above, for machine-code use). **LOAD \*SFHR** and **LOAD \*SFSP** write HFILE (2043/2044) and enable the mode in a single step; HFILE is not needed for **LOAD \*SFAST** since text mode does not use extended RAM.
+
+## Fine Horizontal Scroll (Superfast)
+
+All three Superfast submodes support a fine horizontal scroll offset of 0 to 7 pixels, which advances the character/attribute/pixel fetch sequence by that many pixels on every row:
+
+POKE 2090, \<offset\> : REM fine scroll offset, 0-7 pixels
+
+Equivalent command:
+
+LOAD \*SCROLL \<offset\> : REM equivalent to POKE 2090
+
+The offset applies equally to all three Superfast submodes (text, native HiRes and Spectrum HiRes); it has no effect in native mode. In Superfast text mode with Chroma mode 0, the pixel gap left at the right edge of each row is filled by the DFILE's NEWLINE byte (position 32 of each row, unused in this mode): software is responsible for writing whatever content should appear there as the scroll advances. In the other submodes that gap does not have a defined content yet.
 
 ## Spectrum Mode
 
@@ -2681,6 +2695,7 @@ LOAD \*WRX STOP : REM disable (character generator mode, default)
 | 2057 | 85 | Disable double buffer |
 | 2058 | 170 | Enable WRX in the 8-16K RAM |
 | 2058 | 85 | Disable WRX (character generator mode) |
+| 2090 | 0-7 | Fine horizontal scroll, Superfast (0-7 pixels) |
 
 # Appendix G --- Audio Technical Reference: AY chip, VGM and allophones
 

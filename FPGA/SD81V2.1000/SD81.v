@@ -490,6 +490,20 @@ Port $7FEF (01111111 11101111) - IN:
 		end
 	end
 
+	// POKE 2090, offset (0-7, solo bits 2:0): scroll horizontal fino en
+	// Superfast -- adelanta la secuencia de busqueda de caracter/atributo/
+	// pixel esa cantidad de pixeles (ver col_cnt_b mas abajo). El software es
+	// responsable de que haya contenido real que mostrar en la columna extra
+	// que queda al final de la fila (p.ej. reaprovechando el byte de NEWLINE
+	// del DFILE en modo texto, que la FPGA no trata como especial). Sin
+	// efecto en modo nativo (no Superfast); ver sfast_mode_en en col_cnt_b.
+	reg [2:0] sf_hscroll = 3'd0;
+	wire sf_hscroll_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2090);
+	always @(posedge sf_hscroll_wr or negedge nRESET) begin
+		if (nRESET==1'b0) sf_hscroll <= 3'd0;
+		else sf_hscroll <= data[2:0];
+	end
+
 	// ========================================================================
 	// Sprites 8x8 (1 byte/scanline + mascara), almacenados en distributed RAM
 	// (LUTs), no en BRAM (la BRAM esta a 32/32, sin margen). Boceto probado
@@ -647,10 +661,19 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [8:0] SCR_END_Y = SCR_START_Y+191;
 	wire [8:0] SCR_END_X = SCR_START_X+33*8-1;
 	
-	reg [4:0] scr_row; 
+	reg [4:0] scr_row;
 	reg [4:0] scr_col;
+	// Indice de ranura dentro de la fila (0..32). Se pone a 0 fuera de la
+	// ventana de captacion y se incrementa una vez por caracter, asi que no
+	// depende de la aritmetica de pixel_cnt. Ver scr_col_x mas abajo.
+	reg [5:0] sf_col_idx;
+	// La ventana de captacion se abre a mitad de la secuencia de 8 estados,
+	// asi que puede haber un estado 0 antes de la primera lectura de caracter
+	// (estado 6) de la fila. Sin esta marca ese estado 0 incrementaba el
+	// indice y la fila entera salia desplazada una columna.
+	reg sf_col_started;
 	reg load_enable_fast;
-	
+
 	reg [4:0] scr_col_debug;
 	reg [4:0] scr_row_debug;
 	reg [7:0] char_latch_fast_cur;
@@ -696,7 +719,28 @@ Port $7FEF (01111111 11101111) - IN:
 		end
 	end
 	
-	wire [2:0] col_cnt_b = {pixel_cnt+(pixel_cnt>31)-SCR_START_X}[2:0];
+	// El offset solo se suma en Superfast (cualquier submodo); en nativo
+	// col_cnt_b_offset es siempre 0 y todo queda exactamente igual que antes
+	// de anadir el scroll horizontal fino.
+	//
+	// IMPORTANTE: el offset se aplica a TODA la maquina de busqueda (fase del
+	// contador, ventana de captacion y numero de columna), no solo a la fase.
+	// Si se adelanta solo la fase, la ventana sigue anclada a pixel_cnt
+	// absoluto y el numero de ranuras por fila (y el indice de la primera)
+	// cambia con el offset: con 3 y 5 la fila empezaba en la columna 1, y con
+	// 7 se perdia una columna entera y se veia como sin scroll. Desplazando
+	// tambien la ventana, cada fila tiene siempre las ranuras 0..32 y lo unico
+	// que cambia es que los pixeles salen sf_hscroll antes.
+	wire [8:0] col_cnt_b_offset = sfast_mode_en ? {6'b0,sf_hscroll} : 9'd0;
+	wire [8:0] pixel_cnt_sf = pixel_cnt + col_cnt_b_offset;
+	// Con scroll activo la ventana de captacion se alarga un grupo (8 px) por
+	// la derecha: como el primer grupo de cada fila se pierde (ver
+	// sf_col_started), hace falta un grupo 34 para que la columna 32 (el byte
+	// de NEWLINE del DFILE) se capture y sus primeros sf_hscroll pixeles
+	// salgan por el borde derecho. Con sf_hscroll==0 la ventana es la de
+	// siempre.
+	wire [8:0] scr_end_x_sf = SCR_END_X + ((sfast_mode_en && sf_hscroll!=3'd0) ? 9'd8 : 9'd0);
+	wire [2:0] col_cnt_b = {pixel_cnt_sf+(pixel_cnt>31)-SCR_START_X}[2:0];
 	wire [2:0] line_cnt_b = {line_cnt - SCR_START_Y}[2:0];
 	reg [4:0]scr_col1=0;
 	reg [4:0]scr_col2=0;
@@ -708,7 +752,18 @@ Port $7FEF (01111111 11101111) - IN:
 										
 	wire [15:0] attr_addr_m1 = {1'b1,{DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col2}[14:0]};//16'hc0001+{scr_row,5'b00000} + scr_row+scr_col;
 	
-	wire [15:0] char_addr = DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col;
+	// Con scroll horizontal fino la fila se lee una columna mas alla: la 32,
+	// que en el DFILE es el byte de NEWLINE (la FPGA no lo trata como
+	// especial, asi que el software puede poner ahi el relleno del hueco).
+	// El indice de columna sale de un contador de ranura explicito
+	// (sf_col_idx, 0..32) en vez de derivarlo de bits de pixel_cnt: asi no
+	// depende de anchos ni de signos, que es donde fallaba antes (se colaba un
+	// +32 en TODAS las ranuras y la pantalla entera se direccionaba una
+	// columna antes y una fila mas tarde).
+	// Con sf_hscroll==0 se usa scr_col y queda exactamente como antes.
+	wire [5:0] scr_col_x = (sfast_mode_en && (sf_hscroll != 3'd0)) ?
+									sf_col_idx : {1'b0,scr_col};
+	wire [15:0] char_addr = DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col_x;
 	wire [15:0] scan_addr = sfHR_en? {vpage,hr_addr}:	// superfast HR native mode (front si dbuf)
 									sfSP_en?	{vpage,hr_addr[12:11],hr_addr[7:5],hr_addr[10:8],hr_addr[4:0]}: // superfast HR spectrum mode (front si dbuf)
 									{ROMTABLE[15:10],SEL_128CHARS?char_latch_fast[7]:ROMTABLE[9],char_latch_fast[5:0],line_cnt_b}; //superfast textmode
@@ -746,16 +801,16 @@ Port $7FEF (01111111 11101111) - IN:
 			attr_latch_fast_addr_debug <= attr_latch_fast_addr_cur;
 			isborder_debug <= isborder_cur;
 		end
-		if (((pixel_cnt-4) >= SCR_START_X) && ((pixel_cnt-4) <= SCR_END_X) && 
+		if (((pixel_cnt_sf-4) >= SCR_START_X) && ((pixel_cnt_sf-4) <= scr_end_x_sf) &&
 			(line_cnt >= SCR_START_Y) && (line_cnt <= SCR_END_Y))
 		begin
 			case (col_cnt_b)
 				6: begin
 				   // cambiar por 7:3 para eliminar el warning
 					scr_row = {line_cnt-SCR_START_Y}[8:3];
-					scr_col = {pixel_cnt+0-SCR_START_X}[8:3];
-					scr_col1 = {pixel_cnt-6-SCR_START_X}[8:3];
-					scr_col2 = {pixel_cnt-6-SCR_START_X}[8:3];
+					scr_col = {pixel_cnt_sf+0-SCR_START_X}[8:3];
+					scr_col1 = {pixel_cnt_sf-6-SCR_START_X}[8:3];
+					scr_col2 = {pixel_cnt_sf-6-SCR_START_X}[8:3];
 					v_addr = char_addr;
 				end
 				7: begin
@@ -764,8 +819,20 @@ Port $7FEF (01111111 11101111) - IN:
 					char_latch_fast_cur = v_dout;
 					char_latch_fast_addr_cur = char_addr;
 				end
-				0: if (color_mode==1'b0) v_addr = attr_addr_m0;
+				0: begin
+					if (color_mode==1'b0) v_addr = attr_addr_m0;
 					else v_addr = attr_addr_m1;
+					// Avanzar el indice para la siguiente ranura, SALTANDO el
+					// primer grupo de la fila: la captura del primer grupo se
+					// pierde en el calentamiento del pipeline (su pulso de carga
+					// cae antes del umbral SCR_START_X+12), asi que la pantalla
+					// muestra las capturas 2..34. Releyendo la columna 0 en el
+					// grupo perdido, lo mostrado queda 0,1,...,32 (comprobado
+					// sobre hardware: sin este salto todo salia corrido una
+					// columna, empezando en DFILE+2).
+					if (sf_col_started) sf_col_idx = sf_col_idx + 1'b1;
+					sf_col_started = 1'b1;
+				end
 				1: begin
 					if (color_mode==1'b0) v_addr = attr_addr_m0;
 					else v_addr = attr_addr_m1;
@@ -776,12 +843,14 @@ Port $7FEF (01111111 11101111) - IN:
 				2: v_addr = scan_addr;
 				3: begin
 					v_addr = scan_addr;
-					if (pixel_cnt >= SCR_START_X+12) load_enable_fast = 1'b1;
+					if (pixel_cnt_sf >= SCR_START_X+12) load_enable_fast = 1'b1;
 				end
 				5: load_enable_fast = 1'b0;
 			endcase
 		end else begin
 			char_latch_fast = 0;
+			sf_col_idx = 6'd0;		// fuera de la ventana: reinicia la fila
+			sf_col_started = 1'b0;
 		end
 	end
 

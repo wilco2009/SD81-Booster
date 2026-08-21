@@ -2544,9 +2544,11 @@ LOAD \*COLOR : REM activar color, borde blanco (7) por defecto
 
 LOAD \*COLOR \<color\> : REM activar color, borde = \<color\> (0-15)
 
+LOAD \*COLOR \<color\>,\<modo\> : REM color = \<color\> (0-15), modo Chroma = \<modo\> (0-1)
+
 LOAD \*COLOR STOP : REM desactivar color
 
-(equivalente al OUT 7FEFh anterior; activa el bit 5 y fija el modo de código de carácter automáticamente. **\<color\>** son los 4 bits bajos del puerto, brillo + GRB combinados en 0-15.
+(equivalente al OUT 7FEFh anterior; activa el bit 5 y fija el modo de código de carácter automáticamente. **\<color\>** son los 4 bits bajos del puerto, brillo + GRB combinados en 0-15. **\<modo\>** es opcional (0 = tabla de color por código de carácter, 1 = fichero de atributos; 0 si se omite). El modo 1 solo está implementado por hardware en los submodos Superfast: en modo nativo (sin Superfast) no tiene efecto real.
 
 # Apéndice F --- Modos Superfast y Spectrum
 
@@ -2584,6 +2586,18 @@ LOAD \*SFSP \<direccion\> : REM Superfast HiRes Spectrum, HFILE = \<direccion\>
 LOAD \*SFAST STOP : REM desactivar (equivalente a \*SFHR STOP / \*SFSP STOP)
 
 (equivalentes a los POKE anteriores, por si se prefiere desde código máquina). **LOAD \*SFHR** y **LOAD \*SFSP** escriben HFILE (2043/2044) y activan el modo en un solo paso; no hace falta indicar HFILE para **LOAD \*SFAST** porque el modo texto no usa RAM extendida.
+
+## Scroll horizontal fino (Superfast)
+
+Los tres submodos Superfast admiten un desplazamiento horizontal fino de 0 a 7 píxeles, que adelanta la búsqueda de carácter/atributo/píxel esa cantidad de píxeles en cada fila:
+
+POKE 2090, \<offset\> : REM offset de scroll fino, 0-7 pixeles
+
+Comando equivalente:
+
+LOAD \*SCROLL \<offset\> : REM equivalente a POKE 2090
+
+El desplazamiento se aplica por igual a los tres submodos Superfast (texto, HiRes nativo y HiRes Spectrum); no tiene efecto en modo nativo. En Superfast texto con Chroma modo 0, el hueco de píxeles que queda a la derecha de cada fila lo rellena el byte de NEWLINE del DFILE (posición 32 de cada fila, sin uso en este modo): el software es responsable de escribir ahí el contenido que deba aparecer al hacer scroll. En los demás submodos ese hueco no tiene un contenido definido todavía.
 
 ## Modo Spectrum
 
@@ -2776,6 +2790,7 @@ LOAD \*WRX STOP : REM desactivar (modo generador de caracteres, por defecto)
 | 2057 | 85 | Desactivar doble buffer |
 | 2058 | 170 | Activar WRX en la RAM de 8-16K |
 | 2058 | 85 | Desactivar WRX (modo generador de caracteres) |
+| 2090 | 0-7 | Scroll horizontal fino Superfast (0-7 pixeles) |
 
 # Apéndice G --- Referencia técnica de audio: chip AY, VGM y alófonos
 

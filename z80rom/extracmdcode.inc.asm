@@ -328,6 +328,23 @@ SprHide:	rst	NEXT_CHAR	; skip STOP token
 		ld	(2101),a	; disable
 		ret
 
+; LOAD *SCROLL <n>
+; Set the Superfast fine horizontal scroll offset (POKE 2090, 0-7 pixels).
+; Applies to all Superfast submodes; no effect in native mode. The extra
+; column revealed on the right (Superfast text) is the DFILE NEWLINE byte
+; of each row, which software can fill with real content.
+CmdSCROLL:	call	CLASS_6		; Read offset number
+		call	MustBeEOL
+		call	FIND_INT	; BC = offset number
+		ld	a,b
+		or	a
+		jp	nz,REPORT_B
+		ld	a,c
+		cp	8		; valid range is 0-7
+		jp	nc,REPORT_B
+		ld	(2090),a
+		ret
+
 HexDecodeCommon:
 		bit	0,l		; length must be even
 		jp	nz,REPORT_A	; Invalid argument otherwise

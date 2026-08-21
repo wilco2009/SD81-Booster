@@ -1260,18 +1260,36 @@ CmdBORDER:	call	CLASS_6		; Read colour number
 		out	(SpulaPort),a
 		ret
 
-; LOAD *COLOR [<border colour>] | LOAD *COLOR STOP
+; LOAD *COLOR [<border colour>[,<mode>]] | LOAD *COLOR STOP
 ; Enable/disable Chroma81 colour mode and set the native-mode border
-; background colour (port 7FEFh: bit5=enable, bits3-0=border colour).
-; <border colour> defaults to 7 (white) if omitted.
+; background colour (port 7FEFh: bit5=enable, bit4=mode, bits3-0=border
+; colour). <border colour> defaults to 7 (white), <mode> defaults to 0
+; (character-code colour table) if omitted; <mode> must be 0 or 1.
 CmdCOLOR:	cp	.STOP		; Token STOP?
 		jr	z,COLORoff
 		cp	.nl		; No argument given?
 		jr	z,COLORdflt
 		call	CLASS_6		; Read border colour number
+		cp	.comma		; Mode argument given too?
+		jr	nz,COLORb1arg
+		rst	NEXT_CHAR	; skip comma
+		call	CLASS_6		; Read mode number
 		call	MustBeEOL	; Check EOL and end syntax check
-		call	FIND_INT	; BC = border colour number
+		call	FIND_INT	; BC = mode number (pushed last)
 		ld	a,b
+		or	a		; Error B if it's > 255
+		jp	nz,ReportB
+		ld	a,c
+		cp	2		; Valid range is 0 or 1
+		jp	nc,ReportB
+		push	bc		; save mode (FIND_INT clobbers DE)
+		call	FIND_INT	; BC = border colour number
+		pop	de		; mode number back, in E
+		jr	COLORchkb
+COLORb1arg:	call	MustBeEOL	; Check EOL and end syntax check
+		call	FIND_INT	; BC = border colour number
+		ld	e,0		; default mode
+COLORchkb:	ld	a,b
 		or	a		; Error B if it's > 255
 		jp	nz,ReportB
 		ld	a,c
@@ -1279,9 +1297,18 @@ CmdCOLOR:	cp	.STOP		; Token STOP?
 		jp	nc,ReportB
 		jr	COLORgotn
 COLORdflt:	call	MustBeEOL	; Check EOL and end syntax check
-		ld	a,7		; default border colour
-COLORgotn:	and	$0F
+		ld	c,7		; default border colour
+		ld	e,0		; default mode
+COLORgotn:	ld	a,c
+		and	$0F
 		or	$20		; enable bit
+		ld	d,a		; stash enable+border
+		ld	a,e		; mode (0 or 1)
+		rlca
+		rlca
+		rlca
+		rlca			; mode -> bit4
+		or	d
 		jr	COLORsend
 COLORoff:	rst	NEXT_CHAR	; skip STOP
 		call	MustBeEOL	; Check EOL and end syntax check

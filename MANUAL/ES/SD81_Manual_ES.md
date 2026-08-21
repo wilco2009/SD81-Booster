@@ -2597,7 +2597,7 @@ Comando equivalente:
 
 LOAD \*SCROLL \<offset\> : REM equivalente a POKE 2090
 
-El desplazamiento se aplica por igual a los tres submodos Superfast (texto, HiRes nativo y HiRes Spectrum); no tiene efecto en modo nativo. En Superfast texto con Chroma modo 0, el hueco de píxeles que queda a la derecha de cada fila lo rellena el byte de NEWLINE del DFILE (posición 32 de cada fila, sin uso en este modo): el software es responsable de escribir ahí el contenido que deba aparecer al hacer scroll. En los demás submodos ese hueco no tiene un contenido definido todavía.
+El desplazamiento se aplica por igual a los tres submodos Superfast (texto, HiRes nativo y HiRes Spectrum); no tiene efecto en modo nativo. En Superfast texto, el hueco de píxeles que queda a la derecha de cada fila lo rellena el byte de NEWLINE del DFILE (posición 32 de cada fila, sin uso en este modo): el software es responsable de escribir ahí el contenido que deba aparecer al hacer scroll. Esto ocurre con o sin color activado (la propia búsqueda de carácter no depende del Chroma); lo único que puede variar según el modo Chroma es el color con el que se muestra esa columna, y solo en modo 1 (fichero de atributos), que no calcula bien el color de esta columna extra. En los demás submodos (HiRes nativo y HiRes Spectrum) ese hueco no tiene un contenido definido todavía.
 
 ## Modo Spectrum
 

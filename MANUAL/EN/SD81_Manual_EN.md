@@ -2504,7 +2504,7 @@ Equivalent command:
 
 LOAD \*SCROLL \<offset\> : REM equivalent to POKE 2090
 
-The offset applies equally to all three Superfast submodes (text, native HiRes and Spectrum HiRes); it has no effect in native mode. In Superfast text mode with Chroma mode 0, the pixel gap left at the right edge of each row is filled by the DFILE's NEWLINE byte (position 32 of each row, unused in this mode): software is responsible for writing whatever content should appear there as the scroll advances. In the other submodes that gap does not have a defined content yet.
+The offset applies equally to all three Superfast submodes (text, native HiRes and Spectrum HiRes); it has no effect in native mode. In Superfast text mode, the pixel gap left at the right edge of each row is filled by the DFILE's NEWLINE byte (position 32 of each row, unused in this mode): software is responsible for writing whatever content should appear there as the scroll advances. This happens whether or not colour is enabled (the character fetch itself does not depend on Chroma); the only thing that can vary with the Chroma mode is the colour this extra column is shown in, and only in mode 1 (attribute file), which does not compute this column's colour correctly. In the other submodes (native HiRes and Spectrum HiRes) that gap does not have a defined content yet.
 
 ## Spectrum Mode
 

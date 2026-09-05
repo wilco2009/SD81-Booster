@@ -141,3 +141,12 @@
 /FPGA/SD81V2.1000/sd81.mcs.bak
 /Arduino/flash.zip
 /Arduino/flash/
+
+# ── FPGA sprite cost-measurement harness (Xilinx ISE project for
+# sprite_array_demo.v, not part of the real build) ─────────────
+/FPGA/sprite_test/
+
+# ── Explorer example: compiled output / personal scratch ───────
+/EXAMPLES/EXPLORER/explorer.bin
+/EXAMPLES/EXPLORER/compila.bat
+/EXAMPLES/EXPLORER/traza.txt

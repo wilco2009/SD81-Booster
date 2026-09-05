@@ -2110,8 +2110,10 @@ static void do_f_open(bool convert){
   }
 
   SendByteToZ80(handle);                   // confirma ultimo byte + envia handle
-  ToggleClock();                           // toggle final
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en
+  // cmd_opendir2 sobre la ventana de carrera.
   reset_commands();
+  ToggleClock();                           // toggle final
 }
 
 // COMMAND = 53 (0x35) fopen ASCII (cliente CP/M)

@@ -2599,6 +2599,20 @@ LOAD \*SCROLL \<offset\> : REM equivalente a POKE 2090
 
 El desplazamiento se aplica por igual a los tres submodos Superfast (texto, HiRes nativo y HiRes Spectrum); no tiene efecto en modo nativo. En Superfast texto, el hueco de píxeles que queda a la derecha de cada fila lo rellena el byte de NEWLINE del DFILE (posición 32 de cada fila, sin uso en este modo): el software es responsable de escribir ahí el contenido que deba aparecer al hacer scroll. Esto ocurre con o sin color activado (la propia búsqueda de carácter no depende del Chroma); lo único que puede variar según el modo Chroma es el color con el que se muestra esa columna, y solo en modo 1 (fichero de atributos), que no calcula bien el color de esta columna extra. En los demás submodos (HiRes nativo y HiRes Spectrum) ese hueco no tiene un contenido definido todavía.
 
+El desplazamiento puede activarse o desactivarse por fila, para dejar fijos marcadores o puntuaciones mientras el resto de la pantalla se desplaza. Cada fila de texto (0-23) tiene un bit en uno de tres registros de 8 bits:
+
+POKE 2091, \<mapa\> : REM filas 0-7 (bit0=fila 0)
+
+POKE 2092, \<mapa\> : REM filas 8-15
+
+POKE 2093, \<mapa\> : REM filas 16-23
+
+Bit a 1 = esa fila se desplaza con el offset de **LOAD \*SCROLL**; bit a 0 = esa fila se queda fija. Por defecto (tras un reset) los tres registros valen 255 (todas las filas se desplazan), igual que antes de que existiera este registro. Comando equivalente:
+
+LOAD \*SCROWS \<lo\>,\<mid\>,\<hi\> : REM equivalente a POKE 2091/2092/2093
+
+(equivalente a los tres POKE anteriores en un solo paso; cada argumento es un byte 0-255).
+
 ## Modo Spectrum
 
 El modo Spectrum (POKE 2045,172) reordena las líneas de pantalla para que coincidan con la organización de la pantalla del ZX Spectrum, facilitando la conversión de programas entre ambas plataformas. En el ZX81 estándar las líneas se organizan de forma diferente a como lo hace el Spectrum; este modo elimina esa diferencia por hardware.
@@ -2791,6 +2805,9 @@ LOAD \*WRX STOP : REM desactivar (modo generador de caracteres, por defecto)
 | 2058 | 170 | Activar WRX en la RAM de 8-16K |
 | 2058 | 85 | Desactivar WRX (modo generador de caracteres) |
 | 2090 | 0-7 | Scroll horizontal fino Superfast (0-7 pixeles) |
+| 2091 | \<mapa\> | Filas 0-7 con scroll fino activo (bit0=fila 0) |
+| 2092 | \<mapa\> | Filas 8-15 con scroll fino activo |
+| 2093 | \<mapa\> | Filas 16-23 con scroll fino activo |
 
 # Apéndice G --- Referencia técnica de audio: chip AY, VGM y alófonos
 

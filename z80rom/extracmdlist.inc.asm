@@ -33,3 +33,6 @@
 
 		db	.S,.C,.R,.O,.L,.L + $80
 		dw	CmdSCROLL
+
+		db	.S,.C,.R,.O,.W,.S + $80
+		dw	CmdSCROWS

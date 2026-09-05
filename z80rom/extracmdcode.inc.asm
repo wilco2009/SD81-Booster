@@ -345,6 +345,44 @@ CmdSCROLL:	call	CLASS_6		; Read offset number
 		ld	(2090),a
 		ret
 
+; LOAD *SCROWS <lo>,<mid>,<hi>
+; Set the per-row Superfast fine-scroll enable bitmap (POKE 2091/2092/
+; 2093). <lo>=rows 0-7, <mid>=rows 8-15, <hi>=rows 16-23 (bit0=lowest row
+; of each byte). Bit=1 means that row is shifted by LOAD *SCROLL; bit=0
+; keeps that row fixed (e.g. a HUD) even while the rest of the screen
+; scrolls. Each argument is a plain byte, 0-255. Default after reset is
+; all bits set (every row scrolls), matching the behaviour before this
+; command existed.
+CmdSCROWS:	call	CLASS_6		; Read lo byte
+		call	MustBeComma
+		call	CLASS_6		; Read mid byte
+		call	MustBeComma
+		call	CLASS_6		; Read hi byte
+		call	MustBeEOL
+		call	FIND_INT	; BC = hi (pushed last, popped first)
+		ld	a,b
+		or	a
+		jp	nz,REPORT_B
+		ld	a,c
+		push	af		; stash hi (FIND_INT clobbers DE)
+		call	FIND_INT	; BC = mid
+		ld	a,b
+		or	a
+		jp	nz,REPORT_B
+		ld	a,c
+		push	af		; stash mid
+		call	FIND_INT	; BC = lo
+		ld	a,b
+		or	a
+		jp	nz,REPORT_B
+		ld	a,c
+		ld	(2091),a	; lo
+		pop	af
+		ld	(2092),a	; mid
+		pop	af
+		ld	(2093),a	; hi
+		ret
+
 HexDecodeCommon:
 		bit	0,l		; length must be even
 		jp	nz,REPORT_A	; Invalid argument otherwise

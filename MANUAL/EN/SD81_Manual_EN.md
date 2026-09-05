@@ -2506,6 +2506,20 @@ LOAD \*SCROLL \<offset\> : REM equivalent to POKE 2090
 
 The offset applies equally to all three Superfast submodes (text, native HiRes and Spectrum HiRes); it has no effect in native mode. In Superfast text mode, the pixel gap left at the right edge of each row is filled by the DFILE's NEWLINE byte (position 32 of each row, unused in this mode): software is responsible for writing whatever content should appear there as the scroll advances. This happens whether or not colour is enabled (the character fetch itself does not depend on Chroma); the only thing that can vary with the Chroma mode is the colour this extra column is shown in, and only in mode 1 (attribute file), which does not compute this column's colour correctly. In the other submodes (native HiRes and Spectrum HiRes) that gap does not have a defined content yet.
 
+The scroll can be turned on or off per row, to keep markers or a score line fixed while the rest of the screen scrolls. Each text row (0-23) has one bit in one of three 8-bit registers:
+
+POKE 2091, \<map\> : REM rows 0-7 (bit0=row 0)
+
+POKE 2092, \<map\> : REM rows 8-15
+
+POKE 2093, \<map\> : REM rows 16-23
+
+Bit=1 means that row is shifted by the **LOAD \*SCROLL** offset; bit=0 keeps that row fixed. By default (after a reset) all three registers are 255 (every row scrolls), matching the behaviour before this register existed. Equivalent command:
+
+LOAD \*SCROWS \<lo\>,\<mid\>,\<hi\> : REM equivalent to POKE 2091/2092/2093
+
+(equivalent to the three POKEs above in a single step; each argument is a plain byte, 0-255).
+
 ## Spectrum Mode
 
 Spectrum mode (POKE 2045,172) reorders screen lines to match the ZX Spectrum screen organisation, facilitating the conversion of programs between both platforms and enabling the loading of .SCR files directly.
@@ -2696,6 +2710,9 @@ LOAD \*WRX STOP : REM disable (character generator mode, default)
 | 2058 | 170 | Enable WRX in the 8-16K RAM |
 | 2058 | 85 | Disable WRX (character generator mode) |
 | 2090 | 0-7 | Fine horizontal scroll, Superfast (0-7 pixels) |
+| 2091 | \<map\> | Rows 0-7 with fine scroll active (bit0=row 0) |
+| 2092 | \<map\> | Rows 8-15 with fine scroll active |
+| 2093 | \<map\> | Rows 16-23 with fine scroll active |
 
 # Appendix G --- Audio Technical Reference: AY chip, VGM and allophones
 

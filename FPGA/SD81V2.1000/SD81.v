@@ -504,6 +504,40 @@ Port $7FEF (01111111 11101111) - IN:
 		else sf_hscroll <= data[2:0];
 	end
 
+	// POKE 2091/2092/2093: mapa de bits de que filas de texto (0-23) aplican
+	// el scroll horizontal fino -- bit a 1 = esa fila se desplaza, bit a 0 =
+	// esa fila se queda fija (marcadores, puntuacion...). 2091=filas 0-7,
+	// 2092=filas 8-15, 2093=filas 16-23, bit0=fila mas baja de cada byte. Por
+	// defecto todo a 1 (todas las filas se desplazan), igual que antes de
+	// tener este registro.
+	reg [7:0] sf_hscroll_rows_l = 8'hFF;
+	reg [7:0] sf_hscroll_rows_m = 8'hFF;
+	reg [7:0] sf_hscroll_rows_h = 8'hFF;
+	wire sf_hscroll_rows_l_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2091);
+	wire sf_hscroll_rows_m_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2092);
+	wire sf_hscroll_rows_h_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2093);
+	always @(posedge sf_hscroll_rows_l_wr or negedge nRESET) begin
+		if (nRESET==1'b0) sf_hscroll_rows_l <= 8'hFF;
+		else sf_hscroll_rows_l <= data;
+	end
+	always @(posedge sf_hscroll_rows_m_wr or negedge nRESET) begin
+		if (nRESET==1'b0) sf_hscroll_rows_m <= 8'hFF;
+		else sf_hscroll_rows_m <= data;
+	end
+	always @(posedge sf_hscroll_rows_h_wr or negedge nRESET) begin
+		if (nRESET==1'b0) sf_hscroll_rows_h <= 8'hFF;
+		else sf_hscroll_rows_h <= data;
+	end
+
+	// Fila de texto actual (0-23), calculada directamente de line_cnt: es
+	// estable durante las 8 lineas de raster de la fila, independiente del
+	// estado del contador de columna (col_cnt_b). Con esto se evita cualquier
+	// dependencia circular con el propio scroll horizontal.
+	wire [4:0] sf_hscroll_row = {line_cnt-SCR_START_Y}[7:3];
+	wire sf_hscroll_row_en = sf_hscroll_row[4:3]==2'b00 ? sf_hscroll_rows_l[sf_hscroll_row[2:0]] :
+										sf_hscroll_row[4:3]==2'b01 ? sf_hscroll_rows_m[sf_hscroll_row[2:0]] :
+										sf_hscroll_rows_h[sf_hscroll_row[2:0]];
+
 	// ========================================================================
 	// Sprites 8x8 (1 byte/scanline + mascara), almacenados en distributed RAM
 	// (LUTs), no en BRAM (la BRAM esta a 32/32, sin margen). Boceto probado
@@ -731,7 +765,12 @@ Port $7FEF (01111111 11101111) - IN:
 	// 7 se perdia una columna entera y se veia como sin scroll. Desplazando
 	// tambien la ventana, cada fila tiene siempre las ranuras 0..32 y lo unico
 	// que cambia es que los pixeles salen sf_hscroll antes.
-	wire [8:0] col_cnt_b_offset = sfast_mode_en ? {6'b0,sf_hscroll} : 9'd0;
+	// hscroll_active tiene en cuenta tambien el mapa de filas (POKE
+	// 2091/2092/2093): si la fila actual tiene su bit a 0, esta fila se
+	// comporta exactamente como si sf_hscroll fuera 0 (marcadores/puntuacion
+	// fijos aunque el resto de la pantalla se desplace).
+	wire hscroll_active = sfast_mode_en && (sf_hscroll != 3'd0) && sf_hscroll_row_en;
+	wire [8:0] col_cnt_b_offset = hscroll_active ? {6'b0,sf_hscroll} : 9'd0;
 	wire [8:0] pixel_cnt_sf = pixel_cnt + col_cnt_b_offset;
 	// Con scroll activo la ventana de captacion se alarga un grupo (8 px) por
 	// la derecha: como el primer grupo de cada fila se pierde (ver
@@ -739,7 +778,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// de NEWLINE del DFILE) se capture y sus primeros sf_hscroll pixeles
 	// salgan por el borde derecho. Con sf_hscroll==0 la ventana es la de
 	// siempre.
-	wire [8:0] scr_end_x_sf = SCR_END_X + ((sfast_mode_en && sf_hscroll!=3'd0) ? 9'd8 : 9'd0);
+	wire [8:0] scr_end_x_sf = SCR_END_X + (hscroll_active ? 9'd8 : 9'd0);
 	wire [2:0] col_cnt_b = {pixel_cnt_sf+(pixel_cnt>31)-SCR_START_X}[2:0];
 	wire [2:0] line_cnt_b = {line_cnt - SCR_START_Y}[2:0];
 	reg [4:0]scr_col1=0;
@@ -760,9 +799,9 @@ Port $7FEF (01111111 11101111) - IN:
 	// depende de anchos ni de signos, que es donde fallaba antes (se colaba un
 	// +32 en TODAS las ranuras y la pantalla entera se direccionaba una
 	// columna antes y una fila mas tarde).
-	// Con sf_hscroll==0 se usa scr_col y queda exactamente como antes.
-	wire [5:0] scr_col_x = (sfast_mode_en && (sf_hscroll != 3'd0)) ?
-									sf_col_idx : {1'b0,scr_col};
+	// Con sf_hscroll==0, o en una fila con el scroll desactivado por POKE
+	// 2091/2092/2093, se usa scr_col y queda exactamente como antes.
+	wire [5:0] scr_col_x = hscroll_active ? sf_col_idx : {1'b0,scr_col};
 	wire [15:0] char_addr = DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col_x;
 	wire [15:0] scan_addr = sfHR_en? {vpage,hr_addr}:	// superfast HR native mode (front si dbuf)
 									sfSP_en?	{vpage,hr_addr[12:11],hr_addr[7:5],hr_addr[10:8],hr_addr[4:0]}: // superfast HR spectrum mode (front si dbuf)
@@ -1664,11 +1703,16 @@ assign DEBUG_RDY = 1'b0;
 			kbd_data = 5'b11111;
 			for (i=7;i>=0;i=i-1) begin
 				if (!A[8+i]) begin
-					if (!UP && (row_UP==i)) kbd_data = ~(kbd_data & (1'b1 << col_UP));
-					if (!DOWN && (row_DOWN==i)) kbd_data = ~(kbd_data & (1'b1 << col_DOWN));
-					if (!LEFT && (row_LEFT==i)) kbd_data = ~(kbd_data & (1'b1 << col_LEFT));
-					if (!RIGHT && (row_RIGHT==i)) kbd_data = ~(kbd_data & (1'b1 << col_RIGHT));
-					if (!FIRE && (row_FIRE==i)) kbd_data = ~(kbd_data & (1'b1 << col_FIRE));
+					// AND-NOT para borrar solo el bit de esta tecla, sin tocar
+					// los que ya hubiera puesto a 0 una tecla anterior de la
+					// misma semifila (con ~(kbd_data & mascara) se perdian:
+					// el AND con una mascara de un solo bit pone a 0 TODOS
+					// los demas, y el ~ los devolvia a "no pulsado").
+					if (!UP && (row_UP==i)) kbd_data = kbd_data & ~(1'b1 << col_UP);
+					if (!DOWN && (row_DOWN==i)) kbd_data = kbd_data & ~(1'b1 << col_DOWN);
+					if (!LEFT && (row_LEFT==i)) kbd_data = kbd_data & ~(1'b1 << col_LEFT);
+					if (!RIGHT && (row_RIGHT==i)) kbd_data = kbd_data & ~(1'b1 << col_RIGHT);
+					if (!FIRE && (row_FIRE==i)) kbd_data = kbd_data & ~(1'b1 << col_FIRE);
 				end
 			end
 		end

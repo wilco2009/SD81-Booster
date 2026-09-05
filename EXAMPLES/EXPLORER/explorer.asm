@@ -146,6 +146,13 @@ start:
         ld a,28                   ; CMD_chars64
         call mcu_send
 
+        ; --- joystick: configuracion por defecto, enviada nada mas
+        ; arrancar (antes no se mandaba ninguna hasta tocarlo en el panel) ---
+        ld hl,cfg_joy_keys
+        ld b,5
+        ld a,21                   ; CMD_joy
+        call cmd_str_zx
+
         ; --- abrir directorio raiz ---
         call do_opendir_root
 
@@ -880,33 +887,35 @@ vtchr_send:
 
 ; -------------------------------------------------------------
 ; vt_edit_joy: tecla J -- edita las 5 teclas del joystick (arriba, abajo,
-; izda, dcha, fuego) partiendo del valor actual (cfg_joy_keys), con el
-; mismo dialogo de texto que usan renombrar/nueva carpeta (show_prompt +
-; text_input), pero con (ti_allow_space)=1: el ESPACIO es una tecla de
-; joystick valida (p.ej. fuego), asi que aqui NO cancela -- se inserta
-; como caracter normal. Para cancelar (recuperar las teclas de antes de
-; editar) hay que usar SHIFT+1 (ti_restore), como en renombrar; por eso
-; se rellena rn_oldname/rn_oldlen con el valor actual antes de editar.
-; Solo si se sale con exactamente 5 caracteres se manda con CMD_joy (21)
-; y se actualiza cfg_joy_keys; en cualquier otro caso no se toca nada.
-; Solo actua si el panel esta visible.
+; izda, dcha, fuego), con el mismo dialogo de texto que usan renombrar/
+; nueva carpeta (show_prompt + text_input), pero con (ti_allow_space)=1:
+; el ESPACIO es una tecla de joystick valida (p.ej. fuego), asi que aqui
+; NO cancela -- se inserta como caracter normal. El campo empieza VACIO
+; (a diferencia de renombrar, que precarga el nombre): si se precargaran
+; las 5 teclas actuales con el cursor al final, escribir encima sin
+; borrar antes daba mas de 5 caracteres y la edicion se descartaba en
+; silencio (namelen<>5). Para cancelar y recuperar las teclas de antes
+; de editar sigue funcionando SHIFT+1 (ti_restore), por eso se rellena
+; rn_oldname/rn_oldlen con el valor actual antes de editar. Solo si se
+; sale con exactamente 5 caracteres se manda con CMD_joy (21) y se
+; actualiza cfg_joy_keys; en cualquier otro caso no se toca nada. Solo
+; actua si el panel esta visible.
 ; -------------------------------------------------------------
 vt_edit_joy:
         ld a,(cfg_panel)
         or a
         jp z,vt_loop
 
-        ld hl,cfg_joy_keys
-        ld de,namebuf
-        ld bc,5
-        ldir
         ld a,5
-        ld (namelen),a
         ld (rn_oldlen),a
-        ld hl,namebuf
+        ld hl,cfg_joy_keys
         ld de,rn_oldname
         ld bc,5
         ldir
+        xor a
+        ld (namelen),a            ; campo vacio: escribir sustituye, no
+                                   ; hace falta borrar las 5 de antes
+                                   ; (SHIFT+1 sigue recuperando rn_oldname)
 
         ld a,1
         ld (ti_allow_space),a
@@ -1239,6 +1248,8 @@ vt_activate:
         jp z,vt_act_loadvgm
         call is_peb_ext
         jp z,vt_act_loadpeb
+        call is_scr_ext
+        jp z,vt_view_scr
         call is_txt_ext
         jp z,vt_view_txt
         jp vt_act_loadp
@@ -1364,6 +1375,39 @@ ipe_no:
         or 1
         ret
 
+; is_scr_ext: Z si namebuf/(namelen) termina en ".SCR" (mismo criterio
+; que is_vgm_ext). Destruye AF,DE,HL.
+is_scr_ext:
+        ld a,(namelen)
+        cp 4
+        jr c,isc_no
+        ld hl,namebuf
+        ld e,a
+        ld d,0
+        add hl,de
+        dec hl
+        dec hl
+        dec hl
+        dec hl
+        ld a,(hl)
+        cp '.'
+        jr nz,isc_no
+        inc hl
+        ld a,(hl)
+        cp 'S'
+        jr nz,isc_no
+        inc hl
+        ld a,(hl)
+        cp 'C'
+        jr nz,isc_no
+        inc hl
+        ld a,(hl)
+        cp 'R'
+        ret
+isc_no:
+        or 1
+        ret
+
 ; is_txt_ext: Z si namebuf/(namelen) termina en ".TXT" (mismo criterio
 ; que is_vgm_ext). Destruye AF,DE,HL.
 is_txt_ext:
@@ -1468,6 +1512,118 @@ vtlp_short:
         ld (cfg_vgm_loaded),a
         ld (cfg_vgm_playing),a
         ld (cfg_media_peb),a
+        jp vt_refresh_and_loop
+
+; -------------------------------------------------------------
+; vt_view_scr: ENTER sobre un archivo .SCR -- captura de pantalla
+; Spectrum nativa (6912 bytes: 6144 de bitmap "de tercios" + 768 de
+; atributo, ver comentario de calc_bmp_addr y extract_bg.py). Se lee en
+; bloques de 256 bytes (una scanline x los 8 bytes-fila de un tercio, o
+; 8 filas de atributo) -- NO fila a fila, que serian cientos de
+; peticiones MCU -- y cada bloque se reparte directamente a las filas
+; de pantalla reales via calc_bmp_addr/calc_attr_addr. Espera cualquier
+; tecla y vuelve al listado.
+; -------------------------------------------------------------
+vt_view_scr:
+        call f_open_txt
+        cp 0FFh
+        jp z,vt_loop
+
+        ld (viewer_handle),a
+        xor a
+        ld (clock_screen_active),a
+        call video_clear
+
+        ; -- bitmap: 3 tercios x 8 scanlines x 256 bytes (8 filas x 32) --
+        xor a
+        ld (vscr_third),a
+vscr_third_loop:
+        xor a
+        ld (vscr_line),a
+vscr_line_loop:
+        ld a,(viewer_handle)
+        ld de,256
+        call f_read
+        xor a
+        ld (vscr_rit),a
+        ld hl,viewer_buf
+        ld (vscr_srcptr),hl
+vscr_rit_loop:
+        ld a,(vscr_third)
+        add a,a
+        add a,a
+        add a,a                  ; a = tercio*8
+        ld b,a
+        ld a,(vscr_rit)
+        add a,b                  ; a = fila global (0-23)
+        call calc_bmp_addr       ; hl = direccion scanline0 de esa fila
+        ld a,(vscr_line)
+        add a,h
+        ld h,a                   ; += scanline (cada una sale +100h)
+        ex de,hl                 ; de = direccion destino en pantalla
+        ld hl,(vscr_srcptr)
+        ld bc,32
+        ldir
+        ld (vscr_srcptr),hl
+        ld a,(vscr_rit)
+        inc a
+        ld (vscr_rit),a
+        cp 8
+        jr c,vscr_rit_loop
+
+        ld a,(vscr_line)
+        inc a
+        ld (vscr_line),a
+        cp 8
+        jr c,vscr_line_loop
+
+        ld a,(vscr_third)
+        inc a
+        ld (vscr_third),a
+        cp 3
+        jr c,vscr_third_loop
+
+        ; -- atributos: 3 bloques de 256 bytes (8 filas x 32), sin
+        ; "tercios" -- lineales, fila 0..23 seguidas --
+        xor a
+        ld (vscr_third),a
+vscr_attr_third_loop:
+        ld a,(viewer_handle)
+        ld de,256
+        call f_read
+        xor a
+        ld (vscr_rit),a
+        ld hl,viewer_buf
+        ld (vscr_srcptr),hl
+vscr_attr_rit_loop:
+        ld a,(vscr_third)
+        add a,a
+        add a,a
+        add a,a
+        ld b,a
+        ld a,(vscr_rit)
+        add a,b
+        call calc_attr_addr
+        ex de,hl
+        ld hl,(vscr_srcptr)
+        ld bc,32
+        ldir
+        ld (vscr_srcptr),hl
+        ld a,(vscr_rit)
+        inc a
+        ld (vscr_rit),a
+        cp 8
+        jr c,vscr_attr_rit_loop
+
+        ld a,(vscr_third)
+        inc a
+        ld (vscr_third),a
+        cp 3
+        jr c,vscr_attr_third_loop
+
+        ld a,(viewer_handle)
+        call f_close
+        call read_key
         jp vt_refresh_and_loop
 
 ; -------------------------------------------------------------
@@ -4666,6 +4822,12 @@ list_filter:      defs TI_MAXLEN
 
 rtc_buf: defs 22        ; "yyyy-mm-dd hh:mm:ss.cc" (ver rtc_fetch)
 
+; -- contadores de vt_view_scr --
+vscr_third:  defb 0
+vscr_line:   defb 0
+vscr_rit:    defb 0
+vscr_srcptr: defw 0
+
 ; -- panel de configuracion: estado local de cada opcion (no hay forma de
 ; preguntarselo al firmware, asi que el explorador fuerza un estado inicial
 ; conocido en start y lo va llevando al alternar cada tecla) --
@@ -4673,7 +4835,7 @@ cfg_wrx:        defb 0          ; 0=OFF,1=ON
 cfg_fullpag:    defb 0          ; 0=OFF,1=ON
 cfg_mc45:       defb 0          ; 0=OFF,1=ON
 cfg_chr128:     defb 0          ; 0=CHR64,1=CHR128
-cfg_joy_keys:   defb "QAOP "    ; teclas arriba/abajo/izda/dcha/fuego
+cfg_joy_keys:   defb "67580"    ; teclas arriba/abajo/izda/dcha/fuego (por defecto)
 cfg_vgm_loaded:   defb 0        ; 0=nada cargado, 1=hay algo cargado (VGM o PEB, sonando o en pausa)
 cfg_vgm_playing:  defb 0        ; 0=parado/en pausa, 1=sonando
 cfg_vgm_namelen:  defb 0

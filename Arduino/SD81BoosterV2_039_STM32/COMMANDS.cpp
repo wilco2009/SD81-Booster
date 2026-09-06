@@ -1501,8 +1501,9 @@ void cmd_sel_128_chars(){
   log_2("128 chars mode selected");
 //  digitalWrite(SEL_128CHARS,HIGH);
   send_bit_config(cfgcmd_128CHARS,1);
+  send_bit_config(cfgcmd_256CHARS,0);  // 128C es un reseteo limpio: apaga 256C tambien
   ToggleClock();
-  
+
   reset_commands();
 }
 
@@ -1511,6 +1512,15 @@ void cmd_sel_64_chars(){
   log_2("64 chars mode selected");
 //  digitalWrite(SEL_128CHARS,LOW);
   send_bit_config(cfgcmd_128CHARS,0);
+  send_bit_config(cfgcmd_256CHARS,0);  // 64C es un reseteo limpio: apaga 256C tambien
+  ToggleClock();
+  reset_commands();
+}
+
+// COMMAND = 65 (0x41) LOAD *256C
+void cmd_sel_256_chars(){
+  log_2("256 chars mode selected");
+  send_bit_config(cfgcmd_256CHARS,1);
   ToggleClock();
   reset_commands();
 }
@@ -2345,5 +2355,6 @@ command_handler commands[] = {
   cmd_ntp_setserver,    //62 (0x3E) LOAD *NTP="<server>"
   cmd_ntp_setoffset,    //63 (0x3F) LOAD *NTP [+|-]<n>
   cmd_ntp_sync,         //64 (0x40) LOAD *NTP (fuerza sincronizacion)
+  cmd_sel_256_chars,    //65 (0x41) LOAD *256C
   cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

@@ -182,6 +182,13 @@ module SD81(
 	reg EN_MC45 = 1'b0;	// initially disabled
 	reg sfast_mode_en  = 1'b0; 
 	reg SEL_128CHARS = 1'b0;
+	// 256 caracteres definibles, solo Superfast texto: char_latch_fast[6] no
+	// se usa para nada en ese modo (el "isborder" por HALT que consume ese
+	// bit en nativo es una rama de codigo totalmente distinta, ver
+	// ishalt_delayed <= char_latch[6] mas abajo), asi que junto a bit 7 dan
+	// 2 bits de seleccion -> 4 grupos de 64 = 256. Tiene prioridad sobre
+	// SEL_128CHARS (ver scan_addr); Cmd64C/Cmd128C la apagan al activarse.
+	reg SEL_256CHARS = 1'b0;
 	
 
 	reg [15:0] DFILE = 16'd0;
@@ -805,6 +812,7 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [15:0] char_addr = DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col_x;
 	wire [15:0] scan_addr = sfHR_en? {vpage,hr_addr}:	// superfast HR native mode (front si dbuf)
 									sfSP_en?	{vpage,hr_addr[12:11],hr_addr[7:5],hr_addr[10:8],hr_addr[4:0]}: // superfast HR spectrum mode (front si dbuf)
+									SEL_256CHARS? {ROMTABLE[15:11],char_latch_fast[7],char_latch_fast[6],char_latch_fast[5:0],line_cnt_b}: // 256 chars: tabla alineada a 2K
 									{ROMTABLE[15:10],SEL_128CHARS?char_latch_fast[7]:ROMTABLE[9],char_latch_fast[5:0],line_cnt_b}; //superfast textmode
 									
 	reg [1:0] beeper_reg = 0;
@@ -1686,6 +1694,7 @@ assign DEBUG_RDY = 1'b0;
 				else if 	(comm_cmd==3) nQS_en <= cfg_reg[CMD_BITS];				// Quick Silva 1=disabled, 0=enabled
 				else if 	(comm_cmd==4) FULL_PAGING <= cfg_reg[CMD_BITS];		// 1=HIGHER HALF RAM, 0=LOWER HALF RAM			end else begin
 				else if 	(comm_cmd==5) SEL_128CHARS <= cfg_reg[CMD_BITS];		// 1=HIGHER HALF RAM, 0=LOWER HALF RAM			end else begin
+				else if 	(comm_cmd==6) SEL_256CHARS <= cfg_reg[CMD_BITS];		// 1=256 caracteres (solo Superfast texto), 0=normal
 			end else begin
 				cfg_reg[cfg_cnt]<=CFG_DATA;
 				if (cfg_cnt < MAX_CFG) cfg_cnt <= cfg_cnt+1'b1;

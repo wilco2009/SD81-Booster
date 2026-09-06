@@ -536,6 +536,17 @@ Port $7FEF (01111111 11101111) - IN:
 		else sf_hscroll <= data[2:0];
 	end
 
+	// POKE 2094 (0-15): CALIBRACION de la PRUEBA de 80 columnas. Desplaza
+	// SCR_START_X_80 en pasos de 8 ciclos de pixel_clk (1 caracter), para
+	// no romper la congruencia modulo 8 con SCR_START_X que necesita
+	// col_cnt_b. Por defecto 0 (valor de partida, 138).
+	reg [3:0] sf80_x_shift = 4'd0;
+	wire sf80_x_shift_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2094);
+	always @(posedge sf80_x_shift_wr or negedge nRESET) begin
+		if (nRESET==1'b0) sf80_x_shift <= 4'd0;
+		else sf80_x_shift <= data[3:0];
+	end
+
 	// POKE 2091/2092/2093: mapa de bits de que filas de texto (0-23) aplican
 	// el scroll horizontal fino -- bit a 1 = esa fila se desplaza, bit a 0 =
 	// esa fila se queda fija (marcadores, puntuacion...). 2091=filas 0-7,
@@ -734,7 +745,9 @@ Port $7FEF (01111111 11101111) - IN:
 	// = 2) para TODOS los modos, no se resetea por modo -- SCR_START_X_80
 	// tiene que cumplir la misma congruencia (138 mod 8 = 2) para que la
 	// fase de scr_col_80 coincida con cuando el estado 6 dispara de verdad.
-	wire [9:0] SCR_START_X_80 = 10'd138;
+	// POKE 2094 (0-15) desplaza en pasos de 8 (1 caracter), preservando
+	// siempre esa congruencia sea cual sea el valor.
+	wire [9:0] SCR_START_X_80 = 10'd138 + {sf80_x_shift,3'b0};
 	wire [9:0] SCR_END_X_80 = SCR_START_X_80+80*8-1;
 	reg [6:0] scr_col_80;
 

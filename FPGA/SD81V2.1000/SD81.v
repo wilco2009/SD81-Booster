@@ -547,6 +547,17 @@ Port $7FEF (01111111 11101111) - IN:
 		else sf80_x_shift <= data[3:0];
 	end
 
+	// POKE 2095 (0-15): recorta el ANCHO activo en caracteres (80-N), por
+	// si los 640 ciclos completos no caben en el hueco real disponible
+	// aunque se desplace el inicio -- permite separar "donde empieza" de
+	// "cuanto mide" para saber cuantas columnas caben de verdad.
+	reg [3:0] sf80_width_trim = 4'd0;
+	wire sf80_width_trim_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2095);
+	always @(posedge sf80_width_trim_wr or negedge nRESET) begin
+		if (nRESET==1'b0) sf80_width_trim <= 4'd0;
+		else sf80_width_trim <= data[3:0];
+	end
+
 	// POKE 2091/2092/2093: mapa de bits de que filas de texto (0-23) aplican
 	// el scroll horizontal fino -- bit a 1 = esa fila se desplaza, bit a 0 =
 	// esa fila se queda fija (marcadores, puntuacion...). 2091=filas 0-7,
@@ -748,7 +759,9 @@ Port $7FEF (01111111 11101111) - IN:
 	// POKE 2094 (0-15) desplaza en pasos de 8 (1 caracter), preservando
 	// siempre esa congruencia sea cual sea el valor.
 	wire [9:0] SCR_START_X_80 = 10'd138 + {sf80_x_shift,3'b0};
-	wire [9:0] SCR_END_X_80 = SCR_START_X_80+80*8-1;
+	// POKE 2095 (0-15) recorta el ancho activo: (80-sf80_width_trim)
+	// caracteres en vez de 80 fijos siempre.
+	wire [9:0] SCR_END_X_80 = SCR_START_X_80+(80-sf80_width_trim)*8-1;
 	reg [6:0] scr_col_80;
 
 	reg [4:0] scr_row;

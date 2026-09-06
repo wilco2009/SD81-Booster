@@ -134,7 +134,7 @@ Version 1.0
 
 [11.4 Boot with Alternative ROM](#boot-with-alternative-rom)
 
-[11.5 User-Definable Characters (128C / 64C)](#user-definable-characters-128c-64c)
+[11.5 User-Definable Characters (128C / 64C / 256C)](#user-definable-characters-128c-64c-256c)
 
 [Example: Spectrum-style start screen](#example-spectrum-style-start-screen)
 
@@ -1304,7 +1304,7 @@ The SD81 Booster allows booting with a different ROM than the standard ZX81 ROM 
 | **💡** | *This feature is very useful for testing alternative or modified ROMs without reprogramming any chip. The standard ZX81 ROM always loads if no key is pressed during boot.* |
 |------|------------------------------------------------------------------|
 
-## 11.5 User-Definable Characters (128C / 64C)
+## 11.5 User-Definable Characters (128C / 64C / 256C)
 
 By default, the ZX81 has 64 characters defined by the ROM. The SD81 Booster allows you to expand this set to 128 characters, all of which are completely redefinable, by writing to the memory area between addresses 15360 and 16383 (3C00h--3FFFh).
 
@@ -1315,6 +1315,12 @@ By default, the ZX81 has 64 characters defined by the ROM. The SD81 Booster allo
 **Return to standard 64-character mode:**
 
 > LOAD \*64C
+
+**Activate 256-character mode:**
+
+> LOAD \*256C
+
+This mode only works in Superfast text mode. It extends the set to 256 characters, all redefinable, in the memory area between addresses 14336 and 16383 (3800h--3FFFh) --- twice the space of 128-character mode, aligned to 2K instead of 1K. As with 128C, the whole block is preloaded with the ROM character set at boot, so enabling the mode without having redefined anything does not change what is shown on screen. Activating \"128C\" or \"64C\" disables \"256C\".
 
 | **ℹ** | *In 128-character mode, the upper 64 characters are automatically shown in inverse video by the hardware. To display them in normal video you must store the inverted graphic in the corresponding position.* |
 |------|------------------------------------------------------------------|
@@ -1919,6 +1925,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 | 30 | HALFPAGING | --- | --- | Activates simple paging mode (256 KB, 32 pages). |
 | 48 | ENABLE_48K | --- | --- | Activates 48 KB extended RAM mode. Equivalent to LOAD \*RAM48.. |
 | 49 | DISABLE_48K | --- | --- | Deactivates extended RAM mode. Equivalent to LOAD \*RAM48 STOP. |
+| 65 | SEL_256CHARS | --- | --- | Activates 256-character mode (Superfast text only). Equivalent to LOAD \*256C. |
 
 ### Speech synthesis commands
 

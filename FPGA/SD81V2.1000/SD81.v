@@ -198,6 +198,10 @@ module SD81(
 	reg sfHR_en = 1'b0;
 	wire cs_SPULA = sfSP_en && (nIORQ==1'b0) && (nWR==1'b0) && (Addr[7:0]==8'hfb); // Spectrum mode ULA port is here FBh (zxprinter port)
 	reg sfSP_en = 1'b0;
+	// PRUEBA: Superfast texto 80 columnas (POKE 2045,173). Exclusivo de
+	// momento -- sin color (reutiliza attr_addr_m0 tal cual, sin fila del
+	// hueco de scroll fino, sin sprites comprobados en este modo todavia).
+	reg sf80_en = 1'b0;
 	reg [2:0] sp_border = 3'd7;
 
 	// ----------------------------------------------------------------
@@ -249,8 +253,13 @@ module SD81(
 	wire [7:0] data = {D7,D6,D5,D4,D3,D2,D1,D0};
 	wire pixel_clk = clk6_5;
 		
-	reg [8:0] pixel_cnt = 0;
-	wire [7:0] HSYNCcnt = pixel_cnt[8:1];
+	// Ensanchado a 10 bits para la PRUEBA de 80 columnas (necesita contar
+	// hasta 827, no cabe en 9 bits). Sin efecto en los modos existentes,
+	// que siguen usando valores muy por debajo de 511.
+	reg [9:0] pixel_cnt = 0;
+	// Ensanchado a 9 bits (antes [8:1]=8 bits) para llegar a la PRUEBA de
+	// 80 columnas; sin efecto en los modos existentes (bit extra siempre 0).
+	wire [8:0] HSYNCcnt = pixel_cnt[9:1];
 	reg [7:0] shift_register_fast_debug;
 	reg [15:0] shift_register_fast_addr_debug;
 	reg [7:0] char_latch_fast_debug;
@@ -356,7 +365,11 @@ module SD81(
 	 always@(posedge system_clk) begin
 			cnt26 <= cnt26+1'b1;
 	 end
-	 assign clk6_5 = cnt26[1];
+	 // PRUEBA 80 columnas: a 13MHz (cnt26[0]) en vez de 6.5MHz (cnt26[1]).
+	 // Cambia de fase una vez al activar/desactivar el modo (sf80_en
+	 // cambia con la escritura de la CPU, no con system_clk) -- aceptable
+	 // para esta prueba, no para produccion.
+	 assign clk6_5 = sf80_en ? cnt26[0] : cnt26[1];
 	 
 //	 wire iclock = ~cnt26[2];
 //	 wire iclock = ~newCLK3_25;
@@ -444,6 +457,7 @@ Port $7FEF (01111111 11101111) - IN:
 			sfast_mode_en <= 1'b0;
 			sfHR_en <= 1'b0;
 			sfSP_en <= 1'b0;
+			sf80_en <= 1'b0;
 			block0Writable <= 1'b0;		// reset: bloque 0 protegido (ROM)
 			wrx_en <= 1'b0;
 		end else begin
@@ -467,21 +481,32 @@ Port $7FEF (01111111 11101111) - IN:
 				sfast_mode_en <= 1'b1;
 				sfHR_en <= 1'b0;
 				sfSP_en <= 1'b0;
+				sf80_en <= 1'b0;
 			end;
 			if ((Addr == 16'd2045) && (data==8'd171)) begin
 				sfast_mode_en <= 1'b1;
 				sfHR_en <= 1'b1;
 				sfSP_en <= 1'b0;
+				sf80_en <= 1'b0;
 			end
 			if ((Addr == 16'd2045) && (data==8'd172)) begin
 				sfast_mode_en <= 1'b1;
 				sfSP_en <= 1'b1;
 				sfHR_en <= 1'b0;
+				sf80_en <= 1'b0;
+			end
+			// POKE 2045,173 -> PRUEBA: super fast texto 80 columnas
+			if ((Addr == 16'd2045) && (data==8'd173)) begin
+				sfast_mode_en <= 1'b1;
+				sfHR_en <= 1'b0;
+				sfSP_en <= 1'b0;
+				sf80_en <= 1'b1;
 			end
 			if ((Addr == 16'd2045) && (data==8'd85)) begin
 				sfast_mode_en <= 1'b0;
 				sfHR_en <= 1'b0;
 				sfSP_en <= 1'b0;
+				sf80_en <= 1'b0;
 			end
 			if (Addr == 16'd2046) border_ink <= data[3:0];
 			if ((Addr == 16'd2047) && (data==8'd170)) bpattern_en <= 1'b1;
@@ -701,7 +726,18 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [8:0] SCR_START_X = 122;
 	wire [8:0] SCR_END_Y = SCR_START_Y+191;
 	wire [8:0] SCR_END_X = SCR_START_X+33*8-1;
-	
+
+	// PRUEBA 80 columnas: linea de 828 ciclos (sync 64 + backporch 68 +
+	// margen izq. 8 + activo 640 (80*8) + margen der./front porch 48 = 828).
+	// Filas sin cambios (24, mismo SCR_START_Y/SCR_END_Y).
+	// 138, no 140: col_cnt_b esta anclado a SCR_START_X modulo 8 (122 mod 8
+	// = 2) para TODOS los modos, no se resetea por modo -- SCR_START_X_80
+	// tiene que cumplir la misma congruencia (138 mod 8 = 2) para que la
+	// fase de scr_col_80 coincida con cuando el estado 6 dispara de verdad.
+	wire [9:0] SCR_START_X_80 = 10'd138;
+	wire [9:0] SCR_END_X_80 = SCR_START_X_80+80*8-1;
+	reg [6:0] scr_col_80;
+
 	reg [4:0] scr_row;
 	reg [4:0] scr_col;
 	// Indice de ranura dentro de la fila (0..32). Se pone a 0 fuera de la
@@ -811,6 +847,12 @@ Port $7FEF (01111111 11101111) - IN:
 	// 2091/2092/2093, se usa scr_col y queda exactamente como antes.
 	wire [5:0] scr_col_x = hscroll_active ? sf_col_idx : {1'b0,scr_col};
 	wire [15:0] char_addr = DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col_x;
+	// PRUEBA 80 columnas: mismo DFILE y misma fila (scr_row, 0-23), pero
+	// paso de fila 81 en vez de 33 (80 caracteres + 1 byte de relleno,
+	// igual de no usado por el hardware que el NEWLINE del modo de 32).
+	// row*81 = row*64+row*16+row, para no depender de que 81 sea potencia
+	// de 2 (no lo es).
+	wire [15:0] char_addr_80 = DFILE+16'd1+{scr_row,6'b0}+{scr_row,4'b0}+scr_row+scr_col_80;
 	wire [15:0] scan_addr = sfHR_en? {vpage,hr_addr}:	// superfast HR native mode (front si dbuf)
 									sfSP_en?	{vpage,hr_addr[12:11],hr_addr[7:5],hr_addr[10:8],hr_addr[4:0]}: // superfast HR spectrum mode (front si dbuf)
 									SEL_256CHARS? {ROMTABLE[15:11],char_latch_fast[7],char_latch_fast[6],char_latch_fast[5:0],line_cnt_b}: // 256 chars: tabla alineada a 2K
@@ -849,7 +891,8 @@ Port $7FEF (01111111 11101111) - IN:
 			attr_latch_fast_addr_debug <= attr_latch_fast_addr_cur;
 			isborder_debug <= isborder_cur;
 		end
-		if (((pixel_cnt_sf-4) >= SCR_START_X) && ((pixel_cnt_sf-4) <= scr_end_x_sf) &&
+		if ((sf80_en ? (((pixel_cnt-10'd4) >= SCR_START_X_80) && ((pixel_cnt-10'd4) <= SCR_END_X_80))
+						: (((pixel_cnt_sf-4) >= SCR_START_X) && ((pixel_cnt_sf-4) <= scr_end_x_sf))) &&
 			(line_cnt >= SCR_START_Y) && (line_cnt <= SCR_END_Y))
 		begin
 			case (col_cnt_b)
@@ -859,13 +902,16 @@ Port $7FEF (01111111 11101111) - IN:
 					scr_col = {pixel_cnt_sf+0-SCR_START_X}[8:3];
 					scr_col1 = {pixel_cnt_sf-6-SCR_START_X}[8:3];
 					scr_col2 = {pixel_cnt_sf-6-SCR_START_X}[8:3];
-					v_addr = char_addr;
+					// PRUEBA 80 columnas: mismo indice de fila (scr_row), columna
+					// aparte con pixel_cnt completo (10 bits) y SCR_START_X_80.
+					scr_col_80 = {pixel_cnt-SCR_START_X_80}[9:3];
+					v_addr = sf80_en ? char_addr_80 : char_addr;
 				end
 				7: begin
-					v_addr = char_addr;
+					v_addr = sf80_en ? char_addr_80 : char_addr;
 					char_latch_fast  = v_dout;
 					char_latch_fast_cur = v_dout;
-					char_latch_fast_addr_cur = char_addr;
+					char_latch_fast_addr_cur = sf80_en ? char_addr_80 : char_addr;
 				end
 				0: begin
 					if (color_mode==1'b0) v_addr = attr_addr_m0;
@@ -891,7 +937,7 @@ Port $7FEF (01111111 11101111) - IN:
 				2: v_addr = scan_addr;
 				3: begin
 					v_addr = scan_addr;
-					if (pixel_cnt_sf >= SCR_START_X+12) load_enable_fast = 1'b1;
+					if (sf80_en ? (pixel_cnt >= SCR_START_X_80+12) : (pixel_cnt_sf >= SCR_START_X+12)) load_enable_fast = 1'b1;
 				end
 				5: load_enable_fast = 1'b0;
 			endcase
@@ -1068,13 +1114,18 @@ assign DEBUG_RDY = 1'b0;
 	wire HSYNCcnt_reset = sfast_mode_en?1'b1:(nM1 | nIORQ);
 	wire HSYNCcnt_clk =  ~iclock;
 	
+	// PRUEBA 80 columnas: linea de 828 ciclos de pixel_clk (el doble de 414)
+	// para mantener la misma duracion real de linea a 13MHz que a 6.5MHz.
 	always @(posedge pixel_clk or negedge HSYNCcnt_reset)
 	begin
 		if (HSYNCcnt_reset==0) pixel_cnt <= 0;
-		else pixel_cnt <= (pixel_cnt == 9'd413)? 9'd0: pixel_cnt + 1'b1;	
+		else pixel_cnt <= (pixel_cnt == (sf80_en?10'd827:10'd413))? 10'd0: pixel_cnt + 1'b1;
 	end
 	
-	assign hsync = (HSYNCcnt>=16) &&  (HSYNCcnt<=31);
+	// PRUEBA 80 columnas: mismos 64 ciclos de sync que antes en tiempo real
+	// (32 ciclos a 6.5MHz), pero al doble de rapido hacen falta el doble de
+	// ciclos de pixel_clk (64 en vez de 32, HSYNCcnt 32-63 en vez de 16-31).
+	assign hsync = sf80_en ? ((HSYNCcnt>=32) && (HSYNCcnt<=63)) : ((HSYNCcnt>=16) &&  (HSYNCcnt<=31));
 	// VSYNC & NMI CONTROL
 	wire nFE_port_RD = nIORD | A0;
 	wire VSYNCset = ~(nFE_port_RD | NMIon);
@@ -1156,7 +1207,14 @@ assign DEBUG_RDY = 1'b0;
 	
 	wire border_area = ~forced_nop_delayed[5];
 	
-	assign isborder_sp = !((pixel_cnt>=SCR_START_X+20) && (pixel_cnt<SCR_END_X+13) && 
+	// PRUEBA 80 columnas: mismos fudges (+20/+13) que el modo de 32
+	// columnas, sin calibrar todavia sobre hardware real -- solo para que
+	// no salga TODO como borde (que es lo que pasaria si se dejara esto
+	// mirando las constantes de 32 columnas sin condicionar).
+	assign isborder_sp = sf80_en ?
+					!((pixel_cnt>=SCR_START_X_80+20) && (pixel_cnt<SCR_END_X_80+13) &&
+					(line_cnt >=SCR_START_Y) && (line_cnt<=SCR_END_Y))
+					: !((pixel_cnt>=SCR_START_X+20) && (pixel_cnt<SCR_END_X+13) &&
 					(line_cnt >=SCR_START_Y) && (line_cnt<=SCR_END_Y));
 					
 	wire sp_inv = inverse_video || (sfSP_en && flassing_period && current_attr [7]);
@@ -1248,7 +1306,9 @@ assign DEBUG_RDY = 1'b0;
 		end
 	end
 	
-	assign backporch = HSYNCcnt >=  32 && HSYNCcnt <= 48; //HSYNCcnt[7:4]==7'b0010;
+	// PRUEBA 80 columnas: mismo razonamiento que hsync, doblado (64-97 en
+	// vez de 32-48).
+	assign backporch = sf80_en ? ((HSYNCcnt>=64) && (HSYNCcnt<=97)) : (HSYNCcnt >=  32 && HSYNCcnt <= 48); //HSYNCcnt[7:4]==7'b0010;
 	// sprites: se dibujan encima de fondo/borde, en cualquier modo de video.
 	// Ojo con la polaridad: aqui video=1 es PAPEL y video=0 es TINTA (ver
 	// serial_output = ~shift_register[7] y cred = ~video? ink: paper mas

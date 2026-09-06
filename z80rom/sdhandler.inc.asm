@@ -115,6 +115,7 @@ CMD_dst_off	equ	0x3D
 CMD_ntp_setserver equ	0x3E
 CMD_ntp_setoffset equ	0x3F
 CMD_ntp_sync	equ	0x40
+CMD_chars256	equ	0x41	; LOAD *256C (siguiente slot libre en la tabla MCU)
 
 ; ROM restart routines
 ERROR_1		equ	08H
@@ -1131,6 +1132,16 @@ MapRead:	rst	NEXT_CHAR	; Skip TO
 Cmd64C:		ld	bc,$1E00+CMD_chars64	; Set normal 64-char mode
 		jr	Common64_128C
 
+; LOAD *256C
+; Direccion por defecto $3800: alineada a 2K (I=$38, bits bajos a 0 --
+; la tabla de 256 caracteres necesita esa alineacion porque los 3 bits
+; bajos de I se ignoran en hardware, ver SEL_256CHARS en SD81.v),
+; inmediatamente debajo de los $3C00 de *128C, y precargada con el
+; charset de la ROM en SD_RESET igual que *128C -- invocarlo sin haber
+; redefinido nada no cambia lo que se ve.
+Cmd256C:	ld	bc,$3800+CMD_chars256	; Set extended 256-char mode
+		jr	Common64_128C
+
 ; LOAD *128C
 Cmd128C:	ld	bc,$3C00+CMD_chars128	; Set extended 128-char mode
 Common64_128C:	cp	.nl
@@ -1884,13 +1895,23 @@ SD_RESET:	ld	a,$F7		; Check keyboard row 1-5
 		and	$1F
 		jr	nz,LoadROM	; If any pressed, jump to load a ROM
 
-		ld	hl,$1E00	; Copy the character set to RAM twice
-		ld	de,$3C00
+		; Copy the character set to RAM four times: $3800-$3FFF (2K),
+		; so *256C's default table ($3800) looks identical to the ROM
+		; font out of the box, same as *128C's default ($3C00) already
+		; did with just the first two copies.
+		ld	hl,$1E00
+		ld	de,$3800
 		ld	bc,$0200
-		ldir			; one copy...
+		ldir			; copy 1: $3800-$39FF
 		ld	b,$02
 		ld	h,$1E
-		ldir			; ... and another copy
+		ldir			; copy 2: $3A00-$3BFF
+		ld	b,$02
+		ld	h,$1E
+		ldir			; copy 3: $3C00-$3DFF (*128C's table)
+		ld	b,$02
+		ld	h,$1E
+		ldir			; copy 4: $3E00-$3FFF
 		ld	hl,RAM_CHECK	; load continuation address
 
 SD81_RESET:	; Start by waiting for a possible pending change. There should
@@ -2045,6 +2066,9 @@ CmdList:
 
 		db	.6,.4,.C + $80
 		dw	Cmd64C
+
+		db	.2,.5,.6,.C + $80
+		dw	Cmd256C
 
 		db	.R,.O,.W + $80
 		dw	CmdROW

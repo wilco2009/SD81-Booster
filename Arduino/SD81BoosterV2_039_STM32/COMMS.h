@@ -27,6 +27,7 @@ void jmpfar();
 #define cfgcmd_QSEN       3
 #define cfgcmd_FULLPAG    4
 #define cfgcmd_128CHARS   5
+#define cfgcmd_256CHARS   6
 
 
 void send_debug_params(uint16_t pixel_cnt, uint16_t line_cnt);

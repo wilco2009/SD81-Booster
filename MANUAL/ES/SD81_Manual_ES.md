@@ -1424,6 +1424,8 @@ Por defecto el ZX81 dispone de 64 caracteres definidos por la ROM. El SD81 Boost
 
 Este modo solo funciona en Superfast texto. Amplía el conjunto a 256 caracteres, todos redefinibles, en la zona de memoria entre las direcciones 14336 y 16383 (3800h--3FFFh) --- el doble de espacio que el modo de 128, alineado a 2K en vez de a 1K. Como con 128C, el bloque completo se precarga con el juego de caracteres de la ROM al arrancar, así que activar el modo sin haber redefinido nada no cambia lo que se ve en pantalla. Activar \"128C\" o \"64C\" desactiva \"256C\".
 
+Con el modo de 256 caracteres activo, la tabla de color de Chroma modo 0 (carácter por carácter) también pasa de 1 KB a 2 KB (14336--14463, \$C000-\$C7FF), para que cada uno de los 256 códigos tenga su propia entrada de color. El modo 1 (fichero de atributos) no se ve afectado, indexa por posición de pantalla y ya funciona igual con 128 o con 256 caracteres.
+
 |  |  |
 |:----:|------------------------------------------------------------------|
 | **ℹ** | *En el modo de 128 caracteres, los 64 caracteres superiores se muestran automáticamente en vídeo inverso por el hardware. Para mostrarlos en vídeo normal debes almacenar el gráfico invertido en esa posición de memoria.* |

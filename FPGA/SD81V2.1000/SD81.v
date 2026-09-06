@@ -794,7 +794,8 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [12:0] hr_addr = {scr_row,line_cnt_b,scr_col1};
 	wire [15:0] attr_addr_m0 = sfHR_en?{3'b110,hr_addr}:	// attribute area for superfast Hires native mode
 										sfSP_en?{vpage,3'b110,scr_row,scr_col1}:	// attribute area for superfast spectrum mode (front si dbuf)
-										{6'b110000,char_latch_fast[7],char_latch_fast[5:0],line_cnt_b}; // attr area for superfast text mode
+										SEL_256CHARS?{5'b11000,char_latch_fast[7],char_latch_fast[6],char_latch_fast[5:0],line_cnt_b}: // 256 chars: tabla de color de 2K (0xC000-0xC7FF)
+										{6'b110000,char_latch_fast[7],char_latch_fast[5:0],line_cnt_b}; // attr area for superfast text mode (128/64 chars, 0xC000-0xC3FF)
 										
 	wire [15:0] attr_addr_m1 = {1'b1,{DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col2}[14:0]};//16'hc0001+{scr_row,5'b00000} + scr_row+scr_col;
 	

@@ -1322,6 +1322,8 @@ By default, the ZX81 has 64 characters defined by the ROM. The SD81 Booster allo
 
 This mode only works in Superfast text mode. It extends the set to 256 characters, all redefinable, in the memory area between addresses 14336 and 16383 (3800h--3FFFh) --- twice the space of 128-character mode, aligned to 2K instead of 1K. As with 128C, the whole block is preloaded with the ROM character set at boot, so enabling the mode without having redefined anything does not change what is shown on screen. Activating \"128C\" or \"64C\" disables \"256C\".
 
+With 256-character mode active, the Chroma mode 0 colour table (indexed by character code) also grows from 1K to 2K (14336--14463, \$C000-\$C7FF), so each of the 256 codes gets its own colour entry. Mode 1 (attribute file) is unaffected \-- it is indexed by screen position and already works the same with 128 or 256 characters.
+
 | **ℹ** | *In 128-character mode, the upper 64 characters are automatically shown in inverse video by the hardware. To display them in normal video you must store the inverted graphic in the corresponding position.* |
 |------|------------------------------------------------------------------|
 

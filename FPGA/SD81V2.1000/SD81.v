@@ -198,9 +198,12 @@ module SD81(
 	reg sfHR_en = 1'b0;
 	wire cs_SPULA = sfSP_en && (nIORQ==1'b0) && (nWR==1'b0) && (Addr[7:0]==8'hfb); // Spectrum mode ULA port is here FBh (zxprinter port)
 	reg sfSP_en = 1'b0;
-	// PRUEBA: Superfast texto ancho (POKE 2045,173 / 174). Exclusivo de
-	// momento -- sin color (reutiliza attr_addr_m0 tal cual, sin fila del
-	// hueco de scroll fino, sin sprites comprobados en este modo todavia).
+	// PRUEBA: Superfast texto ancho (POKE 2045,173 / 174).
+	// Color: los dos modos de Chroma funcionan. El 0 (por codigo de
+	// caracter) no necesitaba nada, porque no depende de la geometria de
+	// pantalla; el 1 (por posicion) reutiliza char_addr_80 -- ver
+	// attr_addr_m1. Sin fila del hueco de scroll fino y sin sprites
+	// comprobados en este modo todavia.
 	// sf80_en    = modo ancho activo (pixel_clk a 13MHz, sync adelantado,
 	//              ventana de 568 ciclos). Comun a los dos submodos.
 	// sf80_char7 = caracteres de 7 pixeles -> 80 columnas (POKE 2045,174).
@@ -945,7 +948,30 @@ Port $7FEF (01111111 11101111) - IN:
 										SEL_256CHARS?{5'b11000,char_latch_fast[7],char_latch_fast[6],char_latch_fast[5:0],line_cnt_b}: // 256 chars: tabla de color de 2K (0xC000-0xC7FF)
 										{6'b110000,char_latch_fast[7],char_latch_fast[5:0],line_cnt_b}; // attr area for superfast text mode (128/64 chars, 0xC000-0xC3FF)
 										
-	wire [15:0] attr_addr_m1 = {1'b1,{DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col2}[14:0]};//16'hc0001+{scr_row,5'b00000} + scr_row+scr_col;
+	// PRUEBA modo ancho: mismo DFILE y misma fila (scr_row, 0-23), pero con
+	// paso de fila propio (caracteres + 1 byte de relleno, igual de no usado
+	// por el hardware que el NEWLINE del modo de 32):
+	//   8 pixeles -> 70 columnas, paso 71 = row*64+row*4+row*2+row
+	//   7 pixeles -> 80 columnas, paso 81 = row*64+row*16+row
+	// Descompuesto en sumas de potencias de 2 porque ni 71 ni 81 lo son.
+	// Va aqui arriba, y no junto a char_addr, porque attr_addr_m1 lo usa.
+	wire [15:0] row_stride_80 = char7_en ? {scr_row,6'b0}+{scr_row,4'b0}+scr_row
+													 : {scr_row,6'b0}+{scr_row,2'b0}+{scr_row,1'b0}+scr_row;
+	wire [15:0] char_addr_80 = DFILE+16'd1+row_stride_80+scr_col_80;
+
+	// Chroma modo 1 (atributo por POSICION de pantalla): la zona de color es
+	// la misma direccion del caracter pero con el bit 15 a 1, o sea
+	// $8000 + (direccion del caracter mod 32K).
+	// En modo ancho no vale la formula de 32 columnas (paso 33 fijo, y
+	// scr_col2 es de 5 bits: no pasa de 31). Pero char_addr_80 ya calcula
+	// DFILE+1+fila*paso+columna con el paso que toque (71 u 81) y con
+	// scr_col_80 de 7 bits, asi que basta con reutilizarlo.
+	// El instante tambien cuadra sin desfase: scr_col_80 es un registro que
+	// se fija en el estado 6 y se mantiene, asi que en los estados 0/1
+	// (lectura del atributo) sigue valiendo la columna correcta. Por eso el
+	// modo de 32 columnas necesita scr_col2 (con su -6) y este no.
+	wire [15:0] attr_addr_m1 = sf80_en ? {1'b1,char_addr_80[14:0]}
+												  : {1'b1,{DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col2}[14:0]};//16'hc0001+{scr_row,5'b00000} + scr_row+scr_col;
 	
 	// Con scroll horizontal fino la fila se lee una columna mas alla: la 32,
 	// que en el DFILE es el byte de NEWLINE (la FPGA no lo trata como
@@ -959,15 +985,6 @@ Port $7FEF (01111111 11101111) - IN:
 	// 2091/2092/2093, se usa scr_col y queda exactamente como antes.
 	wire [5:0] scr_col_x = hscroll_active ? sf_col_idx : {1'b0,scr_col};
 	wire [15:0] char_addr = DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col_x;
-	// PRUEBA modo ancho: mismo DFILE y misma fila (scr_row, 0-23), pero con
-	// paso de fila propio (caracteres + 1 byte de relleno, igual de no usado
-	// por el hardware que el NEWLINE del modo de 32):
-	//   8 pixeles -> 70 columnas, paso 71 = row*64+row*4+row*2+row
-	//   7 pixeles -> 80 columnas, paso 81 = row*64+row*16+row
-	// Descompuesto en sumas de potencias de 2 porque ni 71 ni 81 lo son.
-	wire [15:0] row_stride_80 = char7_en ? {scr_row,6'b0}+{scr_row,4'b0}+scr_row
-													 : {scr_row,6'b0}+{scr_row,2'b0}+{scr_row,1'b0}+scr_row;
-	wire [15:0] char_addr_80 = DFILE+16'd1+row_stride_80+scr_col_80;
 	wire [15:0] scan_addr = sfHR_en? {vpage,hr_addr}:	// superfast HR native mode (front si dbuf)
 									sfSP_en?	{vpage,hr_addr[12:11],hr_addr[7:5],hr_addr[10:8],hr_addr[4:0]}: // superfast HR spectrum mode (front si dbuf)
 									SEL_256CHARS? {ROMTABLE[15:11],char_latch_fast[7],char_latch_fast[6],char_latch_fast[5:0],line_cnt_b}: // 256 chars: tabla alineada a 2K
@@ -1350,11 +1367,17 @@ assign DEBUG_RDY = 1'b0;
 	// arriba), asi que carga el grupo 1:
 	//   8 px: grupo 1 carga en su estado 3 (+19) -> primer pixel en +20;
 	//         70*8 = 560 pixeles despues -> +580 = SCR_END_X_80(+567) + 13.
-	//   7 px: grupo 1 carga en su estado 3 (+16) -> primer pixel en +17;
-	//         80*7 = 560 pixeles despues -> +577 = SCR_END_X_80(+566) + 11.
+	//   7 px: grupo 1 carga en su estado 3 (+16) -> primer pixel en +18;
+	//         80*7 = 560 pixeles despues -> +578 = SCR_END_X_80(+566) + 12.
+	// El +18 (y no +17, que es lo que salia contando estados) esta medido
+	// sobre hardware: con +17/+11 la ventana tenia el ancho correcto (560
+	// en los dos casos) pero un ciclo adelantada, asi que gastaba un pixel
+	// de mas por la izquierda -- invisible, cae en el borde -- y recortaba
+	// uno por la derecha. Entre que el estado 3 dispara la carga y que el
+	// shift_register empieza a sacar el bit 7 hay un ciclo mas.
 	assign isborder_sp = sf80_en ?
-					!((pixel_cnt>=SCR_START_X_80+(char7_en?10'd17:10'd20)) &&
-					(pixel_cnt<SCR_END_X_80+(char7_en?10'd11:10'd13)) &&
+					!((pixel_cnt>=SCR_START_X_80+(char7_en?10'd18:10'd20)) &&
+					(pixel_cnt<SCR_END_X_80+(char7_en?10'd12:10'd13)) &&
 					(line_cnt >=SCR_START_Y) && (line_cnt<=SCR_END_Y))
 					: !((pixel_cnt>=SCR_START_X+20) && (pixel_cnt<SCR_END_X+13) &&
 					(line_cnt >=SCR_START_Y) && (line_cnt<=SCR_END_Y));

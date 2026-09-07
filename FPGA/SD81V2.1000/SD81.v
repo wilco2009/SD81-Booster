@@ -756,21 +756,25 @@ Port $7FEF (01111111 11101111) - IN:
 	// que se deja en el doble exacto; el cuello de botella real no es este
 	// presupuesto de ciclos, ver isborder_sp mas abajo).
 	// Filas sin cambios (24, mismo SCR_START_Y/SCR_END_Y).
-	// 154 = primer valor valido justo detras del back porch (que acaba en
-	// 153 con el sync adelantado, ver hsync/backporch mas abajo). El valor
-	// anterior (138) caia DENTRO del back porch, asi que los 7 primeros
-	// caracteres de cada fila se dibujaban donde el monitor no muestra
-	// imagen -- de ahi que hiciera falta un shift de 8-9 para ver la
-	// columna 0, y con ese shift la ventana ya no cabia antes del final de
-	// linea (827). Ahora con shift=0 la ventana va de 154 a 793 y sobran
-	// 34 ciclos de borde derecho; el shift util va de 0 a 4.
+	// 202 = valor medido sobre hardware real (televisor Samsung) para que la
+	// imagen quede centrada con shift=0. La zona util empieza en 154, justo
+	// detras del back porch (que acaba en 153 con el sync adelantado, ver
+	// hsync/backporch mas abajo), pero un televisor no muestra los primeros
+	// ciclos de esa zona: 202 los salta y deja la ventana de 71 grupos
+	// (568 ciclos) en 202..769, con 58 ciclos de sobra hasta el final de
+	// linea (827).
+	// El valor original (138) caia DENTRO del back porch, asi que los 7
+	// primeros caracteres de cada fila se dibujaban donde el monitor no
+	// muestra imagen.
 	// col_cnt_b esta anclado a SCR_START_X modulo 8 (122 mod 8 = 2) para
 	// TODOS los modos, no se resetea por modo -- SCR_START_X_80 tiene que
-	// cumplir la misma congruencia (154 mod 8 = 2) para que la fase de
+	// cumplir la misma congruencia (202 mod 8 = 2) para que la fase de
 	// scr_col_80 coincida con cuando el estado 6 dispara de verdad.
-	// POKE 2094 (0-15) desplaza en pasos de 8 (1 caracter), preservando
-	// siempre esa congruencia sea cual sea el valor.
-	wire [9:0] SCR_START_X_80 = 10'd154 + {sf80_x_shift,3'b0};
+	// POKE 2094 (0-15) desplaza en pasos de 8 (1 caracter) preservando
+	// siempre esa congruencia; util de 0 a 7 antes de salirse por la
+	// derecha. Solo desplaza hacia la derecha: si algun televisor necesitase
+	// menos, hay que bajar esta constante base.
+	wire [9:0] SCR_START_X_80 = 10'd202 + {sf80_x_shift,3'b0};
 	// 70 columnas, no 80: 80*8=640 ciclos no caben en el area visible de un
 	// televisor real (medido: ~620 ciclos utiles, unas 77.5 columnas de 8
 	// pixeles). 70*8=560 ciclos deja 60 de margen de overscan, que es lo
@@ -780,7 +784,15 @@ Port $7FEF (01111111 11101111) - IN:
 	// ancho y podra reutilizar esta misma calibracion de shift/trim.
 	// POKE 2095 (0-15) recorta el ancho activo: (70-sf80_width_trim)
 	// caracteres en vez de 70 fijos siempre.
-	wire [9:0] SCR_END_X_80 = SCR_START_X_80+(70-sf80_width_trim)*8-1;
+	// 71 grupos y no 70 para mostrar 70 columnas, por la misma razon por la
+	// que el modo de 32 columnas reserva 33 (SCR_END_X, arriba): la captura
+	// del PRIMER grupo de cada fila se pierde en el calentamiento del
+	// pipeline, porque su pulso de carga cae antes del umbral
+	// SCR_START_X_80+12 (con shift=0 el estado 3 de ese grupo cae en
+	// pixel_cnt 165 y el umbral es 166, por un solo ciclo). Sin este grupo
+	// extra la ultima columna no llega a dibujarse nunca, se encuadre como
+	// se encuadre.
+	wire [9:0] SCR_END_X_80 = SCR_START_X_80+(71-sf80_width_trim)*8-1;
 	reg [6:0] scr_col_80;
 
 	reg [4:0] scr_row;

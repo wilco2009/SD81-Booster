@@ -198,10 +198,20 @@ module SD81(
 	reg sfHR_en = 1'b0;
 	wire cs_SPULA = sfSP_en && (nIORQ==1'b0) && (nWR==1'b0) && (Addr[7:0]==8'hfb); // Spectrum mode ULA port is here FBh (zxprinter port)
 	reg sfSP_en = 1'b0;
-	// PRUEBA: Superfast texto 80 columnas (POKE 2045,173). Exclusivo de
+	// PRUEBA: Superfast texto ancho (POKE 2045,173 / 174). Exclusivo de
 	// momento -- sin color (reutiliza attr_addr_m0 tal cual, sin fila del
 	// hueco de scroll fino, sin sprites comprobados en este modo todavia).
+	// sf80_en    = modo ancho activo (pixel_clk a 13MHz, sync adelantado,
+	//              ventana de 568 ciclos). Comun a los dos submodos.
+	// sf80_char7 = caracteres de 7 pixeles -> 80 columnas (POKE 2045,174).
+	//              Con 0, caracteres de 8 pixeles -> 70 columnas (173).
+	//              80*7 = 70*8, asi que los dos ocupan el mismo ancho fisico
+	//              y comparten la calibracion de SCR_START_X_80/shift/trim.
 	reg sf80_en = 1'b0;
+	reg sf80_char7 = 1'b0;
+	// Colgado de sf80_en para que al salir del modo ancho por cualquier via
+	// (reset u otro POKE 2045) no haga falta apagar sf80_char7 en cada rama.
+	wire char7_en = sf80_en & sf80_char7;
 	reg [2:0] sp_border = 3'd7;
 
 	// ----------------------------------------------------------------
@@ -495,18 +505,31 @@ Port $7FEF (01111111 11101111) - IN:
 				sfHR_en <= 1'b0;
 				sf80_en <= 1'b0;
 			end
-			// POKE 2045,173 -> PRUEBA: super fast texto 80 columnas
+			// POKE 2045,173 -> PRUEBA: super fast texto ancho, 70 columnas
+			// de 8 pixeles
 			if ((Addr == 16'd2045) && (data==8'd173)) begin
 				sfast_mode_en <= 1'b1;
 				sfHR_en <= 1'b0;
 				sfSP_en <= 1'b0;
 				sf80_en <= 1'b1;
+				sf80_char7 <= 1'b0;
+			end
+			// POKE 2045,174 -> PRUEBA: super fast texto ancho, 80 columnas
+			// de 7 pixeles. Misma temporizacion que el de 173 (80*7 = 70*8),
+			// solo cambia la cadencia y el paso de fila.
+			if ((Addr == 16'd2045) && (data==8'd174)) begin
+				sfast_mode_en <= 1'b1;
+				sfHR_en <= 1'b0;
+				sfSP_en <= 1'b0;
+				sf80_en <= 1'b1;
+				sf80_char7 <= 1'b1;
 			end
 			if ((Addr == 16'd2045) && (data==8'd85)) begin
 				sfast_mode_en <= 1'b0;
 				sfHR_en <= 1'b0;
 				sfSP_en <= 1'b0;
 				sf80_en <= 1'b0;
+				sf80_char7 <= 1'b0;
 			end
 			if (Addr == 16'd2046) border_ink <= data[3:0];
 			if ((Addr == 16'd2047) && (data==8'd170)) bpattern_en <= 1'b1;
@@ -792,7 +815,11 @@ Port $7FEF (01111111 11101111) - IN:
 	// pixel_cnt 165 y el umbral es 166, por un solo ciclo). Sin este grupo
 	// extra la ultima columna no llega a dibujarse nunca, se encuadre como
 	// se encuadre.
-	wire [9:0] SCR_END_X_80 = SCR_START_X_80+(71-sf80_width_trim)*8-1;
+	// Con caracteres de 7 pixeles: 81 grupos de 7 = 567 ciclos, practicamente
+	// los mismos 568 que 71 grupos de 8, asi que el encuadre calibrado para
+	// el modo de 70 columnas vale tal cual (un ciclo de diferencia).
+	wire [9:0] SCR_END_X_80 = char7_en ? SCR_START_X_80+(81-sf80_width_trim)*7-1
+													 : SCR_START_X_80+(71-sf80_width_trim)*8-1;
 	reg [6:0] scr_col_80;
 
 	reg [4:0] scr_row;
@@ -879,7 +906,35 @@ Port $7FEF (01111111 11101111) - IN:
 	// salgan por el borde derecho. Con sf_hscroll==0 la ventana es la de
 	// siempre.
 	wire [8:0] scr_end_x_sf = SCR_END_X + (hscroll_active ? 9'd8 : 9'd0);
-	wire [2:0] col_cnt_b = {pixel_cnt_sf+(pixel_cnt>31)-SCR_START_X}[2:0];
+	// Contador de fase para caracteres de 7 pixeles (0..6) e indice de
+	// columna explicito (0..80), que sustituyen al mod 8 y a la division
+	// por 8 que en el modo de 8 pixeles salen gratis por truncamiento.
+	// Ambos se reinician fuera de la ventana de captacion.
+	reg [2:0] phase7 = 3'd0;
+	reg [6:0] col80_idx = 7'd0;
+	// Cadencia de la maquina de busqueda. En 8 pixeles sale gratis del
+	// truncamiento a 3 bits (mod 8) y esta anclada a SCR_START_X para TODOS
+	// los modos. Con 7 pixeles no hay truncamiento que valga: hace falta un
+	// contador explicito de 0 a 6 (phase7, mas abajo) y una tabla que emita
+	// los MISMOS estados que usa el case, saltandose el 4 -- que es el unico
+	// de los ocho que no hace nada. Asi el case no se toca:
+	//    phase7:  0  1  2  3  4  5  6
+	//    estado:  6  7  0  1  2  3  5
+	//             |  |  |  |  |  |  +-- load OFF
+	//             |  |  |  |  |  +----- dir. bitmap + load ON
+	//             |  |  |  |  +-------- dir. bitmap
+	//             |  |  |  +----------- lee atributo
+	//             |  |  +-------------- dir. atributo
+	//             |  +----------------- lee caracter
+	//             +-------------------- dir. caracter
+	wire [2:0] col_cnt_b7 = (phase7==3'd0)? 3'd6:
+									(phase7==3'd1)? 3'd7:
+									(phase7==3'd2)? 3'd0:
+									(phase7==3'd3)? 3'd1:
+									(phase7==3'd4)? 3'd2:
+									(phase7==3'd5)? 3'd3: 3'd5;
+	wire [2:0] col_cnt_b = char7_en ? col_cnt_b7
+										 : {pixel_cnt_sf+(pixel_cnt>31)-SCR_START_X}[2:0];
 	wire [2:0] line_cnt_b = {line_cnt - SCR_START_Y}[2:0];
 	reg [4:0]scr_col1=0;
 	reg [4:0]scr_col2=0;
@@ -904,12 +959,15 @@ Port $7FEF (01111111 11101111) - IN:
 	// 2091/2092/2093, se usa scr_col y queda exactamente como antes.
 	wire [5:0] scr_col_x = hscroll_active ? sf_col_idx : {1'b0,scr_col};
 	wire [15:0] char_addr = DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col_x;
-	// PRUEBA modo ancho: mismo DFILE y misma fila (scr_row, 0-23), pero
-	// paso de fila 71 en vez de 33 (70 caracteres + 1 byte de relleno,
-	// igual de no usado por el hardware que el NEWLINE del modo de 32).
-	// row*71 = row*64+row*4+row*2+row, para no depender de que 71 sea
-	// potencia de 2 (no lo es).
-	wire [15:0] char_addr_80 = DFILE+16'd1+{scr_row,6'b0}+{scr_row,2'b0}+{scr_row,1'b0}+scr_row+scr_col_80;
+	// PRUEBA modo ancho: mismo DFILE y misma fila (scr_row, 0-23), pero con
+	// paso de fila propio (caracteres + 1 byte de relleno, igual de no usado
+	// por el hardware que el NEWLINE del modo de 32):
+	//   8 pixeles -> 70 columnas, paso 71 = row*64+row*4+row*2+row
+	//   7 pixeles -> 80 columnas, paso 81 = row*64+row*16+row
+	// Descompuesto en sumas de potencias de 2 porque ni 71 ni 81 lo son.
+	wire [15:0] row_stride_80 = char7_en ? {scr_row,6'b0}+{scr_row,4'b0}+scr_row
+													 : {scr_row,6'b0}+{scr_row,2'b0}+{scr_row,1'b0}+scr_row;
+	wire [15:0] char_addr_80 = DFILE+16'd1+row_stride_80+scr_col_80;
 	wire [15:0] scan_addr = sfHR_en? {vpage,hr_addr}:	// superfast HR native mode (front si dbuf)
 									sfSP_en?	{vpage,hr_addr[12:11],hr_addr[7:5],hr_addr[10:8],hr_addr[4:0]}: // superfast HR spectrum mode (front si dbuf)
 									SEL_256CHARS? {ROMTABLE[15:11],char_latch_fast[7],char_latch_fast[6],char_latch_fast[5:0],line_cnt_b}: // 256 chars: tabla alineada a 2K
@@ -959,9 +1017,12 @@ Port $7FEF (01111111 11101111) - IN:
 					scr_col = {pixel_cnt_sf+0-SCR_START_X}[8:3];
 					scr_col1 = {pixel_cnt_sf-6-SCR_START_X}[8:3];
 					scr_col2 = {pixel_cnt_sf-6-SCR_START_X}[8:3];
-					// PRUEBA 80 columnas: mismo indice de fila (scr_row), columna
-					// aparte con pixel_cnt completo (10 bits) y SCR_START_X_80.
-					scr_col_80 = {pixel_cnt-SCR_START_X_80}[9:3];
+					// PRUEBA modo ancho: mismo indice de fila (scr_row), columna
+					// aparte. Con 8 pixeles se saca dividiendo por 8 (gratis,
+					// truncando); con 7 no hay division posible, se usa el
+					// contador explicito col80_idx.
+					scr_col_80 = char7_en ? col80_idx
+												 : {pixel_cnt-SCR_START_X_80}[9:3];
 					v_addr = sf80_en ? char_addr_80 : char_addr;
 				end
 				7: begin
@@ -998,10 +1059,20 @@ Port $7FEF (01111111 11101111) - IN:
 				end
 				5: load_enable_fast = 1'b0;
 			endcase
+			// Avanzar la fase de 7 DESPUES del case, para que el case haya
+			// visto la fase de este ciclo. Al envolver, siguiente columna.
+			if (char7_en) begin
+				if (phase7 == 3'd6) begin
+					phase7 = 3'd0;
+					col80_idx = col80_idx + 1'b1;
+				end else phase7 = phase7 + 1'b1;
+			end
 		end else begin
 			char_latch_fast = 0;
 			sf_col_idx = 6'd0;		// fuera de la ventana: reinicia la fila
 			sf_col_started = 1'b0;
+			phase7 = 3'd0;				// idem para la cadencia de 7 pixeles
+			col80_idx = 7'd0;
 		end
 	end
 
@@ -1272,12 +1343,18 @@ assign DEBUG_RDY = 1'b0;
 	
 	wire border_area = ~forced_nop_delayed[5];
 	
-	// PRUEBA 80 columnas: mismos fudges (+20/+13) que el modo de 32
-	// columnas, sin calibrar todavia sobre hardware real -- solo para que
-	// no salga TODO como borde (que es lo que pasaria si se dejara esto
-	// mirando las constantes de 32 columnas sin condicionar).
+	// Los fudges no son magicos: son el ciclo exacto en que sale el primer
+	// pixel y aquel en que sale el ultimo, contados desde SCR_START_X_80.
+	// La ventana se abre en +4; a partir de ahi la maquina recorre sus
+	// estados y el primer grupo se pierde por el umbral +12 (ver mas
+	// arriba), asi que carga el grupo 1:
+	//   8 px: grupo 1 carga en su estado 3 (+19) -> primer pixel en +20;
+	//         70*8 = 560 pixeles despues -> +580 = SCR_END_X_80(+567) + 13.
+	//   7 px: grupo 1 carga en su estado 3 (+16) -> primer pixel en +17;
+	//         80*7 = 560 pixeles despues -> +577 = SCR_END_X_80(+566) + 11.
 	assign isborder_sp = sf80_en ?
-					!((pixel_cnt>=SCR_START_X_80+20) && (pixel_cnt<SCR_END_X_80+13) &&
+					!((pixel_cnt>=SCR_START_X_80+(char7_en?10'd17:10'd20)) &&
+					(pixel_cnt<SCR_END_X_80+(char7_en?10'd11:10'd13)) &&
 					(line_cnt >=SCR_START_Y) && (line_cnt<=SCR_END_Y))
 					: !((pixel_cnt>=SCR_START_X+20) && (pixel_cnt<SCR_END_X+13) &&
 					(line_cnt >=SCR_START_Y) && (line_cnt<=SCR_END_Y));

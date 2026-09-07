@@ -4835,7 +4835,9 @@ cfg_wrx:        defb 0          ; 0=OFF,1=ON
 cfg_fullpag:    defb 0          ; 0=OFF,1=ON
 cfg_mc45:       defb 0          ; 0=OFF,1=ON
 cfg_chr128:     defb 0          ; 0=CHR64,1=CHR128
-cfg_joy_keys:   defb "67580"    ; teclas arriba/abajo/izda/dcha/fuego (por defecto)
+cfg_joy_keys:   defb "76580"    ; teclas arriba/abajo/izda/dcha/fuego (por defecto);
+                                ; en el ZX81 7=arriba y 6=abajo, asi que el orden
+                                ; de las dos primeras es 7,6 y no 6,7
 cfg_vgm_loaded:   defb 0        ; 0=nada cargado, 1=hay algo cargado (VGM o PEB, sonando o en pausa)
 cfg_vgm_playing:  defb 0        ; 0=parado/en pausa, 1=sonando
 cfg_vgm_namelen:  defb 0

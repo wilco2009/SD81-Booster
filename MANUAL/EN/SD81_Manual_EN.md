@@ -945,6 +945,14 @@ The configuration string contains exactly five characters, one for each joystick
 
 - Fire → space key
 
+**Special keys:**
+
+The SHIFT and ENTER keys have no character of their own that can be typed inside the configuration string, so they are represented by two substitute characters: \* for SHIFT and \< for ENTER.
+
+> LOAD \*JOY \"QAOP\<\"
+
+In this example the fire button is assigned to the ENTER key.
+
 | **💡** | *Check the controls of each game before configuring the joystick. Many ZX81 games use different key combinations, and with this command you can map them to any standard 9-pin joystick without modifying the software.* |
 |------|------------------------------------------------------------------|
 

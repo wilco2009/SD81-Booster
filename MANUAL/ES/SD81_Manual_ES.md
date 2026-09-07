@@ -979,6 +979,14 @@ La cadena de configuración contiene exactamente cinco caracteres, uno por cada 
 
 - Fuego → tecla espacio
 
+**Teclas especiales:**
+
+Las teclas SHIFT y ENTER no tienen un carácter propio que pueda escribirse dentro de la cadena de configuración, por lo que se representan mediante dos caracteres sustitutos: \* para SHIFT y \< para ENTER.
+
+> LOAD \*JOY \"QAOP\<\"
+
+En este ejemplo el botón de fuego queda asignado a la tecla ENTER.
+
 |  |  |
 |:----:|------------------------------------------------------------------|
 | **💡** | *Consulta los controles de cada juego antes de configurar el joystick. Muchos juegos del ZX81 usan combinaciones de teclas diferentes, y con este comando puedes adaptarlas a cualquier joystick estándar de 9 pines sin modificar el software.* |

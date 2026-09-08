@@ -136,6 +136,7 @@ INITIAL		equ	L03E5
 RAM_CHECK	equ	L03CB
 LOC_ADDR	equ	L0918
 CLS		equ	L0A2A
+RECLAIM_2	equ	L0A60		; reclama BC bytes desde HL, ajustando punteros
 STK_TO_A	equ	L0C02
 REPORT_9	equ	L0CDC
 CLASS_1		equ	L0D3C

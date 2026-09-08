@@ -422,3 +422,170 @@ CodeNextByte:	ld	a,(de)
 		dec	h
 		jr	nz,CodeNext256
 		ret
+
+; --------------------------------------------------------------------
+; LOAD *COL80 / LOAD *COL70 / LOAD *COL32 -- ancho de pantalla
+;
+; Cambian el ancho que usan las RUTINAS DE LA ROM (PRINT, PRINT AT, CLS,
+; SCROLL, y el editor) ademas del modo de video de la FPGA:
+;
+;   *COL80 -> 80 columnas de 7 pixeles (POKE 2045,174) + FAST
+;   *COL70 -> 70 columnas de 8 pixeles (POKE 2045,173) + FAST
+;   *COL32 -> 32 columnas, video nativo  (POKE 2045,85) + SLOW
+;
+; Los dos modos anchos ocupan el mismo ancho fisico (80*7 = 70*8 = 560
+; pixeles), asi que la imagen no cambia de sitio ni de tamano al pasar de
+; uno a otro: solo cambia cuantas columnas caben.
+;
+; COMO se cambia el ancho de las rutinas de la ROM: el ancho esta grabado
+; como constante inmediata en 8 puntos de los primeros 8K (ver
+; ColPatchTbl). Esa "ROM" es en realidad RAM, y su proteccion de escritura
+; es por DIRECCION ($0000-$1FFF), no por pagina, asi que basta con mapear
+; su pagina en un bloque alto y escribirla desde ahi.
+;
+; NO se usa POKE 2056 (desproteger el bloque 0) a proposito: eso apaga la
+; decodificacion de los POKE de configuracion, con lo que ya no se podria
+; ni seleccionar el modo de video.
+;
+; POR QUE FAST: en Superfast el video lo genera la FPGA por su cuenta, asi
+; que las NMI y el bucle de display de la ROM solo roban tiempo de CPU sin
+; aportar nada. El temporizado (FRAMES) no se pierde: la FPGA lleva su
+; propio contador y lo devuelve al leer $4034/$4035.
+;
+; El nombre lleva el numero al FINAL (COL80 y no 80COL) porque al teclear
+; la linea el ZX81 inserta tras cada numero su representacion en coma
+; flotante ($7E + 5 bytes). Al final del nombre no estorba (el buscador
+; acepta cualquier caracter que no sea alfanumerico tras el marcador de
+; fin, y $7E=126 esta fuera del rango); al principio se colaria en mitad
+; del nombre y no habria forma de reconocerlo.
+; --------------------------------------------------------------------
+CmdCOL80:	call	MustBeEOL	; fin de sintaxis, hora de actuar
+		ld	hl,ColVal80
+		ld	e,174
+		jr	SetColMode
+CmdCOL70:	call	MustBeEOL
+		ld	hl,ColVal70
+		ld	e,173
+		jr	SetColMode
+CmdCOL32:	call	MustBeEOL
+		ld	hl,ColVal32
+		ld	e,85
+
+SetColMode:	push	de		; guardar el modo de video para el final
+		; PRIMERO parar el video nativo, ANTES de tocar el DFILE. En
+		; SLOW el generador de video EJECUTA el DFILE como codigo (el
+		; truco del HALT), asi que mover esa memoria con las NMI
+		; activas descarrila la CPU y cuelga la maquina. Parchear
+		; constantes era inocuo, pero colapsar el DFILE no lo es.
+		call	SET_FAST	; apaga las NMI y el bit 7 de CDFLAG
+		res	6,(iy+iyCDFLAG)	; y que no vuelva a pedir SLOW
+		call	PatchRomWidth	; las 8 constantes, con los valores de (HL)
+		call	CollapseDFile	; el DFILE viejo tiene la geometria ANTERIOR
+		pop	de
+		push	de
+		ld	a,e
+		ld	(2045),a	; modo de video de la FPGA
+		call	CLS		; reconstruye el DFILE con el ancho nuevo
+		pop	de
+		ld	a,e
+		cp	85
+		ret	nz		; modos anchos: se queda en FAST
+		set	6,(iy+iyCDFLAG)	; 32 columnas: volver a SLOW, ahora que
+		jp	SLOW_FAST	; el DFILE ya es coherente otra vez
+
+; Deja el DFILE en 25 NEWLINEs, que es como lo crea la ROM al arrancar.
+;
+; Hace falta al CAMBIAR de ancho: el DFILE existente tiene la geometria
+; ANTERIOR (por ejemplo filas de 81 bytes) y las constantes ya dicen otra
+; cosa, asi que si se deja, LOC-ADDR cuenta NEWLINEs hacia atras y luego
+; hace un CPIR limitado a "ancho+1 - columna" bytes que no llega al
+; NEWLINE de la fila -- el recorrido se descuadra y el ZX81 se cuelga.
+; Colapsandolo primero, el CLS posterior lo reconstruye desde cero con el
+; ancho nuevo, que es justo lo que hace la ROM en el arranque.
+CollapseDFile:	ld	hl,(VARS)
+		ld	de,(D_FILE)
+		or	a
+		sbc	hl,de		; HL = tamano actual del DFILE
+		ld	bc,25		; los 25 NEWLINEs que hay que conservar
+		or	a
+		sbc	hl,bc		; HL = bytes sobrantes que hay que reclamar
+		ret	c		; ya estaba colapsado (o mas corto): nada que hacer
+		ret	z
+		ld	b,h
+		ld	c,l		; BC = bytes a reclamar
+		ld	hl,(D_FILE)
+		ld	de,25
+		add	hl,de		; desde D_FILE+25 en adelante
+		call	RECLAIM_2	; la ROM ajusta VARS y todos los punteros
+		ld	hl,(D_FILE)	; y ahora los 25 NEWLINEs
+		ld	b,25
+CollapseFill:	ld	(hl),$76
+		inc	hl
+		djnz	CollapseFill
+		ret
+
+; Parchea las 8 constantes de ancho. HL -> tabla de 8 valores, en el mismo
+; orden que ColPatchTbl. Mapea la pagina del bloque 0 en el bloque 6
+; ($C000), escribe, y devuelve el bloque 6 a la pagina que tuviera.
+PatchRomWidth:	ld	bc,MapperPort	; B=0: leer la pagina del bloque 0
+		in	a,(c)
+		ld	d,a
+		ld	b,6		; leer la pagina del bloque 6
+		in	a,(c)
+		ld	e,a		; guardarla para restaurarla luego
+		push	de
+		ld	a,d
+		call	MapPageToBlk6	; la "ROM" asoma en $C000
+		ld	de,ColPatchTbl
+		ld	b,10
+PatchLoop:	push	bc		; B es el contador Y hace falta BC de puntero
+		ld	a,(de)
+		inc	de
+		ld	c,a		; byte bajo del offset
+		ld	a,(de)
+		inc	de
+		add	a,0C0h		; byte alto + $C000 = la ventana del bloque 6
+		ld	b,a
+		ld	a,(hl)		; valor para este modo
+		inc	hl
+		ld	(bc),a
+		pop	bc
+		djnz	PatchLoop
+		pop	de
+		ld	a,e		; restaurar la pagina original del bloque 6
+					; (cae en MapPageToBlk6, que hace el RET)
+
+; A = numero de pagina -> mapearla en el bloque 6. Half paging: el dato es
+; (pagina << 3) | bloque.
+MapPageToBlk6:	add	a,a
+		add	a,a
+		add	a,a
+		or	6
+		ld	c,MapperPort
+		out	(c),a
+		ret
+
+; Las 10 constantes de ancho de fila de la ROM, verificadas contra el
+; binario. Las dos primeras viajan dentro de una carga de 16 BITS
+; (LD HL,nn / LD BC,nn), no de 8, que es como se colaron en la primera
+; pasada: un barrido que solo mire operandos inmediatos de un byte no las
+; ve. La de STOP-LINE es la que colocaba el mensaje de informe ("0/0") en
+; mitad de la pantalla en vez de en la columna 0.
+; Ojo con las coincidencias que NO se tocan: $08E8 (32) son las columnas
+; fijas de la ZX Printer, $0873/$08B8 tambien son de la impresora (van
+; seguidas de IN/OUT al puerto $FB), $171D/$17E4 son coma flotante y
+; $0D75 ni siquiera cae en el inicio de una instruccion.
+ColPatchTbl:	dw	$05D7		; EDIT/listado    LD HL,$1821 -> S_POSN
+		dw	$06B6		; STOP-LINE       LD BC,$0121 -> LOC-ADDR
+		dw	$080F		; ENTER-CH        CP $21
+		dw	$0826		; ENTER-CH/TEST-N/L  LD C,$21
+		dw	$0848		; WRITE-N/L       LD C,$21
+		dw	$0903		; TEST-VAL        LD A,$1F   (columna maxima)
+		dw	$0921		; LOC-ADDR        LD A,$22   (ancho + 1)
+		dw	$0A31		; B-LINES (CLS)   LD C,$21
+		dw	$0B22		; TAB-TEST        CP $21
+		dw	$0C12		; SCROLL          LD C,$21
+
+ColVal80:	db	81,81,81,81,81,79,82,81,81,81
+ColVal70:	db	71,71,71,71,71,69,72,71,71,71
+ColVal32:	db	33,33,33,33,33,31,34,33,33,33

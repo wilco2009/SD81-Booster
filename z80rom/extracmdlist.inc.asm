@@ -36,3 +36,12 @@
 
 		db	.S,.C,.R,.O,.W,.S + $80
 		dw	CmdSCROWS
+
+		db	.C,.O,.L,.8,.0 + $80
+		dw	CmdCOL80
+
+		db	.C,.O,.L,.7,.0 + $80
+		dw	CmdCOL70
+
+		db	.C,.O,.L,.3,.2 + $80
+		dw	CmdCOL32

@@ -1804,6 +1804,30 @@ Carga una imagen en formato Spectrum (.SCR) desde la carpeta /SCR/ de la SD y la
 
 - Línea 210: restaura el registro de salida a 0.
 
+## 13.6 Modos de pantalla ancha --- Comandos COL80 / COL70 / COL32
+
+El SD81 Booster permite ampliar el ancho de la pantalla de texto en modo Superfast, de las 32 columnas estándar del ZX81 a 70 u 80 columnas. A diferencia del POKE 2045 directo, estos comandos también adaptan las rutinas de la propia ROM (PRINT, PRINT AT, CLS, SCROLL, el editor de listados) al nuevo ancho, así que el BASIC estándar funciona igual que siempre, solo que con más columnas por línea.
+
+**Activar 80 columnas (caracteres de 7 píxeles):**
+
+> LOAD \*COL80
+
+**Activar 70 columnas (caracteres de 8 píxeles):**
+
+> LOAD \*COL70
+
+**Volver a 32 columnas, vídeo nativo:**
+
+> LOAD \*COL32
+
+Los modos de 70 y 80 columnas ocupan exactamente el mismo ancho físico de pantalla (80 caracteres de 7 píxeles equivalen a 70 de 8), así que cambiar entre ellos no mueve ni redimensiona la imagen: solo cambia cuántas columnas de texto caben. Los tres comandos activan el modo FAST automáticamente (en modo Superfast el vídeo lo genera el interface, no la CPU, así que SLOW no aporta nada); COL32 hace lo contrario y vuelve a SLOW.
+
+Al cambiar de modo, la pantalla se limpia (equivalente a CLS): el contenido de la pantalla del modo anterior no se conserva, porque el ancho de cada fila del área de pantalla cambia.
+
+**Limitación conocida:**
+
+El comando TAB no funciona correctamente en los modos de 70 y 80 columnas: internamente calcula la posición con una operación que solo es válida para 32 columnas. El resto de comandos de impresión (PRINT, PRINT AT, CLS, SCROLL) funcionan con normalidad en los tres modos.
+
 # 14. Códigos de error
 
 Cuando se produce un error, el ZX81 muestra un código en la parte inferior de la pantalla seguido del número de línea donde ocurrió. Los códigos relacionados con el SD81 Booster son:

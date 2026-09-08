@@ -1695,6 +1695,30 @@ Loads a Spectrum format image (.SCR) from the /SCR/ folder on the SD and display
 
 - Line 210: restores the output register to 0.
 
+## 13.6 Wide Screen Modes --- COL80 / COL70 / COL32 Commands
+
+The SD81 Booster lets you widen the text screen in Superfast mode, from the ZX81's standard 32 columns to 70 or 80. Unlike a direct POKE 2045, these commands also adapt the ROM's own routines (PRINT, PRINT AT, CLS, SCROLL, the listing editor) to the new width, so standard BASIC works exactly as before, just with more columns per line.
+
+**Activate 80 columns (7-pixel characters):**
+
+> LOAD \*COL80
+
+**Activate 70 columns (8-pixel characters):**
+
+> LOAD \*COL70
+
+**Return to 32 columns, native video:**
+
+> LOAD \*COL32
+
+The 70- and 80-column modes occupy exactly the same physical screen width (80 characters at 7 pixels equal 70 at 8), so switching between them does not move or resize the picture: only the number of text columns that fit changes. All three commands switch to FAST mode automatically (in Superfast mode the interface generates the video, not the CPU, so SLOW gains nothing); COL32 does the opposite and returns to SLOW.
+
+Switching modes clears the screen (equivalent to CLS): the previous mode's screen content is not preserved, because the width of each row in the screen area changes.
+
+**Known limitation:**
+
+The TAB command does not work correctly in the 70- and 80-column modes: internally it computes the position with an operation that is only valid for 32 columns. The rest of the printing commands (PRINT, PRINT AT, CLS, SCROLL) work normally in all three modes.
+
 # 14. Error Codes
 
 When an error occurs, the ZX81 displays a code at the bottom of the screen followed by the line number where it occurred. The error codes related to the SD81 Booster are:

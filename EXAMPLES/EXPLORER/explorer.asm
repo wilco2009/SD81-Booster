@@ -27,15 +27,23 @@
 ; Superfast HiRes. Cambiar VIDBLOCK aqui mueve toda la pantalla (bitmap,
 ; atributos, namebuf, HFILE) a otro bloque -- el resto de constantes de
 ; esta seccion se recalculan solas. En el ZX81 de 16K solo los bloques 6
-; y 7 sirven para esto (son los que hacen de espejo de las paginas 2 y 3
-; en modo video normal, ver mcu_map en video_off); tambien es valido el
+; y 7 sirven para esto (son los que en modo video normal pueden reflejar
+; las paginas 2 y 3); tambien es valido el
 ; bloque 4 (RAM libre de la ampliacion, sin remapear -- asi se probo en
 ; vtest1..9, ver esos ficheros si hace falta volver a esa opcion).
 ; -------------------------------------------------------------
 VIDBLOCK        equ 7           ; bloque de pantalla (6 o 7)
 VIDPAGE         equ 8           ; pagina fisica dedicada mientras esta activa
-VIDMIRRORPAGE   equ VIDBLOCK-4  ; pagina que refleja VIDBLOCK en modo ZX81
-                                ; normal (bloque 6->pagina 2, bloque 7->pagina 3)
+; Al salir se restaura el mapeo IDENTIDAD (bloque N -> pagina N), que es el
+; estado por defecto del mapper tras un reset, NO el espejo de la pagina
+; VIDBLOCK-4 que se restauraba antes (bloque 7 -> pagina 3).
+; Con el espejo, cualquier programa lanzado despues desde el explorador se
+; encontraba las paginas 3 y 7 siendo la MISMA memoria: escribir en $E000
+; machacaba $6000. En hardware real no se notaba porque el video lee de la
+; shadow RAM de la FPGA, que es independiente y esta indexada por direccion
+; -- pero la RAM si se corrompia, y en el emulador (que lee la RAM paginada)
+; salia a la luz.
+VIDRESTOREPAGE  equ VIDBLOCK    ; identidad: bloque 7 -> pagina 7
 VIDBASE         equ VIDBLOCK*2000h     ; direccion base del bloque (bitmap)
 VIDBASE_HI      equ VIDBLOCK*32        ; byte alto de VIDBASE (VIDBASE/256)
 ATTRBASE_HI     equ VIDBASE_HI+18h     ; byte alto del area de atributos
@@ -1031,8 +1039,8 @@ vt_exit:
         xor a
         out (c),a               ; Chroma81 OFF
         ld a,VIDBLOCK
-        ld e,VIDMIRRORPAGE
-        call mcu_map            ; restaura bloque VIDBLOCK = espejo de su pagina
+        ld e,VIDRESTOREPAGE
+        call mcu_map            ; restaura bloque VIDBLOCK a su pagina identidad
         ld bc,0
         ret                     ; USR devuelve BC=0
 
@@ -1300,8 +1308,8 @@ vtl_done:
         xor a
         out (c),a               ; Chroma81 OFF
         ld a,VIDBLOCK
-        ld e,VIDMIRRORPAGE
-        call mcu_map            ; restaura bloque VIDBLOCK = espejo de su pagina
+        ld e,VIDRESTOREPAGE
+        call mcu_map            ; restaura bloque VIDBLOCK a su pagina identidad
         ld a,(retlen)
         ld c,a
         ld b,0

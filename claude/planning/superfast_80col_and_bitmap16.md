@@ -163,6 +163,59 @@ más una reescritura contenida de `TAB`. Mucho más manejable de lo que
 parecía, siempre que se respete la distinción entre dependencia real y
 coincidencia de byte.
 
+### Inventario verificado contra el binario (2026-09-07)
+
+Al ir a implementarlo se barrieron TODOS los operandos inmediatos con
+valor 31/32/33/34 en `$0800-$0C60` (el rango de rutinas de pantalla),
+descartando los precedidos de prefijo `FD`/`DD` — porque `(IY+$22)` es
+el *offset* de la variable DF_SZ, no la constante 34, y ese falso
+positivo aparece por todas partes. Resultado: **8 sitios, no 3**. La
+tabla de arriba se quedaba corta: `ENTER-CH` usa la constante en tres
+puntos y `WRITE-N/L` no estaba en la lista.
+
+| Dirección | Valor | Rutina | 80 col | 70 col |
+|---|---|---|---|---|
+| `$080F` | 33 | `ENTER-CH` (`CP $21`) | 81 | 71 |
+| `$0826` | 33 | `ENTER-CH` / TEST-N/L (`LD C,$21`) | 81 | 71 |
+| `$0848` | 33 | `WRITE-N/L` (`LD C,$21`) | 81 | 71 |
+| `$0903` | 31 | `TEST-VAL` / PRINT-AT (`LD A,$1F`) | 79 | 69 |
+| `$0921` | 34 | `LOC-ADDR` (`LD A,$22`) | 82 | 72 |
+| `$0A31` | 33 | `B-LINES` / CLS (`LD C,$21`) | 81 | 71 |
+| `$0B22` | 33 | `TAB-TEST` (`CP $21`) | 81 | 71 |
+| `$0C12` | 33 | `SCROLL` (`LD C,$21`) | 81 | 71 |
+
+Aparte, `AND $1F` en **`$0B0C`** (TAB) sigue necesitando reescritura, no
+cambio de valor.
+
+Confirmadas también las coincidencias que NO se tocan: `$08E8` (32) es
+`CLEAR-PRB`, las columnas fijas de la ZX Printer; `$171D` y `$17E4` son
+coma flotante; y `$1AC8` ni siquiera es una instrucción, es la cola de un
+`CALL $0EA7` seguido de `LD HL,$1520`.
+
+### Cómo aplicarlo sin tocar la ROM en disco
+
+Idea del usuario, y funciona: la "ROM" del bloque 0 es RAM. La protección
+de escritura es **por dirección, no por página** (`assign nWRx = ... |
+((~A13&~A14&~A15) & ~block0Writable)`), así que basta con mapear esa
+página en un bloque alto y escribirla desde ahí:
+
+```asm
+OUT ($E7),A               ; A = (pagina << 3) | bloque   (half paging)
+LD  BC,$00E7 : IN A,(C)   ; leer que pagina tiene el bloque N (A10:A8 = N)
+```
+
+Ventaja sobre `POKE 2056`: ese desprotege el bloque 0 pero pone
+`block0Writable`, y **todos los POKE-trick exigen `!block0Writable`** —
+con él activo no se podría ni seleccionar el modo de vídeo.
+
+El modo FAST no necesita parche: como el comando se ejecuta después del
+arranque, basta con repetir lo que hace el comando `FAST` del BASIC
+(`CALL $02E7` + `RES 6,(IY+$3B)`).
+
+Plan: tres comandos, `LOAD *80COL`, `LOAD *70COL` y `LOAD *32COL`. El
+último restaura los valores estándar (33/34/31), que son conocidos, así
+que no hace falta guardar los originales en ningún buffer.
+
 ## 2. Modo bitmap 256×192, 16 colores (2 píxeles/byte)
 
 ### Motivación y problema de partida

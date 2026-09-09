@@ -658,6 +658,43 @@ Port $7FEF (01111111 11101111) - IN:
 	// (snoop de D_FILE) en caso contrario.
 	wire [15:0] DFILE_eff = dfile_ovr_en ? DFILE_OVERRIDE : DFILE;
 
+	// POKE 2059/2060 (16 bits, low/high) + POKE 2061: base INDEPENDIENTE
+	// para la tabla de atributos de Chroma modo 1 (fichero de atributos),
+	// pensada para usarse junto con el override de D_FILE de arriba.
+	//
+	// Sin esto, el modo 1 coloca los atributos en la misma direccion que
+	// el caracter pero con el bit 15 a 1 (ver attr_addr_m1 mas abajo): un
+	// truco que ata el color a vivir en el "espejo" de la pantalla, a
+	// $8000 de distancia de donde apunte D_FILE/DFILE_OVERRIDE. Con este
+	// registro activado, la tabla de color puede vivir en CUALQUIER
+	// direccion de 16 bits, sin esa atadura ni el modulo 32K que impone
+	// forzar el bit 15.
+	//
+	// Compatibilidad identica a la del override de D_FILE: sin activar (el
+	// estado tras reset, tras POKE 2061,85, o tras volver a video nativo
+	// con POKE 2045,85) el modo 1 funciona exactamente igual que siempre.
+	reg [15:0] ATTR_BASE_OVERRIDE = 16'd0;
+	reg attr_ovr_en = 1'b0;
+	wire attr_ovr_lo_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2059);
+	wire attr_ovr_hi_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2060);
+	wire attr_ovr_en_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2061);
+	always @(posedge attr_ovr_lo_wr or negedge nRESET) begin
+		if (nRESET==1'b0) ATTR_BASE_OVERRIDE[7:0] <= 8'd0;
+		else ATTR_BASE_OVERRIDE[7:0] <= data;
+	end
+	always @(posedge attr_ovr_hi_wr or negedge nRESET) begin
+		if (nRESET==1'b0) ATTR_BASE_OVERRIDE[15:8] <= 8'd0;
+		else ATTR_BASE_OVERRIDE[15:8] <= data;
+	end
+	// Mismo dfile_ovr_clear de arriba (POKE 2045,85): volver a nativo
+	// desactiva los dos overrides a la vez, no solo el de D_FILE.
+	always @(posedge attr_ovr_en_wr or posedge dfile_ovr_clear or negedge nRESET) begin
+		if (nRESET==1'b0) attr_ovr_en <= 1'b0;
+		else if (dfile_ovr_clear) attr_ovr_en <= 1'b0;	// POKE 2045,85: modo nativo
+		else if (data==8'd170) attr_ovr_en <= 1'b1;	// POKE 2061,170: activa el override
+		else if (data==8'd85) attr_ovr_en <= 1'b0;	// POKE 2061,85: vuelve al de siempre
+	end
+
 	// Fila de texto actual (0-23), calculada directamente de line_cnt: es
 	// estable durante las 8 lineas de raster de la fila, independiente del
 	// estado del contador de columna (col_cnt_b). Con esto se evita cualquier
@@ -1010,19 +1047,29 @@ Port $7FEF (01111111 11101111) - IN:
 													 : {scr_row,6'b0}+{scr_row,2'b0}+{scr_row,1'b0}+scr_row;
 	wire [15:0] char_addr_80 = DFILE_eff+16'd1+row_stride_80+scr_col_80;
 
-	// Chroma modo 1 (atributo por POSICION de pantalla): la zona de color es
-	// la misma direccion del caracter pero con el bit 15 a 1, o sea
-	// $8000 + (direccion del caracter mod 32K).
-	// En modo ancho no vale la formula de 32 columnas (paso 33 fijo, y
-	// scr_col2 es de 5 bits: no pasa de 31). Pero char_addr_80 ya calcula
-	// DFILE+1+fila*paso+columna con el paso que toque (71 u 81) y con
-	// scr_col_80 de 7 bits, asi que basta con reutilizarlo.
-	// El instante tambien cuadra sin desfase: scr_col_80 es un registro que
-	// se fija en el estado 6 y se mantiene, asi que en los estados 0/1
-	// (lectura del atributo) sigue valiendo la columna correcta. Por eso el
-	// modo de 32 columnas necesita scr_col2 (con su -6) y este no.
-	wire [15:0] attr_addr_m1 = sf80_en ? {1'b1,char_addr_80[14:0]}
-												  : {1'b1,{DFILE_eff+16'd1+{scr_row,5'b00000} + scr_row+scr_col2}[14:0]};//16'hc0001+{scr_row,5'b00000} + scr_row+scr_col;
+	// Chroma modo 1 (atributo por POSICION de pantalla).
+	//
+	// attr_rel_addr = posicion dentro de la rejilla fila/columna (fila*paso
+	// + columna), SIN base ni el +1 de relleno -- la misma aritmetica que
+	// ya usa char_addr_80 para el modo ancho, factorizada aqui porque las
+	// dos ramas de abajo la necesitan igual (antes estaba duplicada:
+	// row_stride_80+scr_col_80 por un lado, {scr_row,5'b00000}+scr_row+
+	// scr_col2 por otro, con la misma forma). En modo ancho no vale la
+	// formula de 32 columnas (paso 33 fijo, y scr_col2 es de 5 bits: no
+	// pasa de 31); scr_col_80 (7 bits) si vale para las dos.
+	// El instante tambien cuadra sin desfase: scr_col_80/scr_col2 son
+	// registros que se fijan en el estado 6 y se mantienen, asi que en los
+	// estados 0/1 (lectura del atributo) siguen valiendo.
+	wire [15:0] attr_rel_addr = sf80_en ? (row_stride_80+scr_col_80)
+													  : ({scr_row,5'b00000} + scr_row+scr_col2);
+	// Sin override (de siempre): misma direccion que el caracter pero con
+	// el bit 15 a 1, o sea $8000 + (direccion del caracter mod 32K) --
+	// ata el color a vivir en el espejo de la pantalla, a $8000 de D_FILE.
+	// Con el override de POKE 2059/2060/2061: base COMPLETAMENTE
+	// independiente, direccion de 16 bits sin truncar ni forzar el bit 15.
+	wire [15:0] attr_addr_m1 = attr_ovr_en
+										 ? (ATTR_BASE_OVERRIDE+16'd1+attr_rel_addr)
+										 : {1'b1,{DFILE_eff+16'd1+attr_rel_addr}[14:0]};
 	
 	// Con scroll horizontal fino la fila se lee una columna mas alla: la 32,
 	// que en el DFILE es el byte de NEWLINE (la FPGA no lo trata como

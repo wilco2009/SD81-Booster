@@ -2581,6 +2581,26 @@ This makes it possible, for example, to keep two screens in memory and switch wh
 
 Returning to native video mode (POKE 2045,85) automatically disables the alternative register, so that "standard mode" always means the usual behaviour. Switching between the different Superfast submodes (POKE 2045,170/171/172/173/174) does not disable it: if it was on, it stays on.
 
+## Alternative Attribute Table (Chroma Mode 1, Superfast)
+
+Normally, Chroma mode 1 (attribute file) places the colour table at the same address as the screen but with bit 15 forced to 1, i.e. \$8000 away from D_FILE (or the alternative address from the previous section, if enabled). The SD81 Booster lets you decouple this table too, with the same mechanism:
+
+> POKE 2059, \<base_low\> : REM low byte of the attribute table
+>
+> POKE 2060, \<base_high\> : REM high byte
+>
+> POKE 2061, 170 : REM enables the alternative table
+>
+> POKE 2061, 85 : REM disables it, back to the usual behaviour
+
+Disabled (the default), mode 1 keeps working exactly as before. Enabled with POKE 2061,170, the colour table is no longer tied to the screen position: it can live at any 16-bit address, without the modulo-32K limit that forcing bit 15 imposed. The table uses the same row/column arithmetic as the screen (including the initial padding byte), so software can reuse the same position calculation for both.
+
+This register is independent from the one in the previous section: you can enable the alternative screen address without enabling this one, or the other way round, though normally both will be used together for full control over where each thing lives.
+
+**Important:**
+
+Just like the alternative screen address, returning to native video mode (POKE 2045,85) also disables this register automatically.
+
 ## Spectrum Mode
 
 Spectrum mode (POKE 2045,172) reorders screen lines to match the ZX Spectrum screen organisation, facilitating the conversion of programs between both platforms and enabling the loading of .SCR files directly.
@@ -2777,6 +2797,9 @@ LOAD \*WRX STOP : REM disable (character generator mode, default)
 | 2096 | \<addr_low\> | Low byte of the alternative screen address (Superfast) |
 | 2097 | \<addr_high\> | High byte of the alternative screen address |
 | 2098 | 170 / 85 | Enable / disable the alternative screen address |
+| 2059 | \<base_low\> | Low byte of the alternative attribute table (Chroma mode 1) |
+| 2060 | \<base_high\> | High byte of the alternative attribute table |
+| 2061 | 170 / 85 | Enable / disable the alternative attribute table |
 
 # Appendix G --- Audio Technical Reference: AY chip, VGM and allophones
 

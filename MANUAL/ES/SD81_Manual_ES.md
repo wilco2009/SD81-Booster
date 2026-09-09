@@ -2674,6 +2674,26 @@ Esto permite, por ejemplo, mantener dos pantallas en memoria e ir alternando cu�
 
 Volver a vídeo nativo (POKE 2045,85) desactiva automáticamente el registro alternativo, para que "modo estándar" signifique siempre el comportamiento de siempre. Cambiar entre los distintos submodos Superfast (POKE 2045,170/171/172/173/174) no lo desactiva: si estaba activo, sigue estándolo.
 
+## Tabla de atributos alternativa (Chroma modo 1, Superfast)
+
+Normalmente, el modo 1 de Chroma (fichero de atributos) coloca la tabla de color en la misma dirección que la pantalla pero con el bit 15 forzado a 1, es decir, a \$8000 de distancia de D_FILE (o de la dirección alternativa de la sección anterior, si está activa). El SD81 Booster permite independizar también esta tabla, con el mismo mecanismo:
+
+> POKE 2059, \<base_baja\> : REM byte bajo de la tabla de atributos
+>
+> POKE 2060, \<base_alta\> : REM byte alto
+>
+> POKE 2061, 170 : REM activa la tabla alternativa
+>
+> POKE 2061, 85 : REM la desactiva, vuelve al comportamiento de siempre
+
+Desactivada (el valor por defecto), el modo 1 sigue funcionando exactamente igual que hasta ahora. Activada con POKE 2061,170, la tabla de color deja de estar atada a la posición de la pantalla: puede vivir en cualquier dirección de 16 bits, sin el límite de módulo 32K que imponía forzar el bit 15. La tabla usa la misma aritmética de fila y columna que la pantalla (incluido el byte de relleno inicial), así que el software puede reutilizar el mismo cálculo de posición para las dos.
+
+Este registro es independiente del de la sección anterior: se puede activar la dirección de pantalla alternativa sin activar ésta, o al revés, aunque lo habitual será usar ambos juntos para tener control total sobre dónde vive cada cosa.
+
+**Importante:**
+
+Igual que con la dirección de pantalla alternativa, volver a vídeo nativo (POKE 2045,85) desactiva también este registro automáticamente.
+
 ## Modo Spectrum
 
 El modo Spectrum (POKE 2045,172) reordena las líneas de pantalla para que coincidan con la organización de la pantalla del ZX Spectrum, facilitando la conversión de programas entre ambas plataformas. En el ZX81 estándar las líneas se organizan de forma diferente a como lo hace el Spectrum; este modo elimina esa diferencia por hardware.
@@ -2872,6 +2892,9 @@ LOAD \*WRX STOP : REM desactivar (modo generador de caracteres, por defecto)
 | 2096 | \<dir_baja\> | Byte bajo de la direccion de pantalla alternativa (Superfast) |
 | 2097 | \<dir_alta\> | Byte alto de la direccion de pantalla alternativa |
 | 2098 | 170 / 85 | Activar / desactivar la direccion de pantalla alternativa |
+| 2059 | \<base_baja\> | Byte bajo de la tabla de atributos alternativa (Chroma modo 1) |
+| 2060 | \<base_alta\> | Byte alto de la tabla de atributos alternativa |
+| 2061 | 170 / 85 | Activar / desactivar la tabla de atributos alternativa |
 
 # Apéndice G --- Referencia técnica de audio: chip AY, VGM y alófonos
 

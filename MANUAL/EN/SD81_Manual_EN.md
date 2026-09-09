@@ -2561,6 +2561,26 @@ LOAD \*SCROWS \<lo\>,\<mid\>,\<hi\> : REM equivalent to POKE 2091/2092/2093
 
 (equivalent to the three POKEs above in a single step; each argument is a plain byte, 0-255).
 
+## Alternative Screen Address (Superfast)
+
+The Superfast text submodes (32, 70 and 80 columns) normally take the screen address from the D_FILE system variable (16396/16397), just like native mode. The SD81 Booster lets you replace that address with another one, without touching D_FILE, via an alternative register:
+
+> POKE 2096, \<addr_low\> : REM low byte of the alternative address
+>
+> POKE 2097, \<addr_high\> : REM high byte
+>
+> POKE 2098, 170 : REM enables the alternative register
+>
+> POKE 2098, 85 : REM disables it, back to D_FILE
+
+While the alternative register is disabled (the default, both right after a reset and after POKE 2045,85), the behaviour is exactly the same as before: nothing changes for existing software. Once enabled with POKE 2098,170, the Superfast screen is read from the address given in 2096/2097 instead of D_FILE, without BASIC or the ROM routines (which keep using D_FILE for their own purposes) noticing the change.
+
+This makes it possible, for example, to keep two screens in memory and switch which one is displayed without having to move D_FILE back and forth every frame.
+
+**Important:**
+
+Returning to native video mode (POKE 2045,85) automatically disables the alternative register, so that "standard mode" always means the usual behaviour. Switching between the different Superfast submodes (POKE 2045,170/171/172/173/174) does not disable it: if it was on, it stays on.
+
 ## Spectrum Mode
 
 Spectrum mode (POKE 2045,172) reorders screen lines to match the ZX Spectrum screen organisation, facilitating the conversion of programs between both platforms and enabling the loading of .SCR files directly.
@@ -2754,6 +2774,9 @@ LOAD \*WRX STOP : REM disable (character generator mode, default)
 | 2091 | \<map\> | Rows 0-7 with fine scroll active (bit0=row 0) |
 | 2092 | \<map\> | Rows 8-15 with fine scroll active |
 | 2093 | \<map\> | Rows 16-23 with fine scroll active |
+| 2096 | \<addr_low\> | Low byte of the alternative screen address (Superfast) |
+| 2097 | \<addr_high\> | High byte of the alternative screen address |
+| 2098 | 170 / 85 | Enable / disable the alternative screen address |
 
 # Appendix G --- Audio Technical Reference: AY chip, VGM and allophones
 

@@ -2654,6 +2654,26 @@ LOAD \*SCROWS \<lo\>,\<mid\>,\<hi\> : REM equivalente a POKE 2091/2092/2093
 
 (equivalente a los tres POKE anteriores en un solo paso; cada argumento es un byte 0-255).
 
+## Pantalla alternativa (Superfast)
+
+Los submodos de texto Superfast (32, 70 y 80 columnas) toman normalmente la dirección de pantalla de la variable de sistema D_FILE (16396/16397), igual que en modo nativo. El SD81 Booster permite sustituir esa dirección por otra, sin tocar D_FILE, mediante un registro alternativo:
+
+> POKE 2096, \<dir_baja\> : REM byte bajo de la direccion alternativa
+>
+> POKE 2097, \<dir_alta\> : REM byte alto
+>
+> POKE 2098, 170 : REM activa el registro alternativo
+>
+> POKE 2098, 85 : REM lo desactiva, vuelve a D_FILE
+
+Mientras el registro alternativo está desactivado (el valor por defecto, tanto tras un reset como después de POKE 2045,85), el comportamiento es exactamente el de siempre: nada cambia para el software existente. Al activarlo con POKE 2098,170, la pantalla Superfast se lee de la dirección indicada en 2096/2097 en lugar de D_FILE, sin que el BASIC ni las rutinas de la ROM (que siguen usando D_FILE para lo suyo) se enteren del cambio.
+
+Esto permite, por ejemplo, mantener dos pantallas en memoria e ir alternando cuál se muestra sin necesidad de mover D_FILE de un lado a otro en cada fotograma.
+
+**Importante:**
+
+Volver a vídeo nativo (POKE 2045,85) desactiva automáticamente el registro alternativo, para que "modo estándar" signifique siempre el comportamiento de siempre. Cambiar entre los distintos submodos Superfast (POKE 2045,170/171/172/173/174) no lo desactiva: si estaba activo, sigue estándolo.
+
 ## Modo Spectrum
 
 El modo Spectrum (POKE 2045,172) reordena las líneas de pantalla para que coincidan con la organización de la pantalla del ZX Spectrum, facilitando la conversión de programas entre ambas plataformas. En el ZX81 estándar las líneas se organizan de forma diferente a como lo hace el Spectrum; este modo elimina esa diferencia por hardware.
@@ -2849,6 +2869,9 @@ LOAD \*WRX STOP : REM desactivar (modo generador de caracteres, por defecto)
 | 2091 | \<mapa\> | Filas 0-7 con scroll fino activo (bit0=fila 0) |
 | 2092 | \<mapa\> | Filas 8-15 con scroll fino activo |
 | 2093 | \<mapa\> | Filas 16-23 con scroll fino activo |
+| 2096 | \<dir_baja\> | Byte bajo de la direccion de pantalla alternativa (Superfast) |
+| 2097 | \<dir_alta\> | Byte alto de la direccion de pantalla alternativa |
+| 2098 | 170 / 85 | Activar / desactivar la direccion de pantalla alternativa |
 
 # Apéndice G --- Referencia técnica de audio: chip AY, VGM y alófonos
 

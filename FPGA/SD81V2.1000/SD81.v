@@ -609,6 +609,55 @@ Port $7FEF (01111111 11101111) - IN:
 		else sf_hscroll_rows_h <= data;
 	end
 
+	// POKE 2096/2097 (16 bits, low/high) + POKE 2098: direccion de pantalla
+	// ALTERNATIVA para los formatos Superfast de texto (32/70/80 columnas),
+	// en vez de la que la FPGA toma automaticamente por snooping de la
+	// variable de sistema D_FILE (16396/16397, ver DFILE mas arriba).
+	//
+	// Compatibilidad: escribir 2096/2097 NO tiene efecto por si solo, hace
+	// falta activarlo con POKE 2098,170. Sin esa activacion (justo tras
+	// reset, tras POKE 2098,85, o tras volver a video nativo con POKE
+	// 2045,85) se sigue usando D_FILE exactamente igual que hasta ahora,
+	// asi que el software existente no se entera de que este mecanismo
+	// existe.
+	//
+	// Para que: permite separar "donde cree el BASIC/ROM que esta la
+	// pantalla" (D_FILE, que el listado/editor siguen usando para lo suyo)
+	// de "donde la lee de verdad el video", p.ej. para doble buffer de
+	// pantallas de texto sin tener que mover D_FILE de un lado a otro en
+	// cada frame.
+	reg [15:0] DFILE_OVERRIDE = 16'd0;
+	reg dfile_ovr_en = 1'b0;
+	wire dfile_ovr_lo_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2096);
+	wire dfile_ovr_hi_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2097);
+	wire dfile_ovr_en_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2098);
+	// Al volver a video NATIVO (POKE 2045,85) se apaga el override tambien:
+	// "modo estandar" tiene que significar el comportamiento de siempre
+	// (D_FILE), sin depender de si alguien activo el override antes y se
+	// olvido de desactivarlo. dfile_ovr_en solo puede tener un always que
+	// lo controle (regla de un solo driver), asi que esta condicion se
+	// mete en la sensibilidad de su propio always en vez de en el bloque
+	// de POKE 2045 (que solo llega hasta la direccion 2058).
+	wire dfile_ovr_clear = poke_wr && (Addr==16'd2045) && (data==8'd85);
+	always @(posedge dfile_ovr_lo_wr or negedge nRESET) begin
+		if (nRESET==1'b0) DFILE_OVERRIDE[7:0] <= 8'd0;
+		else DFILE_OVERRIDE[7:0] <= data;
+	end
+	always @(posedge dfile_ovr_hi_wr or negedge nRESET) begin
+		if (nRESET==1'b0) DFILE_OVERRIDE[15:8] <= 8'd0;
+		else DFILE_OVERRIDE[15:8] <= data;
+	end
+	always @(posedge dfile_ovr_en_wr or posedge dfile_ovr_clear or negedge nRESET) begin
+		if (nRESET==1'b0) dfile_ovr_en <= 1'b0;
+		else if (dfile_ovr_clear) dfile_ovr_en <= 1'b0;	// POKE 2045,85: modo nativo
+		else if (data==8'd170) dfile_ovr_en <= 1'b1;	// POKE 2098,170: activa el override
+		else if (data==8'd85) dfile_ovr_en <= 1'b0;	// POKE 2098,85: vuelve a D_FILE
+	end
+	// Direccion de pantalla EFECTIVA que usan char_addr/char_addr_80/
+	// attr_addr_m1: DFILE_OVERRIDE si esta activado, o el DFILE de siempre
+	// (snoop de D_FILE) en caso contrario.
+	wire [15:0] DFILE_eff = dfile_ovr_en ? DFILE_OVERRIDE : DFILE;
+
 	// Fila de texto actual (0-23), calculada directamente de line_cnt: es
 	// estable durante las 8 lineas de raster de la fila, independiente del
 	// estado del contador de columna (col_cnt_b). Con esto se evita cualquier
@@ -955,9 +1004,11 @@ Port $7FEF (01111111 11101111) - IN:
 	//   7 pixeles -> 80 columnas, paso 81 = row*64+row*16+row
 	// Descompuesto en sumas de potencias de 2 porque ni 71 ni 81 lo son.
 	// Va aqui arriba, y no junto a char_addr, porque attr_addr_m1 lo usa.
+	// DFILE_eff en vez de DFILE: usa el override de POKE 2096/2097/2098 si
+	// esta activado, D_FILE de siempre si no (ver mas arriba).
 	wire [15:0] row_stride_80 = char7_en ? {scr_row,6'b0}+{scr_row,4'b0}+scr_row
 													 : {scr_row,6'b0}+{scr_row,2'b0}+{scr_row,1'b0}+scr_row;
-	wire [15:0] char_addr_80 = DFILE+16'd1+row_stride_80+scr_col_80;
+	wire [15:0] char_addr_80 = DFILE_eff+16'd1+row_stride_80+scr_col_80;
 
 	// Chroma modo 1 (atributo por POSICION de pantalla): la zona de color es
 	// la misma direccion del caracter pero con el bit 15 a 1, o sea
@@ -971,7 +1022,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// (lectura del atributo) sigue valiendo la columna correcta. Por eso el
 	// modo de 32 columnas necesita scr_col2 (con su -6) y este no.
 	wire [15:0] attr_addr_m1 = sf80_en ? {1'b1,char_addr_80[14:0]}
-												  : {1'b1,{DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col2}[14:0]};//16'hc0001+{scr_row,5'b00000} + scr_row+scr_col;
+												  : {1'b1,{DFILE_eff+16'd1+{scr_row,5'b00000} + scr_row+scr_col2}[14:0]};//16'hc0001+{scr_row,5'b00000} + scr_row+scr_col;
 	
 	// Con scroll horizontal fino la fila se lee una columna mas alla: la 32,
 	// que en el DFILE es el byte de NEWLINE (la FPGA no lo trata como
@@ -984,7 +1035,8 @@ Port $7FEF (01111111 11101111) - IN:
 	// Con sf_hscroll==0, o en una fila con el scroll desactivado por POKE
 	// 2091/2092/2093, se usa scr_col y queda exactamente como antes.
 	wire [5:0] scr_col_x = hscroll_active ? sf_col_idx : {1'b0,scr_col};
-	wire [15:0] char_addr = DFILE+16'd1+{scr_row,5'b00000} + scr_row+scr_col_x;
+	// DFILE_eff (no DFILE): ver POKE 2096/2097/2098 mas arriba.
+	wire [15:0] char_addr = DFILE_eff+16'd1+{scr_row,5'b00000} + scr_row+scr_col_x;
 	wire [15:0] scan_addr = sfHR_en? {vpage,hr_addr}:	// superfast HR native mode (front si dbuf)
 									sfSP_en?	{vpage,hr_addr[12:11],hr_addr[7:5],hr_addr[10:8],hr_addr[4:0]}: // superfast HR spectrum mode (front si dbuf)
 									SEL_256CHARS? {ROMTABLE[15:11],char_latch_fast[7],char_latch_fast[6],char_latch_fast[5:0],line_cnt_b}: // 256 chars: tabla alineada a 2K

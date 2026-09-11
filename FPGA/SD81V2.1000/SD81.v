@@ -1752,7 +1752,45 @@ assign DEBUG_RDY = 1'b0;
 // ************************************************
 // 	MC45/M1NOT
 // ************************************************
-		wire M1NOT_signal = ~nM1 & ~nMREQ & ~nRD & A15 & ~A14;
+		// El circuito real que fuerza NOPs esta en el ZX81 (o en la tarjeta
+		// de expansion), no aqui: cuando /M1=0, A15=1 y /HALT=1, ese circuito
+		// pone a 0 el bus de datos. Es necesario para el modo NATIVO, que
+		// genera video saltando a DFILE+$8000 y ejecutando NOPs hasta un
+		// HALT real (el propio DFILE, en su espejo alto). MC45 (la senal
+		// FISICA nHALT que sale de aqui) engaña a ese circuito forzando
+		// /HALT=0, para poder ejecutar codigo de verdad en zonas de memoria
+		// que se sepa que NUNCA van a coincidir con DFILE+$8000 -- de ahi
+		// que solo cubra los bloques 4/5 (A14=0): DFILE nunca cae ahi en uso
+		// normal, así que es seguro.
+		//
+		// POKE 2062,170 / 2062,85: extiende MC45 (con EN_MC45 tambien
+		// activo) a TODA la zona alta, incluidos los bloques 6/7 -- pensado
+		// para codigo propio en modos Superfast, donde nadie hace el salto a
+		// DFILE+$8000 (el video se genera aparte, ver char_addr_80/
+		// DFILE_eff) y por tanto los bloques 6/7 son seguros para ejecutar
+		// codigo de verdad.
+		//
+		// PROBADO EN HARDWARE Y DESCARTADO: activarlo automaticamente con
+		// sfast_mode_en (en vez de por POKE explicito) cuelga el BASIC
+		// nativo en cuanto se activa Superfast, incluso en modo FAST. Causa
+		// mas probable: en el mapeo por defecto (sin RAM48), los bloques 6/7
+		// son ESPEJO FISICO de los bloques 2/3 (ver el reset de block[] en
+		// el mapper: block[6]<=~nMODE48K?6:2, block[7]<=~nMODE48K?7:3), que
+		// es donde vive el sistema de variables, el DFILE real y el propio
+		// programa BASIC -- activar la extension en CUALQUIER Superfast
+		// (incluida la demo estandar del sistema, no solo codigo propio)
+		// mete la señal ahi sin que nadie lo haya pedido. Por eso el control
+		// es un registro EXPLICITO, para que solo se active cuando el
+		// programador sepa con certeza que va a ejecutar codigo propio en
+		// 6/7 y que nada mas del sistema va a tocar esa zona mientras tanto.
+		reg mc45_ext67 = 1'b0;
+		wire mc45_ext67_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2062);
+		always @(posedge mc45_ext67_wr or negedge nRESET) begin
+			if (nRESET==1'b0) mc45_ext67 <= 1'b0;
+			else if (data==8'd170) mc45_ext67 <= 1'b1;
+			else if (data==8'd85) mc45_ext67 <= 1'b0;
+		end
+		wire M1NOT_signal = ~nM1 & ~nMREQ & ~nRD & A15 & (mc45_ext67 | ~A14);
 		assign nHALT = M1NOT_signal & EN_MC45? 1'b0: 1'bz;
 
 

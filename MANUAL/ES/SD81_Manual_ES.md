@@ -1400,6 +1400,22 @@ El modo MC45 (Machine Code 4 and 5) desactiva esta limitación, permitiendo ejec
 |:----:|------------------------------------------------------------------|
 | **⚠** | *El modo MC45 se implementa forzando a cero el pin M1 del Z80 de forma intermitente y durante intervalos de tiempo muy breves, lo que mantiene la carga sobre dicho pin en niveles bajos y hace que la posibilidad de daño sea muy reducida. Además, el interface ya incorpora internamente la resistencia de protección necesaria, por lo que no es necesario realizar ninguna modificación en el ZX81. Pese a todo, el uso de esta característica se realiza bajo la responsabilidad exclusiva del usuario. Cuando MC45 está activo no es posible cargar ni escribir programas BASIC de más de 16 KB.* |
 
+## Extensión de MC45 a los bloques 6 y 7
+
+Por defecto, MC45 solo cubre los bloques 4 y 5 (direcciones 32768--49151): en el vídeo nativo del ZX81 la pantalla se genera saltando a D_FILE+\$8000 y ejecutando NOPs hasta encontrar un HALT real (el propio D_FILE, en su espejo alto), y esa dirección nunca cae en los bloques 4/5 en uso normal, por lo que ejecutar código de verdad ahí es seguro.
+
+En los modos Superfast (texto, HiRes nativo o HiRes Spectrum) el vídeo se genera íntegramente por hardware, sin que la CPU tenga que "ejecutar" D_FILE en ningún momento --- así que, con código propio, también podría ser seguro ejecutar en los bloques 6 y 7 (49152--65535). El SD81 Booster permite activar esta extensión con un registro independiente:
+
+> POKE 2062, 170 : REM extiende MC45 tambien a los bloques 6 y 7
+>
+> POKE 2062, 85 : REM vuelve a la restriccion habitual (solo bloques 4 y 5)
+
+Para que tenga efecto hace falta también **LOAD \*MC45** activo; este registro solo añade los bloques 6 y 7 a la zona donde MC45 ya actúa, no lo sustituye.
+
+|  |  |
+|:----:|------------------------------------------------------------------|
+| **⚠** | *En el mapeo de bloques por defecto (sin RAM48 activada), los bloques 6 y 7 son un espejo físico de los bloques 2 y 3 --- es decir, de la memoria donde viven el sistema de variables, el programa BASIC, la pila y el D_FILE real. Activar esta extensión mientras los bloques 6/7 siguen siendo ese espejo cuelga el sistema en cuanto se activa un modo Superfast, incluso con FAST. Actívala solo después de remapear los bloques 6 y/o 7 (con MAP) a páginas de SRAM libres, dedicadas exclusivamente a tu código propio.* |
+
 ## 11.4 Arranque con ROM alternativa
 
 El SD81 Booster permite arrancar con una ROM diferente a la estándar del ZX81 sin necesidad de usar ningún comando. Basta con tener en la carpeta /SYS/ de la tarjeta SD uno o más archivos de ROM con los nombres 0.ROM, 1.ROM, 2.ROM\... hasta 9.ROM.
@@ -2895,6 +2911,7 @@ LOAD \*WRX STOP : REM desactivar (modo generador de caracteres, por defecto)
 | 2059 | \<base_baja\> | Byte bajo de la tabla de atributos alternativa (Chroma modo 1) |
 | 2060 | \<base_alta\> | Byte alto de la tabla de atributos alternativa |
 | 2061 | 170 / 85 | Activar / desactivar la tabla de atributos alternativa |
+| 2062 | 170 / 85 | Extender MC45 tambien a los bloques 6 y 7 / volver solo a 4 y 5 |
 
 # Apéndice G --- Referencia técnica de audio: chip AY, VGM y alófonos
 

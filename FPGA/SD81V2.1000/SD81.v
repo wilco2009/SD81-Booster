@@ -1057,10 +1057,30 @@ Port $7FEF (01111111 11101111) - IN:
 	// scr_col2 por otro, con la misma forma). En modo ancho no vale la
 	// formula de 32 columnas (paso 33 fijo, y scr_col2 es de 5 bits: no
 	// pasa de 31); scr_col_80 (7 bits) si vale para las dos.
-	// El instante tambien cuadra sin desfase: scr_col_80/scr_col2 son
-	// registros que se fijan en el estado 6 y se mantienen, asi que en los
-	// estados 0/1 (lectura del atributo) siguen valiendo.
-	wire [15:0] attr_rel_addr = sf80_en ? (row_stride_80+scr_col_80)
+	// EL INSTANTE NO CUADRA IGUAL EN LOS DOS ANCHOS. scr_col_80/scr_col2 se
+	// fijan en el estado 6. Con 8 pixeles los estados van en su orden
+	// natural (0,1,...,7), asi que al leer el atributo en los estados 0/1
+	// scr_col_80 todavia vale el indice ANTERIOR -- que es justo el del
+	// caracter que acompana, porque ese se leyo en el estado 7 del ciclo
+	// anterior. Cuadra solo.
+	//
+	// Con 7 pixeles la tabla de col_cnt_b7 reordena los estados y pone el 6
+	// el PRIMERO del grupo (6,7,0,1,2,3,5), asi que cuando se leen los
+	// estados 0/1 el indice ya esta actualizado y el color sale UNA COLUMNA
+	// ADELANTADO. Comprobado en hardware con colcal80_test.asm: el atributo
+	// de la columna N se pintaba en la N-1 (el digito de la esquina salia
+	// con el color del cuerpo, y el papel de la esquina aparecia en la
+	// columna de al lado), y la ultima columna se quedaba leyendo el byte
+	// 80 de la fila, que el software no rellena -> papel negro. En
+	// monocromo no se notaba: esa franja negra era indistinguible del
+	// borde, tambien negro.
+	//
+	// Se compensa leyendo el atributo con el indice anterior, que es lo que
+	// el modo de 8 pixeles hace por si solo. Solo afecta a char7_en: el
+	// modo de 70 columnas y el de 32 siguen exactamente igual que antes.
+	wire [6:0] attr_col_80 = (char7_en && scr_col_80!=7'd0) ? scr_col_80-7'd1
+																			  : scr_col_80;
+	wire [15:0] attr_rel_addr = sf80_en ? (row_stride_80+attr_col_80)
 													  : ({scr_row,5'b00000} + scr_row+scr_col2);
 	// Sin override (de siempre): misma direccion que el caracter pero con
 	// el bit 15 a 1, o sea $8000 + (direccion del caracter mod 32K) --
@@ -1793,6 +1813,26 @@ assign DEBUG_RDY = 1'b0;
 		wire M1NOT_signal = ~nM1 & ~nMREQ & ~nRD & A15 & (mc45_ext67 | ~A14);
 		assign nHALT = M1NOT_signal & EN_MC45? 1'b0: 1'bz;
 
+		// Forzar /HALT no basta para ejecutar en los bloques 6/7: el
+		// direccionamiento fisico tiene ADEMAS un caso especial que, en modo
+		// 48/56K, manda los ciclos M1 de $C000-$FFFF a las paginas de los
+		// bloques 2/3 en vez de a las de 6/7 (ver mas abajo, en ADDRESSING).
+		// Es el equivalente en modo 48K del espejo que en modo 32K hacen los
+		// propios registros del mapper, y existe por la misma razon: que el
+		// video NATIVO pueda leer el DFILE (bloques 2/3) al saltar a
+		// DFILE+$8000. Sin quitarlo, el poke que escribes en el bloque 7 no
+		// es el que la CPU acaba leyendo: lee el mismo offset de la pagina
+		// del bloque 3.
+		//
+		// Los dos mecanismos van SIEMPRE juntos, de ahi este wire: encender
+		// solo uno deja la maquina en un estado que no sirve para nada. Con
+		// mc45_ext67 sin EN_MC45 se quitaria el espejo (rompiendo el video
+		// nativo en modo 48K) sin forzar /HALT, asi que seguiria sin poder
+		// ejecutarse nada ahi. Y con EN_MC45 solo (MC45 clasico, bloques
+		// 4/5) el espejo tiene que seguir activo: A14=0 en $8000-$BFFF, asi
+		// que ese caso especial ni los mira.
+		wire mc45_exec67 = EN_MC45 & mc45_ext67;
+
 
 // ************************************************
 // 	ADDRESSING
@@ -1830,7 +1870,7 @@ assign DEBUG_RDY = 1'b0;
 		{A9,ram_Dlatch[5:0],line_cnt[2:0]};																		// access to char table on 64CHAR mode
 	assign {A18x,A17x,A16x,A15x,A14x,A13x} = ~nRESET?6'bzzzzzz: // access to RAM from micro on boot
 		(~nQS_en & ~nRFSH)?block[3'b100]:								// access to char table on QS mode
-		(~nMODE48K &~nM1 & A15 & A14)? block[{1'b0,A14,A13}]:		// access to execute at C000-FFFF in 48K mode
+		(~nMODE48K &~nM1 & A15 & A14 & ~mc45_exec67)? block[{1'b0,A14,A13}]:		// access to execute at C000-FFFF in 48K mode (mc45_exec67 lo quita: ver MC45/M1NOT)
 		block[{ A15,A14,A13}];												// normal access
 
 		// LOW ROM is write protected

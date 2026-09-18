@@ -53,7 +53,7 @@ Preserved by Tomaž Šolc (https://www.tablix.org/~avian/spectrum/rom/)
 
 MC45 (Machine Code in blocks 4 and 5) is a mode that allows any Z80 instruction — not just those with opcodes in the ranges 40h–7Fh and C0h–FFh — to run in the address range 8000h–BFFFh. The drawback is that the display file can no longer be in that area, so BASIC programs larger than 16 KB cannot be loaded or written while this mode is active.
 
-The interface already includes a 33Ω protective resistor on the M1 line internally. No modification to the ZX81 is required. There is no jumper to disable this feature on the current hardware version.
+The interface already includes a 33Ω protective resistor on the /HALT line internally. No modification to the ZX81 is required. There is no jumper to disable this feature on the current hardware version.
 
 > **Note:** Some older documentation refers to a 680Ω resistor — that value applies to an alternative ZX81 hardware modification, not to the SD81 Booster itself.
 

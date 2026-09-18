@@ -3323,6 +3323,8 @@ El explorador (EXPLORER.BIN) es un navegador de la tarjeta SD en modo Superfast 
 
 Al salir del explorador con un archivo seleccionado (tecla ENTER u 8 sobre un fichero que no sea .VGM, .PEB, .SCR ni .TXT --- esos cuatro los gestiona el propio explorador, ver más abajo), este stub recoge el nombre en F\$ y decide qué hacer según la extensión. Tal como está, solo actúa sobre .P, .WAV y .ROM; para cualquier otra extensión que quieras cargar de otra forma, añade tu propia condición antes de la línea 300.
 
+La tarjeta SD que se descarga del repositorio ya viene configurada para arrancar así: incluye este arranque como /AUTOEXEC.P, así que con el interface conectado basta con encender el ZX81 y pulsar RUN y ENTER para que el explorador se cargue y arranque solo, sin teclear nada (ver 5.4, «El programa AUTOEXEC»).
+
 ## Navegación
 
 | **Tecla** | **Acción** |

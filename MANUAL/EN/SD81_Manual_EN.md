@@ -3226,6 +3226,8 @@ The explorer (EXPLORER.BIN) is an SD card browser in Superfast HiRes Spectrum mo
 
 When you leave the explorer with a file selected (ENTER or 8 on a file that isn\'t .VGM, .PEB, .SCR or .TXT --- the explorer itself handles those four, see below), this stub collects the name in F\$ and decides what to do based on the extension. As written, it only acts on .P, .WAV and .ROM; add your own condition before line 300 for any other extension you want to load differently.
 
+The SD card image downloaded from the repository already ships configured to boot this way: it includes this startup as /AUTOEXEC.P, so with the interface plugged in, just power on the ZX81 and press RUN then ENTER for the explorer to load and start on its own, with nothing to type (see 5.4, "The AUTOEXEC program").
+
 ## Navigation
 
 | **Key**       | **Action**                                       |

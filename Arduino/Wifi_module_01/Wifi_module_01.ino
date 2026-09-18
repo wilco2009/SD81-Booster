@@ -8,6 +8,7 @@
 #include "WIFI_CLIENT.h"
 #include "LOGO.h"
 #include "VERSION_CHECK.h"
+#include "NET_BRIDGE.h"
 
 // SD_LOG.h ultimo a proposito: redefine "Serial" como macro para el resto
 // de este fichero (espeja toda la salida a /SYS/ESP32_LOG.TXT ademas del
@@ -341,6 +342,62 @@ void handleDelete() {
   }
 
   server.sendHeader("Location", "/list?path=" + dir);
+  server.send(303);
+}
+
+// --- Puente de red (BBS/telnet) --------------------------------------------
+// De momento esta es la unica via para abrir la conexion. A partir de la fase
+// 2.5 se podra tambien con ATDT desde el propio CP/M, y las dos manipulan el
+// mismo estado del ESP32.
+static const char* net_state_text(uint8_t st) {
+  switch (st) {
+    case NET_ST_CONNECTING: return "connecting";
+    case NET_ST_CONNECTED:  return "connected";
+    case NET_ST_ERROR:      return "error";
+    default:                return "not connected";
+  }
+}
+
+void handleTelnetPage() {
+  String html = "<style>"
+                "body{font-family:sans-serif;max-width:600px;margin:0 auto;padding:0 10px}"
+                "h1{text-align:center;margin-top:0}"
+                "label{display:block;margin-top:12px}"
+                "</style>";
+  html += "<h1>BBS / telnet</h1>";
+  html += "<p><a href=\"/list?path=/\">&laquo; Back to file server</a></p>";
+
+  uint8_t st = net_bridge_state();
+  html += "<p>Status: <b>" + String(net_state_text(st)) + "</b>";
+  if (st == NET_ST_CONNECTED)
+    html += " &mdash; " + html_escape(String(net_bridge_host())) + ":" + String(net_bridge_port());
+  html += "</p>";
+
+  html += "<form method=\"POST\" action=\"/telnet/connect\">";
+  html += "<label>Host<br><input type=\"text\" name=\"host\" value=\"" +
+          html_escape(String(net_bridge_host())) + "\" placeholder=\"bbs.example.com\"></label>";
+  html += "<label>Port<br><input type=\"number\" name=\"port\" value=\"" +
+          String(net_bridge_port() ? net_bridge_port() : 23) + "\"></label>";
+  html += "<p><input type=\"submit\" value=\"Connect\"></p>";
+  html += "</form>";
+  html += "<form method=\"POST\" action=\"/telnet/disconnect\">";
+  html += "<p><input type=\"submit\" value=\"Disconnect\"></p>";
+  html += "</form>";
+  server.send(200, "text/html", html);
+}
+
+void handleTelnetConnect() {
+  String host = server.hasArg("host") ? server.arg("host") : "";
+  host.trim();
+  uint16_t port = server.hasArg("port") ? (uint16_t)server.arg("port").toInt() : 23;
+  if (host.length() > 0 && port > 0) net_bridge_connect(host.c_str(), port);
+  server.sendHeader("Location", "/telnet");
+  server.send(303);
+}
+
+void handleTelnetDisconnect() {
+  net_bridge_disconnect();
+  server.sendHeader("Location", "/telnet");
   server.send(303);
 }
 
@@ -933,11 +990,15 @@ void setup() {
   server.on("/ntp", HTTP_GET, handleNtpPage);
   server.on("/ntp/save", HTTP_POST, handleNtpSave);
   server.on("/ntp/sync", HTTP_POST, handleNtpSyncNow);
+  server.on("/telnet", HTTP_GET, handleTelnetPage);
+  server.on("/telnet/connect", HTTP_POST, handleTelnetConnect);
+  server.on("/telnet/disconnect", HTTP_POST, handleTelnetDisconnect);
   server.on("/update", HTTP_GET, handleUpdatePage);
   server.on("/update/check", HTTP_POST, handleUpdateCheck);
   server.on("/update/finish", HTTP_POST, handleUpdateFinish);
   server.begin();
   Serial.println("Server ready.");
+  net_bridge_init();
 }
 
 #define NTP_SYNC_FLAG_PATH      "/SYS/NTP_SYNC_NOW.FLAG"
@@ -967,5 +1028,6 @@ void check_ntp_sync_flag() {
 void loop() {
   server.handleClient();
   check_ntp_sync_flag();
+  net_bridge_loop();
   sdlog_try_flush();
 }

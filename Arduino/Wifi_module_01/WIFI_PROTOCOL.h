@@ -23,6 +23,12 @@
 #define WIFI_PROTO_MAX_PASS     64    // limite estandar WPA2-PSK ASCII (uso del lado ESP32 al parsear WIFI.CFG)
 #define WIFI_PROTO_MAX_NETWORKS 4     // maximo de redes que el ESP32 recuerda al parsear WIFI.CFG (ver mas abajo)
 
+// Puente de red (CMD_NET_POLL). 128 y no 256: la trama lleva los DOS sentidos
+// a la vez, y 128+128 mas cabeceras entra en WIFI_PROTO_MAX_FRAME_PAYLOAD sin
+// tener que tocarlo (ese define dimensiona buffers fijos en ambos lados).
+// A 10 ms de sondeo son 12,8 KB/s por sentido; un BBS a 2400 baudios son 240 B/s.
+#define WIFI_PROTO_NET_CHUNK    128
+
 // Tamano maximo de PAYLOAD de una trama (CMD+LEN no cuentan) - dimensiona los buffers
 // fijos en ambos lados, deben usar la MISMA constante para no desbordar el lado contrario.
 // Margen sobre WIFI_PROTO_CHUNK_SIZE para cabeceras de comando (handle, len, offset, etc.)
@@ -44,6 +50,7 @@ enum WifiProtoCmd : uint8_t {
   CMD_MKDIR        = 0x0C,
   CMD_SET_TIME     = 0x0D,
   CMD_WRITE_SYNC   = 0x0E,  // fuerza el tamano en disco de un handle abierto SIN cerrarlo
+  CMD_NET_POLL     = 0x0F,  // puente de datos de red (BBS/telnet) - ver mas abajo
   // 0x0B (antiguo CMD_GET_WIFI_CFG) retirado - ver nota mas abajo sobre WIFI.CFG
 };
 
@@ -58,6 +65,24 @@ enum WifiProtoStatus : uint8_t {
 
 // Flags de entrada (LIST_DIR) / STAT
 #define WIFI_PROTO_FLAG_DIR   0x01
+
+// --- Puente de red: estado de la conexion (byte `status` de NET_POLL) -------
+enum WifiProtoNetStatus : uint8_t {
+  NET_ST_IDLE       = 0x00,   // sin conexion
+  NET_ST_CONNECTING = 0x01,
+  NET_ST_CONNECTED  = 0x02,
+  NET_ST_ERROR      = 0x03,   // el ultimo intento fallo / la conexion se cayo
+};
+
+// Flags de NET_POLL. El bit de secuencia (alternating bit) hace el sondeo
+// IDEMPOTENTE, que no es un lujo: wifi_handler_poll() se llama desde loop(),
+// asi que mientras el Z80 esta dentro de un comando MCU largo el loop() del
+// STM32 no corre, el ESP32 hace timeout y reintenta. Con sondeo cada 10-20 ms
+// eso pasa constantemente. El receptor solo consume los datos si el bit
+// CAMBIO respecto a la trama anterior, y el emisor no descarta lo suyo hasta
+// ver el ack: un reintento repite la trama tal cual, sin duplicar ni perder.
+#define WIFI_PROTO_NET_SEQ    0x01   // secuencia de los datos que van EN esta trama
+#define WIFI_PROTO_NET_ACK    0x02   // eco de la secuencia recibida en el otro sentido
 
 // --- Formato de payload por comando (referencia) ---------------------------
 // PING          req: (vacio)                          resp: fw_version(1B)
@@ -91,6 +116,30 @@ enum WifiProtoStatus : uint8_t {
 //               hasta el WRITE_CLOSE; util para logs u otros escritores de
 //               larga duracion que quieren que el fichero sea legible por
 //               otros antes de terminar)
+//
+// NET_POLL      req: flags(1B), len(1B), data(len)      resp: status(1B), flags(1B),
+//                    (lo que va del socket al Z80)             rx_free(1B), len(1B), data(len)
+//                                                              (lo que va del Z80 al socket)
+//               flags: bit0 = secuencia de los datos de ESTA trama,
+//                      bit1 = ack de la secuencia recibida del otro lado.
+//               rx_free: hueco libre en el buffer de entrada del STM32, en
+//                      trozos de 16 bytes (control de flujo por credito: el
+//                      ESP32 nunca manda mas de lo que cabe; sin esto, un Z80
+//                      que no lee a tiempo pierde datos en silencio).
+//               len <= WIFI_PROTO_NET_CHUNK en los dos sentidos.
+//
+//               Este comando es el UNICO que el ESP32 manda de forma
+//               PERIODICA aunque no tenga nada que decir (~250 ms en reposo,
+//               ~10-20 ms con conexion abierta). Hace falta porque el STM32
+//               no puede iniciar tramas: es la unica via por la que sale lo
+//               que el Z80 escribe, incluido el propio "ATDT host:puerto" del
+//               intérprete de modem. La cadencia en reposo se mantiene baja a
+//               proposito: el loop() del STM32 lo comparte con el AY, la voz y
+//               el WAV.
+//
+//               El STM32 NO interpreta nada de lo que pasa por aqui: solo son
+//               dos buffers circulares. Socket, destino y comandos AT viven en
+//               el ESP32.
 //
 // "path(str)": length-prefixed, 1 byte de longitud + bytes UTF-8/ASCII (NO terminador nulo
 // en el cable), maximo WIFI_PROTO_MAX_PATH-1 bytes de nombre.

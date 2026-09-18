@@ -19,6 +19,40 @@ static bool   wifi_handle_used[WIFI_NUM_HANDLES];
 static uint8_t rx_payload[WIFI_PROTO_MAX_FRAME_PAYLOAD];
 static uint8_t tx_payload[WIFI_PROTO_MAX_FRAME_PAYLOAD];
 
+// --- Puente de red (BBS/telnet) --------------------------------------------
+// Dos buffers circulares y nada mas: aqui no se interpreta NADA de lo que
+// pasa. El socket, el destino y los comandos AT viven en el ESP32; el STM32
+// es un tubo entre el UART y los comandos MCU del Z80 (66/67).
+#define NET_BUF_SIZE   2048            // potencia de 2: la mascara sale gratis
+#define NET_BUF_MASK   (NET_BUF_SIZE-1)
+
+static uint8_t  net_rx_buf[NET_BUF_SIZE];   // ESP32 -> Z80
+static uint16_t net_rx_head = 0, net_rx_tail = 0;
+static uint8_t  net_tx_buf[NET_BUF_SIZE];   // Z80 -> ESP32
+static uint16_t net_tx_head = 0, net_tx_tail = 0;
+
+static uint8_t  net_status = NET_ST_IDLE;
+
+// Secuencia alternante, un bit por sentido. `net_seq_in` es la ultima
+// secuencia ACEPTADA del ESP32; `net_seq_out` la de los datos que estamos
+// ofreciendo y que aun no nos han confirmado.
+//
+// net_seq_in arranca en true a proposito, al CONTRARIO del primer valor que
+// mandara el ESP32 (false): si empezara igual, la primera trama con datos se
+// tomaria por un reintento y se descartaria. El mismo cuidado hay que tenerlo
+// en el otro extremo (ver seq_in_last en el ESP32).
+static bool net_seq_in  = true;
+static bool net_seq_out = false;
+// Bytes de net_tx que ya viajaron en la trama anterior y siguen sin ack: no
+// se descartan hasta que el ESP32 los confirma, para que un reintento por
+// timeout los vuelva a ofrecer intactos.
+static uint16_t net_tx_inflight = 0;
+
+static inline uint16_t net_rx_used() { return (uint16_t)((net_rx_head - net_rx_tail) & NET_BUF_MASK); }
+static inline uint16_t net_rx_free() { return (uint16_t)(NET_BUF_MASK - net_rx_used()); }
+static inline uint16_t net_tx_used() { return (uint16_t)((net_tx_head - net_tx_tail) & NET_BUF_MASK); }
+static inline uint16_t net_tx_free() { return (uint16_t)(NET_BUF_MASK - net_tx_used()); }
+
 void wifi_handler_init() {
   WIFI_SERIAL.setRx(UART_RX);
   WIFI_SERIAL.setTx(UART_TX);
@@ -406,7 +440,135 @@ static void handle_set_time(const uint8_t* payload, uint16_t len) {
 // READ_CLOSE, ya manejados por handle_read_open/handle_read_chunk mas
 // arriba en este fichero - el ESP32 lo descarga y lo interpreta el mismo.
 
+// --- API para los comandos MCU del Z80 (fase 2) -----------------------------
+// De momento solo las usa el modo de prueba de aqui abajo; cmd_net_read /
+// cmd_net_write colgaran de estas mismas funciones sin tocar nada del UART.
+
+uint16_t net_bridge_read(uint8_t* dst, uint16_t max) {
+  uint16_t n = net_rx_used();
+  if (n > max) n = max;
+  for (uint16_t i = 0; i < n; i++) {
+    dst[i] = net_rx_buf[net_rx_tail];
+    net_rx_tail = (uint16_t)((net_rx_tail + 1) & NET_BUF_MASK);
+  }
+  return n;
+}
+
+uint16_t net_bridge_write(const uint8_t* src, uint16_t len) {
+  uint16_t n = net_tx_free();
+  if (n > len) n = len;
+  for (uint16_t i = 0; i < n; i++) {
+    net_tx_buf[net_tx_head] = src[i];
+    net_tx_head = (uint16_t)((net_tx_head + 1) & NET_BUF_MASK);
+  }
+  return n;   // puede ser < len: el llamante decide si reintenta el resto
+}
+
+uint16_t net_bridge_available() { return net_rx_used(); }
+uint8_t  net_bridge_status()    { return net_status; }
+
+// --- NET_POLL ---------------------------------------------------------------
+// req:  flags(1B), status(1B), len(1B), data(len)     <- del socket al Z80
+// resp: flags(1B), rx_free(1B), len(1B), data(len)    <- del Z80 al socket
+//
+// El `status` viaja en la PETICION, no en la respuesta: quien conoce el estado
+// del socket es el ESP32. El STM32 solo lo memoriza para poder contestarselo
+// al Z80 cuando pregunte con los comandos MCU.
+static void handle_net_poll(const uint8_t* payload, uint16_t len) {
+  if (len < 3) return;                      // trama corta: ni respondemos, que reintente
+  uint8_t  in_flags = payload[0];
+  net_status         = payload[1];
+  uint16_t in_len   = payload[2];
+  if ((uint16_t)(3 + in_len) > len) return;
+  if (in_len > WIFI_PROTO_NET_CHUNK) return;
+
+  bool in_seq = (in_flags & WIFI_PROTO_NET_SEQ) != 0;
+  bool in_ack = (in_flags & WIFI_PROTO_NET_ACK) != 0;
+
+  // 1) Datos entrantes: solo se consumen si la secuencia CAMBIO. Si el ESP32
+  //    esta reintentando (misma secuencia), los bytes ya estan en el buffer y
+  //    volver a meterlos los duplicaria.
+  if (in_len > 0 && in_seq != net_seq_in) {
+    // O caben TODOS o no se acepta ninguno: si nos quedaramos con parte y aun
+    // asi avanzasemos la secuencia, el ESP32 los daria por entregados y el
+    // resto se perderia en silencio. Al no moverla, reintenta los mismos
+    // bytes. El credito de rx_free deberia hacer que esto no pase nunca.
+    if (in_len <= net_rx_free()) {
+      for (uint16_t i = 0; i < in_len; i++) {
+        net_rx_buf[net_rx_head] = payload[3 + i];
+        net_rx_head = (uint16_t)((net_rx_head + 1) & NET_BUF_MASK);
+      }
+      net_seq_in = in_seq;
+    }
+  } else if (in_len == 0) {
+    net_seq_in = in_seq;      // trama vacia: sincroniza la secuencia sin mas
+  }
+
+  // 2) El ack del ESP32 confirma lo que le ofrecimos en la trama anterior.
+  //    Hasta ese momento sigue en el buffer, intacto para un reintento.
+  if (net_tx_inflight > 0 && in_ack == net_seq_out) {
+    net_tx_tail = (uint16_t)((net_tx_tail + net_tx_inflight) & NET_BUF_MASK);
+    net_tx_inflight = 0;
+    net_seq_out = !net_seq_out;
+  }
+
+  // 3) Ofrecer lo siguiente. Si hay algo en vuelo sin confirmar, se reofrece
+  //    EXACTAMENTE lo mismo, con la misma secuencia.
+  uint16_t out_len;
+  if (net_tx_inflight > 0) {
+    out_len = net_tx_inflight;
+  } else {
+    out_len = net_tx_used();
+    if (out_len > WIFI_PROTO_NET_CHUNK) out_len = WIFI_PROTO_NET_CHUNK;
+    net_tx_inflight = out_len;
+  }
+
+  tx_payload[0] = (uint8_t)((net_seq_out ? WIFI_PROTO_NET_SEQ : 0) |
+                            (net_seq_in  ? WIFI_PROTO_NET_ACK : 0));
+  uint16_t freeb = net_rx_free() >> 4;                 // en trozos de 16 bytes
+  tx_payload[1] = (freeb > 255) ? 255 : (uint8_t)freeb;
+  tx_payload[2] = (uint8_t)out_len;
+  for (uint16_t i = 0; i < out_len; i++)
+    tx_payload[3 + i] = net_tx_buf[(uint16_t)((net_tx_tail + i) & NET_BUF_MASK)];
+
+  wifi_send_frame(CMD_NET_POLL, tx_payload, (uint16_t)(3 + out_len));
+}
+
+// --- Modo de prueba de la fase 1 (sin Z80) ----------------------------------
+// Hace de Z80 simulado para poder validar el transporte antes de que existan
+// los comandos MCU 66/67: contra un servidor de eco, cierra el lazo completo
+// (STM32 -> UART -> ESP32 -> socket -> vuelta) y todo se ve en el log serie.
+// Poner a 1 para probar; quitar cuando la fase 2 este en marcha.
+#define NET_BRIDGE_TEST   0
+
+#if NET_BRIDGE_TEST
+static void net_bridge_test_tick() {
+  static uint32_t last = 0;
+  static uint16_t n = 0;
+
+  uint8_t buf[64];
+  uint16_t got = net_bridge_read(buf, sizeof(buf) - 1);
+  if (got > 0) {
+    buf[got] = 0;
+    log_1("NET rx (%u): %s", got, (char*)buf);
+  }
+
+  if (net_bridge_status() != NET_ST_CONNECTED) return;
+  if (millis() - last < 3000) return;
+  last = millis();
+
+  char msg[40];
+  int len = snprintf(msg, sizeof(msg), "SD81 TEST %u\r\n", n++);
+  uint16_t sent = net_bridge_write((const uint8_t*)msg, (uint16_t)len);
+  if (sent != (uint16_t)len) log_1("NET tx lleno: %u de %u", sent, len);
+}
+#endif
+
 void wifi_handler_poll() {
+#if NET_BRIDGE_TEST
+  net_bridge_test_tick();
+#endif
+
   if (esp32_update_in_progress && (millis() - esp32_update_start_ms > ESP32_UPDATE_TIMEOUT_MS)) {
     Serial.println("ESP32 firmware update timed out - assuming it failed.");
     set_blinking_off();
@@ -435,6 +597,7 @@ void wifi_handler_poll() {
     case CMD_MKDIR:        handle_mkdir(rx_payload, len); break;
     case CMD_SET_TIME:     handle_set_time(rx_payload, len); break;
     case CMD_WRITE_SYNC:   handle_write_sync(rx_payload, len); break;
+    case CMD_NET_POLL:     handle_net_poll(rx_payload, len); break;
     default: break;   // comando desconocido: se ignora
   }
 }

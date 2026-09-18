@@ -17,6 +17,7 @@
 #include "WAV.h"
 #include "VBAT.h"
 #include "RTC.h"
+#include "WIFI_HANDLER.h"
 
 #define GET_NEXT_CHAR 13
 
@@ -2273,6 +2274,59 @@ void cmd_f_stat(){
   ToggleClock();                            // toggle final
 }
 
+// --- Puente de red (BBS/telnet) --------------------------------------------
+// El MCU es aqui un tubo tonto: lee y escribe en los dos buffers circulares
+// que comparte con el modulo WiFi (ver WIFI_HANDLER.cpp). El socket, el
+// destino y los comandos AT viven en el ESP32, asi que desde el Z80 esto se
+// parece a un puerto serie con un modem ya conectado delante.
+//
+// Contrato completo (y el codigo Z80 de referencia) en
+// claude/planning/net_bridge_emulator.md -- el emulador implementa lo mismo.
+
+// 66 (0x42) NET_READ
+//   Z80 -> MCU:  max
+//   MCU -> Z80:  count, data[count], avail, status
+// Con max=0 no transfiere nada y sirve de "¿hay algo?" barato: avail dice
+// cuantos quedan y status refresca el estado de la conexion.
+void cmd_net_read(){
+  ToggleClock();                            // ACK
+  uint8_t max = GetByteFromZ80_IT();
+
+  uint16_t n = net_bridge_read(copy_buffer, max);
+  SendByteToZ80((uint8_t)n);                // confirma 'max' + envia count
+  for (uint16_t i=0; i<n; i++)
+    SendByteToZ80(copy_buffer[i]);
+
+  uint16_t avail = net_bridge_available();
+  SendByteToZ80((avail > 255) ? 255 : (uint8_t)avail);
+  SendByteToZ80(net_bridge_status());
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en
+  // cmd_opendir2 sobre la ventana de carrera.
+  reset_commands();
+  ToggleClock();                            // toggle final
+}
+
+// 67 (0x43) NET_WRITE
+//   Z80 -> MCU:  count, data[count]
+//   MCU -> Z80:  accepted, status
+// `accepted` puede ser MENOR que count si el buffer de salida esta lleno: el
+// Z80 tiene que reenviar el resto, no darlo por enviado.
+void cmd_net_write(){
+  ToggleClock();                            // ACK
+  uint8_t count = GetByteFromZ80_IT();
+
+  for (uint16_t i=0; i<count; i++){
+    ToggleClock();                          // confirma byte anterior
+    copy_buffer[i] = GetByteFromZ80_IT();
+  }
+
+  uint16_t accepted = (count > 0) ? net_bridge_write(copy_buffer, count) : 0;
+  SendByteToZ80((uint8_t)accepted);         // confirma ultimo byte + accepted
+  SendByteToZ80(net_bridge_status());
+  reset_commands();
+  ToggleClock();                            // toggle final
+}
+
 // reserved codes for future
 void cmd_spare(){
   log_0("Command not recognized: %s",command_active);
@@ -2356,5 +2410,7 @@ command_handler commands[] = {
   cmd_ntp_setoffset,    //63 (0x3F) LOAD *NTP [+|-]<n>
   cmd_ntp_sync,         //64 (0x40) LOAD *NTP (fuerza sincronizacion)
   cmd_sel_256_chars,    //65 (0x41) LOAD *256C
+  cmd_net_read,         //66 (0x42) puente de red: leer lo recibido
+  cmd_net_write,        //67 (0x43) puente de red: enviar
   cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

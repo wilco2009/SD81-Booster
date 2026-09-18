@@ -326,3 +326,63 @@ bool wifi_client_read_text_file(const char* path, String* out) {
   bool existed;
   return download_text_file(path, out, &existed);
 }
+
+// --- Puente de red ----------------------------------------------------------
+// seq_out: el bit que ponemos en los datos que mandamos, hasta que el STM32
+// nos lo confirma. seq_in_last: la ultima secuencia que le hemos ACEPTADO.
+//
+// seq_in_last arranca en true al CONTRARIO del primer valor que mandara el
+// STM32 (false); si empezara igual, su primera trama con datos se tomaria por
+// un reintento y se tiraria. Mismo cuidado que net_seq_in en el otro extremo.
+static bool net_seq_out     = false;
+static bool net_seq_in_last = true;
+
+bool wifi_client_net_poll(uint8_t status,
+                          const uint8_t* tx, uint16_t tx_len, bool* out_tx_accepted,
+                          uint8_t* rx, uint16_t* out_rx_len,
+                          uint8_t* out_rx_free) {
+  *out_tx_accepted = false;
+  *out_rx_len      = 0;
+  *out_rx_free     = 0;
+
+  if (tx_len > WIFI_PROTO_NET_CHUNK) tx_len = WIFI_PROTO_NET_CHUNK;
+
+  static uint8_t req[3 + WIFI_PROTO_NET_CHUNK];
+  req[0] = (uint8_t)((net_seq_out     ? WIFI_PROTO_NET_SEQ : 0) |
+                     (net_seq_in_last ? WIFI_PROTO_NET_ACK : 0));
+  req[1] = status;
+  req[2] = (uint8_t)tx_len;
+  if (tx_len > 0) memcpy(&req[3], tx, tx_len);
+
+  // Los reintentos internos de wifi_client_request reenvian este MISMO buffer,
+  // con la misma secuencia, que es justo lo que el otro lado espera para no
+  // duplicar nada.
+  WifiProtoResp r = wifi_client_request(CMD_NET_POLL, req, (uint16_t)(3 + tx_len));
+  if (!r.ok || r.len < 3) return false;
+
+  uint8_t  resp_flags = r.payload[0];
+  *out_rx_free        = r.payload[1];
+  uint16_t rx_len     = r.payload[2];
+  if ((uint16_t)(3 + rx_len) > r.len) return false;
+
+  bool resp_seq = (resp_flags & WIFI_PROTO_NET_SEQ) != 0;
+  bool resp_ack = (resp_flags & WIFI_PROTO_NET_ACK) != 0;
+
+  // Nos confirma lo que mandamos: ya podemos soltarlo y alternar el bit.
+  if (tx_len > 0 && resp_ack == net_seq_out) {
+    *out_tx_accepted = true;
+    net_seq_out = !net_seq_out;
+  } else if (tx_len == 0) {
+    *out_tx_accepted = true;   // nada que confirmar
+  }
+
+  // Datos del Z80: solo son nuevos si la secuencia cambio.
+  if (rx_len > 0 && resp_seq != net_seq_in_last) {
+    memcpy(rx, &r.payload[3], rx_len);
+    *out_rx_len     = rx_len;
+    net_seq_in_last = resp_seq;
+  } else if (rx_len == 0) {
+    net_seq_in_last = resp_seq;
+  }
+  return true;
+}

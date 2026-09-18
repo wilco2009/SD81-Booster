@@ -81,4 +81,23 @@ bool wifi_client_set_time(uint8_t year, uint8_t month, uint8_t day,
 // existe (no es un error). Devuelve false solo ante un fallo de transporte.
 bool wifi_client_read_text_file(const char* path, String* out);
 
+// --- Puente de red (BBS/telnet) --------------------------------------------
+// Una sola llamada mueve los DOS sentidos: entrega `tx` (lo que viene del
+// socket, hacia el Z80) y recoge en `rx` lo que el Z80 haya escrito.
+//
+// Lleva por dentro el bit de secuencia, asi que el llamante NO debe descartar
+// su buffer hasta que *out_tx_accepted sea true: si hubo timeout, los mismos
+// bytes tienen que volver a ofrecerse tal cual en la siguiente llamada.
+//
+// `status` es el estado del socket TAL COMO LO VE EL ESP32 (WifiProtoNetStatus):
+// viaja en la peticion porque el STM32 no sabe nada de la conexion, solo lo
+// memoriza para poder contestarselo al Z80.
+//
+// *out_rx_free son los trozos de 16 bytes libres en el buffer de entrada del
+// STM32: control de flujo por credito, no mandar mas de lo que quepa.
+bool wifi_client_net_poll(uint8_t status,
+                          const uint8_t* tx, uint16_t tx_len, bool* out_tx_accepted,
+                          uint8_t* rx, uint16_t* out_rx_len,
+                          uint8_t* out_rx_free);
+
 #endif

@@ -488,6 +488,18 @@ static void handle_net_poll(const uint8_t* payload, uint16_t len) {
   // 1) Datos entrantes: solo se consumen si la secuencia CAMBIO. Si el ESP32
   //    esta reintentando (misma secuencia), los bytes ya estan en el buffer y
   //    volver a meterlos los duplicaria.
+  //
+  //    OJO: cuando in_len==0 NO se toca net_seq_in. Antes se sincronizaba
+  //    aqui igual ("no hay nada, pero me quedo con tu bit"), y eso causaba
+  //    un bloqueo real: durante los sondeos vacios de antes de que exista
+  //    ningun dato, las dos partes convergian a secuencia 0 sin que hubiera
+  //    pasado nada -- y como el PRIMER mensaje de verdad tambien sale con
+  //    secuencia 0 (net_seq_out nunca se ha tocado todavia), el receptor lo
+  //    confundia con el mismo "0" que ya tenia sincronizado del silencio y
+  //    lo descartaba como duplicado para siempre, sin ACK posible. La
+  //    secuencia solo tiene sentido cuando hay datos que aceptar o
+  //    rechazar; en una trama vacia no hay nada que decidir, asi que no se
+  //    toca el rastreador.
   if (in_len > 0 && in_seq != net_seq_in) {
     // O caben TODOS o no se acepta ninguno: si nos quedaramos con parte y aun
     // asi avanzasemos la secuencia, el ESP32 los daria por entregados y el
@@ -500,8 +512,6 @@ static void handle_net_poll(const uint8_t* payload, uint16_t len) {
       }
       net_seq_in = in_seq;
     }
-  } else if (in_len == 0) {
-    net_seq_in = in_seq;      // trama vacia: sincroniza la secuencia sin mas
   }
 
   // 2) El ack del ESP32 confirma lo que le ofrecimos en la trama anterior.

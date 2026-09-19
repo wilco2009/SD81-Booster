@@ -68,6 +68,23 @@ contrario del primero que llegará (`net_seq_in = true` en el STM32,
 empezaran iguales, la primera trama con datos se tomaría por un reintento y se
 descartaría.
 
+**Bug real encontrado y corregido al validar en hardware**: la primera
+implementación, además de fijar ese valor inicial, *también* sincronizaba
+el "último visto" con el bit ajeno en **cada trama vacía** (`else if
+(len==0) net_seq_in = in_seq;`), no solo al arrancar. Durante los sondeos
+de silencio previos a que exista ningún dato real, eso hacía converger a
+las dos partes a secuencia `0` sin que hubiera pasado nada — y como el
+primer mensaje de verdad *también* sale con secuencia `0` (el emisor
+tampoco ha tocado su propio bit todavía), el receptor lo confundía con
+ese `0` ya "visto" durante el silencio y lo descartaba como duplicado
+para siempre, sin ACK posible: bloqueo permanente. La trampa: **el bit
+de secuencia solo tiene sentido cuando hay datos que aceptar o
+rechazar**; con `len==0` no hay nada que decidir, así que no hay que
+tocar el rastreador en absoluto. Arreglado quitando esa rama en
+los dos lados (`WIFI_HANDLER.cpp` del STM32 y `WIFI_CLIENT.cpp` del
+ESP32) — la inicialización sigue haciendo falta, pero la sincronización
+"de cortesía" en tramas vacías no.
+
 **Si no caben todos los bytes entrantes, no se acepta ninguno** y no se mueve
 la secuencia, para que el emisor reintente. Aceptar sólo una parte avanzando
 la secuencia perdería el resto en silencio.
@@ -162,11 +179,12 @@ Web y AT manipulan el mismo estado del ESP32, conviven sin más.
 
 ## Fases
 
-1. **ESP32 + STM32 solos** — *implementada, sin probar en hardware*.
-   `CMD_NET_POLL` (0x0F), los dos circulares, y la página `/telnet` para
-   poder abrir la conexión sin Z80. El modo de prueba
-   `NET_BRIDGE_TEST` en `WIFI_HANDLER.cpp` hace de Z80 simulado contra un
-   servidor de eco.
+1. **ESP32 + STM32 solos** — *validada en hardware real* (`test/echo_server.py`
+   como servidor de eco). `CMD_NET_POLL` (0x0F), los dos circulares, y la
+   página `/telnet` para abrir la conexión sin Z80. El modo de prueba
+   `NET_BRIDGE_TEST` en `WIFI_HANDLER.cpp` hace de Z80 simulado; se deja
+   en `0` ahora que empieza la fase 2, para no competir por los buffers
+   con el tráfico real del Z80.
 2. **Comandos MCU 66/67** — *implementada, sin probar en hardware*. El
    contrato y el código Z80 de referencia, en
    [net_bridge_emulator.md](net_bridge_emulator.md). El terminal de

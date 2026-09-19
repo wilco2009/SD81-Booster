@@ -376,12 +376,13 @@ bool wifi_client_net_poll(uint8_t status,
     *out_tx_accepted = true;   // nada que confirmar
   }
 
-  // Datos del Z80: solo son nuevos si la secuencia cambio.
+  // Datos del Z80: solo son nuevos si la secuencia cambio. OJO: cuando
+  // rx_len==0 NO se toca net_seq_in_last (antes se sincronizaba igual, y
+  // eso bloqueaba el primer mensaje real -- ver el comentario gemelo en
+  // handle_net_poll/WIFI_HANDLER.cpp del STM32, misma causa).
   if (rx_len > 0 && resp_seq != net_seq_in_last) {
     memcpy(rx, &r.payload[3], rx_len);
     *out_rx_len     = rx_len;
-    net_seq_in_last = resp_seq;
-  } else if (rx_len == 0) {
     net_seq_in_last = resp_seq;
   }
   return true;

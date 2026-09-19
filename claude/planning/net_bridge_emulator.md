@@ -199,11 +199,12 @@ Son los que separan "funciona en el emulador" de "funciona en la máquina":
 
 | Pieza | Estado |
 |---|---|
-| Transporte ESP32↔STM32 (`CMD_NET_POLL`) | implementado, sin probar |
-| Comandos MCU 66/67 en el STM32 | implementado, sin probar |
-| Intérprete AT en el ESP32 | **pendiente (fase 2.5)** |
+| Transporte ESP32↔STM32 (`CMD_NET_POLL`) | **validado en hardware real** |
+| Comandos MCU 66/67 en el STM32 | **validado en hardware real** |
+| Intérprete AT en el ESP32 | implementado (`NET_BRIDGE.cpp`), sin probar |
 | Emulador | este documento |
 
-Mientras el intérprete AT no exista, la conexión se abre desde la página
-`/telnet` del ESP32. El tubo (los comandos 66/67) ya funciona igual con o
-sin AT, así que se puede escribir un terminal contra él desde ya.
+El intérprete AT vive por completo en el ESP32 — el tubo (comandos 66/67)
+no sabe nada de él, así que el Z80 escribe/lee exactamente igual con o sin
+AT de por medio. Detalle de implementación en
+[telnet_esp32_bridge.md](telnet_esp32_bridge.md).

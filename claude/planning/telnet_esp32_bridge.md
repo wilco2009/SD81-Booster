@@ -172,10 +172,35 @@ Puntos donde esto se implementa mal normalmente:
   símbolos de suma tira la conexión a media faena.
 - **`ATE1`/`ATE0`** para el eco, o en modo comando se teclea a ciegas.
 
-Respuestas de módem (`OK`, `CONNECT`, `NO CARRIER`, `BUSY`) para que el
+Respuestas de módem (`OK`, `CONNECT`, `NO CARRIER`, `ERROR`) para que el
 programa del ZX81 ni tenga que mirar el byte de estado.
 
-Web y AT manipulan el mismo estado del ESP32, conviven sin más.
+Web y AT manipulan el mismo estado del ESP32 (`net_bridge_connect`/
+`net_bridge_disconnect`, ver `NET_BRIDGE.h`), conviven sin más — da igual
+si la conexión se abrió desde `/telnet` o con `ATDT`, el resultado deja
+el intérprete en modo datos igual.
+
+**Implementado en `NET_BRIDGE.cpp`** (`ATDT host:puerto`, `ATH`, `ATO`,
+`ATE0`/`ATE1`, `ATZ`, `+++` con guard time de 1s antes y después, eco en
+modo comando). Detalles que se resolvieron al escribirlo:
+
+- El comando se acumula byte a byte hasta un `CR` (se ignora un `LF`
+  suelto detrás); mientras tanto cada byte se eco-envía si `ATE1`.
+- Modo comando y modo datos son una bandera aparte de `state`
+  (`at_command_mode`), no un simple `state==CONNECTED`: hace falta para
+  que `+++` pueda entrar en modo comando SIN colgar la conexión.
+- Mientras se está en modo comando con una conexión todavía viva (tras un
+  `+++`), el ESP32 deja de leer del socket a propósito — los datos se
+  quedan en el buffer TCP del sistema operativo, sin perderse, hasta que
+  `ATO` retoma la lectura.
+- Las respuestas del intérprete (`OK`/`CONNECT`/`NO CARRIER`/`ERROR`) y el
+  eco de los comandos comparten una cola con lo que llega del socket de
+  verdad (`txq` en `NET_BRIDGE.cpp`) — así `net_bridge_loop()` no necesita
+  saber de dónde salió cada byte, solo drenar la cola hacia `pending`.
+- `ATDT` NO puede analizar el host directamente sobre el buffer de
+  conexión activa (`host_buf`): sería un `snprintf(host_buf,...,host_buf)`,
+  origen y destino solapados — se analiza a un buffer local aparte y
+  solo entonces se llama a `net_bridge_connect()`.
 
 ## Fases
 
@@ -185,12 +210,14 @@ Web y AT manipulan el mismo estado del ESP32, conviven sin más.
    `NET_BRIDGE_TEST` en `WIFI_HANDLER.cpp` hace de Z80 simulado; se deja
    en `0` ahora que empieza la fase 2, para no competir por los buffers
    con el tráfico real del Z80.
-2. **Comandos MCU 66/67** — *implementada, sin probar en hardware*. El
-   contrato y el código Z80 de referencia, en
-   [net_bridge_emulator.md](net_bridge_emulator.md). El terminal de
-   prueba sale ahora del emulador, no hace falta uno aparte.
-3. **2.5 — Intérprete AT** en el ESP32.
-4. **Página web**, reconexión, y la capa de usuario en BASIC/ROM.
+2. **Comandos MCU 66/67** — *validada en hardware real*, con
+   `test/net_test.asm` (terminal mínimo en modo nativo, sin Superfast).
+   El contrato y el código Z80 de referencia, en
+   [net_bridge_emulator.md](net_bridge_emulator.md).
+3. **2.5 — Intérprete AT** — *implementado, sin probar en hardware*
+   (`NET_BRIDGE.cpp`, ver más arriba).
+4. **Página web** (ya existe, `/telnet`), reconexión automática, y la
+   capa de usuario en BASIC/ROM.
 
 ## Riesgos
 

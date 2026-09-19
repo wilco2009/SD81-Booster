@@ -94,25 +94,15 @@ Version 1.0
 
 [9.5 Text File Display --- THEN PRINT Command](#text-file-display-then-print-command)
 
-[Sistema de ayuda integrado](#_Toc229078001)
+[Built-in Help System](#built-in-help-system)
 
 [9.6 Programmable Joystick --- JOY Command](#programmable-joystick-joy-command)
+
+[9.7 WiFi Module (optional)](#wifi-module-optional)
 
 [10. Sound](#sound)
 
 [10.1 PLAY Command --- Music with the AY chip](#play-command-music-with-the-ay-chip)
-
-[Notas](#_Toc229078005)
-
-[Duration](#_Toc229078006)
-
-[Tempo](#_Toc229078007)
-
-[Octava](#_Toc229078008)
-
-[Repeticiones](#_Toc229078009)
-
-[Efectos de volumen (envolvente)](#_Toc229078010)
 
 [10.2 VGM Player --- Background Music](#vgm-player-background-music)
 
@@ -131,6 +121,8 @@ Version 1.0
 [11.2 MAP Command --- Assign pages to blocks](#map-command-assign-pages-to-blocks)
 
 [11.3 MC45 Mode --- Machine Code in Blocks 4 and 5](#mc45-mode-machine-code-in-blocks-4-and-5)
+
+[Extending MC45 to blocks 6 and 7](#extending-mc45-to-blocks-6-and-7)
 
 [11.4 Boot with Alternative ROM](#boot-with-alternative-rom)
 
@@ -163,6 +155,8 @@ Version 1.0
 [13.4 Superfast Mode --- Speed Demonstration](#superfast-mode-speed-demonstration)
 
 [13.5 Spectrum Image Loading](#spectrum-image-loading)
+
+[13.6 Wide Screen Modes --- COL80 / COL70 / COL32 Commands](#wide-screen-modes-col80-col70-col32-commands)
 
 [14. Error Codes](#error-codes)
 
@@ -197,6 +191,8 @@ Version 1.0
 [PEG commands](#peg-commands)
 
 [RTC and battery commands](#rtc-and-battery-commands)
+
+[Network commands (NET)](#network-commands-net)
 
 [16. Troubleshooting](#troubleshooting)
 
@@ -240,9 +236,9 @@ Version 1.0
 
 [Duration Table](#duration-table)
 
-[Efectos de envolvente (W)](#envelope-table-w)
+[Envelope Table (W)](#envelope-table-w)
 
-[Parameter Summary Table](#_Toc229078075)
+[Complete Command Table](#complete-command-table)
 
 [Appendix B --- PEG Effects Generator Reference](#appendix-b-peg-effects-generator-reference)
 
@@ -258,17 +254,17 @@ Version 1.0
 
 [Initial Page Assignment](#initial-page-assignment)
 
-[Reglas de uso](#_Toc229078083)
+[Use Rules](#use-rules)
 
 [ROM Modification](#rom-modification)
 
 [Appendix E --- Chroma81 Interface Port (7FEFh)](#appendix-e-chroma81-interface-port-7fefh)
 
-[Escritura (OUT 7FEFh)](#writing-out-7fefh)
+[Writing (OUT 7FEFh)](#writing-out-7fefh)
 
 [Border colour format (bits 2-0, GRB format)](#border-colour-format-bits-2-0-grb-format)
 
-[Lectura (IN 7FEFh)](#reading-in-7fefh)
+[Reading (IN 7FEFh)](#reading-in-7fefh)
 
 [Appendix F --- Superfast and Spectrum Modes](#appendix-f-superfast-and-spectrum-modes)
 
@@ -276,21 +272,105 @@ Version 1.0
 
 [Superfast Mode](#superfast-mode)
 
+[Fine Horizontal Scroll (Superfast)](#fine-horizontal-scroll-superfast)
+
+[Alternative Screen Address (Superfast)](#alternative-screen-address-superfast)
+
+[Alternative Attribute Table (Chroma Mode 1, Superfast)](#alternative-attribute-table-chroma-mode-1-superfast)
+
 [Spectrum Mode](#spectrum-mode)
 
-[Border control](#_Toc229078093)
+[Border control](#border-control)
 
 [VSYNC Synchronisation](#vsync-synchronisation-1)
 
-[Resumen de POKEs de control](#control-pokes-summary)
+[Double buffering (present-blit)](#double-buffering-present-blit)
+
+[How the interface generates the image (without double buffering)](#how-the-interface-generates-the-image-without-double-buffering)
+
+[What double buffering changes](#what-double-buffering-changes)
+
+[WRX with the 8-16K RAM](#wrx-with-the-8-16k-ram)
+
+[Control POKEs summary](#control-pokes-summary)
 
 [Appendix G --- Audio Technical Reference: AY chip, VGM and allophones](#appendix-g-audio-technical-reference-ay-chip-vgm-and-allophones)
 
 [AY-3-8910/12 Chip Registers](#ay-3-891012-chip-registers)
 
-[Opcodes del reproductor VGM](#vgm-player-opcodes)
+[I/O Ports --- Two ZonX-81 Compatible AY Chips](#io-ports-two-zonx-81-compatible-ay-chips)
+
+[VGM Player Opcodes](#vgm-player-opcodes)
 
 [SP0256-AL2 Allophone Table](#sp0256-al2-allophone-table)
+
+[Appendix H --- Hardware sprites](#appendix-h-hardware-sprites)
+
+[Coordinate system](#coordinate-system)
+
+[Address map (POKE 2100-2128)](#address-map-poke-2100-2128)
+
+[How each pixel is drawn](#how-each-pixel-is-drawn)
+
+[Colour format](#colour-format)
+
+[Priority between overlapping sprites](#priority-between-overlapping-sprites)
+
+[BASIC commands](#basic-commands)
+
+[Capacity](#capacity)
+
+[Appendix I --- CP/M: an alternative operating system](#appendix-i-cpm-an-alternative-operating-system)
+
+[CP/M 2.2: the two build modes](#cpm-2.2-the-two-build-modes)
+
+[Installation and boot](#installation-and-boot)
+
+[Banked memory](#banked-memory)
+
+[Disks: A: to D: (SD card) and E: (RAM)](#disks-a-to-d-sd-card-and-e-ram)
+
+[Keyboard](#keyboard)
+
+[Real-time clock](#real-time-clock)
+
+[Console: 256-character colour terminal](#console-256-character-colour-terminal)
+
+[Calling the BIOS directly](#calling-the-bios-directly)
+
+[Communications](#communications)
+
+[Included utilities](#included-utilities)
+
+[CP/M keyboard table](#cpm-keyboard-table)
+
+[CP/M 3 memory map (summary)](#cpm-3-memory-map-summary)
+
+[Appendix J --- The file explorer](#appendix-j-the-file-explorer)
+
+[Boot](#boot)
+
+[Navigation](#navigation)
+
+[What happens when you select a file](#what-happens-when-you-select-a-file)
+
+[File operations](#file-operations)
+
+[Text editing (new folder / rename / filter)](#text-editing-new-folder-rename-filter)
+
+[Configuration panel (S)](#configuration-panel-s)
+
+[Text viewer (.TXT)](#text-viewer-.txt)
+
+[Hex viewer](#hex-viewer)
+
+[How a file is returned to BASIC](#how-a-file-is-returned-to-basic)
+
+[Assembling](#assembling)
+
+[Appendix K --- The EightyOne-CrossPlatform emulator](#appendix-k-the-eightyone-crossplatform-emulator)
+
+[Setting it up as ZX81 + SD81 Booster](#setting-it-up-as-zx81-sd81-booster)
 
 *When opening the document, right-click on the table of contents and select \'Update Field\' to see page numbers.*
 
@@ -1801,7 +1881,7 @@ The expansion ROM occupies block 1, starting at address 8192 (2000h):
 ## 15.2 I/O Ports and MCU Protocol
 
 | **Port** | **Function** |
-|---------|---------------------------------------------------------------|
+|-------|-----------------------------------------------------------------|
 | **E7h** | Memory Mapper |
 | **A7h** | MCU data port (read and write). |
 | **AFh** | MCU control port (write=reset MCU; bit 7 on read=clock bit, bits 6..1 are the VSYNC counter since the last read and bit 0 on read indicates the instantaneous state of VSYNC) |
@@ -1927,7 +2007,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 ### System commands
 
 | **Code** | **Name** | **Parameters** | **Response** | **Description** |
-|------|---------|-------------|----------|-----------------------------------|
+|------|---------|-------------|----------|------------------------------------|
 | **0** | **NOP** | **---** | **---** | **No operation. Only synchronises the clock.** |
 | 1 | VERSION | --- | 1 byte: version | Returns the MCU version. Same format as byte at 2004h. |
 | 32 | GETBYTE | 1 byte: index (0--255) | 1 byte: value | Reads a byte from MCU internal memory. Indices 0--127: volatile system variables. Indices 128--255: EEPROM (persistent). |
@@ -1936,7 +2016,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 ### Filesystem commands
 
 | **Code** | **Name** | **Parameters** | **Response** | **Description** |
-|------|------------|----------------|--------------|--------------------------|
+|------|------------|----------------|------------------------|----------------|
 | **2** | **PWD** | **---** | **String + EOT + status** | **Returns the current directory in ZX81 encoding.** |
 | 3 | CD | String: path | Status | Changes the current directory. Accepts absolute (/) and relative paths. |
 | 4 | DEL | String: filename | Status | Deletes a file from the current directory. No wildcards. |
@@ -1964,7 +2044,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 ### Hardware control commands
 
 | **Code** | **Name** | **Parameters** | **Response** | **Description** |
-|------|-------------|----------------|---------|------------------------------|
+|------|-------------|---------------|---------|-------------------------------|
 | **19** | **ENABLE_MC45** | **---** | **---** | **Activates MC45 mode (machine code in blocks 4 and 5).** |
 | 20 | DISABLE_MC45 | --- | --- | Deactivates MC45 mode. |
 | 21 | JOY | String: 5 bytes of ZX81 keys | Status | Configures the joystick mapping: left, right, up, down, fire. |
@@ -1979,14 +2059,14 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 ### Speech synthesis commands
 
 | **Code** | **Name** | **Parameters** | **Response** | **Description** |
-|------|-----------|--------------|---------|---------------------------------|
+|------|-----------|---------------|---------|---------------------------------|
 | **22** | **BINARY_SAY** | **String: allophone bytes** | **Status** | **Plays allophones in binary format. Synchronous (blocks until finished).** |
 | 23 | SAY | String: ASCII text | Status | Converts text to phonemes and plays it. With \* as first character: background. Equivalent to LOAD \*SAY. |
 
 ### AY / sound commands
 
 | **Code** | **Name** | **Parameters** | **Response** | **Description** |
-|------|-----------|-----------------|---------|------------------------------|
+|------|-----------|-----------------|---------|-------------------------------|
 | **24** | **AY_SET_REG** | **1B: register (0-15) + 1B: value** | **---** | **Writes a value to an AY emulator register.** |
 | 25 | AY_GET_REG | 1B: register (0-15) | 1B: value | Reads the current value of an AY emulator register. |
 | 26 | AY_PLAY | String: channel A + String: B + String: C | Status | Plays up to three simultaneous PLAY strings. With \* in ch A: background. Equivalent to LOAD \*PLAY. |
@@ -1994,7 +2074,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 ### VGM commands
 
 | **Code** | **Name** | **Parameters** | **Response** | **Description** |
-|------|-----------|---------------|---------|--------------------------------|
+|------|-----------|--------------|---------|----------------------------------|
 | **34** | **PLAY_VGM** | **String: filename** | **Status** | **Opens and starts playing a VGM file in background. Adds .vgm if no extension.** |
 | 35 | STOP_VGM | --- | --- | Stops VGM playback and resets the AY emulator. |
 | 36 | PAUSE_VGM | --- | --- | Pauses VGM playback. |
@@ -2004,7 +2084,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 ### PEG commands
 
 | **Code** | **Name** | **Parameters** | **Response** | **Description** |
-|------|------------|---------------|---------|-------------------------------|
+|------|------------|---------------|---------|--------------------------------|
 | **40** | **LOAD_PEG** | **1B: address + String: hex data** | **---** | **Loads PEG instructions into generator memory. 2 bytes per instruction in little-endian.** |
 | 41 | PLAY_PEG | 1B: thread (0--2) + 1B: address | --- | Starts execution of a PEG program on the indicated thread. |
 | 42 | STOP_PEG | 1B: thread (0-2) | --- | Stops and resets the indicated PEG thread. |
@@ -2015,9 +2095,25 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 ### RTC and battery commands
 
 | **Code** | **Name** | **Parameters** | **Response** | **Description** |
-|------|--------|-------------|---------------|--------------------------------|
+|------|------|--------------|---------------|---------------------------------|
 | **50** | **RTC** | **String: date/time (or empty to read)** | **If read: ZX81 String + Status. If write: Status** | **Without params: returns date/time. With params: sets the clock. Formats: YYYY-MM-DD HH:MM:SS.CC / YYYY-MM-DD HH:MM:SS / YYYY-MM-DD / HH:MM:SS.CC / HH:MM:SS / HH:MM.** |
 | 52 | BAT | --- | 5 bytes ASCII + Status | Returns RTC battery level as a 5-character string in format V.mmm (ZX81 encoding). |
+
+### Network commands (NET)
+
+| **Code** | **Name** | **Parameters** | **Response** | **Description** |
+|------|----------|------------|--------------|-------------------------------|
+| **66** | **NET_READ** | **1B: max (0--255)** | **count (1B) + data\[count\] + avail (1B) + status (1B)** | **Reads up to max bytes received on the socket. count can be 0 even with a live connection --- data arrives in bursts. avail = bytes still pending after this read, saturated at 255. With max=0 this becomes a cheap "anything there?" check that only refreshes status, without transferring data.** |
+| **67** | **NET_WRITE** | **1B: count + data\[count\]** | **accepted (1B) + status (1B)** | **Sends count bytes to the socket. accepted may be less than count if the output buffer is full --- the Z80 has to resend the rest.** |
+
+The status field is the same for both commands:
+
+| **Value** | **Meaning**                    |
+|-----------|--------------------------------|
+| **0**     | not connected                  |
+| **1**     | connecting                     |
+| **2**     | connected                      |
+| **3**     | error / the connection dropped |
 
 # 16. Troubleshooting
 
@@ -2788,7 +2884,7 @@ LOAD \*WRX STOP : REM disable (character generator mode, default)
 ## Control POKEs summary
 
 | **Address** | **Value** | **Function** |
-|--------------|-----------|------------------------------------------------|
+|------------|--------------|----------------------------------------------|
 | 2043 | \<low\> | Low byte of screen file address |
 | 2044 | \<hi\> | High byte of screen file address |
 | 2045 | 170 | Activate Superfast text mode |
@@ -2870,7 +2966,7 @@ The interface VGM player only interprets opcodes referring to the AY chip. The r
 Allophones are used with the MCU BINARY SAY command (16h) for precise phonetic synthesis. High-level text access (LOAD \*SAY \"text\") does not require knowing these codes.
 
 | **Code** | **Allophone** | **Example** | **Code** | **Allophone** | **Example** |
-|--------|------------|-----------------|--------|------------|-----------------|
+|--------|-------------|-----------------|--------|-------------|----------------|
 | **\$00** | PA1 | pause 10 ms | **\$20** | AW | out |
 | **\$01** | PA2 | pause 30 ms | **\$21** | DD2 | do |
 | **\$02** | PA3 | pause 50 ms | **\$22** | GG3 | wig |
@@ -2925,7 +3021,7 @@ Any sprite pixel that falls outside the real visible screen area (0,0)-(255,191)
 Just like HFILE or the border pattern, these addresses fall within the first 8 KB of the Z80 memory map (ROM area): the interface intercepts these specific writes instead of letting them fall through, so no real memory is needed there. Before writing a sprite\'s colour, pixel data or mask, it must be selected first with POKE 2100,n.
 
 | **Address** | **Value** | **Function** |
-|------------|----------|--------------------------------------------------|
+|-------------|---------|---------------------------------------------------|
 | 2100 | 0-31 | Selects the active sprite. Subsequent writes affect this sprite. |
 | 2101 | 0/1 | Enables (1) or disables (0) the selected sprite. |
 | 2102 | 0-255 | X coordinate, low 8 bits. |
@@ -3087,6 +3183,24 @@ TERM keys (all with ENTER+key):
 | **ENTER+0** | Exit                                     |
 | **ENTER+9** | Toggle local echo (see it as you type)   |
 | **ENTER+8** | Toggle file logging (with TERM file.BIN) |
+
+Before a connection is open, whatever the Z80 writes over NET is interpreted as Hayes modem (AT) commands. Once connected, everything written goes straight to the socket --- AT commands included, unless command mode is re-entered with "+++". Supported commands:
+
+| Command | Effect |
+|------------------------------------|------------------------------------|
+| AT | Check. Replies OK. |
+| ATDT host:port | Opens the socket (a space after "DT" is optional). Replies CONNECT or NO CARRIER. |
+| ATDL | Redials the last host:port dialed, whether it succeeded or not. ERROR if nothing was ever dialed. |
+| ATH / ATH0 | Hangs up. Replies OK. |
+| ATO / ATO0 | Returns to data mode without hanging up. Replies CONNECT. |
+| ATE0 | Turns off command echo in command mode. |
+| ATE1 | Turns on command echo (the default). |
+| ATZ | Resets to the initial state: hangs up and restores echo. Replies OK. |
+| +++ | Escapes to command mode without hanging up, with a one-second silence before and after. Replies OK. |
+
+Responses always end in CR/LF: OK, CONNECT, NO CARRIER, ERROR. If the other end closes the connection, TERM gets NO CARRIER and switches back to command mode on its own --- there is no automatic reconnection of the session: to dial again, use ATDT or ATDL, just like on a real modem.
+
+There is also a configuration web page (http://\<wifi-module-ip\>/telnet) that lets you set the destination and check connection status without AT commands --- mainly meant for testing. The path real software uses is ATDT/ATDL.
 
 ## Included utilities
 
@@ -3340,5 +3454,25 @@ The explorer lives in RAM as loose machine code (loaded with LOAD \... CODE), so
 With pasmo (http://pasmo.speccy.org/):
 
 > pasmo explorer.asm EXPLORER.BIN
+
+# Appendix K --- The EightyOne-CrossPlatform emulator
+
+EightyOne-CrossPlatform is the ZX81 emulator used to develop and validate much of the software described in this manual before testing it on real hardware. It reproduces the SD81 Booster\'s behaviour --- loading/saving from SD, extended RAM, RTC, joystick, etc. --- without needing a physical ZX81.
+
+> https://codeberg.org/wilco2009/EightyOne-CrossPlatform
+
+## Setting it up as ZX81 + SD81 Booster
+
+1\. Download and build (or install a pre-built version of) EightyOne-CrossPlatform from the repository above.
+
+2\. Copy the full contents of the SD card --- the SYS folder and everything else --- into a folder on your PC\'s hard disk. The emulator reads from there as if it were the card.
+
+3\. In the emulator, select the ZX81 machine and enable the SD81 Booster checkbox.
+
+4\. Open the hardware dialog and enable the SD interface (SD81 Booster), pointing it at the folder copied in step 2.
+
+5\. Start the emulator. Press RUN+Enter to launch the file explorer, and enjoy. 😉
+
+Behaviour --- LOAD \* commands, extended RAM, RTC, etc. --- should match the real hardware.
 
 *User Manual SD81 Booster v1.0 --- Open hardware and open source software*

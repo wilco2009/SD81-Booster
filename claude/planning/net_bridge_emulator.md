@@ -152,6 +152,7 @@ conexión, va al socket tal cual.
 | Comando | Efecto |
 |---|---|
 | `ATDT host:puerto` | abre el socket. Responde `CONNECT` o `NO CARRIER` |
+| `ATDL` | remarca el último `host:puerto` (con éxito o sin él). `ERROR` si nunca se marcó nada |
 | `ATH` | cuelga. Responde `OK` |
 | `ATO` | vuelve a modo datos sin colgar. Responde `CONNECT` |
 | `ATE0` / `ATE1` | eco de los comandos en modo comando, apagado/encendido |

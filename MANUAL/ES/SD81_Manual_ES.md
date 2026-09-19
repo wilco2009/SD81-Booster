@@ -2132,6 +2132,22 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 | **50** | **RTC** | **String: fecha/hora (o vacío para leer)** | **Si lectura: String ZX81 + Status. Si escritura: Status** | **Sin parámetros: devuelve fecha/hora. Con parámetros: ajusta el reloj. Formatos: AAAA-MM-DD HH:MM:SS.CC / AAAA-MM-DD HH:MM:SS / AAAA-MM-DD / HH:MM:SS.CC / HH:MM:SS / HH:MM.** |
 | 52 | BAT | --- | 5 bytes ASCII + Status | Devuelve el nivel de batería del RTC como string de 5 caracteres en formato V.mmm (codificación ZX81). |
 
+### Comandos de red (NET)
+
+| **Cód.** | **Nombre** | **Parámetros** | **Respuesta** | **Descripción** |
+|------|--------|--------------|----------------|-------------------------------|
+| **66** | **NET_READ** | **1B: max (0--255)** | **count (1B) + data\[count\] + avail (1B) + status (1B)** | **Lee hasta max bytes recibidos por el socket. count puede ser 0 aunque haya conexion --- los datos llegan a rafagas. avail = bytes pendientes tras esta lectura, saturado a 255. Con max=0 se convierte en un ¿hay algo?» barato que solo refresca status, sin transferir datos.** |
+| **67** | **NET_WRITE** | **1B: count + data\[count\]** | **accepted (1B) + status (1B)** | **Envia count bytes al socket. accepted puede ser menor que count si el buffer de salida esta lleno --- el Z80 tiene que reenviar el resto.** |
+
+El campo status es el mismo en los dos comandos:
+
+| **Valor** | **Significado**             |
+|-----------|-----------------------------|
+| **0**     | sin conexión                |
+| **1**     | conectando                  |
+| **2**     | conectado                   |
+| **3**     | error / la conexión se cayó |
+
 # 16. Solución de problemas
 
 ## 16.1 El interface no arranca o el ZX81 se queda bloqueado
@@ -3185,6 +3201,24 @@ Teclas de TERM (todas con ENTER+tecla):
 | **ENTER+9** | Conmutar el eco local (verlo escrito mientras se teclea) |
 | **ENTER+8** | Conmutar el volcado a fichero (con TERM fichero.BIN)     |
 
+Antes de conectar, lo que el Z80 escribe por NET se interpreta como comandos de módem Hayes (AT). Una vez conectado, todo lo que se escribe va directo al socket --- comandos AT includos, salvo que se vuelva a modo comando con \"+++\". Comandos soportados:
+
+| Comando | Efecto |
+|------------------------------------|------------------------------------|
+| AT | Comprobación. Responde OK. |
+| ATDT host:puerto | Abre el socket (espacio tras «DT» opcional). Responde CONNECT o NO CARRIER. |
+| ATDL | Remarca el último host:puerto marcado, con éxito o sin él. ERROR si nunca se marcó nada. |
+| ATH / ATH0 | Cuelga. Responde OK. |
+| ATO / ATO0 | Vuelve a modo datos sin colgar. Responde CONNECT. |
+| ATE0 | Apaga el eco de los comandos en modo comando. |
+| ATE1 | Enciende el eco de los comandos (por defecto). |
+| ATZ | Reinicia al estado inicial: cuelga y restaura el eco. Responde OK. |
+| +++ | Escapa a modo comando sin colgar, con un segundo de silencio antes y después. Responde OK. |
+
+Las respuestas siempre terminan en CR/LF: OK, CONNECT, NO CARRIER, ERROR. Si el otro extremo cierra la conexión, TERM recibe NO CARRIER y vuelve a modo comando por su cuenta --- no hay reconexión automática de la sesión: para volver a marcar hay que usar ATDT o ATDL de nuevo, igual que en un módem real.
+
+También existe una página web de configuración (http://\<ip-del-módulo-wifi\>/telnet) que permite fijar el destino y ver el estado de la conexión sin usar comandos AT --- pensada sobre todo para pruebas. El camino que usa el software real es ATDT/ATDL.
+
 ## Utilidades incluidas
 
 | **Programa**   | **Función**                                        |
@@ -3437,5 +3471,23 @@ El explorador vive en RAM como código máquina suelto (cargado con LOAD \... CO
 Con pasmo (http://pasmo.speccy.org/):
 
 > pasmo explorer.asm EXPLORER.BIN
+
+# Apéndice K --- El emulador EightyOne-CrossPlatform
+
+EightyOne-CrossPlatform es el emulador de ZX81 usado para desarrollar y validar buena parte del software descrito en este manual antes de probarlo en el hardware real. Reproduce el comportamiento del SD81 Booster --- carga/guardado en SD, RAM extendida, RTC, joystick, etc. --- sin necesitar el ZX81 físico.
+
+> https://codeberg.org/wilco2009/EightyOne-CrossPlatform
+
+## Configuración como ZX81 + SD81 Booster
+
+1\. Descarga y compila (o instala la versión ya compilada) EightyOne-CrossPlatform desde el repositorio anterior.
+
+2\. Copia el contenido completo de la tarjeta SD --- la carpeta SYS y el resto --- a una carpeta del disco duro del PC. El emulador lee de ahí como si fuera la tarjeta.
+
+3\. En el emulador, selecciona la máquina ZX81 (no ZX80 ni Spectrum).
+
+4\. Abre el diálogo de hardware y activa la interface SD (SD81 Booster), apuntando a la carpeta copiada en el paso 2.
+
+5\. Arranca el emulador. El comportamiento --- comandos LOAD \*, RAM extendida, RTC, etc. --- debería ser el mismo que en el hardware real.
 
 *Manual de Usuario SD81 Booster v1.0 --- Hardware y software de código abierto*

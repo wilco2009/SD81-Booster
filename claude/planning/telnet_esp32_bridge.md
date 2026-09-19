@@ -180,9 +180,13 @@ Web y AT manipulan el mismo estado del ESP32 (`net_bridge_connect`/
 si la conexión se abrió desde `/telnet` o con `ATDT`, el resultado deja
 el intérprete en modo datos igual.
 
-**Implementado en `NET_BRIDGE.cpp`** (`ATDT host:puerto`, `ATH`, `ATO`,
-`ATE0`/`ATE1`, `ATZ`, `+++` con guard time de 1s antes y después, eco en
-modo comando). Detalles que se resolvieron al escribirlo:
+**Implementado en `NET_BRIDGE.cpp`** (`ATDT host:puerto`, `ATDL`, `ATH`,
+`ATO`, `ATE0`/`ATE1`, `ATZ`, `+++` con guard time de 1s antes y después,
+eco en modo comando). `ATDL` (redial) es lo único que el modelo Hayes
+hace "por su cuenta" ante una conexión perdida: nada de reconexión
+automática de verdad, ni aquí ni en un módem real ni en WiFi232/Zimodem
+— siempre es el software (o el usuario) quien decide volver a marcar.
+Detalles que se resolvieron al escribirlo:
 
 - El comando se acumula byte a byte hasta un `CR` (se ignora un `LF`
   suelto detrás); mientras tanto cada byte se eco-envía si `ATE1`.

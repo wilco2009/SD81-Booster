@@ -32,7 +32,7 @@ import copy
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
-from docx.table import _Row
+from docx.table import Table, _Row
 from docx.text.paragraph import Paragraph
 
 # Molds extracted from the manual's own styles (see
@@ -136,6 +136,42 @@ def set_cell_text(cell, text):
         r._r.getparent().remove(r._r)
     for p in paragraphs[1:]:
         p._p.getparent().remove(p._p)
+
+
+def add_heading_after(ref_element, parent, text, style="Ttulo2"):
+    """Insert a new heading paragraph right after `ref_element` (either a
+    Paragraph's `._p` or a Table's `._tbl` -- anything with `.addnext()`)
+    and return it as a Paragraph. style is one of the manual's heading
+    styles: 'Ttulo1' (chapter/appendix), 'Ttulo2' (section), 'Ttulo3'
+    (sub-table heading). No TOC bookmark is added -- matches the pattern
+    used by the most recently added appendices (I, J), which rely on the
+    user refreshing the TOC in Word (F9) rather than a pre-existing
+    _TocNNNN bookmark."""
+    new_p = OxmlElement("w:p")
+    ppr = OxmlElement("w:pPr")
+    pstyle = OxmlElement("w:pStyle")
+    pstyle.set(qn("w:val"), style)
+    ppr.append(pstyle)
+    new_p.append(ppr)
+    ref_element.addnext(new_p)
+    p = Paragraph(new_p, parent)
+    p.add_run(text)
+    return p
+
+
+def clone_table_after(ref_element, template_table, keep_rows=2):
+    """Deep-copy `template_table` (borders/shading/column widths and all),
+    insert it right after `ref_element`, trim it down to the first
+    `keep_rows` rows (typically the header row plus one data row to use as
+    the formatting template for clone_table_row), and return the new
+    Table. Caller then does set_cell_text on the kept data row and/or
+    clone_table_row for any further rows."""
+    new_tbl_el = copy.deepcopy(template_table._tbl)
+    trs = new_tbl_el.findall(qn("w:tr"))
+    for tr in trs[keep_rows:]:
+        new_tbl_el.remove(tr)
+    ref_element.addnext(new_tbl_el)
+    return Table(new_tbl_el, template_table._parent)
 
 
 def clone_table_row(table, template_row, cell_texts):

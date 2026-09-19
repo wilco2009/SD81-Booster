@@ -27,7 +27,7 @@
 
 // WiFi module (ESP32-C3) own firmware version, shown on the web UI and in
 // /MAN/IP.TXT. Bump this before building a new ESP32_FW.BIN release.
-#define WIFI_FW_VERSION "1.1"
+#define WIFI_FW_VERSION "1.2"
 
 WebServer server(80);
 

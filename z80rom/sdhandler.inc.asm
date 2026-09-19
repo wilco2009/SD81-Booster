@@ -686,6 +686,10 @@ CmdVER:
 
 		call	GetMCUVersion
 		ld	a,c
+		ld	b,a		; GetMCUVersion pone B a 0 (uso en BC de 16 bits en
+					; otro sitio) -- VerFromBCD saca el digito menor de
+					; B, asi que hay que recargarlo con el byte real o
+					; el minor de MCU sale siempre en 0
 
 VerFromBCD:
 		rlca

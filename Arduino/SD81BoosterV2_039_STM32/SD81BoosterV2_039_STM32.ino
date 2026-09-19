@@ -315,7 +315,7 @@ if (bat_level > GOOD_BAT_LEVEL) Serial.print("✅ "); else if (bat_level > MIN_B
   {
     FsFile ipf;
     if (ipf.open("/MAN/IP.TXT", O_WRONLY | O_CREAT | O_TRUNC)) {
-      ipf.print("NO CONNEXION");
+      ipf.print("NO CONNEXION.\n\nCONFIGURE /SYS/WIFI.CFG ON THE SD CARD:\nNETWORK NAME ON ONE LINE, PASSWORD ON\nTHE NEXT. RESET AFTER EDITING.");
       ipf.close();
     }
   }

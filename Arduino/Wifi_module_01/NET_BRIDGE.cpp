@@ -179,6 +179,27 @@ static bool at_parse_hostport(const char* line, uint8_t len,
   return true;
 }
 
+// Ultimo host:puerto marcado con exito o no -- ATDL lo repite tal cual, como
+// el ATDL de un modem real (redial: reintenta lo ultimo, da igual si la vez
+// anterior colgo con CONNECT o con NO CARRIER).
+static char     last_dial_host[64] = "";
+static uint16_t last_dial_port = 0;
+
+// at_do_dial: intenta conectar a host:puerto, deja CONNECT/NO CARRIER en la
+// cola de salida, y lo recuerda para un ATDL posterior. Usada por ATDT y
+// ATDL -- en ATDL, `host` YA es last_dial_host (se vuelve a marcar tal
+// cual), así que hay que saltarse la copia o seria otra vez un
+// snprintf(buf,...,buf) solapado, el mismo fallo que ya evito ATDT.
+static void at_do_dial(const char* host, uint16_t port) {
+  if (host != last_dial_host) snprintf(last_dial_host, sizeof(last_dial_host), "%s", host);
+  last_dial_port = port;
+  if (net_bridge_connect(host, port)) {
+    txq_push_str("CONNECT\r\n");   // net_bridge_connect ya puso modo datos
+  } else {
+    txq_push_str("NO CARRIER\r\n");
+  }
+}
+
 static void at_execute_command() {
   if (at_cmdlen == 0) return;             // linea vacia: los modems reales no contestan nada
 
@@ -212,11 +233,16 @@ static void at_execute_command() {
       return;
     }
     Serial.printf("NET: ATDT %s:%u\n", dial_host, dial_port);
-    if (net_bridge_connect(dial_host, dial_port)) {
-      txq_push_str("CONNECT\r\n");        // net_bridge_connect ya puso modo datos
-    } else {
-      txq_push_str("NO CARRIER\r\n");
+    at_do_dial(dial_host, dial_port);
+    return;
+  }
+  if (alen >= 2 && args[0] == 'D' && args[1] == 'L') {   // ATDL -- remarcar lo ultimo
+    if (last_dial_host[0] == 0) {
+      txq_push_str("ERROR\r\n");           // nada que remarcar todavia
+      return;
     }
+    Serial.printf("NET: ATDL %s:%u\n", last_dial_host, last_dial_port);
+    at_do_dial(last_dial_host, last_dial_port);
     return;
   }
   if (alen >= 1 && args[0] == 'H') {       // ATH / ATH0

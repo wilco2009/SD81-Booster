@@ -35,6 +35,12 @@ bool     g_upload_active = false;
 uint8_t  g_upload_handle = 0;
 bool     g_upload_ok = false;
 
+// true = no hace falta reintentar la sincronizacion NTP mas (exito, o
+// MODE=LOCAL a proposito). false = el primer intento fallo (servidor
+// inalcanzable, transporte...) y check_ntp_retry() lo repetira solo, cada
+// minuto, mientras haya WiFi -- ver sync_time_from_ntp() mas abajo.
+bool     ntp_stop_retrying = false;
+
 String   g_list_html;
 
 String join_path(const String& dir, const String& name) {
@@ -472,7 +478,8 @@ void handleNtpSave() {
 }
 
 void handleNtpSyncNow() {
-  bool ok = sync_time_from_ntp();
+  bool ok = sync_time_from_ntp(nullptr);
+  if (ok) ntp_stop_retrying = true;   // exito manual: el reintento automatico ya no hace falta
   server.sendHeader("Location", String("/ntp?synced=") + (ok ? "1" : "0"));
   server.send(303);
 }
@@ -814,11 +821,18 @@ void check_and_apply_firmware_update() {
 // configured NTP server and pushes it to the STM32's RTC via CMD_SET_TIME.
 // Called once per boot, right after connecting to WiFi - the STM32's own
 // battery-backed RTC keeps good enough time between boots, no need to
-// resync periodically - and also on demand from the "/ntp/sync" web button.
+// resync periodically once it has worked - and also on demand from the
+// "/ntp/sync" web button and from check_ntp_retry() below.
 // If NTP is disabled, unreachable, or the config file is missing, this
 // simply does nothing and the RTC keeps whatever it had. Returns true only
 // if the STM32's RTC was actually updated.
-bool sync_time_from_ntp() {
+//
+// out_disabled (optional): set to true only when sync is OFF ON PURPOSE
+// (MODE=LOCAL or no config file) -- the caller uses this to tell "nothing
+// to retry, the user doesn't want this" apart from "failed, try again
+// later" (transport error, server unreachable, STM32 didn't ack).
+bool sync_time_from_ntp(bool* out_disabled) {
+  if (out_disabled) *out_disabled = false;
   NtpConfig cfg;
   if (!wifi_client_read_ntp_config(&cfg)) {
     Serial.println("NTP: transport error reading /SYS/NTP.CFG, skipping.");
@@ -826,6 +840,7 @@ bool sync_time_from_ntp() {
   }
   if (!cfg.sync_enabled) {
     Serial.println("NTP: disabled (MODE=LOCAL or no /SYS/NTP.CFG) - RTC left untouched.");
+    if (out_disabled) *out_disabled = true;
     return false;
   }
 
@@ -921,6 +936,25 @@ bool try_connect(const char* ssid_try, const char* pass_try) {
   return false;
 }
 
+// Un barrido de las redes de /SYS/WIFI.CFG, probando cada una UNA vez (a
+// diferencia del bucle de setup(), que insiste sin parar hasta conectar).
+// Reutilizada por setup() y por check_wifi_reconnect() -- esta ultima no
+// puede permitirse bloquear para siempre si el WiFi se cae despues de
+// arrancar, con el resto de la placa (STM32, telnet, web) ya funcionando.
+bool connect_wifi_from_cfg_once() {
+  WifiNetwork networks[WIFI_PROTO_MAX_NETWORKS];
+  uint8_t network_count = 0;
+  bool got_cfg = wifi_client_read_wifi_networks(networks, WIFI_PROTO_MAX_NETWORKS, &network_count);
+  Serial.print("get_wifi_cfg: got_cfg="); Serial.print(got_cfg);
+  Serial.print(" network_count="); Serial.println(network_count);
+  if (!got_cfg || network_count == 0) return false;
+
+  for (uint8_t i = 0; i < network_count; i++) {
+    if (try_connect(networks[i].ssid, networks[i].pass)) return true;
+  }
+  return false;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1500);
@@ -950,18 +984,7 @@ void setup() {
   bool connected = false;
 
   while (!connected) {
-    WifiNetwork networks[WIFI_PROTO_MAX_NETWORKS];
-    uint8_t network_count = 0;
-    bool got_cfg = wifi_client_read_wifi_networks(networks, WIFI_PROTO_MAX_NETWORKS, &network_count);
-    Serial.print("get_wifi_cfg: got_cfg="); Serial.print(got_cfg);
-    Serial.print(" network_count="); Serial.println(network_count);
-
-    if (got_cfg && network_count > 0) {
-      for (uint8_t i = 0; i < network_count && !connected; i++) {
-        connected = try_connect(networks[i].ssid, networks[i].pass);
-      }
-    }
-
+    connected = connect_wifi_from_cfg_once();
     if (!connected) {
       Serial.println("No usable network yet - check /SYS/WIFI.CFG on the SD card. Retrying in 5s...");
       delay(5000);
@@ -970,7 +993,10 @@ void setup() {
 
   Serial.print("IP: "); Serial.println(WiFi.localIP());
   write_ip_help_file();
-  sync_time_from_ntp();
+  {
+    bool ntp_disabled = false;
+    ntp_stop_retrying = sync_time_from_ntp(&ntp_disabled) || ntp_disabled;
+  }
 
   if (MDNS.begin(MDNS_HOSTNAME)) {
     MDNS.addService("http", "tcp", 80);
@@ -1022,12 +1048,60 @@ void check_ntp_sync_flag() {
 
   Serial.println("NTP: sync requested via LOAD *NTP - syncing now...");
   wifi_client_delete(NTP_SYNC_FLAG_PATH);
-  sync_time_from_ntp();
+  if (sync_time_from_ntp(nullptr)) ntp_stop_retrying = true;
+}
+
+#define NTP_RETRY_INTERVAL_MS 60000   // cada minuto hasta que funcione una vez
+
+// El primer intento (en setup(), justo tras conectar) puede fallar sin culpa
+// de nadie -- el servidor NTP tarda en responder, o la conexion aun no tiene
+// DNS resuelto del todo. Reintentar solo, en vez de dejar el RTC con lo que
+// tuviera, hasta que funcione una vez; despues, silencio (el RTC con bateria
+// ya se basta solo entre arranques).
+void check_ntp_retry() {
+  static uint32_t last_attempt = 0;
+  if (ntp_stop_retrying) return;
+  if (WiFi.status() != WL_CONNECTED) return;   // sin red no hay nada que intentar
+  if (millis() - last_attempt < NTP_RETRY_INTERVAL_MS) return;
+  last_attempt = millis();
+
+  Serial.println("NTP: reintentando (el intento anterior fallo)...");
+  bool disabled = false;
+  bool ok = sync_time_from_ntp(&disabled);
+  if (ok || disabled) ntp_stop_retrying = true;
+}
+
+#define WIFI_RECONNECT_INTERVAL_MS 30000   // no reintentar mas de una vez cada 30s
+
+// El WiFi solo se conecta una vez, en setup(). Si el router se reinicia o la
+// senal se pierde despues, WiFi.status() se queda en algo distinto de
+// WL_CONNECTED para siempre sin esto -- se pierde la web, el explorador por
+// red y el puente de telnet, todo a la vez, hasta un reset manual.
+// connect_wifi_from_cfg_once() SI bloquea mientras dura el intento (hasta
+// ~10s por red configurada), pero solo se llama cuando ya esta desconectado
+// -- el resto de la placa ya esta parada igualmente en ese caso -- y como
+// mucho una vez cada WIFI_RECONNECT_INTERVAL_MS.
+void check_wifi_reconnect() {
+  static uint32_t last_attempt = 0;
+  if (WiFi.status() == WL_CONNECTED) return;
+  if (millis() - last_attempt < WIFI_RECONNECT_INTERVAL_MS) return;
+  last_attempt = millis();
+
+  Serial.println("WiFi: reconectando...");
+  if (connect_wifi_from_cfg_once()) {
+    Serial.print("WiFi: reconectado, IP "); Serial.println(WiFi.localIP());
+    write_ip_help_file();
+    ntp_stop_retrying = false;   // la hora pudo quedarse atras durante el corte
+  } else {
+    Serial.println("WiFi: reconexion fallida, se probara de nuevo mas tarde.");
+  }
 }
 
 void loop() {
   server.handleClient();
   check_ntp_sync_flag();
+  check_ntp_retry();
+  check_wifi_reconnect();
   net_bridge_loop();
   sdlog_try_flush();
 }

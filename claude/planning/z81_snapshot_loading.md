@@ -41,6 +41,7 @@ Z80 -> MCU:  70, longitud(1), nombre[longitud]         (igual que CMD_load)
 MCU -> Z80:  dir_destino(2, LE), longitud_memoria(2, LE),
              bloque_registros(30 bytes, ver tabla abajo),
              memoria[longitud_memoria],
+             NMI(1), WRX(1), generador_caracteres(1),
              status(1)
 ```
 
@@ -49,10 +50,18 @@ MCU -> Z80:  dir_destino(2, LE), longitud_memoria(2, LE),
 - `memoria[]` son los bytes **ya decodificados** (el RLE `*NNNN VV` del
   formato de texto se expande en el propio comando MCU, el Z80 solo ve bytes
   planos).
+- `NMI`: de `[ZX81]`/`NMI` (0/1). `WRX`: de `[SD81BOOSTER]`/`WRX` (0/1).
+  `generador_caracteres`: 0=64 (Sinclair), 1=128, 2=256, calculado a partir
+  de `[SD81BOOSTER]`/`SEL128`/`SEL256`. Los tres valen **`0xFF`** si la
+  sección de origen no aparece en el fichero (p. ej. un `.Z81` sin la
+  extensión `[SD81BOOSTER]`) — la ROM no toca ese modo de hardware cuando ve
+  `0xFF`, para no des-configurar nada en snapshots que no traigan esta
+  información.
 - `status`: 0 = ok. Distinto de 0 = error (fichero no encontrado, sección
   `[MEMORY]` ausente, o fichero truncado a medio volcado). **En cualquier
   caso hay que mandar la cabecera y los 30 bytes de registros igual** (a
-  ceros si hace falta) antes del `status`, para no dejar al Z80 esperando
+  ceros si hace falta) antes del `status`, y también los tres bytes
+  NMI/WRX/generador de caracteres (a `0xFF`) — para no dejar al Z80 esperando
   bytes que no van a llegar — el ROM real hace exactamente esto
   (`cmd_loadZ81`, rama `if (!have_header)`).
 
@@ -96,24 +105,34 @@ sencillo). Solo interesan dos secciones:
 
 - **`[CPU]`**: los 17 campos de la tabla de arriba, un `CLAVE valor` por
   línea (pueden ir varios por línea, separados por espacios).
+- **`[ZX81]`**: solo `NMI` (0/1). Viene **antes** que `[MEMORY]` en el
+  fichero, así que se captura de paso en la misma pasada.
 - **`[MEMORY]`**: `RAM_PACK`, `8K_RAM_ENABLED` y `ROM_PROTECTED` (ignorar),
   luego `MEMRANGE inicio fin`, y después el volcado: tokens hex de un byte, o
-  `*NNNN VV` (repetir el byte `VV` `NNNN` veces, ambos en hex). Termina al
-  llegar a la siguiente sección `[...]` o a fin de fichero.
+  `*NNNN VV` (repetir el byte `VV` `NNNN` veces, ambos en hex).
+- **`[SD81BOOSTER]`** (extensión propia del interface, puede no estar
+  presente): solo interesan `WRX` y `SEL128`/`SEL256` (0/1 cada uno), que
+  vienen al principio de la sección. Viene **después** de `[MEMORY]`, y va
+  seguida de bloques `RAM_PAGE nn ... RAM_PAGE_END` con volcados de página
+  completos que no hacen falta para este comando — hay que parar de
+  tokenizar en cuanto se vea el primer `RAM_PAGE` (o antes, si ya se
+  encontraron `WRX`/`SEL128`/`SEL256`), para no perder tiempo con esos
+  volcados.
 
 El resto de secciones (`[INTERFACES]`, `[SOUND]`, `[COLOUR]`,
-`[JOYSTICK]`...) describen configuración del emulador, no estado del Z80, y
-se ignoran — ni falta hace leerlas hasta el final, se puede parar en cuanto
-se ha mandado toda la memoria de `[MEMORY]`.
+`[CHR$_GENERATOR]`, `[HIGH_RESOLUTION]`, `[JOYSTICK]`...) describen
+configuración del emulador o quedan obsoletas por `[SD81BOOSTER]`, y se
+ignoran.
 
 ## Comportamientos que hay que reproducir sí o sí
 
 - [ ] **Nunca dejar al Z80 colgado esperando bytes.** Si el fichero no abre,
       o no tiene `[MEMORY]`/`MEMRANGE`, o se acaba a medio volcado: completar
-      igualmente la cabecera + registros (a cero) y mandar un `status`
-      distinto de 0 al final.
-- [ ] **El `status` va SIEMPRE el último**, después de toda la memoria —
-      igual que en `CMD_load`/`ReportStatus`.
+      igualmente la cabecera + registros (a cero), NMI/WRX/generador de
+      caracteres (a `0xFF`) y mandar un `status` distinto de 0 al final.
+- [ ] **El `status` va SIEMPRE el último**, después de NMI/WRX/generador de
+      caracteres, que a su vez van después de toda la memoria — igual que en
+      `CMD_load`/`ReportStatus`.
 - [ ] **No hace falta tocar el bloque 1 ni ninguna página con cuidado**: eso
       es cosa de la ROM (que se ejecuta igual en el emulador). El emulador
       solo entrega bytes; puede escribirlos donde le convenga internamente
@@ -128,6 +147,15 @@ se ha mandado toda la memoria de `[MEMORY]`.
 
 | Pieza | Estado |
 |---|---|
-| `LOAD *Z81` en la ROM (`sdhandler.inc.asm`) | implementado, ensambla limpio con pasmo, **sin probar en hardware/emulador** |
-| `cmd_loadZ81` en el STM32 (`COMMANDS.cpp`) | implementado, **sin compilar/probar** |
-| Comando 0x46 en el emulador (`SD81Booster.cpp`) | este documento — pendiente de implementar |
+| `LOAD *Z81` en la ROM (`sdhandler.inc.asm`) | implementado y **probado con éxito** (registros + memoria, vía reasignación de página) contra el emulador (`YMirorg.z81`) |
+| `cmd_loadZ81` en el STM32 (`COMMANDS.cpp`) | implementado, incluye NMI/WRX/generador de caracteres; **sin compilar/probar en hardware real** (sí contra el emulador) |
+| Comando 0x46 en el emulador (`SD81Booster.cpp`) | ya funciona para cabecera+registros+memoria; **pendiente** de mandar los 3 bytes nuevos NMI/WRX/generador de caracteres si el emulador todavía no lo hace |
+
+Nota: la carga de memoria dejó de ser una copia byte a byte -- la ROM
+reasigna páginas directamente (ver el propio `sdhandler.inc.asm`,
+`Z81DoRestore`), así que si el emulador alguna vez generó un `.Z81` con la
+sección `[MEMORY]` vacía/trivial para snapshots con paginación propia del
+interface (visto en pruebas reales: `MEMRANGE` a puro `$FF` mientras los
+datos de verdad estaban en `[SD81BOOSTER]`/`RAM_PAGE`), ese es un bug del
+propio guardado del emulador, no de este protocolo — `[MEMORY]`/`MEMRANGE`
+debe reflejar siempre el contenido real de los bloques 1-7.

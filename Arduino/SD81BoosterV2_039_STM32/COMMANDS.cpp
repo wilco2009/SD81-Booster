@@ -2346,18 +2346,26 @@ void cmd_net_write(){
 
 // --- Carga de snapshots .Z81 -----------------------------------------------
 // LOAD *Z81 "fichero" -- restaura un snapshot en formato texto de EightyOne
-// (secciones [CPU] y [MEMORY], claves en hex ASCII, RLE "*NNNN VV"). Solo nos
-// interesan esas dos secciones; el resto (interfaces, sonido, joystick...)
-// describen configuracion del emulador, no estado del Z80, y se ignoran.
+// (secciones [CPU] y [MEMORY], claves en hex ASCII, RLE "*NNNN VV"), mas
+// [ZX81] (campo NMI) y, si el fichero trae la extension propia del
+// interface, [SD81BOOSTER] (WRX, SEL128, SEL256) para restaurar tambien
+// esos tres modos de hardware. El resto (sonido, joystick...) describen
+// configuracion del emulador, no estado del Z80/interface, y se ignoran.
 //
 // Protocolo con la Z80 (todo MCU->Z80 salvo el nombre de fichero, que llega
 // igual que en cmd_load): direccion_destino(2, LE), longitud_memoria(2, LE),
 // bloque de registros (30 bytes, orden fijo: PC SP HL DE BC AF HL' DE' BC' AF'
 // IX IY I R IM IF1 IF2 HALT), longitud_memoria bytes ya decodificados (sin
-// RLE), y por ultimo 1 byte de estado (0 = ok). Mandamos la cabecera y los
-// registros en cuanto vemos "MEMRANGE" (antes de conocer el resto del
-// fichero) para no tener que guardar los 56K de una imagen completa en la
-// RAM del propio MCU -- todo se manda en streaming, token a token.
+// RLE), NMI(1) WRX(1) generador_caracteres(1: 0=64/Sinclair 1=128 2=256),
+// y por ultimo 1 byte de estado (0 = ok). Los tres campos de hardware
+// valen 0xFF si el fichero no los especifica (la ROM no toca ese modo en
+// ese caso). Mandamos la cabecera y los registros en cuanto vemos
+// "MEMRANGE" (antes de conocer el resto del fichero) para no tener que
+// guardar los 56K de una imagen completa en la RAM del propio MCU -- pero
+// [SD81BOOSTER] viene DESPUES de [MEMORY], asi que el streaming no para
+// ahi: sigue tokenizando (sin tratar mas tokens como datos de memoria)
+// hasta ver "RAM_PAGE" (el resto de esa seccion son volcados de pagina
+// completos que no hacen falta aqui) o el fin del fichero.
 
 // Un espacio en blanco de los que separan tokens en el fichero .Z81.
 static bool z81_isspace(char c){
@@ -2406,7 +2414,19 @@ void cmd_loadZ81(){
   uint16_t mem_start = 0, mem_end = 0, mem_len = 0;
   uint32_t sent = 0;
   uint8_t error_code = 0;
-  bool in_cpu = false, in_memory = false, have_header = false;
+  bool in_cpu = false, in_memory = false, in_zx81 = false;
+  bool in_sd81booster = false, saw_sd81booster = false;
+  bool have_header = false, mem_done = false;
+  // NMI/WRX/juego de caracteres: 0/1(/2) = valor explicito del fichero,
+  // 0xFF = no especificado -- la ROM no toca ese modo de hardware si ve
+  // 0xFF, para no des-configurar nada en snapshots que no traigan esta
+  // informacion (p.ej. un .Z81 sin la extension [SD81BOOSTER]). NMI sale
+  // de la seccion estandar [ZX81]; WRX y el generador de caracteres
+  // (0=64/Sinclair, 1=128, 2=256) salen de [SD81BOOSTER], que viene
+  // DESPUES de [MEMORY] en el fichero -- de ahi que este bucle no pare en
+  // cuanto termina el volcado de memoria, como hacia antes.
+  uint8_t nmi_flag = 0xFF, wrx_flag = 0xFF, chargen = 0xFF;
+  bool sel128 = false, sel256 = false;
 
   set_SDLed(LED_ON);
   check_SD();
@@ -2438,9 +2458,37 @@ void cmd_loadZ81(){
     uint8_t tlen;
     while ((tlen = z81_get_token(tok)) > 0){
       if (tok[0]=='['){
-        if (have_header) break;    // ya mandamos todo lo que necesitabamos
-        in_cpu    = (strcmp(tok,"[CPU]")==0);
-        in_memory = (strcmp(tok,"[MEMORY]")==0);
+        in_cpu         = (strcmp(tok,"[CPU]")==0);
+        in_memory      = (strcmp(tok,"[MEMORY]")==0);
+        in_zx81        = (strcmp(tok,"[ZX81]")==0);
+        in_sd81booster = (strcmp(tok,"[SD81BOOSTER]")==0);
+        if (in_sd81booster) saw_sd81booster = true;
+        continue;
+      }
+
+      if (in_zx81){
+        if (!strcmp(tok,"NMI")){
+          if (z81_get_token(tok)==0) break;
+          nmi_flag = (z81_hex(tok)!=0) ? 1 : 0;
+        }
+        continue;
+      }
+
+      if (mem_done && in_sd81booster){
+        if (!strcmp(tok,"WRX")){
+          if (z81_get_token(tok)==0) break;
+          wrx_flag = (z81_hex(tok)!=0) ? 1 : 0;
+        } else if (!strcmp(tok,"SEL128")){
+          if (z81_get_token(tok)==0) break;
+          sel128 = (z81_hex(tok)!=0);
+        } else if (!strcmp(tok,"SEL256")){
+          if (z81_get_token(tok)==0) break;
+          sel256 = (z81_hex(tok)!=0);
+        } else if (!strcmp(tok,"RAM_PAGE")){
+          break;    // ya vimos todo lo que hacia falta de esta seccion; el
+                    // resto son volcados de pagina completos, no hace
+                    // falta tokenizarlos
+        }
         continue;
       }
 
@@ -2507,7 +2555,14 @@ void cmd_loadZ81(){
           if (sent<mem_len){ SendByteToZ80((uint8_t)z81_hex(tok)); sent++; }
         }
 
-        if (sent>=mem_len) break;    // volcado completo, no hace falta seguir
+        if (sent>=mem_len){
+          // Volcado completo: NO paramos de tokenizar el fichero (a
+          // diferencia de antes) porque [SD81BOOSTER] -- con WRX/SEL128/
+          // SEL256 -- viene despues de [MEMORY]. Solo dejamos de tratar
+          // tokens como datos de memoria.
+          mem_done  = true;
+          in_memory = false;
+        }
         continue;
       }
     }
@@ -2518,6 +2573,8 @@ void cmd_loadZ81(){
     log_0("cannot open Z81 snapshot %s", file_name);
     error_code = 1;
   }
+
+  if (saw_sd81booster) chargen = sel256 ? 2 : (sel128 ? 1 : 0);
 
   if (!have_header){
     // No llegamos a ver [MEMORY]/MEMRANGE (fichero ausente, sin esa seccion,
@@ -2530,6 +2587,14 @@ void cmd_loadZ81(){
     if (error_code==0) error_code = 3;   // el fichero acabo antes de tiempo
     while (sent<mem_len){ SendByteToZ80(0); sent++; }
   }
+
+  // NMI/WRX/generador de caracteres: siempre se mandan (0xFF = "no
+  // especificado, no tocar"), igual que la cabecera+registros ya se
+  // manda siempre a ceros si algo fallo -- para no dejar a la Z80
+  // esperando bytes que no van a llegar.
+  SendByteToZ80(nmi_flag);
+  SendByteToZ80(wrx_flag);
+  SendByteToZ80(chargen);
 
   SendByteToZ80(error_code);
   reset_commands();

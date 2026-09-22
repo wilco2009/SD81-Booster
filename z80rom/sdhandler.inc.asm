@@ -1187,41 +1187,50 @@ Z81BorrowBlock	equ	2
 
 ; Offsets dentro de Z81ScratchArea que usa CmdZ81. Los primeros 34 bytes
 ; (offset 0-33) son cabecera+registros, tal cual llegan por el puerto (ver
-; tabla en el comentario de CmdZ81 mas abajo). El resto es trabajo local,
-; nunca viaja por el puerto:
-;   34    : pagina real de Z81BorrowBlock, guardada mientras esta prestado
+; tabla en el comentario de CmdZ81 mas abajo). Los 3 siguientes (34-36)
+; tambien viajan por el puerto, pero DESPUES de la memoria (ver
+; Z81RecvExtras): NMI/WRX/generador de caracteres del snapshot, cada uno
+; 0/1(/2) o 0xFF si el fichero no lo especificaba (no tocar ese modo). El
+; resto es trabajo local, nunca viaja por el puerto:
+;   37    : pagina real de Z81BorrowBlock, guardada mientras esta prestado
 ;           (solo se usa/es valida si la pila del snapshot cae en el
 ;           bloque 1 -- ver Z81BuildFrame)
-;   35-36 : FrameAddr (SP del snapshot - 22): donde va el marco de registros
-;   37-38 : ProgramAddr (FrameAddr - tamano del programita): donde empieza
+;   38-39 : FrameAddr (SP del snapshot - 22): donde va el marco de registros
+;   40-41 : ProgramAddr (FrameAddr - tamano del programita): donde empieza
 ;           el propio programita de restauracion final
-;   39    : tamano del programita (sin contar el marco)
-;   40-41 : EntryAddr: direccion a la que saltar para arrancarlo
-;   42-43 : WriteBase: direccion real donde copiarlo (puede diferir de
+;   42    : tamano del programita (sin contar el marco)
+;   43-44 : EntryAddr: direccion a la que saltar para arrancarlo
+;   45-46 : WriteBase: direccion real donde copiarlo (puede diferir de
 ;           ProgramAddr si hay que verlo, de momento, por la ventana de
 ;           Z81BorrowBlock)
-;   44    : bandera "el bloque 1 forma parte del volcado" (0/1)
-;   45    : bloque (1-7) donde cae la pila del snapshot
-;   46-103: area de construccion del programita+marco (58 bytes, el maximo
+;   47    : bandera "el bloque 1 forma parte del volcado" (0/1)
+;   48    : bloque (1-7) donde cae la pila del snapshot
+;   49-106: area de construccion del programita+marco (58 bytes, el maximo
 ;           posible)
 ; Todo esto lo arma y consume Z81DoRestore, ver alli para el porque.
-Z81OffSavedPage0 equ	34
-Z81OffFrameAddr	equ	35
-Z81OffProgAddr	equ	37
-Z81OffProgSize	equ	39
-Z81OffEntry	equ	40
-Z81OffWriteBase	equ	42
-Z81OffHasBlock1	equ	44
-Z81OffTargetBlk	equ	45
-Z81OffConstruct	equ	46
-Z81BufSize	equ	104	; tamano total usado en Z81ScratchArea (46+58);
+Z81OffNMI	equ	34
+Z81OffWRX	equ	35
+Z81OffChargen	equ	36
+Z81OffSavedPage0 equ	37
+Z81OffFrameAddr	equ	38
+Z81OffProgAddr	equ	40
+Z81OffProgSize	equ	42
+Z81OffEntry	equ	43
+Z81OffWriteBase	equ	45
+Z81OffHasBlock1	equ	47
+Z81OffTargetBlk	equ	48
+Z81OffConstruct	equ	49
+Z81BufSize	equ	107	; tamano total usado en Z81ScratchArea (49+58);
 				; solo informativo, cabe de sobra en el 1K
 				; disponible (ver Z81ScratchArea mas arriba)
 
 ; LOAD *Z81 "fichero" -- restaura un snapshot completo (registros + memoria)
 ; en formato .Z81 de EightyOne. El MCU (cmd_loadZ81) hace todo el trabajo de
 ; parsear el fichero de texto; aqui solo recibimos, en orden fijo:
-;   direccion_destino(2) longitud_memoria(2) bloque_registros(30) memoria(N) status(1)
+;   direccion_destino(2) longitud_memoria(2) bloque_registros(30) memoria(N)
+;   NMI(1) WRX(1) generador_caracteres(1) status(1)
+; Los tres campos antes del status valen 0xFF si el .Z81 no los especificaba
+; (ver Z81DoRestore: en ese caso no se toca ese modo de hardware).
 ; Los primeros 34 bytes (cabecera+registros) caben de sobra en Z81ScratchArea
 ; (ver mas arriba el porque no se usa el workspace de BASIC para esto). La
 ; memoria (hasta 56K) se recibe DIRECTAMENTE en las paginas que van a ser su
@@ -1257,10 +1266,14 @@ CmdZ81:		call	GetStrExpr	; leer expresion de cadena (fichero)
 		; de esa NMI para salir de un HALT (el bucle estandar de
 		; refresco de DFILE en modo SLOW se sincroniza por NMI, no por
 		; INT enmascarable -- por eso no importa que IFF1 del snapshot
-		; sea 0). Dejar la NMI tal cual estaba es lo correcto -- y como
-		; el bloque 0 (donde vive el vector $0066 de la NMI) no se
-		; toca nunca en todo este comando, ni siquiera hace falta
-		; apagarla mientras tanto: $0066 siempre tiene la ROM real.
+		; sea 0). Dejar la NMI tal cual estaba DURANTE la carga es lo
+		; correcto -- y como el bloque 0 (donde vive el vector $0066
+		; de la NMI) no se toca nunca en todo este comando, ni
+		; siquiera hace falta apagarla mientras tanto: $0066 siempre
+		; tiene la ROM real. Al final, si el propio snapshot
+		; especifica un estado de NMI concreto, Z81DoRestore lo aplica
+		; explicitamente (ver alli) -- eso es otra cosa, un dato mas
+		; del snapshot, no una medida de proteccion mientras se carga.
 
 		; A partir de aqui, ni la pila del sistema ni BC_SPACES: ver
 		; el comentario de Z81ScratchArea, mas arriba, para el porque.
@@ -1374,7 +1387,7 @@ Z81HdrDone:
 					; y el bucle vuelve a tocar B o C)
 		ld	a,b
 		or	c
-		jr	z,Z81MemDone	; longitud 0: nada que recibir
+		jr	z,Z81RecvExtras	; longitud 0: nada que recibir
 
 		; Mismo patron adaptativo que Z81HdrLoop (ver el comentario de
 		; ahi arriba) -- no fiarse de C, mirar el reloj fisico y
@@ -1393,7 +1406,7 @@ Z81RecvW1:	in	a,(ClkPort)
 		dec	bc
 		ld	a,b
 		or	c
-		jr	z,Z81MemDone	; ya no quedan bytes que recibir
+		jr	z,Z81RecvExtras	; ya no quedan bytes que recibir
 		ld	a,h
 		or	l
 		jr	nz,Z81RecvR0	; seguimos en la misma pagina; el
@@ -1418,7 +1431,7 @@ Z81RecvW0:	in	a,(ClkPort)
 		dec	bc
 		ld	a,b
 		or	c
-		jr	z,Z81MemDone	; ya no quedan bytes que recibir
+		jr	z,Z81RecvExtras	; ya no quedan bytes que recibir
 		ld	a,h
 		or	l
 		jr	nz,Z81RecvR1	; seguimos en la misma pagina; el
@@ -1431,6 +1444,37 @@ Z81RecvW0:	in	a,(ClkPort)
 		pop	bc
 		ld	hl,0E000h
 		jr	Z81RecvR1
+
+; --- NMI/WRX/generador de caracteres del snapshot ---------------------------
+; 3 bytes mas, mandados por el MCU justo despues de la memoria (ver el
+; comentario grande de cmd_loadZ81 en COMMANDS.cpp): mismo patron
+; adaptativo de siempre, sin fiarse de C. Igual que con la cabecera, el
+; propio ultimo wait de aqui (para el 3er byte) ya deja preparado el
+; siguiente toggle para el byte de estado, asi que Z81MemDone no tiene que
+; esperar nada el suyo.
+Z81RecvExtras:
+		ld	de,Z81ScratchArea+Z81OffNMI
+		ld	b,3
+		in	a,(ClkPort)
+		rlca
+		jr	c,Z81ExtraR0
+
+Z81ExtraR1:	in	a,(DataPort)
+		ld	(de),a
+		inc	de
+Z81ExtraW1:	in	a,(ClkPort)
+		rlca
+		jr	nc,Z81ExtraW1
+		djnz	Z81ExtraR0
+		jr	Z81MemDone
+
+Z81ExtraR0:	in	a,(DataPort)
+		ld	(de),a
+		inc	de
+Z81ExtraW0:	in	a,(ClkPort)
+		rlca
+		jr	c,Z81ExtraW0
+		djnz	Z81ExtraR1
 
 Z81MemDone:
 		; --- Byte de estado final ---
@@ -1565,6 +1609,62 @@ Z81DoRestore:
 					; (IX+n) para todo el trabajo local
 					; (direccion fija: ya no hace falta
 					; sacarla de ningun sitio)
+
+		; --- NMI/WRX/generador de caracteres del snapshot, si el
+		; fichero los traia (0xFF = no especificado, no tocar). No
+		; dependen de ninguna pagina ni bloque -- son puertos/pokes
+		; fijos o un comando MCU normal -- asi que se hacen aqui
+		; mismo, de una vez, antes de tocar nada mas. El registro I
+		; restaurado del propio snapshot (mas abajo) ya deja apuntado
+		; el juego de caracteres a la direccion que le corresponda;
+		; aqui solo hace falta el comando que activa/desactiva el
+		; modo 128/256 en si.
+		; OUT (n),A de toda la vida (como hace la ROM original en
+		; SLOW/FAST): NO usar OUT (C),A aqui, que pondria B (no
+		; garantizado a 0 en este punto) en la mitad alta del bus de
+		; direcciones en vez de A.
+		ld	a,(ix+Z81OffNMI)
+		cp	0FFh
+		jr	z,Z81SkipNMI
+		or	a
+		jr	z,Z81NMIOff
+		out	(0FEh),a	; encenderla (el valor de A es
+					; indiferente para estos puertos)
+		jr	Z81SkipNMI
+Z81NMIOff:	out	(0FDh),a	; apagarla
+Z81SkipNMI:
+		ld	a,(ix+Z81OffWRX)
+		cp	0FFh
+		jr	z,Z81SkipWRX
+		or	a
+		ld	a,55		; 85 = WRX apagado (por defecto)
+		jr	z,Z81DoWRX
+		ld	a,170		; WRX encendido
+Z81DoWRX:	ld	(2058),a
+Z81SkipWRX:
+		ld	a,(ix+Z81OffChargen)
+		cp	0FFh
+		jr	z,Z81SkipChargen
+		cp	1
+		jr	z,Z81Chargen128
+		cp	2
+		jr	z,Z81Chargen256
+		ld	a,CMD_chars64
+		jr	Z81ChargenSend
+Z81Chargen128:	ld	a,CMD_chars128
+		jr	Z81ChargenSend
+Z81Chargen256:	ld	a,CMD_chars256
+Z81ChargenSend:
+		ld	b,a		; guardar el comando mientras leemos el
+					; reloj para OutWaitDiff
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,b
+		call	OutWaitDiff	; mismo mecanismo que *128C/*256C/*64C;
+					; no hace falta esperar nada mas ni
+					; tocar I (lo restaura el propio
+					; snapshot, mas abajo)
+Z81SkipChargen:
 
 		ld	e,(ix+0)
 		ld	d,(ix+1)	; DE = direccion destino final (destAddr,

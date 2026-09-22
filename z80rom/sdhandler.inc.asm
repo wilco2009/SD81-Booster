@@ -116,6 +116,12 @@ CMD_ntp_setserver equ	0x3E
 CMD_ntp_setoffset equ	0x3F
 CMD_ntp_sync	equ	0x40
 CMD_chars256	equ	0x41	; LOAD *256C (siguiente slot libre en la tabla MCU)
+; 0x42/0x43 (66/67) reservados para NET_READ/NET_WRITE -- se invocan desde
+; codigo maquina directamente (ver claude/planning/net_bridge_emulator.md),
+; no tienen entrada en la CmdList de LOAD * de aqui abajo.
+CMD_romlock_on	equ	0x44	; LOAD *ROMLOCK
+CMD_romlock_off	equ	0x45	; LOAD *ROMLOCK STOP
+CMD_loadZ81	equ	0x46	; LOAD *Z81 "fichero" -- snapshot EightyOne
 
 ; ROM restart routines
 ERROR_1		equ	08H
@@ -1033,7 +1039,9 @@ GotRow:		call	ReportStatus	; retrieve status, err if not zero
 ; LOAD *MAP <number>,<number>
 CmdPAGE:	call	CLASS_6		; Read block number
 		cp	.TO		; LOAD *MAP block TO var?
-		jr	z,MapRead	; Handle that case elsewhere
+		jp	z,MapRead	; Handle that case elsewhere (jp: destino
+					; demasiado lejos para jr, desde que
+					; CmdZ81 crecio el fichero por en medio)
 		call	MustBeComma	; Expect a comma and skip it
 		call	CLASS_6		; Read page number
 		call	MustBeEOL	; Check EOL and end if checking syntax
@@ -1086,11 +1094,793 @@ ReportC3:	rst	ERROR_1
 
 ; LOAD *ICHR [STOP]
 CmdICHR:	ld	bc,CMD_ichr_on*256 + CMD_ichr_off
-		jr	CMD_ONOFF_BC
+		jp	CMD_ONOFF_BC	; jp: destino demasiado lejos para jr
 
 ; LOAD *RAM48 [STOP]
 CmdRAM48:	ld	bc,CMD_std48k_on*256 + CMD_std48k_off
-		jr	CMD_ONOFF_BC
+		jp	CMD_ONOFF_BC	; jp: destino demasiado lejos para jr
+
+; LOAD *ROMLOCK [STOP]
+; Interruptor maestro de los "puertos POKE" del bloque 0 (2038-2062, 2090-
+; 2098, sprites): con ROMLOCK activo, escribir en esas direcciones no hace
+; nada, exactamente como si fuera ROM real -- para programas antiguos que
+; escriben ahi por su cuenta (p.ej. para detectar RAM/ROM) sin saber que
+; este interface las usa como puertos de configuracion. Se controla por el
+; canal de configuracion MCU->FPGA (comm_cmd), no por el bus del Z80, asi
+; que ningun programa puede activarlo/desactivarlo sin querer escribiendo
+; en memoria. Por defecto (tras encender o *ROMLOCK STOP) los puertos
+; funcionan con normalidad.
+CmdROMLOCK:	ld	bc,CMD_romlock_on*256 + CMD_romlock_off
+		jp	CMD_ONOFF_BC	; jp: destino demasiado lejos para jr
+
+; Primera de hasta 7 paginas consecutivas (56K, el maximo de un snapshot con
+; MEMRANGE 2000-FFFF) que ocupa la memoria de un snapshot .Z81 segun va
+; llegando por el puerto (ver CmdZ81 mas abajo): pagina Z81StagePage0+n para
+; el bloque (1+n) de destAddr/longitud -- es decir, la memoria recibida
+; llega YA a la pagina que va a ser su destino definitivo, vista de una en
+; una por el bloque 7 mientras se recibe (nunca por el bloque 0, que es de
+; solo lectura). "Copiar" cada bloque a su destino
+; real es luego solo una reasignacion de pagina (ver Z81DoRestore), sin
+; tocar un solo byte -- salvo el bloque 1, que necesita el programita de
+; restauracion final que arma Z81DoRestore (ver alli el porque). No hay un
+; asignador de paginas en este proyecto: es la misma convencion informal ya
+; usada en otros sitios (paginas libres a partir de la 8), elegida aqui
+; bastante mas alta para no chocar con paginas que el usuario ya tenga
+; asignadas a mano con *MAP antes de cargar el snapshot.
+Z81StagePage0	equ	24
+
+; A=numero de pagina, B=numero de bloque (0-7) -> mapea esa pagina en ese
+; bloque. Solo paginacion "simple" (paginas 0-31); un snapshot no necesita
+; las paginas altas de la paginacion completa.
+Z81MapPage:	add	a,a
+		add	a,a
+		add	a,a
+		or	b
+		ld	c,MapperPort
+		out	(c),a
+		ret
+
+; A=byte alto de una direccion o longitud alineada a multiplo de 2000h ->
+; A=numero de bloque (0-7) al que corresponde. Cada bloque ocupa 2000h
+; bytes, y 2000h=1<<13, asi que el numero de bloque son los 3 bits altos
+; del byte alto (bits 13-15 de la direccion completa), de ahi el >>5 (los 3
+; bits altos de un byte, desplazados a los bits bajos). Solo tiene sentido
+; si la direccion/longitud esta realmente alineada (bits bajos a cero) --
+; siempre cierto para un MEMRANGE real del propio interface.
+Z81HighToBlock:	and	0E0h
+		rrca
+		rrca
+		rrca
+		rrca
+		rrca
+		ret
+
+; CmdZ81 (LOAD *Z81, mas abajo) NO usa BC_SPACES ni la pila normal del
+; sistema para su area de trabajo: ambas pueden caer en cualquiera de los
+; bloques 2-7, y Z81DoRestore reasigna esos bloques a medio camino -- si la
+; propia pila (o el buffer) vive ahi, la ejecucion se desincroniza en el
+; momento exacto en que se reasigna el bloque que la contiene (visto en una
+; traza real: SP cayo en el bloque 2, y la primera vez que Z81ReassignLoop
+; reasigno ese bloque, el siguiente RET leyo basura). En vez de eso, todo
+; el trabajo de CmdZ81 (buffer + pila propia) vive en una zona FIJA dentro
+; del propio bloque 1 (nuestro propio codigo, que nunca reasignamos
+; nosotros mismos -- solo lo hace el programita final, cuando ya hemos
+; saltado fuera): el ultimo 1K de esa pagina, que normalmente ocupa el
+; juego de 128 caracteres definibles y que no hace falta mientras dura este
+; comando. No hace falta restaurar SP al terminar: o bien acabamos
+; saltando al snapshot (que pone su propio SP), o bien acabamos en
+; ERROR_3, que resetea SP desde ERR_SP sin mirar el valor que tuviera antes.
+Z81ScratchArea	equ	3C00h	; ultimo 1K de la pagina 1 (bloque 1): 8K de
+				; RAM escribible, con el binario ocupando
+				; solo ~5K -- este K de arriba, el del
+				; juego de caracteres, esta libre ahora mismo
+Z81TempStackTop	equ	4000h	; pila propia de CmdZ81, crece hacia abajo
+				; desde aqui (justo un byte por encima del
+				; final del bloque 1 -- la primera PUSH ya
+				; cae dentro, en 3FFEh)
+
+; Bloque prestado temporalmente, solo para el caso (raro) en que la pila del
+; snapshot cae dentro del propio bloque 1 -- ver el "Z81BuildFrame" mas
+; abajo para el porque hace falta. Bloque 2 es una eleccion arbitraria (ese
+; caso siempre tiene bloque_objetivo=1, asi que nunca puede coincidir).
+Z81BorrowBlock	equ	2
+
+; Offsets dentro de Z81ScratchArea que usa CmdZ81. Los primeros 34 bytes
+; (offset 0-33) son cabecera+registros, tal cual llegan por el puerto (ver
+; tabla en el comentario de CmdZ81 mas abajo). El resto es trabajo local,
+; nunca viaja por el puerto:
+;   34    : pagina real de Z81BorrowBlock, guardada mientras esta prestado
+;           (solo se usa/es valida si la pila del snapshot cae en el
+;           bloque 1 -- ver Z81BuildFrame)
+;   35-36 : FrameAddr (SP del snapshot - 22): donde va el marco de registros
+;   37-38 : ProgramAddr (FrameAddr - tamano del programita): donde empieza
+;           el propio programita de restauracion final
+;   39    : tamano del programita (sin contar el marco)
+;   40-41 : EntryAddr: direccion a la que saltar para arrancarlo
+;   42-43 : WriteBase: direccion real donde copiarlo (puede diferir de
+;           ProgramAddr si hay que verlo, de momento, por la ventana de
+;           Z81BorrowBlock)
+;   44    : bandera "el bloque 1 forma parte del volcado" (0/1)
+;   45    : bloque (1-7) donde cae la pila del snapshot
+;   46-103: area de construccion del programita+marco (58 bytes, el maximo
+;           posible)
+; Todo esto lo arma y consume Z81DoRestore, ver alli para el porque.
+Z81OffSavedPage0 equ	34
+Z81OffFrameAddr	equ	35
+Z81OffProgAddr	equ	37
+Z81OffProgSize	equ	39
+Z81OffEntry	equ	40
+Z81OffWriteBase	equ	42
+Z81OffHasBlock1	equ	44
+Z81OffTargetBlk	equ	45
+Z81OffConstruct	equ	46
+Z81BufSize	equ	104	; tamano total usado en Z81ScratchArea (46+58);
+				; solo informativo, cabe de sobra en el 1K
+				; disponible (ver Z81ScratchArea mas arriba)
+
+; LOAD *Z81 "fichero" -- restaura un snapshot completo (registros + memoria)
+; en formato .Z81 de EightyOne. El MCU (cmd_loadZ81) hace todo el trabajo de
+; parsear el fichero de texto; aqui solo recibimos, en orden fijo:
+;   direccion_destino(2) longitud_memoria(2) bloque_registros(30) memoria(N) status(1)
+; Los primeros 34 bytes (cabecera+registros) caben de sobra en Z81ScratchArea
+; (ver mas arriba el porque no se usa el workspace de BASIC para esto). La
+; memoria (hasta 56K) se recibe DIRECTAMENTE en las paginas que van a ser su
+; destino definitivo (pagina 23+bloque, vistas de una en una por el bloque
+; 7 mientras llegan -- NUNCA por el bloque 0, que es de solo lectura: los
+; "pokes" en su rango de direcciones son puertos de configuracion, no RAM
+; real, asi que nada de lo que se escriba ahi se queda) -- asi que "copiar"
+; al destino real de cada bloque 2-7 es solo una reasignacion de pagina (un
+; OUT), sin tocar un solo byte. El bloque 1 es la unica excepcion: no se
+; puede reasignar mientras el propio codigo que hace la reasignacion se
+; ejecuta desde ahi, asi que esa reasignacion (mas la restauracion de
+; registros) se aplaza a un programita minusculo que Z81DoRestore construye
+; sobre la marcha y coloca en un hueco justo por debajo de la pila que va a
+; tener el propio snapshot (ver Z81DoRestore mas abajo para el porque).
+CmdZ81:		call	GetStrExpr	; leer expresion de cadena (fichero)
+		call	MustBeEOL	; fin de linea, fin de comprobacion sintaxis
+		call	STK_FETCH	; DE=puntero, BC=longitud del nombre
+		call	BC_1_255	; validar nombre de fichero
+
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_loadZ81
+		call	OutWaitDiff	; enviar comando
+		call	SendString	; enviar nombre; bit7 de C = reloj actual
+
+		; NO llamamos a SET_FAST aqui (a diferencia de SDLoad_2): lo
+		; probamos pensando que la interrupcion de modo SLOW corrompia
+		; BC a medio volcado, pero el fallo real era otro (Z81MapPage
+		; pisando BC, ya corregido dos veces) -- la reproduccion
+		; exacta, byte a byte identica, con y sin SET_FAST lo
+		; descarto. Y SET_FAST apaga el generador de NMI sin volver a
+		; encenderlo, lo que rompe cualquier snapshot que dependiera
+		; de esa NMI para salir de un HALT (el bucle estandar de
+		; refresco de DFILE en modo SLOW se sincroniza por NMI, no por
+		; INT enmascarable -- por eso no importa que IFF1 del snapshot
+		; sea 0). Dejar la NMI tal cual estaba es lo correcto -- y como
+		; el bloque 0 (donde vive el vector $0066 de la NMI) no se
+		; toca nunca en todo este comando, ni siquiera hace falta
+		; apagarla mientras tanto: $0066 siempre tiene la ROM real.
+
+		; A partir de aqui, ni la pila del sistema ni BC_SPACES: ver
+		; el comentario de Z81ScratchArea, mas arriba, para el porque.
+		ld	sp,Z81TempStackTop
+		ld	de,Z81ScratchArea	; DE -> inicio del area de trabajo,
+					; para el bucle de recepcion de
+					; cabecera+registros que viene ahora
+
+		; No podemos fiarnos de que el bit7 de C siga reflejando el
+		; reloj real llegados aqui: el emulador (y puede que tambien
+		; el MCU real, no comprobado) resuelve la ultima espera de
+		; SendStrLoop reusando el primer toggle de ESTA respuesta, sin
+		; un toggle propio para el ultimo caracter del nombre -- asi
+		; que en vez de comparar contra un C arrastrado (como hacen
+		; BattRead/DateRead, que ademas solo es fiable 2 bytes,
+		; despues se desincroniza igual), miramos el reloj FISICO tal
+		; cual esta ahora y alternamos explicitamente segun toque,
+		; igual que ya hace SDLoad_2/SDLoadLoop/SDLoad_3 con el
+		; volcado del LOAD normal. Inmune a cualquier desfase de
+		; arranque.
+		ld	b,34
+		in	a,(ClkPort)
+		rlca
+		jr	c,Z81HdrR0	; reloj a 1 ahora: el primer byte se
+					; espera a 0
+
+Z81HdrR1:	in	a,(DataPort)
+		ld	(de),a
+		inc	de
+Z81HdrW1:	in	a,(ClkPort)
+		rlca
+		jr	nc,Z81HdrW1	; esperar a que suba a 1
+		djnz	Z81HdrR0
+		jr	Z81HdrDone
+
+Z81HdrR0:	in	a,(DataPort)
+		ld	(de),a
+		inc	de
+Z81HdrW0:	in	a,(ClkPort)
+		rlca
+		jr	c,Z81HdrW0	; esperar a que baje a 0
+		djnz	Z81HdrR1
+
+Z81HdrDone:
+		ld	hl,Z81ScratchArea
+		ld	e,(hl)
+		inc	hl
+		ld	d,(hl)		; DE = direccion destino final (tambien
+					; queda en el propio buffer, offset
+					; 0-1, por si hace falta releerla mas
+					; adelante -- Z81DoRestore lo hace)
+		inc	hl
+		ld	a,(hl)
+		inc	hl
+		ld	h,(hl)
+		ld	l,a		; HL = longitud del volcado de memoria
+		push	hl		; guardar longitud (para el chequeo de
+					; longitud 0 de mas abajo)
+
+		; Pagina de aparcamiento INICIAL = 23 + bloque_de(destAddr).
+		; Antes se aparcaba siempre en Z81StagePage0 (pagina 24, la
+		; del bloque 1) sin mirar destAddr -- solo valido si el
+		; volcado empieza justo ahi. Ahora la memoria se recibe
+		; directamente en la pagina que va a ser su destino
+		; definitivo (23+bloque), asi que hace falta acertar desde
+		; el primer byte. D todavia vale el byte alto de destAddr
+		; (los push de arriba no lo tocan).
+		ld	a,d
+		call	Z81HighToBlock	; A = bloque de destAddr (asume
+					; destAddr alineado a multiplo de 2000h)
+		add	a,23
+		ld	d,a		; D = pagina de aparcamiento inicial --
+					; se queda aqui hasta el bucle de
+					; recepcion, un poco mas abajo, que la
+					; usa tal cual
+
+		; Aparcamos SIEMPRE por el bloque 7 (nunca por el 0, que es de
+		; solo lectura -- ver el comentario grande de CmdZ81, mas
+		; arriba -- ni por el 6, que ya dio problemas en una version
+		; anterior de este mismo diseno cuando MEMRANGE tambien lo
+		; cubria). El bloque 7 SI puede acabar siendo destino real
+		; (MEMRANGE cubre los 7 bloques 1-7 en el caso tipico), pero
+		; eso no es un problema aqui: para cuando el bloque 7 reciba
+		; SU PROPIO volcado (el ultimo de los 7 fragmentos, si el
+		; volcado llega hasta ahi), ya no queda nada mas por aparcar
+		; despues, asi que no hay ningun conflicto entre "sitio de
+		; aparcamiento" y "destino real" como si lo habia con el
+		; bloque 6 en el diseno anterior (bloque 6 tenia que aparcar
+		; datos de bloques posteriores DESPUES de que le tocara su
+		; propio volcado real).
+		;
+		; DI aqui protege el resto de Z81DoRestore (el POP en cadena
+		; de los registros del snapshot, mas abajo): si saltara una
+		; interrupcion en mitad de eso, con SP ya reapuntado dentro
+		; del marco de registros, corrompe la pila (visto en una
+		; version anterior de este diseno). El unico EI real lo hace
+		; el propio programita de restauracion final, condicionado al
+		; IFF1 del snapshot, justo antes de saltar a su PC.
+		di
+
+		ld	a,d		; A = pagina de aparcamiento inicial
+					; (seguia en D desde mas arriba)
+		ld	b,7
+		call	Z81MapPage	; aparcar ahi la primera pagina que llegue
+					; (no toca D: sigue valiendo lo mismo)
+
+		; --- Recepcion de la memoria, directamente en su pagina final ---
+		ld	hl,0E000h	; puntero de escritura en el bloque 7
+
+		pop	bc		; BC = longitud restante (nada entre esto
+					; y el bucle vuelve a tocar B o C)
+		ld	a,b
+		or	c
+		jr	z,Z81MemDone	; longitud 0: nada que recibir
+
+		; Mismo patron adaptativo que Z81HdrLoop (ver el comentario de
+		; ahi arriba) -- no fiarse de C, mirar el reloj fisico y
+		; alternar explicitamente.
+		in	a,(ClkPort)
+		rlca
+		jr	c,Z81RecvR0	; reloj a 1 ahora: el primer byte se
+					; espera a 0
+
+Z81RecvR1:	in	a,(DataPort)
+		ld	(hl),a
+		inc	hl
+Z81RecvW1:	in	a,(ClkPort)
+		rlca
+		jr	nc,Z81RecvW1	; esperar a que suba a 1
+		dec	bc
+		ld	a,b
+		or	c
+		jr	z,Z81MemDone	; ya no quedan bytes que recibir
+		ld	a,h
+		or	l
+		jr	nz,Z81RecvR0	; seguimos en la misma pagina; el
+					; siguiente byte se espera a 0
+		inc	d		; pagina de aparcamiento siguiente
+		push	bc		; Z81MapPage pisa BC (B=bloque, y C lo usa
+					; para MapperPort) -- proteger la
+					; longitud restante
+		ld	a,d
+		ld	b,7
+		call	Z81MapPage
+		pop	bc
+		ld	hl,0E000h
+		jr	Z81RecvR0
+
+Z81RecvR0:	in	a,(DataPort)
+		ld	(hl),a
+		inc	hl
+Z81RecvW0:	in	a,(ClkPort)
+		rlca
+		jr	c,Z81RecvW0	; esperar a que baje a 0
+		dec	bc
+		ld	a,b
+		or	c
+		jr	z,Z81MemDone	; ya no quedan bytes que recibir
+		ld	a,h
+		or	l
+		jr	nz,Z81RecvR1	; seguimos en la misma pagina; el
+					; siguiente byte se espera a 1
+		inc	d
+		push	bc		; (ver comentario identico arriba)
+		ld	a,d
+		ld	b,7
+		call	Z81MapPage
+		pop	bc
+		ld	hl,0E000h
+		jr	Z81RecvR1
+
+Z81MemDone:
+		; --- Byte de estado final ---
+		; Ojo: NO hay que esperar ningun toggle aqui. Tanto
+		; Z81HdrLoop (cuando la memoria esta vacia) como Z81RecvLoop
+		; (en el caso normal) ya esperan, como su propia ultima
+		; accion antes de saltar aqui, el toggle que prepara
+		; PRECISAMENTE este byte de estado (es el ultimo elemento del
+		; buffer, y "leer byte N" es lo que dispara la preparacion
+		; del byte N+1 en el emulador). Volver a mirar el reloj y
+		; esperar otra vez -- como hacia esto antes -- espera un
+		; toggle que ya no va a llegar (no hay "byte N+2" que
+		; preparar), y cuelga o pesca cualquier basura que toque el
+		; reloj mas tarde por otro motivo.
+		in	a,(DataPort)
+		ld	l,a
+		ld	a,l
+		or	a
+		jr	z,Z81DoRestore	; estado 0 = todo ok
+
+		add	a,.F-.1		; mismo mapeo de codigo de error que
+					; ReportStatus (status 1 = REPORT-G...)
+		ld	l,a
+		; No hay nada que desapilar aqui: la longitud ya se saco en
+		; BC antes del bucle de recepcion (tanto si hubo bucle como
+		; si la longitud era 0), y el buffer vive en una direccion
+		; fija (Z81ScratchArea), no en la pila.
+
+		; No hace falta deshacer ningun aparcamiento: el bloque 0 (la
+		; ROM real que necesita ERROR_3) nunca se ha tocado -- solo el
+		; bloque 7, que da igual en que pagina se quede. Basta con EI
+		; (el DI de mas arriba, en Z81HdrDone, se queda activo hasta
+		; aqui).
+		ei
+		jp	ERROR_3		; almacena L como ERR_NR
+
+; B=numero de bloque -> A = pagina actualmente mapeada en ese bloque
+Z81ReadPage:	ld	c,MapperPort
+		in	a,(c)
+		ret
+
+; --- Plantillas del "programita de restauracion final" ---------------------
+; Bytes de maquina puros, nunca se ejecutan aqui: Z81DoRestore los copia (y
+; parchea los pocos operandos que dependen del snapshot concreto) en el area
+; de trabajo del bloque reservado, y desde ahi al destino real. Se explica
+; el porque de todo esto en el comentario de Z81DoRestore, mas abajo.
+Z81TplBlock1Out:
+		; bloque1 -> pagina Z81StagePage0 (24): siempre la misma
+		; pagina fija, asi que el operando de este LD A,n es una
+		; constante de ensamblado, no hace falta parchearlo nunca.
+		db	03Eh,Z81StagePage0*8+1	; LD A,(24<<3)|1
+		db	00Eh,MapperPort		; LD C,MapperPort
+		db	0EDh,079h		; OUT (C),A
+Z81TplBlock1OutLen equ	$-Z81TplBlock1Out
+
+Z81TplJP:
+		db	0C3h,000h,000h		; JP nn -- operando parcheado
+Z81TplJPLen	equ	$-Z81TplJP
+Z81TplJPOperand	equ	1
+
+; Solo hace falta si la pila del snapshot cae en el propio bloque 1 (ver
+; Z81BuildFrame): devuelve Z81BorrowBlock a la pagina que tenia prestada
+; para escribir/entrar en el programita. El operando (pagina<<3)|bloque se
+; calcula en Z81ConstructNow a partir de la pagina real guardada (offset
+; Z81OffSavedPage0) -- Z81BorrowBlock es fijo, pero la pagina no.
+Z81TplRestoreBorrow:
+		db	03Eh,000h		; LD A,n -- operando parcheado
+		db	00Eh,MapperPort		; LD C,MapperPort
+		db	0EDh,079h		; OUT (C),A
+Z81TplRestoreBorrowLen equ $-Z81TplRestoreBorrow
+Z81TplRestoreBorrowOp equ 1
+
+Z81TplTail:
+		db	031h,000h,000h		; LD SP,nn -- operando
+						; parcheado (FrameAddr)
+		db	0E1h			; POP HL
+		db	0D1h			; POP DE
+		db	0C1h			; POP BC
+		db	0F1h			; POP AF
+		db	0D9h			; EXX
+		db	0E1h			; POP HL'
+		db	0D1h			; POP DE'
+		db	0C1h			; POP BC'
+		db	008h			; EX AF,AF'
+		db	0F1h			; POP AF'
+		db	0D9h			; EXX
+		db	008h			; EX AF,AF'
+		db	0DDh,0E1h		; POP IX
+		db	0FDh,0E1h		; POP IY
+		db	000h			; EI/NOP -- parcheado
+		db	0C9h			; RET -- recupera PC (y de paso
+						; deja SP en su valor final)
+Z81TplTailLen	equ	$-Z81TplTail
+Z81TplTailSPOp	equ	1
+Z81TplTailEIOp	equ	19
+
+; Todo lo que llega hasta aqui (Z81MemDone con status=0) tiene ya la memoria
+; del snapshot en sus paginas de aparcamiento definitivas (23+bloque, una
+; por cada bloque de destAddr/longitud -- ver Z81HdrDone/Z81RecvLoop mas
+; arriba): "copiar" cada bloque 2-7 a su destino real es solo REASIGNAR esa
+; pagina al bloque que le corresponde, sin tocar un solo byte.
+;
+; El bloque 1 es la excepcion: no se puede reasignar mientras el propio
+; codigo que hace la reasignacion se ejecuta desde ahi (esto costo varias
+; rondas de depuracion entenderlo bien -- ver el historial de este fichero).
+; Ni siquiera escribir a traves de OTRO bloque que este viendo la MISMA
+; pagina fisica vale como truco: sigue siendo la misma pagina, y acaba
+; pisando el propio codigo que la esta escribiendo.
+;
+; La solucion (propuesta por el propio autor del hardware): aplazar la
+; reasignacion del bloque 1 a un programita minusculo, construido sobre la
+; marcha, que se coloca en un hueco justo por debajo de la pila que va a
+; tener el snapshot -- que para entonces ya esta en su pagina definitiva (la
+; del bloque 1, si la pila cae ahi, se ve todavia via Z81BorrowBlock,
+; prestado solo para este momento; en cualquier otro bloque, ya es visible
+; directamente porque ese bloque ya se ha reasignado arriba). Justo debajo
+; de ese programita se deja un "marco" con los registros (en el orden
+; exacto que hace falta para sacarlos con POP en cadena, PC el ultimo,
+; recuperado por un RET final en vez de un JP con operando parcheado). Es
+; una apuesta -- no hay ningun hueco de memoria que sepamos SEGURO que esta
+; libre, ya que no conocemos como usa la RAM el programa que se ha cargado
+; -- pero el margen de seguridad que cualquier programa razonable deja por
+; debajo de su propia pila es, en la practica, mas que suficiente para los
+; ~60 bytes que hacen falta.
+;
+; NOTA: todo esto asume que destAddr/longitud (offsets 0-3 del bloque
+; reservado) estan alineados a multiplo de 2000h -- cierto para cualquier
+; MEMRANGE real de este interface, que siempre cubre bloques enteros.
+Z81DoRestore:
+		ld	ix,Z81ScratchArea	; IX -> area de trabajo, de aqui en
+					; adelante usado como puntero fijo
+					; (IX+n) para todo el trabajo local
+					; (direccion fija: ya no hace falta
+					; sacarla de ningun sitio)
+
+		ld	e,(ix+0)
+		ld	d,(ix+1)	; DE = direccion destino final (destAddr,
+					; releida del buffer)
+
+		ld	l,(ix+2)
+		ld	h,(ix+3)	; HL = longitud total del volcado (releida
+					; de la cabecera: BC ya la conto hasta 0
+					; durante la recepcion)
+
+		ld	(ix+Z81OffHasBlock1),0
+
+		ld	a,h
+		or	l
+		jr	z,Z81BuildFrame	; longitud 0: nada que reasignar
+
+		push	hl
+		ld	a,d
+		call	Z81HighToBlock	; A = bloque donde empieza el volcado
+		ld	b,a
+		cp	1
+		jr	nz,Z81NotBlock1Start
+		ld	(ix+Z81OffHasBlock1),1
+Z81NotBlock1Start:
+		pop	hl
+		ld	a,h
+		call	Z81HighToBlock	; A = numero de bloques cubiertos
+		ld	c,a
+
+Z81ReassignLoop:
+		ld	a,c
+		or	a
+		jr	z,Z81BuildFrame
+		ld	a,b
+		cp	1
+		jr	z,Z81ReassignSkip
+		push	bc
+		add	a,23		; A = pagina definitiva de ese bloque
+		call	Z81MapPage	; (B = numero de bloque, todavia valido)
+		pop	bc
+Z81ReassignSkip:
+		inc	b
+		dec	c
+		jr	Z81ReassignLoop
+
+Z81BuildFrame:
+		; --- Bloque (1-7) donde cae la pila del snapshot ---
+		ld	l,(ix+6)
+		ld	h,(ix+7)	; HL = SP del snapshot
+		dec	hl		; el ultimo byte que de verdad cae "justo
+					; por debajo" de esa pila
+		ld	a,h
+		call	Z81HighToBlock
+		ld	(ix+Z81OffTargetBlk),a
+
+		; --- FrameAddr = SP_snapshot - 22 (10 pares de registros +
+		; PC, en el orden exacto que va a sacar el programita final
+		; con POP/.../RET) ---
+		ld	l,(ix+6)
+		ld	h,(ix+7)
+		ld	de,-22
+		add	hl,de
+		ld	(ix+Z81OffFrameAddr),l
+		ld	(ix+Z81OffFrameAddr+1),h
+
+		; --- Tamano del programita (sin el marco), segun el caso ---
+		ld	c,Z81TplTailLen	; el Tail comun siempre esta
+		ld	a,(ix+Z81OffHasBlock1)
+		or	a
+		jr	z,Z81SizeDone	; bloque 1 no esta en el volcado: nada
+					; mas que anadir
+		ld	a,c
+		add	a,Z81TplBlock1OutLen
+		ld	c,a
+		ld	a,(ix+Z81OffTargetBlk)
+		cp	1
+		jr	nz,Z81SizeDone	; la pila NO cae en el bloque 1: no
+					; hace falta el JP interno ni devolver
+					; Z81BorrowBlock
+		ld	a,c
+		add	a,Z81TplJPLen
+		add	a,Z81TplRestoreBorrowLen
+		ld	c,a
+Z81SizeDone:
+		ld	(ix+Z81OffProgSize),c
+
+		; --- ProgramAddr = FrameAddr - tamano del programita ---
+		ld	l,(ix+Z81OffFrameAddr)
+		ld	h,(ix+Z81OffFrameAddr+1)
+		ld	e,c
+		ld	d,0
+		or	a		; limpiar carry
+		sbc	hl,de
+		ld	(ix+Z81OffProgAddr),l
+		ld	(ix+Z81OffProgAddr+1),h
+
+		; --- Donde escribir/entrar: si la pila cae en el bloque 1
+		; (unico bloque que a estas alturas puede seguir SIN
+		; reasignar), hay que construir via la ventana de
+		; Z81BorrowBlock, prestado para la ocasion (con su pagina real
+		; guardada para devolverselo mas tarde, desde el propio
+		; programita -- ver Z81ConstructNow); en cualquier otro caso
+		; el bloque destino ya esta en su pagina definitiva (por
+		; Z81ReassignLoop, o porque nunca formaba parte del volcado y
+		; no se ha tocado) y se puede escribir/entrar directamente.
+		ld	a,(ix+Z81OffTargetBlk)
+		cp	1
+		jr	nz,Z81EntryDirect
+
+		ld	b,Z81BorrowBlock
+		call	Z81ReadPage	; A = pagina real actual de Z81BorrowBlock
+		ld	(ix+Z81OffSavedPage0),a
+
+		ld	a,Z81StagePage0
+		ld	b,Z81BorrowBlock
+		call	Z81MapPage	; Z81BorrowBlock -> pagina 24 (los datos
+					; del bloque 1)
+
+		ld	l,(ix+Z81OffProgAddr)
+		ld	h,(ix+Z81OffProgAddr+1)
+		ld	a,h
+		and	01Fh
+		or	Z81BorrowBlock*32 ; misma pagina, vista por Z81BorrowBlock
+		ld	h,a
+		ld	(ix+Z81OffWriteBase),l
+		ld	(ix+Z81OffWriteBase+1),h
+		ld	(ix+Z81OffEntry),l
+		ld	(ix+Z81OffEntry+1),h
+		jr	Z81ConstructNow
+
+Z81EntryDirect:
+		ld	l,(ix+Z81OffProgAddr)
+		ld	h,(ix+Z81OffProgAddr+1)
+		ld	(ix+Z81OffWriteBase),l
+		ld	(ix+Z81OffWriteBase+1),h
+		ld	(ix+Z81OffEntry),l
+		ld	(ix+Z81OffEntry+1),h
+
+Z81ConstructNow:
+		; Construir el programita en el area local (bloque 1, la
+		; nuestra -- IX+Z81OffConstruct en adelante): [OUT bloque1, si
+		; aplica] [JP interno + OUT que devuelve Z81BorrowBlock, solo
+		; si la pila cae en el bloque 1] [LD SP + POPs + EI/NOP +
+		; RET], seguido justo despues por el marco de 22 bytes con
+		; los registros.
+		push	ix
+		pop	hl
+		ld	de,Z81OffConstruct
+		add	hl,de
+		push	hl
+		pop	iy		; IY = cursor de escritura local
+
+		ld	a,(ix+Z81OffHasBlock1)
+		or	a
+		jr	z,Z81CTail
+
+		push	iy
+		pop	de
+		ld	hl,Z81TplBlock1Out
+		ld	bc,Z81TplBlock1OutLen
+		ldir
+		push	iy
+		pop	hl
+		ld	de,Z81TplBlock1OutLen
+		add	hl,de
+		push	hl
+		pop	iy
+
+		ld	a,(ix+Z81OffTargetBlk)
+		cp	1
+		jr	nz,Z81CTail
+
+		; JP interno: venimos ejecutando por la ventana de
+		; Z81BorrowBlock (todavia viendo la pagina 24); el OUT que
+		; acabamos de copiar deja el bloque 1 correctamente mapeado,
+		; asi que hay que saltar a la MISMA direccion pero vista ya
+		; por la ventana REAL del bloque 1, antes de devolverle su
+		; pagina real a Z81BorrowBlock -- si siguieramos ejecutando
+		; via su ventana, ese OUT (el siguiente paso) se comeria el
+		; terreno que estamos pisando.
+		push	iy
+		pop	de
+		ld	hl,Z81TplJP
+		ld	bc,Z81TplJPLen
+		ldir
+
+		ld	l,(ix+Z81OffProgAddr)
+		ld	h,(ix+Z81OffProgAddr+1)
+		ld	de,Z81TplBlock1OutLen+Z81TplJPLen
+		add	hl,de		; HL = direccion real (bloque 1) donde
+					; empieza lo que sigue
+		ld	(iy+Z81TplJPOperand),l
+		ld	(iy+Z81TplJPOperand+1),h
+
+		push	iy
+		pop	hl
+		ld	de,Z81TplJPLen
+		add	hl,de
+		push	hl
+		pop	iy
+
+		; Devolver a Z81BorrowBlock su pagina real (guardada en
+		; Z81OffSavedPage0) -- esto se ejecuta ya via la ventana REAL
+		; del bloque 1 (tras el JP de arriba), asi que es seguro.
+		push	iy
+		pop	de
+		ld	hl,Z81TplRestoreBorrow
+		ld	bc,Z81TplRestoreBorrowLen
+		ldir
+
+		ld	a,(ix+Z81OffSavedPage0)
+		add	a,a
+		add	a,a
+		add	a,a		; a = pagina<<3
+		or	Z81BorrowBlock	; a = (pagina<<3)|bloque, igual que hace
+					; Z81MapPage -- aqui no se puede llamar,
+					; hace falta el byte ya calculado
+		ld	(iy+Z81TplRestoreBorrowOp),a
+
+		push	iy
+		pop	hl
+		ld	de,Z81TplRestoreBorrowLen
+		add	hl,de
+		push	hl
+		pop	iy
+
+Z81CTail:
+		push	iy
+		pop	de
+		ld	hl,Z81TplTail
+		ld	bc,Z81TplTailLen
+		ldir
+
+		ld	a,(ix+Z81OffFrameAddr)
+		ld	(iy+Z81TplTailSPOp),a
+		ld	a,(ix+Z81OffFrameAddr+1)
+		ld	(iy+Z81TplTailSPOp+1),a
+
+		ld	a,(ix+31)	; IFF1 del snapshot
+		or	a
+		ld	a,0FBh		; EI
+		jr	nz,Z81CPatchEI
+		ld	a,000h		; NOP (no activar interrupciones)
+Z81CPatchEI:	ld	(iy+Z81TplTailEIOp),a
+
+		push	iy
+		pop	hl
+		ld	de,Z81TplTailLen
+		add	hl,de
+		push	hl
+		pop	iy		; IY -> justo donde empieza el marco
+
+		; --- I/R/IM: se aplican aqui mismo, directamente (no hace
+		; falta aplazarlos: no interfieren con nada de lo anterior
+		; ni de lo que viene) ---
+		ld	a,(ix+28)
+		ld	i,a
+		ld	a,(ix+29)
+		ld	r,a
+		ld	a,(ix+30)
+		cp	1
+		jr	c,Z81CSetIM0
+		jr	z,Z81CSetIM1
+		im	2
+		jr	Z81CIMDone
+Z81CSetIM0:	im	0
+		jr	Z81CIMDone
+Z81CSetIM1:	im	1
+Z81CIMDone:
+
+		; --- Marco de registros: HL,DE,BC,AF,HL',DE',BC',AF',IX,IY
+		; (20 bytes, offsets 8-27 del bloque, ya contiguos y en ese
+		; mismo orden) + PC (offset 4-5) al final, para que el RET
+		; final del programita lo saque de la pila el ultimo.
+		push	ix
+		pop	hl
+		ld	de,8
+		add	hl,de		; HL -> buffer+8 (registro HL guardado)
+		push	iy
+		pop	de		; DE = cursor de escritura (marco)
+		ld	bc,20
+		ldir			; tras esto, DE ya apunta al siguiente
+					; hueco libre -- no hace falta
+					; recalcularlo para lo que sigue
+
+		push	ix
+		pop	hl
+		ld	bc,4
+		add	hl,bc		; HL -> buffer+4 (PC) -- con BC, no con
+					; DE, para no perder el cursor que
+					; acaba de dejar el ldir anterior
+		ld	bc,2
+		ldir
+
+		; --- Copiar todo (programita+marco) a su destino real ---
+		ld	a,(ix+Z81OffProgSize)
+		add	a,22
+		ld	c,a
+		ld	b,0		; BC = tamano total (cabe de sobra en
+					; un byte: maximo 58)
+
+		push	ix
+		pop	hl
+		ld	de,Z81OffConstruct
+		add	hl,de		; HL = origen (area local, bloque 1)
+
+		ld	e,(ix+Z81OffWriteBase)
+		ld	d,(ix+Z81OffWriteBase+1)
+		ldir
+
+		ld	l,(ix+Z81OffEntry)
+		ld	h,(ix+Z81OffEntry+1)
+		jp	(hl)		; a partir de aqui, el propio
+					; programita recien copiado hace el
+					; resto: OUT(es) de pagina, POPs y un
+					; RET final al PC del snapshot
 
 ; LOAD *FULLPAG [STOP] -- activa paginacion completa (512K, CMD_pages64)
 ; o, con STOP, vuelve a la paginacion simple (256K, CMD_pages32). El
@@ -1117,14 +1907,15 @@ MapRead:	rst	NEXT_CHAR	; Skip TO
 		call	CLASS_1		; Get variable details
 		rst	GET_CHAR	; We should be at EOL now
 		bit	6,(iy+iyFLAGS)	; Numeric variable?
-		jr	z,ReportC3	; Error if not
+		jp	z,ReportC3	; Error if not (jp: destino demasiado
+					; lejos para jr)
 		call	MustBeEOL	; Check if EOL and end syntax check
 		call	FIND_INT	; Get value
 		rlc	b		; Zero high byte?
-		jr	nz,ReportB	; Error if not
+		jp	nz,ReportB	; Error if not (jp: demasiado lejos para jr)
 		ld	a,c
 		cp	8		; Low byte in [0..7]?
-		jr	nc,ReportB	; Error if not
+		jp	nc,ReportB	; Error if not (jp: demasiado lejos para jr)
 		ld	b,c		; Block number to A10-A8
 		ld	c,MapperPort	; Mapper port to A7-A0
 		in	c,(c)		; Read page for that block
@@ -1156,7 +1947,8 @@ Common64_128C:	cp	.nl
 		call	SYNTAX_Z	; Checking syntax?
 		jr	z,chEol2	; Skip fetching number if so
 		call	FP_TO_A		; Fetch expression value
-		jr	c,ReportB	; Error if out of range
+		jp	c,ReportB	; Error if out of range (jp: demasiado
+					; lejos para jr)
 		jr	z,chEol2	; If positive value, all good
 		neg			; Negate
 chEol2:		pop	bc		; restore command in C
@@ -2045,6 +2837,12 @@ CmdList:
 
 		db	.R,.A,.M,.4,.8 + $80
 		dw	CmdRAM48
+
+		db	.R,.O,.M,.L,.O,.C,.K + $80
+		dw	CmdROMLOCK
+
+		db	.Z,.8,.1 + $80
+		dw	CmdZ81
 
 		include	"extracmdlist.inc.asm"
 

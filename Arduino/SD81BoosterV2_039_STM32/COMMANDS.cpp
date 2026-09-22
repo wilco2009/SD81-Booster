@@ -1526,6 +1526,23 @@ void cmd_sel_256_chars(){
   reset_commands();
 }
 
+// COMMAND = 68 (0x44) LOAD *ROMLOCK -- bloque 0 se comporta como ROM real,
+// los puertos POKE (2038-2062, 2090-2098, sprites) dejan de responder.
+void cmd_romlock_on(){
+  log_2("ROMLOCK enabled (block 0 ports off)");
+  send_bit_config(cfgcmd_ROMLOCK,1);
+  ToggleClock();
+  reset_commands();
+}
+
+// COMMAND = 69 (0x45) LOAD *ROMLOCK STOP -- vuelve a la normalidad.
+void cmd_romlock_off(){
+  log_2("ROMLOCK disabled (block 0 ports on)");
+  send_bit_config(cfgcmd_ROMLOCK,0);
+  ToggleClock();
+  reset_commands();
+}
+
 // COMMAND = 29
 void cmd_fullpaging(){
   log_2("full paging mode selected");
@@ -2327,6 +2344,198 @@ void cmd_net_write(){
   ToggleClock();                            // toggle final
 }
 
+// --- Carga de snapshots .Z81 -----------------------------------------------
+// LOAD *Z81 "fichero" -- restaura un snapshot en formato texto de EightyOne
+// (secciones [CPU] y [MEMORY], claves en hex ASCII, RLE "*NNNN VV"). Solo nos
+// interesan esas dos secciones; el resto (interfaces, sonido, joystick...)
+// describen configuracion del emulador, no estado del Z80, y se ignoran.
+//
+// Protocolo con la Z80 (todo MCU->Z80 salvo el nombre de fichero, que llega
+// igual que en cmd_load): direccion_destino(2, LE), longitud_memoria(2, LE),
+// bloque de registros (30 bytes, orden fijo: PC SP HL DE BC AF HL' DE' BC' AF'
+// IX IY I R IM IF1 IF2 HALT), longitud_memoria bytes ya decodificados (sin
+// RLE), y por ultimo 1 byte de estado (0 = ok). Mandamos la cabecera y los
+// registros en cuanto vemos "MEMRANGE" (antes de conocer el resto del
+// fichero) para no tener que guardar los 56K de una imagen completa en la
+// RAM del propio MCU -- todo se manda en streaming, token a token.
+
+// Un espacio en blanco de los que separan tokens en el fichero .Z81.
+static bool z81_isspace(char c){
+  return (c==' ') || (c=='\t') || (c=='\r') || (c=='\n');
+}
+
+// Siguiente token (separado por blancos) de Sfile. Devuelve la longitud, o 0
+// en EOF. Trunca tokens absurdamente largos (no deberian darse en un .Z81).
+static uint8_t z81_get_token(char* buf){
+  int c;
+  uint8_t len = 0;
+
+  do { c = Sfile.read(); } while ((c!=-1) && z81_isspace((char)c));
+  if (c==-1) return 0;
+
+  while ((c!=-1) && !z81_isspace((char)c) && (len<31)){
+    buf[len++] = (char)c;
+    c = Sfile.read();
+  }
+  buf[len] = 0;
+  return len;
+}
+
+// Hex ASCII (sin "0x", como los usa EightyOne) -> entero. Para de convertir
+// en el primer caracter que no sea un digito hex, como el hex2dec original.
+static uint16_t z81_hex(const char* s){
+  uint16_t v = 0;
+  char c;
+
+  while ((c=*s++) != 0){
+    v <<= 4;
+    if (c>='0' && c<='9') v |= (c-'0');
+    else if (c>='a' && c<='f') v |= (c-'a'+10);
+    else if (c>='A' && c<='F') v |= (c-'A'+10);
+    else break;
+  }
+  return v;
+}
+
+// COMMAND = 70 (0x46) LOAD *Z81 "fichero.Z81"
+void cmd_loadZ81(){
+  char file_name[MAX_FILENAME_LEN];
+  char tok[32];
+  char key[32];
+  uint8_t reg[30] = {0};
+  uint16_t mem_start = 0, mem_end = 0, mem_len = 0;
+  uint32_t sent = 0;
+  uint8_t error_code = 0;
+  bool in_cpu = false, in_memory = false, have_header = false;
+
+  set_SDLed(LED_ON);
+  check_SD();
+  ToggleClock();
+
+  // Nombre de fichero, igual que en cmd_load
+  param_len = GetByteFromZ80();
+  for (uint8_t i=0; i<param_len; i++){
+    ToggleClock();
+    char ch = GetByteFromZ80() & 0b01111111;
+    params[i] = (char) asc81_to_ascii[ch];
+  }
+  params[param_len] = 0;
+
+  if (params[0]!='/'){
+    strcpy(file_name,current_dir);
+    strcat(file_name,params);
+  } else {
+    strcpy(file_name,params);
+  }
+
+  bool opened = false;
+  for (int i=0; i<10; i++){
+    if (Sfile.open(file_name,O_READ)){ opened = true; break; }
+    delay(10);
+  }
+
+  if (opened){
+    uint8_t tlen;
+    while ((tlen = z81_get_token(tok)) > 0){
+      if (tok[0]=='['){
+        if (have_header) break;    // ya mandamos todo lo que necesitabamos
+        in_cpu    = (strcmp(tok,"[CPU]")==0);
+        in_memory = (strcmp(tok,"[MEMORY]")==0);
+        continue;
+      }
+
+      if (in_cpu){
+        strcpy(key,tok);
+        if (z81_get_token(tok)==0) break;      // fichero truncado
+        uint16_t val = z81_hex(tok);
+
+             if (!strcmp(key,"PC"))  { reg[0]=val&0xff;  reg[1]=val>>8; }
+        else if (!strcmp(key,"SP"))  { reg[2]=val&0xff;  reg[3]=val>>8; }
+        else if (!strcmp(key,"HL"))  { reg[4]=val&0xff;  reg[5]=val>>8; }
+        else if (!strcmp(key,"DE"))  { reg[6]=val&0xff;  reg[7]=val>>8; }
+        else if (!strcmp(key,"BC"))  { reg[8]=val&0xff;  reg[9]=val>>8; }
+        else if (!strcmp(key,"AF"))  { reg[10]=val&0xff; reg[11]=val>>8; }
+        else if (!strcmp(key,"HL_")) { reg[12]=val&0xff; reg[13]=val>>8; }
+        else if (!strcmp(key,"DE_")) { reg[14]=val&0xff; reg[15]=val>>8; }
+        else if (!strcmp(key,"BC_")) { reg[16]=val&0xff; reg[17]=val>>8; }
+        else if (!strcmp(key,"AF_")) { reg[18]=val&0xff; reg[19]=val>>8; }
+        else if (!strcmp(key,"IX"))  { reg[20]=val&0xff; reg[21]=val>>8; }
+        else if (!strcmp(key,"IY"))  { reg[22]=val&0xff; reg[23]=val>>8; }
+        // IR ya trae R7 dentro del byte bajo (ver save_snap_zx81), asi que
+        // los dos bytes de aqui abajo son directamente I y R sin mas lios.
+        else if (!strcmp(key,"IR"))  { reg[24]=val>>8;   reg[25]=val&0xff; }
+        else if (!strcmp(key,"IM"))  { reg[26]=val&0xff; }
+        else if (!strcmp(key,"IF1")) { reg[27]=val&0xff; }
+        else if (!strcmp(key,"IF2")) { reg[28]=val&0xff; }
+        else if (!strcmp(key,"HT"))  { reg[29]=val&0xff; }
+        continue;
+      }
+
+      if (in_memory){
+        if (!strcmp(tok,"MEMRANGE")){
+          if (z81_get_token(tok)==0) break;
+          mem_start = z81_hex(tok);
+          if (z81_get_token(tok)==0) break;
+          mem_end = z81_hex(tok);
+          mem_len = mem_end - mem_start + 1;
+
+          // Ya sabemos todo lo necesario: mandar cabecera + registros ahora,
+          // sin esperar a ver el resto del fichero.
+          SendByteToZ80(mem_start & 0xff);
+          SendByteToZ80(mem_start >> 8);
+          SendByteToZ80(mem_len & 0xff);
+          SendByteToZ80(mem_len >> 8);
+          for (uint8_t i=0; i<30; i++) SendByteToZ80(reg[i]);
+          have_header = true;
+          continue;
+        }
+
+        if (!have_header) continue;  // MEMRANGE deberia ser lo primero
+
+        if (!strcmp(tok,"RAM_PACK") || !strcmp(tok,"8K_RAM_ENABLED")
+            || !strcmp(tok,"ROM_PROTECTED")){
+          z81_get_token(tok);         // consumir y descartar el valor
+          continue;
+        }
+
+        if (tok[0]=='*'){
+          uint16_t count = z81_hex(tok+1);
+          if (z81_get_token(tok)==0) break;
+          uint8_t val = (uint8_t)z81_hex(tok);
+          while (count-- && (sent<mem_len)){ SendByteToZ80(val); sent++; }
+        } else {
+          if (sent<mem_len){ SendByteToZ80((uint8_t)z81_hex(tok)); sent++; }
+        }
+
+        if (sent>=mem_len) break;    // volcado completo, no hace falta seguir
+        continue;
+      }
+    }
+    Sfile.close();
+  }
+
+  if (!opened){
+    log_0("cannot open Z81 snapshot %s", file_name);
+    error_code = 1;
+  }
+
+  if (!have_header){
+    // No llegamos a ver [MEMORY]/MEMRANGE (fichero ausente, sin esa seccion,
+    // o corrupto): completar la cabecera pendiente con ceros para no dejar a
+    // la Z80 esperando bytes que no van a llegar.
+    for (uint8_t i=0; i<4; i++) SendByteToZ80(0);
+    for (uint8_t i=0; i<30; i++) SendByteToZ80(0);
+    if (error_code==0) error_code = 2;
+  } else if (sent < mem_len){
+    if (error_code==0) error_code = 3;   // el fichero acabo antes de tiempo
+    while (sent<mem_len){ SendByteToZ80(0); sent++; }
+  }
+
+  SendByteToZ80(error_code);
+  reset_commands();
+  ToggleClock();
+}
+
 // reserved codes for future
 void cmd_spare(){
   log_0("Command not recognized: %s",command_active);
@@ -2412,5 +2621,8 @@ command_handler commands[] = {
   cmd_sel_256_chars,    //65 (0x41) LOAD *256C
   cmd_net_read,         //66 (0x42) puente de red: leer lo recibido
   cmd_net_write,        //67 (0x43) puente de red: enviar
+  cmd_romlock_on,       //68 (0x44) LOAD *ROMLOCK
+  cmd_romlock_off,      //69 (0x45) LOAD *ROMLOCK STOP
+  cmd_loadZ81,          //70 (0x46) LOAD *Z81 "fichero"
   cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

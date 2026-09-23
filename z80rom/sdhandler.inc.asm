@@ -1205,7 +1205,7 @@ Z81BorrowBlock	equ	2
 ;           Z81BorrowBlock)
 ;   47    : bandera "el bloque 1 forma parte del volcado" (0/1)
 ;   48    : bloque (1-7) donde cae la pila del snapshot
-;   49-106: area de construccion del programita+marco (58 bytes, el maximo
+;   49-108: area de construccion del programita+marco (60 bytes, el maximo
 ;           posible)
 ; Todo esto lo arma y consume Z81DoRestore, ver alli para el porque.
 Z81OffNMI	equ	34
@@ -1220,7 +1220,7 @@ Z81OffWriteBase	equ	45
 Z81OffHasBlock1	equ	47
 Z81OffTargetBlk	equ	48
 Z81OffConstruct	equ	49
-Z81BufSize	equ	107	; tamano total usado en Z81ScratchArea (49+58);
+Z81BufSize	equ	109	; tamano total usado en Z81ScratchArea (49+60);
 				; solo informativo, cabe de sobra en el 1K
 				; disponible (ver Z81ScratchArea mas arriba)
 
@@ -1372,7 +1372,29 @@ Z81HdrDone:
 		; version anterior de este diseno). El unico EI real lo hace
 		; el propio programita de restauracion final, condicionado al
 		; IFF1 del snapshot, justo antes de saltar a su PC.
+		;
+		; DI no basta: la NMI (refresco de pantalla en modo SLOW) NO
+		; esta enmascarada por DI, y sigue disparandose aunque nunca
+		; toquemos el bloque 0 (su vector, $0066, siempre es ROM real,
+		; asi que ESO en concreto es seguro). El problema real es otro
+		; y se vio con una traza real: con WRX activo, la propia
+		; rutina de refresco lee bastante mas memoria por linea, y si
+		; la NMI salta en mitad de Z81ReassignLoop (con los bloques
+		; 2-7 ya reasignados a los datos del snapshot en vez de al
+		; D_FILE/variables del programa que sigue "en marcha" hasta
+		; que saltemos al del snapshot), lee basura de un bloque a
+		; medio reasignar y el timing tan ajustado de la NMI cuelga
+		; el sistema entero. Por eso se apaga tambien el generador de
+		; NMI aqui (mismo mecanismo que SET_FAST/SLOW-FAST de la ROM
+		; original) para TODO el resto de este comando, y se
+		; reactiva -- si el snapshot la quiere activa, o por defecto
+		; si no lo especifica -- como lo ultimo que hace el
+		; programita final, justo antes de saltar a su PC (ver
+		; Z81TplTail mas abajo). Si el snapshot pide la NMI apagada,
+		; no hace falta hacer nada mas: ya se apago aqui.
 		di
+		out	(0FDh),a	; apagar el generador de NMI (el valor de
+					; A es indiferente para este puerto)
 
 		ld	a,d		; A = pagina de aparcamiento inicial
 					; (seguia en D desde mas arriba)
@@ -1505,9 +1527,12 @@ Z81MemDone:
 
 		; No hace falta deshacer ningun aparcamiento: el bloque 0 (la
 		; ROM real que necesita ERROR_3) nunca se ha tocado -- solo el
-		; bloque 7, que da igual en que pagina se quede. Basta con EI
-		; (el DI de mas arriba, en Z81HdrDone, se queda activo hasta
-		; aqui).
+		; bloque 7, que da igual en que pagina se quede. Pero la NMI
+		; SI se apago en Z81HdrDone (ver el comentario de alli) y aqui
+		; hay que reactivarla antes de EI, o se quedaria apagada para
+		; siempre -- el mismo problema que tenia SET_FAST en su dia.
+		out	(0FEh),a	; reactivar el generador de NMI (el valor
+					; de A es indiferente para este puerto)
 		ei
 		jp	ERROR_3		; almacena L como ERR_NR
 
@@ -1564,12 +1589,16 @@ Z81TplTail:
 		db	008h			; EX AF,AF'
 		db	0DDh,0E1h		; POP IX
 		db	0FDh,0E1h		; POP IY
+		db	000h,000h		; NMI: NOP,NOP (dejarla apagada) o
+						; OUT ($FE),A (reactivarla) --
+						; parcheado, ver Z81OffNMI
 		db	000h			; EI/NOP -- parcheado
 		db	0C9h			; RET -- recupera PC (y de paso
 						; deja SP en su valor final)
 Z81TplTailLen	equ	$-Z81TplTail
 Z81TplTailSPOp	equ	1
-Z81TplTailEIOp	equ	19
+Z81TplTailNMIOp	equ	19
+Z81TplTailEIOp	equ	21
 
 ; Todo lo que llega hasta aqui (Z81MemDone con status=0) tiene ya la memoria
 ; del snapshot en sus paginas de aparcamiento definitivas (23+bloque, una
@@ -1610,29 +1639,19 @@ Z81DoRestore:
 					; (direccion fija: ya no hace falta
 					; sacarla de ningun sitio)
 
-		; --- NMI/WRX/generador de caracteres del snapshot, si el
-		; fichero los traia (0xFF = no especificado, no tocar). No
-		; dependen de ninguna pagina ni bloque -- son puertos/pokes
-		; fijos o un comando MCU normal -- asi que se hacen aqui
-		; mismo, de una vez, antes de tocar nada mas. El registro I
-		; restaurado del propio snapshot (mas abajo) ya deja apuntado
-		; el juego de caracteres a la direccion que le corresponda;
-		; aqui solo hace falta el comando que activa/desactiva el
-		; modo 128/256 en si.
-		; OUT (n),A de toda la vida (como hace la ROM original en
-		; SLOW/FAST): NO usar OUT (C),A aqui, que pondria B (no
-		; garantizado a 0 en este punto) en la mitad alta del bus de
-		; direcciones en vez de A.
-		ld	a,(ix+Z81OffNMI)
-		cp	0FFh
-		jr	z,Z81SkipNMI
-		or	a
-		jr	z,Z81NMIOff
-		out	(0FEh),a	; encenderla (el valor de A es
-					; indiferente para estos puertos)
-		jr	Z81SkipNMI
-Z81NMIOff:	out	(0FDh),a	; apagarla
-Z81SkipNMI:
+		; --- WRX/generador de caracteres del snapshot, si el fichero
+		; los traia (0xFF = no especificado, no tocar). No dependen de
+		; ninguna pagina ni bloque -- son un poke fijo o un comando
+		; MCU normal -- asi que se hacen aqui mismo, de una vez, antes
+		; de tocar nada mas. El registro I restaurado del propio
+		; snapshot (mas abajo) ya deja apuntado el juego de caracteres
+		; a la direccion que le corresponda; aqui solo hace falta el
+		; comando que activa/desactiva el modo 128/256 en si.
+		;
+		; La NMI es distinta: se aplaza a Z81TplTail (ver el porque en
+		; el comentario grande de mas arriba, junto al DI) -- aqui
+		; NUNCA se enciende, solo puede quedar como esta (apagada,
+		; desde el DI de mas arriba) hasta el final.
 		ld	a,(ix+Z81OffWRX)
 		cp	0FFh
 		jr	z,Z81SkipWRX
@@ -1903,6 +1922,20 @@ Z81CTail:
 		ld	a,(ix+Z81OffFrameAddr+1)
 		ld	(iy+Z81TplTailSPOp+1),a
 
+		; NMI: por defecto (0xFF, no especificado) o si el snapshot
+		; la pide activa (1), reactivarla (OUT ($FE),A); si la pide
+		; apagada (0), dejarla como esta desde el DI de Z81HdrDone
+		; (NOP,NOP -- no hay "OUT ($FD)" que hacer, ya esta apagada).
+		ld	a,(ix+Z81OffNMI)
+		or	a
+		ld	a,000h
+		ld	(iy+Z81TplTailNMIOp),a
+		ld	(iy+Z81TplTailNMIOp+1),a
+		jr	z,Z81CNMIDone	; 0 = apagada: ya esta, NOP,NOP vale
+		ld	(iy+Z81TplTailNMIOp),0D3h
+		ld	(iy+Z81TplTailNMIOp+1),0FEh
+Z81CNMIDone:
+
 		ld	a,(ix+31)	; IFF1 del snapshot
 		or	a
 		ld	a,0FBh		; EI
@@ -1964,7 +1997,7 @@ Z81CIMDone:
 		add	a,22
 		ld	c,a
 		ld	b,0		; BC = tamano total (cabe de sobra en
-					; un byte: maximo 58)
+					; un byte: maximo 60)
 
 		push	ix
 		pop	hl

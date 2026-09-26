@@ -189,7 +189,15 @@ module SD81(
 	// 2 bits de seleccion -> 4 grupos de 64 = 256. Tiene prioridad sobre
 	// SEL_128CHARS (ver scan_addr); Cmd64C/Cmd128C la apagan al activarse.
 	reg SEL_256CHARS = 1'b0;
-	
+	// LOAD *ROMLOCK: algunos programas antiguos escriben en direcciones del
+	// bloque 0 (2038-2062, 2090-2098, sprites) creyendo que no pasa nada
+	// porque "es ROM" -- pero aqui SI pasa algo, son los puertos de
+	// configuracion de este interface. Con PORTS_LOCKED=1, esas escrituras
+	// vuelven a no tener ningun efecto, como en una ROM real. Se controla
+	// solo por el canal MCU->FPGA (comm_cmd 7), nunca por el bus del Z80,
+	// para que ningun programa pueda activarlo/desactivarlo sin querer.
+	reg PORTS_LOCKED = 1'b0;
+
 
 	reg [15:0] DFILE = 16'd0;
 	reg [15:0] FRAMES = 16'd0;
@@ -450,7 +458,7 @@ Port $7FEF (01111111 11101111) - IN:
 	reg bpattern_en = 1'b0;
 	reg [2:0] border_pixel_cnt = 3'b000;
 
-	wire poke_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2041) && (Addr < 16'd2059);
+	wire poke_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2041) && (Addr < 16'd2059);
 
 	always@(negedge nMREQ)
 		if (~nRFSH) ROMTABLE[15:8] = Addr[15:8];
@@ -556,7 +564,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// del DFILE en modo texto, que la FPGA no trata como especial). Sin
 	// efecto en modo nativo (no Superfast); ver sfast_mode_en en col_cnt_b.
 	reg [2:0] sf_hscroll = 3'd0;
-	wire sf_hscroll_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2090);
+	wire sf_hscroll_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2090);
 	always @(posedge sf_hscroll_wr or negedge nRESET) begin
 		if (nRESET==1'b0) sf_hscroll <= 3'd0;
 		else sf_hscroll <= data[2:0];
@@ -567,7 +575,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// no romper la congruencia modulo 8 con SCR_START_X que necesita
 	// col_cnt_b. Por defecto 0 (valor de partida, 138).
 	reg [3:0] sf80_x_shift = 4'd0;
-	wire sf80_x_shift_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2094);
+	wire sf80_x_shift_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2094);
 	always @(posedge sf80_x_shift_wr or negedge nRESET) begin
 		if (nRESET==1'b0) sf80_x_shift <= 4'd0;
 		else sf80_x_shift <= data[3:0];
@@ -578,7 +586,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// aunque se desplace el inicio -- permite separar "donde empieza" de
 	// "cuanto mide" para saber cuantas columnas caben de verdad.
 	reg [3:0] sf80_width_trim = 4'd0;
-	wire sf80_width_trim_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2095);
+	wire sf80_width_trim_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2095);
 	always @(posedge sf80_width_trim_wr or negedge nRESET) begin
 		if (nRESET==1'b0) sf80_width_trim <= 4'd0;
 		else sf80_width_trim <= data[3:0];
@@ -593,9 +601,9 @@ Port $7FEF (01111111 11101111) - IN:
 	reg [7:0] sf_hscroll_rows_l = 8'hFF;
 	reg [7:0] sf_hscroll_rows_m = 8'hFF;
 	reg [7:0] sf_hscroll_rows_h = 8'hFF;
-	wire sf_hscroll_rows_l_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2091);
-	wire sf_hscroll_rows_m_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2092);
-	wire sf_hscroll_rows_h_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2093);
+	wire sf_hscroll_rows_l_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2091);
+	wire sf_hscroll_rows_m_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2092);
+	wire sf_hscroll_rows_h_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2093);
 	always @(posedge sf_hscroll_rows_l_wr or negedge nRESET) begin
 		if (nRESET==1'b0) sf_hscroll_rows_l <= 8'hFF;
 		else sf_hscroll_rows_l <= data;
@@ -628,9 +636,9 @@ Port $7FEF (01111111 11101111) - IN:
 	// cada frame.
 	reg [15:0] DFILE_OVERRIDE = 16'd0;
 	reg dfile_ovr_en = 1'b0;
-	wire dfile_ovr_lo_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2096);
-	wire dfile_ovr_hi_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2097);
-	wire dfile_ovr_en_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2098);
+	wire dfile_ovr_lo_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2096);
+	wire dfile_ovr_hi_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2097);
+	wire dfile_ovr_en_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2098);
 	// Al volver a video NATIVO (POKE 2045,85) se apaga el override tambien:
 	// "modo estandar" tiene que significar el comportamiento de siempre
 	// (D_FILE), sin depender de si alguien activo el override antes y se
@@ -675,9 +683,9 @@ Port $7FEF (01111111 11101111) - IN:
 	// con POKE 2045,85) el modo 1 funciona exactamente igual que siempre.
 	reg [15:0] ATTR_BASE_OVERRIDE = 16'd0;
 	reg attr_ovr_en = 1'b0;
-	wire attr_ovr_lo_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2059);
-	wire attr_ovr_hi_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2060);
-	wire attr_ovr_en_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2061);
+	wire attr_ovr_lo_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2059);
+	wire attr_ovr_hi_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2060);
+	wire attr_ovr_en_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2061);
 	always @(posedge attr_ovr_lo_wr or negedge nRESET) begin
 		if (nRESET==1'b0) ATTR_BASE_OVERRIDE[7:0] <= 8'd0;
 		else ATTR_BASE_OVERRIDE[7:0] <= data;
@@ -735,7 +743,7 @@ Port $7FEF (01111111 11101111) - IN:
 	localparam SPR_SEL_ADDR  = 16'd2100;
 	localparam SPR_BASE_ADDR = 16'd2101;
 
-	wire sprite_poke_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) &&
+	wire sprite_poke_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) &&
 								 (Addr >= SPR_SEL_ADDR) && (Addr < SPR_BASE_ADDR+28);
 
 	reg [7:0] spr_sel = 8'd0;
@@ -1441,6 +1449,22 @@ assign DEBUG_RDY = 1'b0;
 				char_latch <= data;
 				attr_latch <= shadowram_dout;
 			end
+		end
+	end
+
+	// NOP forzado: se muestrea UNA sola vez por M1, en el flanco de bajada
+	// de T2 (subida de iclock = nCLOCK, reloj invertido). Es el unico flanco
+	// con MREQ y M1 bajos y RFSH alto: en T1 MREQ aun no ha bajado y en T3
+	// RFSH ya esta activo. Direccion estable y opcode en el bus. Antes se
+	// muestreaba a system_clk todo el tiempo que MREQ estaba bajo, y la
+	// ultima muestra pillaba el paso a la direccion de refresco I*256+R: con
+	// I >= $80 (WRX en memoria alta, p.ej. H.E.R.O. con I=$AE-$C6) A15 salia
+	// a 1 y codigo normal en $4xxx cargaba el registro de desplazamiento con
+	// el dato de refresco -> trozos de la pantalla en el borde, moviendose
+	// con R.
+	always @(posedge iclock)
+	begin
+		if (~nMREQ & ~nM1 & nRFSH) begin
 			forced_NOP_cycle <= forced_NOP_start;
 		end
 	end
@@ -1554,7 +1578,7 @@ assign DEBUG_RDY = 1'b0;
 				else shift_register <= data;
 				if (color_mode==1'b0) current_attr <= shadowram_dout;
 				else current_attr <= attr_latch;
-				isborder <= 0; 
+				isborder <= 0;
 				border_pixel_cnt <= 1;
 			end else begin
 				if (ishalt_delayed[5]) begin
@@ -1804,7 +1828,7 @@ assign DEBUG_RDY = 1'b0;
 		// programador sepa con certeza que va a ejecutar codigo propio en
 		// 6/7 y que nada mas del sistema va a tocar esa zona mientras tanto.
 		reg mc45_ext67 = 1'b0;
-		wire mc45_ext67_wr = !block0Writable && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2062);
+		wire mc45_ext67_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2062);
 		always @(posedge mc45_ext67_wr or negedge nRESET) begin
 			if (nRESET==1'b0) mc45_ext67 <= 1'b0;
 			else if (data==8'd170) mc45_ext67 <= 1'b1;
@@ -2104,6 +2128,7 @@ assign DEBUG_RDY = 1'b0;
 				else if 	(comm_cmd==4) FULL_PAGING <= cfg_reg[CMD_BITS];		// 1=HIGHER HALF RAM, 0=LOWER HALF RAM			end else begin
 				else if 	(comm_cmd==5) SEL_128CHARS <= cfg_reg[CMD_BITS];		// 1=HIGHER HALF RAM, 0=LOWER HALF RAM			end else begin
 				else if 	(comm_cmd==6) SEL_256CHARS <= cfg_reg[CMD_BITS];		// 1=256 caracteres (solo Superfast texto), 0=normal
+				else if 	(comm_cmd==7) PORTS_LOCKED <= cfg_reg[CMD_BITS];		// 1=ROMLOCK (puertos POKE de bloque 0 apagados), 0=normal
 			end else begin
 				cfg_reg[cfg_cnt]<=CFG_DATA;
 				if (cfg_cnt < MAX_CFG) cfg_cnt <= cfg_cnt+1'b1;

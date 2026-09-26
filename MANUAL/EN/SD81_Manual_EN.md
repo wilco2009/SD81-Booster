@@ -68,6 +68,8 @@ Version 1.0
 
 [7.6 Recognised File Formats](#recognised-file-formats)
 
+[7.7 Loading EightyOne Snapshots --- Z81 Command](#loading-eightyone-snapshots-z81-command)
+
 [8. File and Directory Management](#file-and-directory-management)
 
 [8.1 View SD Contents](#view-sd-contents)
@@ -766,16 +768,33 @@ Some games require special initialisation before loading. The most common cases 
 
 The LOAD FAST command automatically detects the file type by extension and behaves differently accordingly:
 
-| **Extension** | **Comportamiento** |
+| **Extension** | **Behaviour** |
 |-----------|-------------------------------------------------------------|
 | **.P** | Standard ZX81 BASIC program. The interface calculates the real program size from the system variables and discards trailing bytes at the end of the file. |
 | **.81** | Same as .P. |
 | **.P81** | Multi-program format. The interface skips the embedded filename before reading the data. |
 | **.ROM** | ROM file. The interface loads the content at address 0 of the address space and resets the system. Control does not return to BASIC. |
 | **.WAV** | Uncompressed audio file (PCM). The interface plays it directly instead of loading it into memory. |
-| **Otras** | The file is loaded entirely into memory as-is, without any processing. |
+| **Others** | The file is loaded entirely into memory as-is, without any processing. |
 
 | **⚠** | *Loading a file with the .ROM extension via LOAD FAST causes an immediate system reset. Make sure the file contains a valid ROM before loading it, as a corrupted file could leave the system in an unrecoverable state until it is rebooted with another ROM.* |
+|------|------------------------------------------------------------------|
+
+### 7.7 Loading EightyOne Snapshots --- Z81 Command
+
+The LOAD \*Z81 command restores a .Z81 snapshot saved with the EightyOne emulator (see Appendix K): the memory and the full processor state, so the program carries on exactly where it was saved.
+
+**Load a snapshot:**
+
+> LOAD \*Z81 \"GAME.Z81\"
+
+The name must include the .Z81 extension and may include a path, just like LOAD FAST. Besides memory and registers, the NMI state, WRX mode, character generator (64, 128 or 256) and Chroma81 colour (colour RAM and mode) are restored if the snapshot includes them; anything missing from the file is left as it was. If the file doesn\'t exist or isn\'t a valid snapshot, the command ends with an error.
+
+It is also useful for programs that don\'t start properly with the interface connected: save a snapshot in the emulator with the program already running and load it directly, skipping its startup code. The file explorer (Appendix J) loads .Z81 files with this command.
+
+Don\'t use LOAD FAST on a .Z81 file: since it isn\'t a recognised extension (see 7.6), it would be loaded into memory as-is, without being interpreted.
+
+| **⚠** | *For now only snapshots of a ZX81 without the SD81 Booster\'s paging features work. Memory is restored as the Z80 sees it (8K to 64K), not the interface\'s page assignment, so a program that used MAP, full paging (FULLPAG) or other extended RAM pages won\'t be restored correctly.* |
 |------|------------------------------------------------------------------|
 
 # 8. File and Directory Management
@@ -1572,7 +1591,7 @@ Reads two consecutive bytes from memory starting at \<address\> and stores them 
 
 > LOAD THEN CLEAR \<address\>
 
-Sets the last RAM address available for BASIC. Unlike the standard CLEAR command, this does not clear variables; it only clears the GOSUB stack. Use a separate CLEAR if you also want to clear variables.
+Sets the last RAM address available for BASIC (RAMTOP ends up at that address plus one: LOAD THEN CLEAR 32767 restores the standard value for a 16K ZX81, RAMTOP = 32768). Unlike the standard CLEAR command, this does not clear variables; it only clears the GOSUB stack. Use a separate CLEAR if you also want to clear variables.
 
 ## 12.6 Directory Access from a Program
 
@@ -2016,7 +2035,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 ### Filesystem commands
 
 | **Code** | **Name** | **Parameters** | **Response** | **Description** |
-|------|------------|----------------|------------------------|----------------|
+|------|------------|----------------|--------------------------|-------------|
 | **2** | **PWD** | **---** | **String + EOT + status** | **Returns the current directory in ZX81 encoding.** |
 | 3 | CD | String: path | Status | Changes the current directory. Accepts absolute (/) and relative paths. |
 | 4 | DEL | String: filename | Status | Deletes a file from the current directory. No wildcards. |
@@ -2040,6 +2059,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 | 56 | F_WRITE | Handle(0..3)+Count(2B Little Endian)+info to write (count bytes) | 1B:status | Write count bytes. |
 | 57 | F_CLOSE | Handle(0..3) | 1B:status | Close file |
 | 59 | F_STAT | Handle(0..3) | 4B:size+2B:date+2B:time+1B:status | Returns the size (32 bits) and creation date/time (FAT format) of a file already opened with F_OPEN. |
+| 70 | LOAD_Z81 | String: name | 2B address + 2B length + 30B registers + N memory bytes + 2B colour length + colour + 5B modes + Status | Loads an EightyOne .Z81 snapshot for LOAD \*Z81 (see 7.7). The file\'s RLE arrives already expanded. |
 
 ### Hardware control commands
 
@@ -3312,7 +3332,7 @@ The explorer (EXPLORER.BIN) is an SD card browser in Superfast HiRes Spectrum mo
 >
 > 30 LET N=USR ORG
 >
-> 40 IF N=0 THEN STOP
+> 40 IF N=0 THEN GOTO 5000
 >
 > 50 LET F\$=\"\"
 >
@@ -3332,13 +3352,21 @@ The explorer (EXPLORER.BIN) is an SD card browser in Superfast HiRes Spectrum mo
 >
 > 90 LET E\$=F\$(EXT TO )
 >
-> 95 LOAD THEN CLEAR 32768
+> 95 LOAD THEN CLEAR 32767
 >
-> 100 IF (E\$ = \".P\") OR (E\$=\".WAV\") OR (E\$=\".ROM\") THEN LOAD FAST F\$
+> 100 IF (E\$ = \".P\") OR (E\$=\".81\") OR (E\$=\".WAV\") OR (E\$=\".ROM\") THEN LOAD FAST F\$ THEN GOTO 1
+>
+> 130 IF (E\$ = \".Z81\") THEN LOAD \*Z81 F\$
 >
 > 300 GOTO 10
+>
+> 5000 LOAD THEN CLEAR 32767
+>
+> 5010 SLOW
 
-When you leave the explorer with a file selected (ENTER or 8 on a file that isn\'t .VGM, .PEB, .SCR or .TXT --- the explorer itself handles those four, see below), this stub collects the name in F\$ and decides what to do based on the extension. As written, it only acts on .P, .WAV and .ROM; add your own condition before line 300 for any other extension you want to load differently.
+When you leave the explorer with a file selected (ENTER or 8 on a file that isn\'t .VGM, .PEB, .SCR or .TXT --- the explorer itself handles those four, see below), this stub collects the name in F\$ and decides what to do based on the extension. As written, it loads .P, .81, .WAV and .ROM files with LOAD FAST and restores .Z81 snapshots with LOAD \*Z81 (see 7.7); add your own condition before line 300 for any other extension you want to load differently.
+
+Lines 95 and 5000 put RAMTOP back to 32768, the standard value for a 16K ZX81, which line 15 had lowered to ORG to protect the explorer. Note that it is 32767, not 32768: LOAD THEN CLEAR sets RAMTOP to the given address plus one, and some games hang if RAMTOP doesn\'t hold the standard value.
 
 The SD card image downloaded from the repository already ships configured to boot this way: it includes this startup as /AUTOEXEC.P, so with the interface plugged in, just power on the ZX81 and press RUN then ENTER for the explorer to load and start on its own, with nothing to type (see 5.4, "The AUTOEXEC program").
 

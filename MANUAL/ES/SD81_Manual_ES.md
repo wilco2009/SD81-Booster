@@ -68,6 +68,8 @@ Versión 1.0
 
 [7.6 Formatos de archivo reconocidos](#formatos-de-archivo-reconocidos)
 
+[7.7 Carga de snapshots de EightyOne --- Comando Z81](#carga-de-snapshots-de-eightyone-comando-z81)
+
 [8. Gestión de archivos y directorios](#gestión-de-archivos-y-directorios)
 
 [8.1 Ver el contenido de la SD](#ver-el-contenido-de-la-sd)
@@ -97,6 +99,8 @@ Versión 1.0
 [Sistema de ayuda integrado](#sistema-de-ayuda-integrado)
 
 [9.6 Joystick programable --- Comando JOY](#joystick-programable-comando-joy)
+
+[9.7 Módulo WiFi (opcional)](#módulo-wifi-opcional)
 
 [10. Sonido](#sonido)
 
@@ -132,6 +136,8 @@ Versión 1.0
 
 [11.3 Modo MC45 --- Código máquina en bloques 4 y 5](#modo-mc45-código-máquina-en-bloques-4-y-5)
 
+[Extensión de MC45 a los bloques 6 y 7](#extensión-de-mc45-a-los-bloques-6-y-7)
+
 [11.4 Arranque con ROM alternativa](#arranque-con-rom-alternativa)
 
 [11.5 Caracteres definibles por el usuario (128C / 64C / 256C)](#caracteres-definibles-por-el-usuario-128c-64c-256c)
@@ -163,6 +169,8 @@ Versión 1.0
 [13.4 Modo Superfast --- demostración de velocidad](#modo-superfast-demostración-de-velocidad)
 
 [13.5 Carga de imagen en modo Spectrum](#carga-de-imagen-en-modo-spectrum)
+
+[13.6 Modos de pantalla ancha --- Comandos COL80 / COL70 / COL32](#modos-de-pantalla-ancha-comandos-col80-col70-col32)
 
 [14. Códigos de error](#códigos-de-error)
 
@@ -197,6 +205,8 @@ Versión 1.0
 [Comandos PEG](#comandos-peg)
 
 [Comandos RTC y batería](#comandos-rtc-y-batería)
+
+[Comandos de red (NET)](#comandos-de-red-net)
 
 [16. Solución de problemas](#solución-de-problemas)
 
@@ -276,6 +286,12 @@ Versión 1.0
 
 [Modo Superfast](#modo-superfast)
 
+[Scroll horizontal fino (Superfast)](#scroll-horizontal-fino-superfast)
+
+[Pantalla alternativa (Superfast)](#pantalla-alternativa-superfast)
+
+[Tabla de atributos alternativa (Chroma modo 1, Superfast)](#tabla-de-atributos-alternativa-chroma-modo-1-superfast)
+
 [Modo Spectrum](#modo-spectrum)
 
 [Control del borde](#control-del-borde)
@@ -288,6 +304,8 @@ Versión 1.0
 
 [Qué cambia el doble buffer](#qué-cambia-el-doble-buffer)
 
+[WRX con la RAM de 8-16K](#wrx-con-la-ram-de-8-16k)
+
 [Resumen de POKEs de control](#resumen-de-pokes-de-control)
 
 [Apéndice G --- Referencia técnica de audio: chip AY, VGM y alófonos](#apéndice-g-referencia-técnica-de-audio-chip-ay-vgm-y-alófonos)
@@ -299,6 +317,74 @@ Versión 1.0
 [Opcodes del reproductor VGM](#opcodes-del-reproductor-vgm)
 
 [Tabla de alófonos SP0256-AL2](#tabla-de-alófonos-sp0256-al2)
+
+[Apéndice H --- Sprites por hardware](#apéndice-h-sprites-por-hardware)
+
+[Sistema de coordenadas](#sistema-de-coordenadas)
+
+[Mapa de direcciones (POKE 2100-2128)](#mapa-de-direcciones-poke-2100-2128)
+
+[Cómo se pinta cada píxel](#cómo-se-pinta-cada-píxel)
+
+[Formato de color](#formato-de-color)
+
+[Prioridad entre sprites solapados](#prioridad-entre-sprites-solapados)
+
+[Comandos BASIC](#comandos-basic)
+
+[Capacidad](#capacidad)
+
+[Apéndice I --- CP/M: un sistema operativo alternativo](#apéndice-i-cpm-un-sistema-operativo-alternativo)
+
+[CP/M 2.2: los dos modos de compilación](#cpm-2.2-los-dos-modos-de-compilación)
+
+[Instalación y arranque](#instalación-y-arranque)
+
+[Memoria bancada](#memoria-bancada)
+
+[Discos: A: a D: (tarjeta SD) y E: (RAM)](#discos-a-a-d-tarjeta-sd-y-e-ram)
+
+[Teclado](#teclado)
+
+[Reloj en tiempo real](#reloj-en-tiempo-real)
+
+[Consola: terminal con 256 caracteres y color](#consola-terminal-con-256-caracteres-y-color)
+
+[Llamar al BIOS directamente](#llamar-al-bios-directamente)
+
+[Comunicaciones](#comunicaciones)
+
+[Utilidades incluidas](#utilidades-incluidas)
+
+[Tabla de teclado de CP/M](#tabla-de-teclado-de-cpm)
+
+[Mapa de memoria de CP/M 3 (resumen)](#mapa-de-memoria-de-cpm-3-resumen)
+
+[Apéndice J --- El explorador de archivos](#apéndice-j-el-explorador-de-archivos)
+
+[Arranque](#arranque)
+
+[Navegación](#navegación)
+
+[Qué pasa al seleccionar un archivo](#qué-pasa-al-seleccionar-un-archivo)
+
+[Operaciones de fichero](#operaciones-de-fichero)
+
+[Edición de texto (nueva carpeta / renombrar / filtro)](#edición-de-texto-nueva-carpeta-renombrar-filtro)
+
+[Panel de configuración (S)](#panel-de-configuración-s)
+
+[Visor de texto (.TXT)](#visor-de-texto-.txt)
+
+[Visor hexadecimal](#visor-hexadecimal)
+
+[Cómo se devuelve un archivo al BASIC](#cómo-se-devuelve-un-archivo-al-basic)
+
+[Ensamblar](#ensamblar)
+
+[Apéndice K --- El emulador EightyOne-CrossPlatform](#apéndice-k-el-emulador-eightyone-crossplatform)
+
+[Configuración como ZX81 + SD81 Booster](#configuración-como-zx81-sd81-booster)
 
 *Al abrir el documento, haz clic derecho sobre el índice y selecciona «Actualizar campo» para ver los números de página.*
 
@@ -722,6 +808,24 @@ El comando LOAD FAST detecta automáticamente el tipo de archivo por su extensi�
 |  |  |
 |:----:|------------------------------------------------------------------|
 | **⚠** | *Cargar un archivo con extensión .ROM mediante LOAD FAST provoca un reset inmediato del sistema. Asegúrate de que el archivo contiene una ROM válida antes de cargarlo, ya que un archivo corrupto podría dejar el sistema en un estado irrecuperable hasta que se reinicie con otra ROM.* |
+
+### 7.7 Carga de snapshots de EightyOne --- Comando Z81
+
+El comando LOAD \*Z81 restaura un snapshot en formato .Z81 guardado con el emulador EightyOne (ver Apéndice K): la memoria y el estado completo del procesador, de forma que el programa continúa exactamente en el punto en el que se guardó.
+
+**Cargar un snapshot:**
+
+> LOAD \*Z81 \"JUEGO.Z81\"
+
+El nombre debe incluir la extensión .Z81 y admite rutas, igual que LOAD FAST. Además de la memoria y los registros, se restauran el estado de las NMI, el modo WRX, el generador de caracteres (64, 128 o 256) y el color Chroma81 (RAM de color y modo), si el snapshot los incluye; lo que no aparezca en el fichero se deja como estaba. Si el fichero no existe o no es un snapshot válido, el comando termina con error.
+
+Sirve también para programas que no arrancan bien con el interface conectado: se guarda en el emulador un snapshot con el programa ya en marcha y se carga directamente, sin pasar por su código de arranque. El explorador de archivos (Apéndice J) carga los .Z81 con este comando.
+
+No uses LOAD FAST con un fichero .Z81: al no ser una extensión reconocida (ver 7.6), se cargaría en memoria tal cual, sin interpretarlo.
+
+|  |  |
+|:----:|------------------------------------------------------------------|
+| **⚠** | *Por ahora solo funcionan los snapshots de un ZX81 sin las funciones de paginación del SD81 Booster. Se restaura la memoria tal como la ve el Z80 (de 8K a 64K), no la asignación de páginas del interface, así que un programa que haya usado MAP, la paginación completa (FULLPAG) u otras páginas de la RAM extendida no se recuperará correctamente.* |
 
 # 8. Gestión de archivos y directorios
 
@@ -1600,7 +1704,7 @@ Lee dos bytes consecutivos de memoria a partir de \<dirección\> y los almacena 
 
 > LOAD THEN CLEAR \<dirección\>
 
-Establece la última dirección de RAM disponible para el BASIC. A diferencia del comando CLEAR estándar, este no borra las variables; solo limpia la pila de GOSUB. Usa un CLEAR separado si también quieres borrar las variables.
+Establece la última dirección de RAM disponible para el BASIC (RAMTOP queda en esa dirección más uno: LOAD THEN CLEAR 32767 deja el valor estándar de un ZX81 con 16K, RAMTOP = 32768). A diferencia del comando CLEAR estándar, este no borra las variables; solo limpia la pila de GOSUB. Usa un CLEAR separado si también quieres borrar las variables.
 
 ## 12.6 Acceso al directorio desde un programa
 
@@ -2049,7 +2153,7 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 ### Comandos de sistema de archivos
 
 | **Cód.** | **Nombre** | **Parámetros** | **Respuesta** | **Descripción** |
-|------|------------|--------------------|------------|------------------------|
+|------|------------|----------------|---------------------------|-------------|
 | **2** | **PWD** | **---** | **String + EOT + status** | **Devuelve el directorio actual en codificación ZX81.** |
 | 3 | CD | String: ruta | Status | Cambia el directorio actual. Admite rutas absolutas (/) y relativas. |
 | 4 | DEL | String: archivo | Status | Borra un archivo del directorio actual. Sin comodines. |
@@ -2073,11 +2177,12 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 | 56 | F_WRITE | Handle(0..3)+Count(2B Little Endian)+info to write (count bytes) | 1B:status | escribe count bytes. |
 | 57 | F_CLOSE | Handle(0..3) | 1B:status | Cierra el fichero |
 | 59 | F_STAT | Handle(0..3) | 4B:tamaño+2B:fecha+2B:hora+1B:status | Devuelve el tamaño (32 bits) y la fecha/hora de creación (formato FAT) de un fichero ya abierto con F_OPEN. |
+| 70 | LOAD_Z81 | String: nombre | 2B dirección + 2B longitud + 30B registros + N bytes de memoria + 2B longitud de color + color + 5B modos + Status | Carga un snapshot .Z81 de EightyOne para LOAD \*Z81 (ver 7.7). El RLE del fichero llega ya expandido. |
 
 ### Comandos de control del hardware
 
 | **Cód.** | **Nombre** | **Parámetros** | **Respuesta** | **Descripción** |
-|------|-------------|----------------|---------|------------------------------|
+|------|-------------|---------------|---------|-------------------------------|
 | **19** | **ENABLE_MC45** | **---** | **---** | **Activa el modo MC45 (código máquina en bloques 4 y 5).** |
 | 20 | DISABLE_MC45 | --- | --- | Desactiva el modo MC45. |
 | 21 | JOY | String: 5 bytes de teclas ZX81 | Status | Configura el mapeo del joystick: izquierda, derecha, arriba, abajo, fuego. |
@@ -2135,7 +2240,7 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 ### Comandos de red (NET)
 
 | **Cód.** | **Nombre** | **Parámetros** | **Respuesta** | **Descripción** |
-|------|--------|--------------|----------------|-------------------------------|
+|------|----------|------------|---------------|-------------------------------|
 | **66** | **NET_READ** | **1B: max (0--255)** | **count (1B) + data\[count\] + avail (1B) + status (1B)** | **Lee hasta max bytes recibidos por el socket. count puede ser 0 aunque haya conexion --- los datos llegan a rafagas. avail = bytes pendientes tras esta lectura, saturado a 255. Con max=0 se convierte en un ¿hay algo?» barato que solo refresca status, sin transferir datos.** |
 | **67** | **NET_WRITE** | **1B: count + data\[count\]** | **accepted (1B) + status (1B)** | **Envia count bytes al socket. accepted puede ser menor que count si el buffer de salida esta lleno --- el Z80 tiene que reenviar el resto.** |
 
@@ -2900,7 +3005,7 @@ LOAD \*WRX STOP : REM desactivar (modo generador de caracteres, por defecto)
 ## Resumen de POKEs de control
 
 | **Dirección** | **Valor** | **Función** |
-|------------|----------|--------------------------------------------------|
+|------------|--------------|----------------------------------------------|
 | 2043 | \<bajo\> | Parte baja de la dirección del fichero de pantalla |
 | 2044 | \<alto\> | Parte alta de la dirección del fichero de pantalla |
 | 2045 | 170 | Activar Superfast texto |
@@ -3038,7 +3143,7 @@ Cualquier píxel del sprite que caiga fuera del área visible real de la pantall
 Igual que HFILE o el patrón de borde, estas direcciones caen dentro de los primeros 8 KB del mapa de memoria del Z80 (zona de ROM): el interface intercepta esas escrituras concretas en vez de dejarlas caer al vacío, así que no hace falta memoria real ahí. Antes de escribir el color, los datos de píxel o la máscara de un sprite, hay que seleccionarlo primero con POKE 2100,n.
 
 | **Dirección** | **Valor** | **Función** |
-|------------|----------|--------------------------------------------------|
+|------------|--------|----------------------------------------------------|
 | 2100 | 0-31 | Selecciona el sprite activo. Las escrituras siguientes afectan a este sprite. |
 | 2101 | 0/1 | Activa (1) o desactiva (0) el sprite seleccionado. |
 | 2102 | 0-255 | Coordenada X, 8 bits bajos. |
@@ -3329,7 +3434,7 @@ El explorador (EXPLORER.BIN) es un navegador de la tarjeta SD en modo Superfast 
 >
 > 30 LET N=USR ORG
 >
-> 40 IF N=0 THEN STOP
+> 40 IF N=0 THEN GOTO 5000
 >
 > 50 LET F\$=\"\"
 >
@@ -3349,13 +3454,21 @@ El explorador (EXPLORER.BIN) es un navegador de la tarjeta SD en modo Superfast 
 >
 > 90 LET E\$=F\$(EXT TO )
 >
-> 95 LOAD THEN CLEAR 32768
+> 95 LOAD THEN CLEAR 32767
 >
-> 100 IF (E\$ = \".P\") OR (E\$=\".WAV\") OR (E\$=\".ROM\") THEN LOAD FAST F\$
+> 100 IF (E\$ = \".P\") OR (E\$=\".81\") OR (E\$=\".WAV\") OR (E\$=\".ROM\") THEN LOAD FAST F\$ THEN GOTO 1
+>
+> 130 IF (E\$ = \".Z81\") THEN LOAD \*Z81 F\$
 >
 > 300 GOTO 10
+>
+> 5000 LOAD THEN CLEAR 32767
+>
+> 5010 SLOW
 
-Al salir del explorador con un archivo seleccionado (tecla ENTER u 8 sobre un fichero que no sea .VGM, .PEB, .SCR ni .TXT --- esos cuatro los gestiona el propio explorador, ver más abajo), este stub recoge el nombre en F\$ y decide qué hacer según la extensión. Tal como está, solo actúa sobre .P, .WAV y .ROM; para cualquier otra extensión que quieras cargar de otra forma, añade tu propia condición antes de la línea 300.
+Al salir del explorador con un archivo seleccionado (tecla ENTER u 8 sobre un fichero que no sea .VGM, .PEB, .SCR ni .TXT --- esos cuatro los gestiona el propio explorador, ver más abajo), este stub recoge el nombre en F\$ y decide qué hacer según la extensión. Tal como está, carga con LOAD FAST los .P, .81, .WAV y .ROM, y restaura con LOAD \*Z81 los snapshots .Z81 (ver 7.7); para cualquier otra extensión que quieras cargar de otra forma, añade tu propia condición antes de la línea 300.
+
+Las líneas 95 y 5000 devuelven RAMTOP a 32768, el valor estándar de un ZX81 con 16K, que la línea 15 había bajado a ORG para proteger el explorador. Fíjate en que es 32767 y no 32768: LOAD THEN CLEAR deja RAMTOP en la dirección indicada más uno, y hay juegos que se cuelgan si RAMTOP no tiene el valor estándar.
 
 La tarjeta SD que se descarga del repositorio ya viene configurada para arrancar así: incluye este arranque como /AUTOEXEC.P, así que con el interface conectado basta con encender el ZX81 y pulsar RUN y ENTER para que el explorador se cargue y arranque solo, sin teclear nada (ver 5.4, «El programa AUTOEXEC»).
 
@@ -3484,10 +3597,11 @@ EightyOne-CrossPlatform es el emulador de ZX81 usado para desarrollar y validar 
 
 2\. Copia el contenido completo de la tarjeta SD --- la carpeta SYS y el resto --- a una carpeta del disco duro del PC. El emulador lee de ahí como si fuera la tarjeta.
 
-3\. En el emulador, selecciona la máquina ZX81 (no ZX80 ni Spectrum).
+3\. En el emulador, selecciona la máquina ZX81 y activa la casilla del SD81 Booster.
 
 4\. Abre el diálogo de hardware y activa la interface SD (SD81 Booster), apuntando a la carpeta copiada en el paso 2.
 
-5\. Arranca el emulador. El comportamiento --- comandos LOAD \*, RAM extendida, RTC, etc. --- debería ser el mismo que en el hardware real.
+5\. Arranca el emulador. Pulsa RUN+Enter para arrancar el explorador y a disfrutar. 😉\
+El comportamiento --- comandos LOAD \*, RAM extendida, RTC, etc. --- debería ser el mismo que en el hardware real.
 
 *Manual de Usuario SD81 Booster v1.0 --- Hardware y software de código abierto*

@@ -343,7 +343,7 @@ tarjeta.
   15 LOAD THEN CLEAR ORG-1
   20 LOAD FAST "/EXPLORER/EXPLORER.BIN" CODE ORG
   30 LET N=USR ORG
-  40 IF N=0 THEN STOP
+  40 IF N=0 THEN GOTO 5000
   50 LET F$=""
   55 LET EXT = 255
   60 FOR I=0 TO N-1
@@ -353,18 +353,27 @@ tarjeta.
   80 NEXT I
   85 SLOW
   90 LET E$=F$(EXT TO )
-  95 LOAD THEN CLEAR 32768
- 100 IF (E$ = ".P") OR (E$=".WAV") OR (E$=".ROM") THEN LOAD FAST F$
+  95 LOAD THEN CLEAR 32767
+ 100 IF (E$ = ".P") OR (E$=".81") OR (E$=".WAV") OR (E$=".ROM") THEN LOAD FAST F$ THEN GOTO 1
+ 130 IF (E$ = ".Z81") THEN LOAD *Z81 F$
  300 GOTO 10
+5000 LOAD THEN CLEAR 32767
+5010 SLOW
 ```
 
 Al salir del explorador con un archivo seleccionado (tecla `ENTER` u `8`
 sobre un fichero que no sea `.VGM`, `.PEB`, `.SCR` ni `.TXT` — esos
 cuatro los gestiona el propio explorador, ver más abajo), este stub
 recoge el nombre en `F$` y decide qué hacer según la extensión. Tal
-como está, solo actúa sobre `.P`, `.WAV` y `.ROM`; para cualquier otra
+como está, carga con `LOAD FAST` los `.P`, `.81`, `.WAV` y `.ROM`, y
+restaura con `LOAD *Z81` los snapshots `.Z81`; para cualquier otra
 extensión que quieras cargar de otra forma, añade tu propia condición
 antes de la línea `300`.
+
+Las líneas `95` y `5000` devuelven RAMTOP a 32768, el valor estándar de
+un ZX81 con 16K, que la línea `15` había bajado a `ORG`. Es 32767 y no
+32768 porque `LOAD THEN CLEAR` deja RAMTOP en la dirección indicada más
+uno; con 32768 hay juegos que se cuelgan (visto con QS Invaders).
 
 ### Navegación
 

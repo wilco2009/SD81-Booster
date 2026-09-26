@@ -223,11 +223,14 @@ void upStr(char* s){
 #if defined(LOG0)||defined(LOG1)||defined(LOG2)||defined(LOG3)
 void log_debug(const char* fmt PROGMEM, ...)
 {
-char S[60];
+// Cabe una ruta completa (MAX_FILENAME_LEN) mas el texto del mensaje. Con
+// 60 bytes y vsprintf, "file <ruta larga> does not exist." desbordaba la
+// pila y colgaba el MCU (LOAD FAST sin extension en carpetas profundas).
+char S[MAX_FILENAME_LEN + 60];
     va_list arg;
     va_start(arg, fmt);
 
-    vsprintf_P(S,fmt, arg); 
+    vsnprintf(S, sizeof(S), fmt, arg);   // recorta en vez de desbordar
     //vprintf can be replaced with vsprintf (for sprintf behavior) 
     //or any other printf function preceded by a v
     Serial.println(S);

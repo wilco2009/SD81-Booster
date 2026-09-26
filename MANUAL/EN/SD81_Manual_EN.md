@@ -764,6 +764,8 @@ Some games require special initialisation before loading. The most common cases 
 
 - **LOAD FAST** before loading: some games have multiple files. Running LOAD FAST without a name activates SD mode for all subsequent LOAD and SAVE commands, allowing the game to load its additional files automatically.
 
+- **LOAD \*ROMLOCK** before loading: some old programs write to addresses in the ROM area on their own (for example to probe for RAM), unaware that the interface uses some of them as configuration ports (2041-2062, 2090-2098 and the sprites, 2100-2128). With LOAD \*ROMLOCK those writes are ignored, as with a real ROM; LOAD \*ROMLOCK STOP restores normal behaviour. It is off by default and can only be changed with the command, never by a memory write.
+
 ### 7.6 Recognised File Formats
 
 The LOAD FAST command automatically detects the file type by extension and behaves differently accordingly:
@@ -2064,7 +2066,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 ### Hardware control commands
 
 | **Code** | **Name** | **Parameters** | **Response** | **Description** |
-|------|-------------|---------------|---------|-------------------------------|
+|------|-------------|-------------|---------|---------------------------------|
 | **19** | **ENABLE_MC45** | **---** | **---** | **Activates MC45 mode (machine code in blocks 4 and 5).** |
 | 20 | DISABLE_MC45 | --- | --- | Deactivates MC45 mode. |
 | 21 | JOY | String: 5 bytes of ZX81 keys | Status | Configures the joystick mapping: left, right, up, down, fire. |
@@ -2075,6 +2077,8 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 | 48 | ENABLE_48K | --- | --- | Activates 48 KB extended RAM mode. Equivalent to LOAD \*RAM48.. |
 | 49 | DISABLE_48K | --- | --- | Deactivates extended RAM mode. Equivalent to LOAD \*RAM48 STOP. |
 | 65 | SEL_256CHARS | --- | --- | Activates 256-character mode (Superfast text only). Equivalent to LOAD \*256C. |
+| 68 | ROMLOCK_ON | --- | --- | Locks the block 0 configuration ports (2041-2062, 2090-2098, sprites): writes are ignored. Equivalent to LOAD \*ROMLOCK. |
+| 69 | ROMLOCK_OFF | --- | --- | Enables the block 0 configuration ports again. Equivalent to LOAD \*ROMLOCK STOP. |
 
 ### Speech synthesis commands
 
@@ -2932,6 +2936,8 @@ LOAD \*WRX STOP : REM disable (character generator mode, default)
 | 2060 | \<base_high\> | High byte of the alternative attribute table |
 | 2061 | 170 / 85 | Enable / disable the alternative attribute table |
 | 2062 | 170 / 85 | Extend MC45 to blocks 6 and 7 as well / back to 4 and 5 only |
+
+With LOAD \*ROMLOCK active, writes to every address in this table and to the sprite registers (2100-2128, Appendix H) have no effect, as with a real ROM. LOAD \*ROMLOCK STOP enables them again (see 7.5).
 
 # Appendix G --- Audio Technical Reference: AY chip, VGM and allophones
 

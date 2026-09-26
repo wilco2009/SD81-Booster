@@ -1527,7 +1527,7 @@ void cmd_sel_256_chars(){
 }
 
 // COMMAND = 68 (0x44) LOAD *ROMLOCK -- bloque 0 se comporta como ROM real,
-// los puertos POKE (2038-2062, 2090-2098, sprites) dejan de responder.
+// los puertos POKE (2041-2062, 2090-2098, sprites) dejan de responder.
 void cmd_romlock_on(){
   log_2("ROMLOCK enabled (block 0 ports off)");
   send_bit_config(cfgcmd_ROMLOCK,1);

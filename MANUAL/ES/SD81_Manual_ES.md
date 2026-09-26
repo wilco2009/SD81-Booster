@@ -792,6 +792,8 @@ Algunos juegos necesitan una inicialización especial antes de ser cargados. Los
 
 - **LOAD FAST** antes de cargar: algunos juegos tienen múltiples archivos. Ejecutar LOAD FAST sin nombre activa el modo SD para todos los LOAD y SAVE a partir de ese momento, permitiendo que el juego cargue sus archivos adicionales automáticamente.
 
+- **LOAD \*ROMLOCK** antes de cargar: algunos programas antiguos escriben por su cuenta en direcciones de la zona de ROM (por ejemplo para detectar si hay RAM), sin saber que el interface usa algunas como puertos de configuración (2041-2062, 2090-2098 y los sprites, 2100-2128). Con LOAD \*ROMLOCK esas escrituras se ignoran, como en una ROM real; LOAD \*ROMLOCK STOP devuelve el comportamiento normal. Está desactivado por defecto y solo se puede cambiar con el comando, nunca con una escritura en memoria.
+
 ### 7.6 Formatos de archivo reconocidos
 
 El comando LOAD FAST detecta automáticamente el tipo de archivo por su extensión y actúa de forma diferente según el caso:
@@ -2182,7 +2184,7 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 ### Comandos de control del hardware
 
 | **Cód.** | **Nombre** | **Parámetros** | **Respuesta** | **Descripción** |
-|------|-------------|---------------|---------|-------------------------------|
+|------|-------------|-------------|---------|---------------------------------|
 | **19** | **ENABLE_MC45** | **---** | **---** | **Activa el modo MC45 (código máquina en bloques 4 y 5).** |
 | 20 | DISABLE_MC45 | --- | --- | Desactiva el modo MC45. |
 | 21 | JOY | String: 5 bytes de teclas ZX81 | Status | Configura el mapeo del joystick: izquierda, derecha, arriba, abajo, fuego. |
@@ -2193,6 +2195,8 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 | 48 | ENABLE_48K | --- | --- | Activa el modo RAM extendida de 48 KB. Equivale a LOAD \*RAM48. |
 | 49 | DISABLE_48K | --- | --- | Desactiva el modo RAM extendida. Equivale a LOAD \*RAM48 STOP. |
 | 65 | SEL_256CHARS | --- | --- | Activa el modo de 256 caracteres definibles (solo Superfast texto). Equivale a LOAD \*256C. |
+| 68 | ROMLOCK_ON | --- | --- | Bloquea los puertos de configuración del bloque 0 (2041-2062, 2090-2098, sprites): las escrituras se ignoran. Equivale a LOAD \*ROMLOCK. |
+| 69 | ROMLOCK_OFF | --- | --- | Vuelve a activar los puertos de configuración del bloque 0. Equivale a LOAD \*ROMLOCK STOP. |
 
 ### Comandos de síntesis de voz
 
@@ -3033,6 +3037,8 @@ LOAD \*WRX STOP : REM desactivar (modo generador de caracteres, por defecto)
 | 2060 | \<base_alta\> | Byte alto de la tabla de atributos alternativa |
 | 2061 | 170 / 85 | Activar / desactivar la tabla de atributos alternativa |
 | 2062 | 170 / 85 | Extender MC45 también a los bloques 6 y 7 / volver solo a 4 y 5 |
+
+Con LOAD \*ROMLOCK activo, las escrituras en todas las direcciones de esta tabla y en las de los sprites (2100-2128, Apéndice H) no tienen ningún efecto, como en una ROM real. LOAD \*ROMLOCK STOP las vuelve a activar (ver 7.5).
 
 # Apéndice G --- Referencia técnica de audio: chip AY, VGM y alófonos
 

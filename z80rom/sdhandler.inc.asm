@@ -8,7 +8,7 @@
 
 		db	.S,.D,.8,.1	; "SD81" interface signature
 ; 8196 ($2004)
-VERSION:	db	$15		; ROM version 1.5
+VERSION:	db	$16		; ROM version 1.6
 
 ; 8197 ($2005)
 		pop	hl		; utility for finding your address
@@ -1101,7 +1101,7 @@ CmdRAM48:	ld	bc,CMD_std48k_on*256 + CMD_std48k_off
 		jp	CMD_ONOFF_BC	; jp: destino demasiado lejos para jr
 
 ; LOAD *ROMLOCK [STOP]
-; Interruptor maestro de los "puertos POKE" del bloque 0 (2038-2062, 2090-
+; Interruptor maestro de los "puertos POKE" del bloque 0 (2041-2062, 2090-
 ; 2098, sprites): con ROMLOCK activo, escribir en esas direcciones no hace
 ; nada, exactamente como si fuera ROM real -- para programas antiguos que
 ; escriben ahi por su cuenta (p.ej. para detectar RAM/ROM) sin saber que

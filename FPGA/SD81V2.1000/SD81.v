@@ -190,7 +190,7 @@ module SD81(
 	// SEL_128CHARS (ver scan_addr); Cmd64C/Cmd128C la apagan al activarse.
 	reg SEL_256CHARS = 1'b0;
 	// LOAD *ROMLOCK: algunos programas antiguos escriben en direcciones del
-	// bloque 0 (2038-2062, 2090-2098, sprites) creyendo que no pasa nada
+	// bloque 0 (2041-2062, 2090-2098, sprites) creyendo que no pasa nada
 	// porque "es ROM" -- pero aqui SI pasa algo, son los puertos de
 	// configuracion de este interface. Con PORTS_LOCKED=1, esas escrituras
 	// vuelven a no tener ningun efecto, como en una ROM real. Se controla

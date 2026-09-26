@@ -2349,23 +2349,36 @@ void cmd_net_write(){
 // (secciones [CPU] y [MEMORY], claves en hex ASCII, RLE "*NNNN VV"), mas
 // [ZX81] (campo NMI) y, si el fichero trae la extension propia del
 // interface, [SD81BOOSTER] (WRX, SEL128, SEL256) para restaurar tambien
-// esos tres modos de hardware. El resto (sonido, joystick...) describen
+// esos tres modos de hardware -- o, si no la trae (snapshot hecho con el
+// emulador en modo ZX81 normal), [HIGH_RESOLUTION]/TYPE y
+// [CHR$_GENERATOR]/TYPE del formato clasico de EightyOne. Tambien Chroma81:
+// la RAM de color ($C000-$FFFF) de [COLOUR] (TYPE Chroma), y el registro de
+// modo Chroma (puerto $7FEF) de [SD81BOOSTER]/CHROMA_MODE o, en su defecto,
+// de [COLOUR]/CHROMA_MODE. El resto (sonido, joystick...) describen
 // configuracion del emulador, no estado del Z80/interface, y se ignoran.
 //
 // Protocolo con la Z80 (todo MCU->Z80 salvo el nombre de fichero, que llega
-// igual que en cmd_load): direccion_destino(2, LE), longitud_memoria(2, LE),
-// bloque de registros (30 bytes, orden fijo: PC SP HL DE BC AF HL' DE' BC' AF'
-// IX IY I R IM IF1 IF2 HALT), longitud_memoria bytes ya decodificados (sin
-// RLE), NMI(1) WRX(1) generador_caracteres(1: 0=64/Sinclair 1=128 2=256),
-// y por ultimo 1 byte de estado (0 = ok). Los tres campos de hardware
-// valen 0xFF si el fichero no los especifica (la ROM no toca ese modo en
-// ese caso). Mandamos la cabecera y los registros en cuanto vemos
-// "MEMRANGE" (antes de conocer el resto del fichero) para no tener que
-// guardar los 56K de una imagen completa en la RAM del propio MCU -- pero
-// [SD81BOOSTER] viene DESPUES de [MEMORY], asi que el streaming no para
-// ahi: sigue tokenizando (sin tratar mas tokens como datos de memoria)
-// hasta ver "RAM_PAGE" (el resto de esa seccion son volcados de pagina
-// completos que no hacen falta aqui) o el fin del fichero.
+// igual que en cmd_load):
+//   direccion_destino(2, LE) longitud_memoria(2, LE)
+//   bloque de registros (30 bytes, orden fijo: PC SP HL DE BC AF HL' DE' BC'
+//     AF' IX IY I R IM IF1 IF2 HALT)
+//   memoria[longitud_memoria] (ya decodificada, sin RLE)
+//   longitud_color(2, LE: 0 o 16384) color[longitud_color] (para $C000)
+//   NMI(1) WRX(1) generador_caracteres(1: 0=64/Sinclair 1=128 2=256)
+//   chroma_presente(1: 0/1) chroma_modo(1)
+//   estado(1, 0 = ok)
+// NMI/WRX/generador valen 0xFF si el fichero no los especifica (la ROM no
+// toca ese modo en ese caso); para el modo Chroma se usa un byte de
+// presencia aparte porque 0xFF podria ser un valor real del registro.
+//
+// Mandamos la cabecera y los registros en cuanto vemos "MEMRANGE" (antes de
+// conocer el resto del fichero) para no tener que guardar los 56K de una
+// imagen completa en la RAM del propio MCU, y la RAM de color igual, en
+// cuanto aparece -- por eso va ANTES que NMI/WRX/generador/Chroma, que salen
+// de secciones posteriores ([HIGH_RESOLUTION], [SD81BOOSTER]...) y solo se
+// conocen al final. El streaming no para al acabar [MEMORY]: sigue
+// tokenizando hasta ver "RAM_PAGE" (el resto de [SD81BOOSTER] son volcados
+// de pagina completos que no hacen falta aqui) o el fin del fichero.
 
 // Un espacio en blanco de los que separan tokens en el fichero .Z81.
 static bool z81_isspace(char c){
@@ -2415,7 +2428,7 @@ void cmd_loadZ81(){
   uint32_t sent = 0;
   uint8_t error_code = 0;
   bool in_cpu = false, in_memory = false, in_zx81 = false;
-  bool in_sd81booster = false, saw_sd81booster = false;
+  bool in_sd81booster = false;
   bool have_header = false, mem_done = false;
   // NMI/WRX/juego de caracteres: 0/1(/2) = valor explicito del fichero,
   // 0xFF = no especificado -- la ROM no toca ese modo de hardware si ve
@@ -2427,6 +2440,28 @@ void cmd_loadZ81(){
   // cuanto termina el volcado de memoria, como hacia antes.
   uint8_t nmi_flag = 0xFF, wrx_flag = 0xFF, chargen = 0xFF;
   bool sel128 = false, sel256 = false;
+  bool wrx_from_sd81 = false, sel_from_sd81 = false;
+  // Formato .Z81 clasico (sin [SD81BOOSTER], p.ej. un snapshot hecho con
+  // el emulador en modo ZX81 normal): la misma informacion viene en
+  // [HIGH_RESOLUTION]/TYPE (None/WRX) y [CHR$_GENERATOR]/TYPE
+  // (None/Sinclair/CHR$128). Solo se usa para lo que [SD81BOOSTER] no
+  // haya respondido ya -- mismo criterio que ParseZ81ForLoad del emulador.
+  bool in_hires = false, in_chrgen = false;
+  char hires_type[32] = "", chrgen_type[32] = "";
+  // Chroma81. colour_state: 0 = todavia no se ha mandado longitud_color,
+  // 1 = mandada 16384 y volcando, 2 = terminado (volcado o longitud 0).
+  const uint16_t COLOUR_LEN = 16384;
+  bool in_colour = false;
+  uint8_t colour_state = 0;
+  uint16_t colour_sent = 0;
+  uint8_t chroma_present = 0, chroma_val = 0;
+  bool chroma_from_sd81 = false;
+  // Rellena con ceros lo que falte del volcado de color (fichero truncado
+  // o seccion acabada antes de tiempo) y lo da por terminado.
+  auto colour_finish = [&](){
+    while (colour_sent < COLOUR_LEN){ SendByteToZ80(0); colour_sent++; }
+    colour_state = 2;
+  };
 
   set_SDLed(LED_ON);
   check_SD();
@@ -2458,11 +2493,66 @@ void cmd_loadZ81(){
     uint8_t tlen;
     while ((tlen = z81_get_token(tok)) > 0){
       if (tok[0]=='['){
+        if (in_colour && colour_state==1) colour_finish();
+        in_colour      = (strcmp(tok,"[COLOUR]")==0);
         in_cpu         = (strcmp(tok,"[CPU]")==0);
         in_memory      = (strcmp(tok,"[MEMORY]")==0);
         in_zx81        = (strcmp(tok,"[ZX81]")==0);
         in_sd81booster = (strcmp(tok,"[SD81BOOSTER]")==0);
-        if (in_sd81booster) saw_sd81booster = true;
+        in_hires       = (strcmp(tok,"[HIGH_RESOLUTION]")==0);
+        in_chrgen      = (strcmp(tok,"[CHR$_GENERATOR]")==0);
+        continue;
+      }
+
+      if (in_colour){
+        if (!strcmp(tok,"TYPE")){
+          if (z81_get_token(tok)==0) break;
+          // Solo si la memoria ya se mando entera: longitud_color va justo
+          // detras en el protocolo. En la practica [COLOUR] siempre viene
+          // despues de [MEMORY]; si no, se ignora y se manda longitud 0.
+          if (mem_done && colour_state==0){
+            if (!strcmp(tok,"Chroma")){
+              SendByteToZ80(COLOUR_LEN & 0xff);
+              SendByteToZ80(COLOUR_LEN >> 8);
+              colour_sent  = 0;
+              colour_state = 1;
+            } else {
+              SendByteToZ80(0);
+              SendByteToZ80(0);
+              colour_state = 2;
+            }
+          }
+        } else if (!strcmp(tok,"CHROMA_MODE")){
+          if (colour_state==1) colour_finish();
+          if (z81_get_token(tok)==0) break;
+          if (!chroma_from_sd81){
+            chroma_present = 1;
+            chroma_val = (uint8_t)z81_hex(tok);
+          }
+        } else if (!strcmp(tok,"COLOUR_ENABLED")){
+          if (colour_state==1) colour_finish();
+          z81_get_token(tok);     // en el interface el color siempre esta
+                                  // disponible; se descarta
+        } else if (colour_state==1){
+          if (tok[0]=='*'){
+            uint16_t count = z81_hex(tok+1);
+            if (z81_get_token(tok)==0) break;
+            uint8_t val = (uint8_t)z81_hex(tok);
+            while (count-- && (colour_sent<COLOUR_LEN)){ SendByteToZ80(val); colour_sent++; }
+          } else if (colour_sent<COLOUR_LEN){
+            SendByteToZ80((uint8_t)z81_hex(tok));
+            colour_sent++;
+          }
+          if (colour_sent>=COLOUR_LEN) colour_state = 2;
+        }
+        continue;
+      }
+
+      if (in_hires || in_chrgen){
+        if (!strcmp(tok,"TYPE")){
+          if (z81_get_token(tok)==0) break;
+          strcpy(in_hires ? hires_type : chrgen_type, tok);
+        }
         continue;
       }
 
@@ -2478,12 +2568,20 @@ void cmd_loadZ81(){
         if (!strcmp(tok,"WRX")){
           if (z81_get_token(tok)==0) break;
           wrx_flag = (z81_hex(tok)!=0) ? 1 : 0;
+          wrx_from_sd81 = true;
         } else if (!strcmp(tok,"SEL128")){
           if (z81_get_token(tok)==0) break;
           sel128 = (z81_hex(tok)!=0);
+          sel_from_sd81 = true;
         } else if (!strcmp(tok,"SEL256")){
           if (z81_get_token(tok)==0) break;
           sel256 = (z81_hex(tok)!=0);
+          sel_from_sd81 = true;
+        } else if (!strcmp(tok,"CHROMA_MODE")){
+          if (z81_get_token(tok)==0) break;
+          chroma_present = 1;
+          chroma_val = (uint8_t)z81_hex(tok);
+          chroma_from_sd81 = true;
         } else if (!strcmp(tok,"RAM_PAGE")){
           break;    // ya vimos todo lo que hacia falta de esta seccion; el
                     // resto son volcados de pagina completos, no hace
@@ -2574,7 +2672,16 @@ void cmd_loadZ81(){
     error_code = 1;
   }
 
-  if (saw_sd81booster) chargen = sel256 ? 2 : (sel128 ? 1 : 0);
+  if (sel_from_sd81) chargen = sel256 ? 2 : (sel128 ? 1 : 0);
+
+  // Fallback al formato clasico, solo para lo que [SD81BOOSTER] no haya
+  // respondido. "TYPE None" no aporta nada (el propio emulador lo escribe
+  // como relleno), asi que se deja el 0xFF de "no tocar".
+  if (!wrx_from_sd81 && hires_type[0] && strcmp(hires_type,"None"))
+    wrx_flag = !strcmp(hires_type,"WRX") ? 1 : 0;
+  if (!sel_from_sd81 && chrgen_type[0] && strcmp(chrgen_type,"None"))
+    chargen = !strcmp(chrgen_type,"CHR$128") ? 1 :
+              !strcmp(chrgen_type,"CHR$256") ? 2 : 0;
 
   if (!have_header){
     // No llegamos a ver [MEMORY]/MEMRANGE (fichero ausente, sin esa seccion,
@@ -2588,13 +2695,24 @@ void cmd_loadZ81(){
     while (sent<mem_len){ SendByteToZ80(0); sent++; }
   }
 
-  // NMI/WRX/generador de caracteres: siempre se mandan (0xFF = "no
-  // especificado, no tocar"), igual que la cabecera+registros ya se
+  // RAM de color: si nunca aparecio [COLOUR] (o era TYPE None), longitud 0;
+  // si se quedo a medias, completar con ceros.
+  if (colour_state==0){
+    SendByteToZ80(0);
+    SendByteToZ80(0);
+  } else if (colour_state==1){
+    colour_finish();
+  }
+
+  // NMI/WRX/generador de caracteres/Chroma: siempre se mandan (0xFF / 0 =
+  // "no especificado, no tocar"), igual que la cabecera+registros ya se
   // manda siempre a ceros si algo fallo -- para no dejar a la Z80
   // esperando bytes que no van a llegar.
   SendByteToZ80(nmi_flag);
   SendByteToZ80(wrx_flag);
   SendByteToZ80(chargen);
+  SendByteToZ80(chroma_present);
+  SendByteToZ80(chroma_val);
 
   SendByteToZ80(error_code);
   reset_commands();

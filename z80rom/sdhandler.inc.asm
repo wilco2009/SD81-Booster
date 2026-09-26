@@ -1187,40 +1187,51 @@ Z81BorrowBlock	equ	2
 
 ; Offsets dentro de Z81ScratchArea que usa CmdZ81. Los primeros 34 bytes
 ; (offset 0-33) son cabecera+registros, tal cual llegan por el puerto (ver
-; tabla en el comentario de CmdZ81 mas abajo). Los 3 siguientes (34-36)
-; tambien viajan por el puerto, pero DESPUES de la memoria (ver
-; Z81RecvExtras): NMI/WRX/generador de caracteres del snapshot, cada uno
-; 0/1(/2) o 0xFF si el fichero no lo especificaba (no tocar ese modo). El
-; resto es trabajo local, nunca viaja por el puerto:
-;   37    : pagina real de Z81BorrowBlock, guardada mientras esta prestado
+; tabla en el comentario de CmdZ81 mas abajo). Tambien viajan por el
+; puerto, pero DESPUES de la memoria (ver Z81RecvTail):
+;   34    : NMI (0/1, 0xFF = no especificado, no tocar)
+;   35    : WRX (idem)
+;   36    : generador de caracteres (0=64, 1=128, 2=256, 0xFF = no tocar)
+;   37    : modo Chroma presente (0/1)
+;   38    : modo Chroma (valor para el puerto $7FEF)
+;   39-40 : longitud de la RAM de color que viene detras (0 o 16384)
+; El resto es trabajo local, nunca viaja por el puerto:
+;   41    : pagina real de Z81BorrowBlock, guardada mientras esta prestado
 ;           (solo se usa/es valida si la pila del snapshot cae en el
 ;           bloque 1 -- ver Z81BuildFrame)
-;   38-39 : FrameAddr (SP del snapshot - 22): donde va el marco de registros
-;   40-41 : ProgramAddr (FrameAddr - tamano del programita): donde empieza
+;   42    : pagina real del bloque 7 antes de usarlo como ventana de
+;           aparcamiento (ver Z81Block7Final)
+;   43-44 : FrameAddr (SP del snapshot - 22): donde va el marco de registros
+;   45-46 : ProgramAddr (FrameAddr - tamano del programita): donde empieza
 ;           el propio programita de restauracion final
-;   42    : tamano del programita (sin contar el marco)
-;   43-44 : EntryAddr: direccion a la que saltar para arrancarlo
-;   45-46 : WriteBase: direccion real donde copiarlo (puede diferir de
+;   47    : tamano del programita (sin contar el marco)
+;   48-49 : EntryAddr: direccion a la que saltar para arrancarlo
+;   50-51 : WriteBase: direccion real donde copiarlo (puede diferir de
 ;           ProgramAddr si hay que verlo, de momento, por la ventana de
 ;           Z81BorrowBlock)
-;   47    : bandera "el bloque 1 forma parte del volcado" (0/1)
-;   48    : bloque (1-7) donde cae la pila del snapshot
-;   49-108: area de construccion del programita+marco (60 bytes, el maximo
+;   52    : bandera "el bloque 1 forma parte del volcado" (0/1)
+;   53    : bloque (1-7) donde cae la pila del snapshot
+;   54-113: area de construccion del programita+marco (60 bytes, el maximo
 ;           posible)
 ; Todo esto lo arma y consume Z81DoRestore, ver alli para el porque.
 Z81OffNMI	equ	34
 Z81OffWRX	equ	35
 Z81OffChargen	equ	36
-Z81OffSavedPage0 equ	37
-Z81OffFrameAddr	equ	38
-Z81OffProgAddr	equ	40
-Z81OffProgSize	equ	42
-Z81OffEntry	equ	43
-Z81OffWriteBase	equ	45
-Z81OffHasBlock1	equ	47
-Z81OffTargetBlk	equ	48
-Z81OffConstruct	equ	49
-Z81BufSize	equ	109	; tamano total usado en Z81ScratchArea (49+60);
+Z81OffChromaOn	equ	37
+Z81OffChromaVal	equ	38
+Z81ExtrasLen	equ	5	; bytes de 34 a 38, recibidos de una vez
+Z81OffColLen	equ	39
+Z81OffSavedPage0 equ	41
+Z81OffSavedPage7 equ	42
+Z81OffFrameAddr	equ	43
+Z81OffProgAddr	equ	45
+Z81OffProgSize	equ	47
+Z81OffEntry	equ	48
+Z81OffWriteBase	equ	50
+Z81OffHasBlock1	equ	52
+Z81OffTargetBlk	equ	53
+Z81OffConstruct	equ	54
+Z81BufSize	equ	114	; tamano total usado en Z81ScratchArea (54+60);
 				; solo informativo, cabe de sobra en el 1K
 				; disponible (ver Z81ScratchArea mas arriba)
 
@@ -1228,9 +1239,16 @@ Z81BufSize	equ	109	; tamano total usado en Z81ScratchArea (49+60);
 ; en formato .Z81 de EightyOne. El MCU (cmd_loadZ81) hace todo el trabajo de
 ; parsear el fichero de texto; aqui solo recibimos, en orden fijo:
 ;   direccion_destino(2) longitud_memoria(2) bloque_registros(30) memoria(N)
-;   NMI(1) WRX(1) generador_caracteres(1) status(1)
-; Los tres campos antes del status valen 0xFF si el .Z81 no los especificaba
-; (ver Z81DoRestore: en ese caso no se toca ese modo de hardware).
+;   longitud_color(2) color(longitud_color)
+;   NMI(1) WRX(1) generador_caracteres(1) chroma_presente(1) chroma_modo(1)
+;   status(1)
+; NMI/WRX/generador valen 0xFF si el .Z81 no los especificaba, y el modo
+; Chroma trae su propio byte de presencia (ver Z81DoRestore: en ese caso no
+; se toca ese modo de hardware). La RAM de color (Chroma81) se escribe
+; directamente en $C000-$FFFF, no aparcada: la shadow RAM de la FPGA, de
+; donde lee el video los atributos, se indexa por la direccion LOGICA del
+; Z80, asi que solo se entera de lo que la CPU escribe en su direccion final
+; (ver Z81RecvTail).
 ; Los primeros 34 bytes (cabecera+registros) caben de sobra en Z81ScratchArea
 ; (ver mas arriba el porque no se usa el workspace de BASIC para esto). La
 ; memoria (hasta 56K) se recibe DIRECTAMENTE en las paginas que van a ser su
@@ -1396,6 +1414,14 @@ Z81HdrDone:
 		out	(0FDh),a	; apagar el generador de NMI (el valor de
 					; A es indiferente para este puerto)
 
+		; Pagina real del bloque 7 antes de usarlo como ventana: si el
+		; volcado no cubre el bloque 7 (p.ej. un ZX81 de 16K con
+		; Chroma81, MEMRANGE 4000-7FFF), hay que devolversela al acabar
+		; (ver Z81Block7Final).
+		ld	b,7
+		call	Z81ReadPage	; (pisa A/C; D sigue intacto)
+		ld	(Z81ScratchArea+Z81OffSavedPage7),a
+
 		ld	a,d		; A = pagina de aparcamiento inicial
 					; (seguia en D desde mas arriba)
 		ld	b,7
@@ -1409,7 +1435,7 @@ Z81HdrDone:
 					; y el bucle vuelve a tocar B o C)
 		ld	a,b
 		or	c
-		jr	z,Z81RecvExtras	; longitud 0: nada que recibir
+		jr	z,Z81RecvTail	; longitud 0: nada que recibir
 
 		; Mismo patron adaptativo que Z81HdrLoop (ver el comentario de
 		; ahi arriba) -- no fiarse de C, mirar el reloj fisico y
@@ -1428,7 +1454,7 @@ Z81RecvW1:	in	a,(ClkPort)
 		dec	bc
 		ld	a,b
 		or	c
-		jr	z,Z81RecvExtras	; ya no quedan bytes que recibir
+		jr	z,Z81RecvTail	; ya no quedan bytes que recibir
 		ld	a,h
 		or	l
 		jr	nz,Z81RecvR0	; seguimos en la misma pagina; el
@@ -1453,7 +1479,7 @@ Z81RecvW0:	in	a,(ClkPort)
 		dec	bc
 		ld	a,b
 		or	c
-		jr	z,Z81RecvExtras	; ya no quedan bytes que recibir
+		jr	z,Z81RecvTail	; ya no quedan bytes que recibir
 		ld	a,h
 		or	l
 		jr	nz,Z81RecvR1	; seguimos en la misma pagina; el
@@ -1467,36 +1493,46 @@ Z81RecvW0:	in	a,(ClkPort)
 		ld	hl,0E000h
 		jr	Z81RecvR1
 
-; --- NMI/WRX/generador de caracteres del snapshot ---------------------------
-; 3 bytes mas, mandados por el MCU justo despues de la memoria (ver el
-; comentario grande de cmd_loadZ81 en COMMANDS.cpp): mismo patron
-; adaptativo de siempre, sin fiarse de C. Igual que con la cabecera, el
-; propio ultimo wait de aqui (para el 3er byte) ya deja preparado el
-; siguiente toggle para el byte de estado, asi que Z81MemDone no tiene que
-; esperar nada el suyo.
-Z81RecvExtras:
+; --- Lo que viene detras de la memoria -------------------------------------
+; RAM de color (Chroma81) y los bytes de modo de hardware (ver el comentario
+; grande de cmd_loadZ81 en COMMANDS.cpp). Todo con Z81RecvBuf, el mismo
+; patron adaptativo de siempre: su ultimo wait deja ya preparado el toggle
+; del siguiente byte, asi que Z81MemDone no tiene que esperar el suyo.
+Z81RecvTail:
+		; El bloque 7 ya no hace falta como ventana: a su pagina final
+		; (antes de escribir la RAM de color por $E000-$FFFF).
+		call	Z81Block7Final
+
+		ld	de,Z81ScratchArea+Z81OffColLen
+		ld	bc,2
+		call	Z81RecvBuf
+		ld	bc,(Z81ScratchArea+Z81OffColLen)
+		ld	a,b
+		or	c
+		jr	z,Z81RecvNoColour
+
+		; La RAM de color va por su direccion logica final, $C000-$FFFF,
+		; para que la shadow RAM (indexada por direccion logica) la
+		; recoja -- asi que los bloques 6 y 7 tienen que estar ya en su
+		; pagina final. El 7 ya lo esta (Z81Block7Final, arriba); el 6,
+		; si esta en el volcado, a su pagina 29 ya mismo (Z81ReassignLoop
+		; le pondria la misma despues); si no lo esta, se queda en la que
+		; tenia, como en el Chroma81 original.
+		push	bc
+		ld	a,6
+		call	Z81InRange
+		jr	nc,Z81ColB6Done
+		ld	a,23+6
+		ld	b,6
+		call	Z81MapPage
+Z81ColB6Done:	pop	bc
+		ld	de,0C000h
+		call	Z81RecvBuf
+
+Z81RecvNoColour:
 		ld	de,Z81ScratchArea+Z81OffNMI
-		ld	b,3
-		in	a,(ClkPort)
-		rlca
-		jr	c,Z81ExtraR0
-
-Z81ExtraR1:	in	a,(DataPort)
-		ld	(de),a
-		inc	de
-Z81ExtraW1:	in	a,(ClkPort)
-		rlca
-		jr	nc,Z81ExtraW1
-		djnz	Z81ExtraR0
-		jr	Z81MemDone
-
-Z81ExtraR0:	in	a,(DataPort)
-		ld	(de),a
-		inc	de
-Z81ExtraW0:	in	a,(ClkPort)
-		rlca
-		jr	c,Z81ExtraW0
-		djnz	Z81ExtraR1
+		ld	bc,Z81ExtrasLen
+		call	Z81RecvBuf
 
 Z81MemDone:
 		; --- Byte de estado final ---
@@ -1515,7 +1551,9 @@ Z81MemDone:
 		ld	l,a
 		ld	a,l
 		or	a
-		jr	z,Z81DoRestore	; estado 0 = todo ok
+		jp	z,Z81DoRestore	; estado 0 = todo ok (jp: con las
+					; subrutinas de en medio, demasiado lejos
+					; para jr)
 
 		add	a,.F-.1		; mismo mapeo de codigo de error que
 					; ReportStatus (status 1 = REPORT-G...)
@@ -1526,8 +1564,8 @@ Z81MemDone:
 		; fija (Z81ScratchArea), no en la pila.
 
 		; No hace falta deshacer ningun aparcamiento: el bloque 0 (la
-		; ROM real que necesita ERROR_3) nunca se ha tocado -- solo el
-		; bloque 7, que da igual en que pagina se quede. Pero la NMI
+		; ROM real que necesita ERROR_3) nunca se ha tocado, y el
+		; bloque 7 ya se devolvio en Z81RecvTail. Pero la NMI
 		; SI se apago en Z81HdrDone (ver el comentario de alli) y aqui
 		; hay que reactivarla antes de EI, o se quedaria apagada para
 		; siempre -- el mismo problema que tenia SET_FAST en su dia.
@@ -1540,6 +1578,72 @@ Z81MemDone:
 Z81ReadPage:	ld	c,MapperPort
 		in	a,(c)
 		ret
+
+; DE=destino, BC=numero de bytes -> recibe BC bytes del MCU en (DE). Mismo
+; patron adaptativo que la recepcion de la cabecera: se mira el reloj fisico
+; al empezar y se alterna explicitamente, sin fiarse de C. BC=0 no hace
+; nada. Pisa A, BC, DE.
+Z81RecvBuf:	ld	a,b
+		or	c
+		ret	z
+		in	a,(ClkPort)
+		rlca
+		jr	c,Z81RBR0	; reloj a 1 ahora: el primer byte se
+					; espera a 0
+Z81RBR1:	in	a,(DataPort)
+		ld	(de),a
+		inc	de
+Z81RBW1:	in	a,(ClkPort)
+		rlca
+		jr	nc,Z81RBW1	; esperar a que suba a 1
+		dec	bc
+		ld	a,b
+		or	c
+		ret	z
+Z81RBR0:	in	a,(DataPort)
+		ld	(de),a
+		inc	de
+Z81RBW0:	in	a,(ClkPort)
+		rlca
+		jr	c,Z81RBW0	; esperar a que baje a 0
+		dec	bc
+		ld	a,b
+		or	c
+		jr	nz,Z81RBR1
+		ret
+
+; A=numero de bloque -> CY=1 si ese bloque esta dentro del volcado de
+; memoria (destAddr/longitud de la cabecera, ya en Z81ScratchArea), CY=0 si
+; no. Pisa A, B, C, E.
+Z81InRange:	ld	c,a
+		ld	a,(Z81ScratchArea+1)	; byte alto de destAddr
+		call	Z81HighToBlock
+		ld	b,a			; B = primer bloque del volcado
+		ld	a,(Z81ScratchArea+3)	; byte alto de la longitud
+		call	Z81HighToBlock
+		add	a,b
+		ld	e,a			; E = primer bloque FUERA del volcado
+		ld	a,c
+		cp	b
+		jr	c,Z81NotInRange		; bloque < primero
+		cp	e			; CY=1 si bloque < E: dentro
+		ret
+Z81NotInRange:	and	a			; CY=0
+		ret
+
+; Devuelve el bloque 7 a su pagina final cuando deja de hacer falta como
+; ventana de aparcamiento: la suya del volcado (30) si el bloque 7 esta en
+; el volcado, o la que tenia antes de empezar si no lo esta -- antes solo
+; se arreglaba en Z81ReassignLoop, y solo en el primer caso, asi que un
+; volcado que no llegara al bloque 7 lo dejaba en la ultima pagina
+; aparcada. Pisa A, B, C, E.
+Z81Block7Final:	ld	a,7
+		call	Z81InRange
+		ld	a,23+7
+		jr	c,Z81B7Map
+		ld	a,(Z81ScratchArea+Z81OffSavedPage7)
+Z81B7Map:	ld	b,7
+		jp	Z81MapPage
 
 ; --- Plantillas del "programita de restauracion final" ---------------------
 ; Bytes de maquina puros, nunca se ejecutan aqui: Z81DoRestore los copia (y
@@ -1639,11 +1743,11 @@ Z81DoRestore:
 					; (direccion fija: ya no hace falta
 					; sacarla de ningun sitio)
 
-		; --- WRX/generador de caracteres del snapshot, si el fichero
-		; los traia (0xFF = no especificado, no tocar). No dependen de
-		; ninguna pagina ni bloque -- son un poke fijo o un comando
-		; MCU normal -- asi que se hacen aqui mismo, de una vez, antes
-		; de tocar nada mas. El registro I restaurado del propio
+		; --- WRX/generador de caracteres/modo Chroma del snapshot, si
+		; el fichero los traia (0xFF / presente=0: no tocar). No
+		; dependen de ninguna pagina ni bloque -- son un poke fijo, un
+		; OUT o un comando MCU normal -- asi que se hacen aqui mismo, de
+		; una vez, antes de tocar nada mas. El registro I restaurado del propio
 		; snapshot (mas abajo) ya deja apuntado el juego de caracteres
 		; a la direccion que le corresponda; aqui solo hace falta el
 		; comando que activa/desactiva el modo 128/256 en si.
@@ -1656,11 +1760,20 @@ Z81DoRestore:
 		cp	0FFh
 		jr	z,Z81SkipWRX
 		or	a
-		ld	a,55		; 85 = WRX apagado (por defecto)
+		ld	a,85		; WRX apagado (mismos valores que CmdWRX)
 		jr	z,Z81DoWRX
 		ld	a,170		; WRX encendido
 Z81DoWRX:	ld	(2058),a
 Z81SkipWRX:
+		ld	a,(ix+Z81OffChromaOn)
+		or	a
+		jr	z,Z81SkipChroma
+		ld	a,(ix+Z81OffChromaVal)
+		ld	bc,7FEFh	; la FPGA decodifica los 16 bits de la
+					; direccion (Addr==16'h7FEF), asi que hace
+					; falta OUT (C),A con BC completo
+		out	(c),a
+Z81SkipChroma:
 		ld	a,(ix+Z81OffChargen)
 		cp	0FFh
 		jr	z,Z81SkipChargen

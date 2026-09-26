@@ -41,9 +41,24 @@ Z80 -> MCU:  70, longitud(1), nombre[longitud]         (igual que CMD_load)
 MCU -> Z80:  dir_destino(2, LE), longitud_memoria(2, LE),
              bloque_registros(30 bytes, ver tabla abajo),
              memoria[longitud_memoria],
+             longitud_color(2, LE: 0 o 16384), color[longitud_color],
              NMI(1), WRX(1), generador_caracteres(1),
+             chroma_presente(1: 0/1), chroma_modo(1),
              status(1)
 ```
+
+- `longitud_color`/`color[]`: la RAM de color de Chroma81 (`$C000-$FFFF`),
+  de `[COLOUR]` cuando es `TYPE Chroma` (RLE igual que `[MEMORY]`, ya
+  expandido). `0` si no hay `[COLOUR]` o es `TYPE None`. Va **antes** que los
+  bytes de modo porque en el fichero `[COLOUR]` aparece antes que
+  `[HIGH_RESOLUTION]`/`[SD81BOOSTER]`: así el MCU la manda en streaming, en
+  el orden en que la lee, sin tener que guardar 16K. La ROM la escribe en su
+  dirección lógica final (no aparcada): la shadow RAM de la FPGA, de donde
+  el vídeo lee los atributos, se indexa por dirección lógica del Z80.
+- `chroma_presente`/`chroma_modo`: valor del registro del puerto `$7FEF`, de
+  `[SD81BOOSTER]`/`CHROMA_MODE` o, si no está, de `[COLOUR]`/`CHROMA_MODE`.
+  Lleva byte de presencia propio (no el `0xFF` de los otros) porque `0xFF`
+  podría ser un valor real del registro.
 
 - `dir_destino`/`longitud_memoria` salen de la línea `MEMRANGE inicio fin` de
   la sección `[MEMORY]` del `.Z81` (`longitud = fin - inicio + 1`).
@@ -119,10 +134,16 @@ sencillo). Solo interesan dos secciones:
   encontraron `WRX`/`SEL128`/`SEL256`), para no perder tiempo con esos
   volcados.
 
-El resto de secciones (`[INTERFACES]`, `[SOUND]`, `[COLOUR]`,
-`[CHR$_GENERATOR]`, `[HIGH_RESOLUTION]`, `[JOYSTICK]`...) describen
-configuración del emulador o quedan obsoletas por `[SD81BOOSTER]`, y se
-ignoran.
+- **`[COLOUR]`**: `TYPE Chroma` seguido del volcado de la RAM de color
+  (`$C000-$FFFF`, mismo RLE que `[MEMORY]`), `CHROMA_MODE` y
+  `COLOUR_ENABLED` (este último se ignora: en el interface el color está
+  siempre disponible). `TYPE None` = sin RAM de color.
+- **`[HIGH_RESOLUTION]`/`[CHR$_GENERATOR]`** (formato clásico): `TYPE`, solo
+  si `[SD81BOOSTER]` no trae ya `WRX`/`SEL128`/`SEL256`. `TYPE None` no
+  cuenta.
+
+El resto de secciones (`[INTERFACES]`, `[SOUND]`, `[JOYSTICK]`...)
+describen configuración del emulador y se ignoran.
 
 ## Comportamientos que hay que reproducir sí o sí
 
@@ -149,7 +170,15 @@ ignoran.
 |---|---|
 | `LOAD *Z81` en la ROM (`sdhandler.inc.asm`) | implementado y **probado con éxito** (registros + memoria, vía reasignación de página) contra el emulador (`YMirorg.z81`) |
 | `cmd_loadZ81` en el STM32 (`COMMANDS.cpp`) | implementado, incluye NMI/WRX/generador de caracteres; **sin compilar/probar en hardware real** (sí contra el emulador) |
-| Comando 0x46 en el emulador (`SD81Booster.cpp`) | ya funciona para cabecera+registros+memoria; **pendiente** de mandar los 3 bytes nuevos NMI/WRX/generador de caracteres si el emulador todavía no lo hace |
+| Comando 0x46 en el emulador (`SD81Booster.cpp`) | manda cabecera+registros+memoria+NMI/WRX/generador; **pendiente** de mandar `longitud_color`/`color[]` y `chroma_presente`/`chroma_modo` — sin eso la ROM nueva se queda esperando bytes |
+
+**Limitación actual (documentada en el manual, 7.7):** solo funcionan los
+snapshots de un ZX81 sin las funciones de paginación del interface. Se
+restaura `[MEMORY]`/`MEMRANGE` (lo que ve el Z80 en `$2000-$FFFF`), no la
+asignación de páginas (`MAPPER`) ni las `RAM_PAGE` de `[SD81BOOSTER]`, así
+que un programa que use `MAP`, `FULLPAG` u otras páginas de la RAM
+extendida no se recupera bien. Debería poder resolverse casi al 100%;
+pendiente de discutir el enfoque.
 
 Nota: la carga de memoria dejó de ser una copia byte a byte -- la ROM
 reasigna páginas directamente (ver el propio `sdhandler.inc.asm`,

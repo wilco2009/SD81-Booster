@@ -159,10 +159,17 @@ char file_name[MAX_FILENAME_LEN];
   if (T81_dir){
     error_code = 13; // forbiden operation
   } else {
-    complete_dir(s,current_dir);
-    strcat(s,params);
+    // Ruta absoluta o relativa al directorio actual, igual que en el resto
+    // de comandos de fichero (antes siempre se anteponia el directorio
+    // actual, y LOAD *DEL "/..." no encontraba nunca el fichero).
+    if (params[0]!='/'){
+      complete_dir(s,current_dir);
+      strcat(s,params);
+    } else {
+      strcpy(s,params);
+    }
     error_code = 0;
-  
+
     if (!sd.exists(s))
       error_code = 1;
     else if (!sd.remove(s)) 

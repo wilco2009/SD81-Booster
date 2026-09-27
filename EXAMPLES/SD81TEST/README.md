@@ -22,8 +22,10 @@ SD81 BOOSTER HARDWARE TEST
 1 MEMORY AND MAPPER
 2 EXECUTION (MC45)
 3 MEMORY-MAPPED PORTS
-4 MCU
-5 MACHINE INFO
+4 MCU, RTC AND SD
+5 VIDEO
+6 SOUND
+7 MACHINE INFO
 0 EXIT
 ```
 
@@ -46,6 +48,14 @@ fallos:
 | 7 | `USR 24597` | Protocolo con el MCU | valores erróneos (9999 = el MCU dejó de contestar) |
 | 8 | `USR 24600` | Información de la máquina | 0 |
 | 9 | `USR 24603` | Memoria no paginada en los bloques 4–7 | comprobaciones que no son PAGED (0–16) |
+| 10 | `USR 24606` | Registros del mapper | lecturas erróneas |
+| 11 | `USR 24609` | Protección del bloque 0 | direcciones que se han podido escribir (0–10) |
+| 12 | `USR 24612` | Frecuencia de cuadro | medidas fuera de rango (9999 = el RTC no contesta) |
+| 13 | `USR 24615` | RTC y batería | fallos (9999 = el RTC no contesta) |
+| 14 | `USR 24618` | Registros de los AY | lecturas erróneas |
+| 15 | `USR 24621` | Lectura de la SD | bytes distintos (9999 = timeout o no hay fichero) |
+| 16 | `USR 24624` | Escritura de la SD | fallos (9999 = timeout o no se puede abrir) |
+| 17 | `USR 24627` | Páginas de sistema (bloques 0–3) | bytes que no se pueden escribir |
 
 - El programa vive en 24576 ($6000, bloque 3), por encima de RAMTOP.
 - Necesita el **modo 48K** (el de defecto) para el test de memoria y el de
@@ -85,7 +95,7 @@ restaura los bytes que usa como firma).
 ### Pantalla
 
 ```
-SD81 BOOSTER TEST - MEMORY V0.6
+SD81 BOOSTER TEST - MEMORY V0.8
 PAGES: 64 (FULL PAGING)
 S=SYSTEM .=OK X=FAIL R=ROUTING
 
@@ -133,7 +143,7 @@ fuerza de verdad los NOPs por encima de 32K, que es justo lo que MC45 tiene
 que anular. Al terminar deja MC45 apagado.
 
 ```
-SD81 BOOSTER TEST - MC45 V0.6
+SD81 BOOSTER TEST - MC45 V0.8
 
 CODE IN BLOCKS 4-5: LD BC,0302
 MC45 ON:  MUST RETURN 0302
@@ -179,7 +189,7 @@ BASIC y colgaría la máquina.
 - Al terminar deja MC45 y la extensión apagados.
 
 ```
-SD81 TEST - MC45 BLOCKS 6-7 V0.6
+SD81 TEST - MC45 BLOCKS 6-7 V0.8
 
 CODE IN BLOCKS 6-7: LD BC,0302
 MC45+POKE 2062,170: 0302
@@ -290,6 +300,90 @@ tras escribir `00` y `FF` (la forma del choque: AND, OR, gana uno...);
 espejo de RAM baja (`$4000`/`$6000`) y de ROM (`$0000`). Machaca esos pocos
 bytes de las páginas P y Q.
 
+## Registros del mapper
+
+Cada página en cada bloque del 4 al 7, con el formato del modo activo. El
+campo que no debe usarse lleva basura aleatoria, para comprobar que se
+ignora:
+
+- **Paginación simple:** la página va en D7–D3 del dato y B lleva basura.
+- **Paginación completa:** la página va en B y D7–D3 llevan basura.
+
+Tras cada escritura se releen los cuatro bloques: el escrito tiene que
+tener su página nueva y los otros tres, la suya de antes. Así se detectan
+escrituras que acaban en el bloque equivocado.
+
+## Protección del bloque 0
+
+El bloque 0 es de solo lectura. La prueba escribe el complemento en diez
+direcciones de la ROM que no son puertos de configuración (se evita el
+rango 2038–2130) y comprueba que no cambian. Si alguna cambia, se restaura
+en el acto. Se hace en FAST y con las interrupciones deshabilitadas.
+
+## Frecuencia de cuadro
+
+Cuenta los VSYNC durante un segundo del RTC del MCU. El puerto `$AF` da en
+D6–D1 los VSYNC desde su lectura anterior y se pone a cero al leerlo, así
+que se acumulan todas sus lecturas, incluidas las del propio protocolo con
+el MCU.
+
+- **Vídeo nativo:** necesita SLOW (sin vídeo no hay VSYNC). Tiene que dar
+  50 o 60 según `MARGIN` (55 o 31), con ±2 de margen.
+- **Superfast:** la FPGA genera su propio cuadro PAL; tiene que dar 50 ±2.
+
+## RTC y batería
+
+- Muestra la fecha y la hora del RTC.
+- Comprueba que los segundos avanzan.
+- Lee la tensión de la batería del RTC (`LOAD *BAT`) y comprueba que está
+  entre 2,5 y 3,6 V.
+
+## Registros de los chips AY
+
+Escribe y relee los registros de 8 bits (0, 2, 4, 11 y 12) de los dos AY
+de la FPGA con 12 patrones, y al final los restaura:
+
+- **Chip A (ZonX):** selección y lectura en `$CF`, dato en `$0F`.
+- **Chip B:** selección y lectura en `$C7`, dato en `$07`. La FPGA ignora
+  A0, y se usan puertos impares porque un `IN`/`OUT` a un puerto par
+  también lo decodifica la ULA (teclado y NMI).
+
+## Lectura de la SD
+
+Lee `/SYS/SDBOOST.ROM` con `F_OPEN`, `F_STAT` y `F_READ` (bloques de 256
+bytes) y lo compara byte a byte con la ROM cargada en memoria, que el MCU
+pone en la dirección 0 (bloques 0 y 1). Cuenta las diferencias de cada
+bloque y muestra la dirección de la primera. Después lo lee otra vez y
+compara la suma de control de las dos lecturas.
+
+Si en el bloque 1 aparecen diferencias concentradas en una zona, pueden ser
+variables que la ROM de expansión guarda dentro de su propio espacio: la
+primera dirección distinta ayuda a saberlo.
+
+## Escritura de la SD
+
+1. `SAVE` de `/SD81TEST.TMP` con 4096 bytes pseudoaleatorios.
+2. `F_OPEN` + `F_STAT` (tiene que medir 4096) + `F_READ`: el contenido
+   tiene que coincidir.
+3. `F_SEEK` a 1000 + `F_WRITE` de 256 bytes nuevos, y `F_SEEK` + `F_READ`
+   para releerlos.
+4. `F_CLOSE` + `DEL`. Volver a abrirlo tiene que fallar.
+
+Todos los comandos usan el protocolo de un cambio de reloj por byte (el del
+explorador), con límite de tiempo.
+
+## Páginas de sistema
+
+Prueba no destructiva de las páginas mapeadas en los bloques 0–3 (ROM, ROM
+de expansión, BASIC y este programa), vistas por el bloque 5: cada byte se
+lee, se escribe su complemento, se relee y se restaura. Se hace en FAST y
+con las interrupciones deshabilitadas.
+
+La página de este programa se prueba con una copia del bucle de prueba en
+el buffer de impresora, para no modificar nunca los bytes que se están
+ejecutando. El bucle solo usa saltos relativos, así que funciona en
+cualquier dirección.
+
 ## Plan de pruebas
 
 Estado: **hecha**, *pendiente*.
@@ -297,27 +391,28 @@ Estado: **hecha**, *pendiente*.
 | # | Categoría | Prueba | Tipo | Estado |
 |---|---|---|---|---|
 | 1.1 | Memoria y mapper | Memoria (páginas, patrones, enrutado) | Auto, destructiva | **hecha** |
-| 1.2 | Memoria y mapper | Páginas de sistema (0–3), no destructiva | Auto | *pendiente* |
-| 1.3 | Memoria y mapper | Registros del mapper, todos los valores y formatos | Auto | *pendiente* |
+| 1.2 | Memoria y mapper | Páginas de sistema (0–3), no destructiva | Auto | **hecha** |
+| 1.3 | Memoria y mapper | Registros del mapper, todos los valores y formatos | Auto | **hecha** |
 | 1.4 | Memoria y mapper | Estrés del mapper | Auto | **hecha** |
-| 1.5 | Memoria y mapper | Protección del bloque 0 | Auto | *pendiente* |
-| 1.6 | Memoria y mapper | Modo 32K/48K (espejos de 6/7) | Auto | *pendiente* |
+| 1.5 | Memoria y mapper | Protección del bloque 0 | Auto | **hecha** |
+| 1.6 | Memoria y mapper | Modo 32K/48K (espejos de 6/7) | Auto | *descartada*: no se puede comprobar sin ejecutar código arriesgado en 6/7 |
 | 1.7 | Memoria y mapper | Memoria no paginada en los bloques 4–7 | Auto | **hecha** |
 | 2.1 | Ejecución | MC45 bloques 4–5 | Auto | **hecha** |
 | 2.2 | Ejecución | MC45 bloques 6–7 | Auto | **hecha** |
-| 2.3 | Ejecución | Espejo de vídeo en 48K | Auto | *pendiente* |
+| 2.3 | Ejecución | Espejo de vídeo en 48K | Auto | cubierta por la 2.2 (extensión apagada) |
 | 3.1 | Puertos en memoria | Captura de `POKE 2045` | Auto | **hecha** |
 | 3.2 | Puertos en memoria | Interrupciones simuladas | Auto | **hecha** |
 | 3.3 | Puertos en memoria | ROMLOCK | Auto | **hecha** |
-| 3.4 | Puertos en memoria | Ráfagas de POKEs con `LDIR` | Auto/visual | *pendiente* |
+| 3.4 | Puertos en memoria | Ráfagas de POKEs con `LDIR` | Auto/visual | *descartada*: no hay un efecto legible para comprobarla (la captura ya es síncrona) |
 | 3.5 | Puertos en memoria | Sprites (rejilla de 32) | Visual | *pendiente* |
 | 4.x | Vídeo | Texto 64/128/256, WRX, Chroma, borde, Superfast, scroll, 80 col., doble buffer | Visual | *pendiente* |
-| 4.7 | Vídeo | Frecuencia de cuadro (contador VSYNC del puerto `$AF`) | Auto | *pendiente* |
+| 4.7 | Vídeo | Frecuencia de cuadro (contador VSYNC del puerto `$AF`) | Auto | **hecha** |
 | 5.1 | MCU y SD | Protocolo (`SETBYTE`/`GETBYTE`) | Auto | **hecha** |
-| 5.2 | MCU y SD | Lectura de SD (`SDBOOST.ROM` contra la página 0) | Auto | *pendiente* |
-| 5.3 | MCU y SD | Escritura de SD (fichero temporal) | Auto | *pendiente* |
-| 5.4 | MCU y SD | RTC y batería | Auto | *pendiente* |
-| 6.x | Sonido | Registros AY (Auto), tonos, beeper, SAY, VGM (Audio) | Auto/Audio | *pendiente* |
+| 5.2 | MCU y SD | Lectura de SD (`SDBOOST.ROM` contra la ROM en memoria) | Auto | **hecha** |
+| 5.3 | MCU y SD | Escritura de SD (fichero temporal) | Auto | **hecha** |
+| 5.4 | MCU y SD | RTC y batería | Auto | **hecha** |
+| 6.1 | Sonido | Registros de los AY | Auto | **hecha** |
+| 6.x | Sonido | Tonos, beeper, SAY, VGM | Audio | *pendiente* |
 | 7.x | Entrada | Teclado, joystick, bits del puerto FE en vivo | Visual | *pendiente* |
 | 8.1 | Información | Ficha de la máquina | Auto | **hecha** |
 | 8.2 | Información | Reloj de la CPU | Auto | *pendiente* (falta una referencia de tiempo independiente del Z80: el RTC solo da segundos enteros) |

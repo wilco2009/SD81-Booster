@@ -1,7 +1,7 @@
 ; =============================================================
 ; SD81TEST.ASM -- Test de hardware del SD81 Booster
 ;
-; v0.6: menu (en el stub BASIC, con submenus) y una entrada fija por
+; v0.8: menu (en el stub BASIC, con submenus) y una entrada fija por
 ; prueba en la tabla de saltos del principio: prueba N en USR 24576+3*N.
 ;   USR 24576 -> test de MEMORIA (paginas del mapper y enrutado por bloques)
 ;   USR 24579 -> test de MC45 (ejecucion de codigo en los bloques 4 y 5)
@@ -13,6 +13,14 @@
 ;   USR 24597 -> estres del protocolo con el MCU (SETBYTE/GETBYTE)
 ;   USR 24600 -> informacion de la maquina
 ;   USR 24603 -> memoria no paginada en los bloques 4-7
+;   USR 24606 -> registros del mapper (todas las paginas, bloques 4-7)
+;   USR 24609 -> proteccion del bloque 0
+;   USR 24612 -> frecuencia de cuadro (VSYNC por segundo del RTC)
+;   USR 24615 -> RTC y bateria
+;   USR 24618 -> registros de los chips AY
+;   USR 24621 -> lectura de la SD (SDBOOST.ROM contra la ROM en memoria)
+;   USR 24624 -> escritura de la SD (SAVE, F_SEEK/F_WRITE, DEL)
+;   USR 24627 -> paginas de sistema (bloques 0-3), no destructivo
 ; Pensado para ir creciendo con mas pruebas (puertos mapeados en memoria,
 ; mapper, Superfast...) y para comprobar el interface en maquinas nuevas
 ; (TS1500, TS1000, clones...).
@@ -68,6 +76,14 @@
         jp mu_test              ; USR 24597
         jp info_test            ; USR 24600
         jp up_test              ; USR 24603
+        jp rg_test              ; USR 24606
+        jp b0_test              ; USR 24609
+        jp fr_test              ; USR 24612
+        jp rt_test              ; USR 24615
+        jp ay_test              ; USR 24618
+        jp sr_test              ; USR 24621
+        jp sw_test              ; USR 24624
+        jp sp_test              ; USR 24627
 
 MAPPORT equ 0E7h        ; puerto del mapper
 WINBLK  equ 6           ; bloque ventana para rellenar/verificar (4-6; el 7
@@ -98,6 +114,9 @@ MARGIN  equ 4028h
 RAMTOP  equ 4004h
 ROMVER  equ 2004h       ; byte de version de la ROM del interface
 DETBLK  equ 5           ; bloque para detectar la paginacion (siempre libre)
+CMD_RTC equ 32h         ; LOAD *RTC: fecha/hora como texto ZX81
+CMD_BAT equ 34h         ; LOAD *BAT: tension de la bateria del RTC
+CDFLAG  equ 403Bh       ; bit 7 = video encendido (SLOW)
 
 ; Codigos de caracter del ZX81
 Z_SP    equ 00h
@@ -619,7 +638,7 @@ out_wdiff:
 wait_diff:
         push de
         ld de,0
-wd1:    in a,(CLKPORT)
+wd1:    call in_clk
         xor c
         jp m,wd2
         dec de
@@ -638,7 +657,7 @@ out_weq:
 wait_eq:
         push de
         ld de,0
-we1:    in a,(CLKPORT)
+we1:    call in_clk
         xor c
         jp p,we2
         dec de
@@ -1589,6 +1608,1213 @@ up_find:
 
 up_offs: dw 0000h, 0555h, 1AAAh, 1FFFh
 
+; =============================================================
+; Test 10: registros del mapper (USR 24606)
+; Cada pagina en cada bloque 4-7, con el formato del modo activo: en
+; paginacion simple la pagina va en D7-D3 del dato (y B, que no debe
+; usarse, lleva basura); en completa va en B (y D7-D3 llevan basura).
+; Tras cada escritura se releen los 4 bloques: el escrito tiene que tener
+; su pagina y los otros tres, la suya de antes. En FAST.
+; =============================================================
+rg_test:
+        ld hl,s_rg_title
+        call title
+        ld b,2
+        ld hl,s_rg_d1
+        call line
+        ld b,3
+        ld hl,s_rg_d2
+        call line
+        call SET_FAST
+        call save_map
+        call detect_pages
+        ld hl,saved_map+4       ; paginas esperadas de los bloques 4-7
+        ld de,rg_exp
+        ld bc,4
+        ldir
+        ld hl,0
+        ld (err_a),hl
+        ld (err_b),hl           ; err_b = numero de escrituras
+
+        ld c,4                  ; C = bloque
+rg1:    ld d,0                  ; D = pagina
+rg2:    push bc
+        push de
+        call xrnd               ; basura para el campo que no toca
+        ld a,(npages)
+        cp 64
+        jr z,rg3
+        ld b,h                  ; simple: pagina en D7-D3, basura en B
+        ld a,d
+        rlca
+        rlca
+        rlca
+        or c
+        jr rg4
+rg3:    ld b,d                  ; completa: pagina en B, basura en D7-D3
+        ld a,l
+        and 0F8h
+        or c
+rg4:    ld e,c
+        ld c,MAPPORT
+        out (c),a
+        ld c,e
+        ld a,c                  ; rg_exp[bloque-4] = pagina
+        sub 4
+        ld hl,rg_exp
+        add a,l
+        ld l,a
+        jr nc,rg5
+        inc h
+rg5:    ld (hl),d
+        ld hl,err_b
+        call inc16
+        call rg_check
+        pop de
+        pop bc
+        inc d
+        ld a,(npages)
+        cp d
+        jr nz,rg2
+        inc c
+        ld a,c
+        cp 8
+        jr nz,rg1
+
+        call restore_map
+        call SLOW_FAST
+        ld b,5
+        ld hl,s_rg_w
+        ld de,(err_b)
+        call line_num
+        ld b,6
+        ld hl,s_rg_e
+        ld de,(err_a)
+        call line_num
+        ld hl,(err_a)
+        ld b,8
+        call line_result
+        ld bc,(err_a)
+        ret
+
+; Relee los bloques 4-7 y cuenta en err_a los que no coinciden con rg_exp
+rg_check:
+        ld c,4
+        ld hl,rg_exp
+rc1:    call read_page
+        cp (hl)
+        jr z,rc2
+        push hl
+        ld hl,err_a
+        call inc16
+        pop hl
+rc2:    inc hl
+        inc c
+        ld a,c
+        cp 8
+        jr nz,rc1
+        ret
+
+; =============================================================
+; Test 11: proteccion del bloque 0 (USR 24609)
+; El bloque 0 es de solo lectura: escribir el complemento en direcciones
+; de la ROM que no son puertos de configuracion (2038-2130 se evitan) no
+; tiene que cambiar nada. Si alguna cambia se restaura en el acto. En FAST
+; y con las interrupciones deshabilitadas.
+; =============================================================
+B0_N    equ 10
+
+b0_test:
+        ld hl,s_b0_title
+        call title
+        ld b,2
+        ld hl,s_b0_d1
+        call line
+        ld b,3
+        ld hl,s_b0_d2
+        call line
+        call SET_FAST
+        di
+        ld hl,0
+        ld (err_a),hl
+        ld hl,b0_addrs
+        ld b,B0_N
+b01:    ld e,(hl)
+        inc hl
+        ld d,(hl)
+        inc hl
+        push hl
+        ex de,hl                ; HL = direccion a probar
+        ld a,(hl)
+        ld e,a                  ; E = original
+        cpl
+        ld (hl),a
+        ld a,(hl)
+        ld (hl),e               ; restaura por si se habia escrito
+        cp e
+        jr z,b02
+        ld hl,err_a
+        call inc16
+b02:    pop hl
+        djnz b01
+        call SLOW_FAST
+        ld b,5
+        ld hl,s_b0_n
+        call line
+        ld b,6
+        ld hl,s_b0_w
+        ld de,(err_a)
+        call line_num
+        ld hl,(err_a)
+        ld b,8
+        call line_result
+        ld bc,(err_a)
+        ret
+
+b0_addrs: dw 0000h, 0001h, 0100h, 0555h, 07F0h, 0900h, 0AAAh, 1000h, 1555h, 1FFFh
+
+; =============================================================
+; Test 12: frecuencia de cuadro (USR 24612)
+; Cuenta VSYNC durante un segundo del RTC del MCU. El puerto $AF da en
+; D6-D1 los VSYNC desde la lectura anterior y se pone a 0 al leerlo, asi
+; que se acumulan TODAS sus lecturas (in_clk), incluidas las del propio
+; protocolo con el MCU. Video nativo (necesita SLOW: sin video no hay
+; VSYNC) y Superfast (VSYNC de la FPGA).
+; =============================================================
+fr_test:
+        ld hl,s_fr_title
+        call title
+        ld b,2
+        ld hl,s_fr_d1
+        call line
+        ld hl,0
+        ld (err_a),hl
+
+        ld b,4                  ; --- video nativo ---
+        ld hl,s_fr_nat
+        call line
+        ld a,(CDFLAG)
+        bit 7,a                 ; video encendido (SLOW)?
+        jr nz,fr1
+        ld hl,s_fr_slow
+        call out_str
+        jr fr3
+fr1:    call measure_fps
+        jr c,fr_to
+        ld (fr_n),hl
+        ex de,hl
+        call out_dec16x
+        ld hl,s_fr_fps
+        call out_str
+        ld a,(MARGIN)           ; 31 = 60 Hz, 55 = 50 Hz
+        ld e,50
+        cp 31
+        jr nz,fr2
+        ld e,60
+fr2:    ld hl,(fr_n)
+        call fr_check
+
+fr3:    ld a,170                ; --- Superfast ---
+        ld (POKE_SF),a
+        call measure_fps
+        push af
+        ld a,85
+        ld (POKE_SF),a
+        pop af
+        jr c,fr_to
+        ld (fr_n),hl
+        ld b,5
+        push hl
+        ld hl,s_fr_sf
+        call line
+        pop de
+        call out_dec16x
+        ld hl,s_fr_fps
+        call out_str
+        ld e,50
+        ld hl,(fr_n)
+        call fr_check
+
+        ld hl,(err_a)
+        ld b,7
+        call line_result
+        ld bc,(err_a)
+        ret
+
+fr_to:  ld b,6
+        ld hl,s_rtc_to
+        call line
+        ld hl,1
+        ld b,7
+        call line_result
+        ld bc,9999
+        ret
+
+; DE = numero -> lo imprime (out_dec16 con el valor en DE)
+out_dec16x:
+        ex de,hl
+        call out_dec16
+        ex de,hl
+        ret
+
+; HL = cuadros medidos, E = esperados -> si |HL-E| > 2, err_a+1
+fr_check:
+        ld a,h
+        or a
+        jr nz,fc2
+        ld a,l
+        sub e
+        jr nc,fc1
+        neg
+fc1:    cp 3
+        ret c
+fc2:    ld hl,err_a
+        jp inc16
+
+; Sincroniza con un cambio de segundo del RTC y cuenta los VSYNC hasta el
+; siguiente -> HL. Carry = el RTC no contesta o no avanza.
+measure_fps:
+        call wait_sec
+        ret c
+        ld hl,0
+        ld (vs_total),hl
+        call wait_sec
+        ld hl,(vs_total)
+        ret
+
+; Espera a que cambien los segundos del RTC (hasta ~250 lecturas).
+; Carry = timeout.
+wait_sec:
+        call rtc_read
+        ret c
+        call rtc_sec
+        ld (sec0),a
+        ld b,250
+wsc1:   push bc
+        call rtc_read
+        pop bc
+        ret c
+        call rtc_sec
+        ld hl,sec0
+        cp (hl)
+        ret nz                  ; NC: ha cambiado
+        djnz wsc1
+        scf
+        ret
+
+; Segundos (0-59) de rtc_buf ("AAAA-MM-DD HH:MM:SS.CC", codigos ZX81)
+rtc_sec:
+        ld a,(rtc_buf+17)
+        sub Z_0
+        ld b,a
+        add a,a
+        add a,a
+        add a,b
+        add a,a                 ; decenas*10
+        ld b,a
+        ld a,(rtc_buf+18)
+        sub Z_0
+        add a,b
+        ret
+
+; LOAD *RTC: comando $32 con cadena vacia -> 22 caracteres ZX81 en
+; rtc_buf + estado. Carry = timeout.
+rtc_read:
+        call in_clk
+        ld c,a
+        ld a,CMD_RTC
+        call out_wdiff
+        ret c
+        xor a
+        call out_weq
+        ret c
+        ld hl,rtc_buf
+        ld b,22
+rrd1:   in a,(DATAPORT)
+        ld (hl),a
+        inc hl
+        call wait_diff
+        ret c
+        ld a,c                  ; C = reloj actual
+        xor 80h
+        ld c,a
+        djnz rrd1
+        in a,(DATAPORT)         ; estado
+        jp wait_diff
+
+; LOAD *BAT: comando $34 -> 5 caracteres ZX81 ("V.mmm") en bat_buf +
+; estado. Carry = timeout.
+bat_read:
+        call in_clk
+        ld c,a
+        ld a,CMD_BAT
+        call out_wdiff
+        ret c
+        ld a,c
+        xor 80h
+        ld c,a
+        ld hl,bat_buf
+        ld b,5
+brd1:   in a,(DATAPORT)
+        ld (hl),a
+        inc hl
+        call wait_diff
+        ret c
+        ld a,c
+        xor 80h
+        ld c,a
+        djnz brd1
+        in a,(DATAPORT)
+        jp wait_diff
+
+; Lee el puerto $AF y suma a vs_total los VSYNC que trae (D6-D1).
+; Conserva todo menos A (que queda con la lectura).
+in_clk:
+        in a,(CLKPORT)
+vs_acc: push af
+        push hl
+        rrca
+        and 3Fh
+        ld hl,(vs_total)
+        add a,l
+        ld l,a
+        jr nc,va1
+        inc h
+va1:    ld (vs_total),hl
+        pop hl
+        pop af
+        ret
+
+; =============================================================
+; Test 13: RTC y bateria (USR 24615)
+; Muestra la fecha/hora, comprueba que los segundos avanzan y que la
+; bateria del RTC esta entre 2,5 y 3,6 V.
+; =============================================================
+rt_test:
+        ld hl,s_rt_title
+        call title
+        ld hl,0
+        ld (err_a),hl
+        call rtc_read
+        jp c,rt_to
+        ld b,2
+        ld hl,s_rt_now
+        call line
+        ld hl,rtc_buf
+        ld b,22
+rtt1:    ld a,(hl)
+        call out_char
+        inc hl
+        djnz rtt1
+        ld b,3
+        ld hl,s_rt_run
+        call line
+        call wait_sec
+        jr c,rt_to
+        ld hl,s_ok
+        call out_str
+
+        call bat_read
+        jr c,rt_to
+        ld b,5
+        ld hl,s_rt_bat
+        call line
+        ld hl,bat_buf
+        ld b,5
+rtt2:    ld a,(hl)
+        call out_char
+        inc hl
+        djnz rtt2
+        ld a,(bat_buf)          ; decimas de voltio: V*10 + primera decimal
+        sub Z_0
+        ld b,a
+        add a,a
+        add a,a
+        add a,b
+        add a,a
+        ld b,a
+        ld a,(bat_buf+2)
+        sub Z_0
+        add a,b
+        cp 25
+        jr c,rtt3
+        cp 37
+        jr c,rtt4
+rtt3:    ld hl,s_rt_range
+        call out_str
+        ld hl,err_a
+        call inc16
+rtt4:    ld hl,(err_a)
+        ld b,7
+        call line_result
+        ld bc,(err_a)
+        ret
+
+rt_to:  ld b,6
+        ld hl,s_rtc_to
+        call line
+        ld hl,1
+        ld b,7
+        call line_result
+        ld bc,9999
+        ret
+
+; =============================================================
+; Test 14: registros de los chips AY (USR 24618)
+; Los dos AY de la FPGA: seleccion de registro (A7=1) y dato (A7=0),
+; lectura con IN del puerto de seleccion. Chip A (ZonX): $CF/$0F; chip B:
+; $C7/$07 (la FPGA ignora A0; se usan puertos impares porque un IN/OUT a
+; un puerto par tambien lo decodifica la ULA: teclado y NMI). Registros de
+; 8 bits (0, 2, 4, 11, 12) con 12 patrones; se guardan y se restauran.
+; =============================================================
+AY_NREG equ 5
+AY_NVAL equ 12
+
+ay_test:
+        ld hl,s_ay_title
+        call title
+        ld b,2
+        ld hl,s_ay_d1
+        call line
+        ld b,3
+        ld hl,s_ay_d2
+        call line
+        ld hl,0
+        ld (err_a),hl
+        ld (err_b),hl
+        ld c,0CFh               ; chip A
+        ld hl,err_a
+        call ay_chip
+        ld c,0C7h               ; chip B
+        ld hl,err_b
+        call ay_chip
+        ld b,5
+        ld hl,s_ay_a
+        ld de,(err_a)
+        call line_num
+        ld b,6
+        ld hl,s_ay_b
+        ld de,(err_b)
+        call line_num
+        jp two_results
+
+; C = puerto de seleccion/lectura del chip (el de datos es C AND 7Fh),
+; HL = contador de errores
+ay_chip:
+        ld (ay_err),hl
+        ld hl,ay_regs           ; guarda los registros que se van a tocar
+        ld de,ay_save
+        ld b,AY_NREG
+ac1:    ld a,(hl)
+        out (c),a               ; selecciona
+        in a,(c)                ; lee
+        ld (de),a
+        inc hl
+        inc de
+        djnz ac1
+
+        ld hl,ay_regs
+        ld b,AY_NREG
+ac2:    push bc
+        push hl
+        ld e,(hl)               ; E = registro
+        ld hl,ay_vals
+        ld b,AY_NVAL
+ac3:    ld a,e
+        out (c),a               ; selecciona
+        ld d,(hl)               ; D = valor
+        ld a,c
+        and 7Fh
+        push bc
+        ld c,a
+        ld a,d
+        out (c),a               ; escribe
+        pop bc
+        ld a,e
+        out (c),a
+        in a,(c)                ; relee
+        cp d
+        jr z,ac4
+        push hl
+        ld hl,(ay_err)
+        call inc16
+        pop hl
+ac4:    inc hl
+        djnz ac3
+        pop hl
+        pop bc
+        inc hl
+        djnz ac2
+
+        ld hl,ay_regs           ; restaura
+        ld de,ay_save
+        ld b,AY_NREG
+ac5:    ld a,(hl)
+        out (c),a
+        ld a,c
+        and 7Fh
+        push bc
+        ld c,a
+        ld a,(de)
+        out (c),a
+        pop bc
+        inc hl
+        inc de
+        djnz ac5
+        ret
+
+ay_regs: db 0, 2, 4, 11, 12
+ay_vals: db 00h, 0FFh, 55h, 0AAh, 01h, 02h, 04h, 08h, 10h, 20h, 40h, 80h
+
+; =============================================================
+; Protocolo "un byte, un cambio de reloj" (el del explorador), con limite
+; de tiempo: sirve para los comandos de fichero (F_OPEN, F_READ...), SAVE
+; y DEL, en los que el MCU confirma cada byte con un cambio de reloj.
+; Carry = timeout.
+; =============================================================
+
+; A = byte -> lo manda. Conserva BC, DE, HL.
+m_send:
+        push bc
+        ld b,a
+        call in_clk
+        ld c,a
+        ld a,b
+        call out_wdiff
+        pop bc
+        ret
+
+; -> A = byte recibido. Conserva BC, DE, HL.
+m_recv:
+        push bc
+        call in_clk
+        ld c,a
+        in a,(DATAPORT)
+        ld b,a
+        call wait_diff
+        ld a,b
+        pop bc
+        ret
+
+; HL = nombre ASCII terminado en 0 -> manda longitud y caracteres. Con
+; E = 1 los pasa a codigo ZX81 (SAVE, DEL), con E = 0 van en ASCII
+; (F_OPEN). Carry = timeout.
+send_name:
+        push hl
+        ld b,0
+sn1:    ld a,(hl)
+        or a
+        jr z,sn2
+        inc b
+        inc hl
+        jr sn1
+sn2:    pop hl
+        ld a,b
+        call m_send
+        ret c
+sn3:    ld a,(hl)
+        or a
+        ret z
+        push hl
+        bit 0,e
+        call nz,asc2zx
+        call m_send
+        pop hl
+        ret c
+        inc hl
+        jr sn3
+
+; A = comando, HL = nombre, E = 1 ZX81 / 0 ASCII -> A = respuesta de un
+; byte (handle o estado). Carry = timeout.
+cmd_name:
+        call m_send
+        ret c
+        call send_name
+        ret c
+        jp m_recv
+
+; A = handle -> A = estado. Carry = timeout.
+f_close1:
+        push af
+        ld a,57                 ; F_CLOSE
+        call m_send
+        pop bc
+        ret c
+        ld a,b
+        call m_send
+        ret c
+        jp m_recv
+
+; A = handle -> (fs_size) = tamano (4 bytes). A = estado. Carry = timeout.
+f_stat1:
+        push af
+        ld a,59                 ; F_STAT
+        call m_send
+        pop bc
+        ret c
+        ld a,b
+        call m_send
+        ret c
+        ld hl,fs_size
+        ld b,8                  ; tamano (4) + fecha y hora (4)
+fs1:    call m_recv
+        ret c
+        ld (hl),a
+        inc hl
+        djnz fs1
+        jp m_recv
+
+; A = handle, DE = cuenta (<= 256) -> rd_buf. A = estado. Carry = timeout.
+f_read1:
+        push af
+        ld a,55                 ; F_READ
+        call m_send
+        pop bc
+        ret c
+        ld a,b
+        call m_send
+        ret c
+        ld a,e
+        call m_send
+        ret c
+        ld a,d
+        call m_send
+        ret c
+        ld hl,rd_buf
+fr1a:   call m_recv
+        ret c
+        ld (hl),a
+        inc hl
+        dec de
+        ld a,d
+        or e
+        jr nz,fr1a
+        jp m_recv
+
+; A = handle, HL = desplazamiento (16 bits) -> A = estado. Carry = timeout.
+f_seek1:
+        push af
+        ld a,54                 ; F_SEEK
+        call m_send
+        pop bc
+        ret c
+        ld a,b
+        call m_send
+        ret c
+        ld a,l
+        call m_send
+        ret c
+        ld a,h
+        call m_send
+        ret c
+        xor a
+        call m_send
+        ret c
+        xor a
+        call m_send
+        ret c
+        jp m_recv
+
+; =============================================================
+; Test 15: lectura de la SD (USR 24621)
+; Lee /SYS/SDBOOST.ROM (F_OPEN/F_STAT/F_READ, bloques de 256) y lo compara
+; con la ROM cargada en memoria (se carga en la direccion 0: bloques 0 y
+; 1). Lo lee dos veces y compara las sumas de control de las dos lecturas.
+; =============================================================
+sr_test:
+        ld hl,s_sr_title
+        call title
+        ld b,2
+        ld hl,s_sr_d1
+        call line
+        call SET_FAST
+        ld hl,0
+        ld (err_a),hl           ; diferencias en el bloque 0
+        ld (err_b),hl           ; diferencias en el bloque 1
+        ld (err_c),hl           ; fallos de la segunda lectura
+        xor a
+        ld (first_done),a
+        ld (sr_second),a
+
+        call sr_pass            ; primera lectura: compara con memoria
+        jp c,sd_to
+        ld hl,(sr_sum)
+        ld (sr_sum1),hl
+        ld a,1
+        ld (sr_second),a
+        call sr_pass            ; segunda: solo la suma
+        jp c,sd_to
+        ld hl,(sr_sum)
+        ld de,(sr_sum1)
+        or a
+        sbc hl,de
+        jr z,srt1
+        ld hl,err_c
+        call inc16
+srt1:    call SLOW_FAST
+        ld b,4
+        ld hl,s_sr_size
+        ld de,(fs_size)
+        call line_num
+        ld b,5
+        ld hl,s_sr_b0
+        ld de,(err_a)
+        call line_num
+        ld b,6
+        ld hl,s_sr_b1
+        ld de,(err_b)
+        call line_num
+        ld b,7
+        ld hl,s_sr_2nd
+        call line
+        ld hl,s_ok
+        ld a,(err_c)
+        or a
+        jr z,srt2
+        ld hl,s_fail
+srt2:    call out_str
+        ld a,(first_done)
+        or a
+        jr z,srt3
+        ld b,8
+        ld hl,s_sr_first
+        call line
+        ld hl,(fe_addr)
+        call out_hex16
+srt3:    ld hl,(err_a)
+        ld de,(err_b)
+        add hl,de
+        ld de,(err_c)
+        add hl,de
+        push hl
+        ld b,10
+        call line_result
+        pop bc
+        ret
+
+; Una lectura completa del fichero. (sr_second) = 0: compara con memoria;
+; 1: solo suma. Deja la suma en sr_sum. Carry = timeout / no se abre.
+sr_pass:
+        ld hl,0
+        ld (sr_sum),hl
+        ld (sr_off),hl
+        ld hl,s_romfile
+        ld e,0
+        ld a,53                 ; F_OPEN (ASCII)
+        call cmd_name
+        ret c
+        cp 0FFh
+        scf
+        ret z                   ; no existe
+        ld (sr_h),a
+        call f_stat1
+        ret c
+srp1:   ld hl,(fs_size)         ; quedan = tamano - desplazamiento
+        ld de,(sr_off)
+        or a
+        sbc hl,de
+        jr z,srp4               ; terminado
+        ld a,h
+        or a
+        ld de,256
+        jr nz,srp2
+        ld e,l                  ; ultimo bloque corto
+        ld d,0
+srp2:   ld (sr_cnt),de
+        ld a,(sr_h)
+        call f_read1
+        ret c
+        ld hl,rd_buf            ; suma y comparacion
+        ld de,(sr_off)
+        ld bc,(sr_cnt)
+srp3:   push bc
+        ld a,(hl)
+        push hl
+        ld hl,(sr_sum)
+        add a,l
+        ld l,a
+        jr nc,srp3a
+        inc h
+srp3a:  ld (sr_sum),hl
+        pop hl
+        ld a,(sr_second)
+        or a
+        jr nz,srp3c
+        ld a,(de)               ; la ROM en memoria, misma direccion
+        cp (hl)
+        jr z,srp3c
+        push hl
+        ld hl,err_a
+        ld a,d
+        cp 20h
+        jr c,srp3b
+        ld hl,err_b
+srp3b:  call inc16
+        ld a,(first_done)
+        or a
+        jr nz,srp3d
+        inc a
+        ld (first_done),a
+        ld (fe_addr),de
+srp3d:  pop hl
+srp3c:  inc hl
+        inc de
+        pop bc
+        dec bc
+        ld a,b
+        or c
+        jr nz,srp3
+        ld (sr_off),de
+        jp srp1
+srp4:   ld a,(sr_h)
+        call f_close1
+        ret
+
+sd_to:  call SLOW_FAST
+        ld b,6
+        ld hl,s_sd_to
+        call line
+        ld hl,1
+        ld b,8
+        call line_result
+        ld bc,9999
+        ret
+
+; =============================================================
+; Test 16: escritura de la SD (USR 24624)
+;   1. SAVE /SD81TEST.TMP con 4096 bytes pseudoaleatorios (semilla fija).
+;   2. F_OPEN + F_STAT (tamano 4096) + F_READ: tiene que coincidir.
+;   3. F_SEEK 1000 + F_WRITE de 256 bytes nuevos; F_SEEK + F_READ: igual.
+;   4. F_CLOSE + DEL; volver a abrirlo tiene que fallar.
+; =============================================================
+SW_SIZE equ 4096
+
+sw_test:
+        ld hl,s_sw_title
+        call title
+        ld b,2
+        ld hl,s_sw_d1
+        call line
+        call SET_FAST
+        ld hl,0
+        ld (err_a),hl
+        ld (err_b),hl
+
+        ld hl,1234h             ; --- 1: SAVE ---
+        ld (xrnd+1),hl
+        ld a,10                 ; SAVE
+        call m_send
+        jp c,sw_to
+        ld hl,s_tmpfile
+        ld e,1
+        call send_name
+        jp c,sw_to
+        xor a                   ; byte bajo de SW_SIZE (4096 = 1000h)
+        call m_send
+        jp c,sw_to
+        ld a,SW_SIZE/256
+        call m_send
+        jp c,sw_to
+        ld bc,SW_SIZE
+swt1:    push bc
+        call xrnd
+        call m_send
+        pop bc
+        jp c,sw_to
+        dec bc
+        ld a,b
+        or c
+        jr nz,swt1
+        call m_recv             ; estado del SAVE
+        jp c,sw_to
+        push af
+        ld b,4
+        ld hl,s_sw_save
+        call line
+        pop af
+        call sw_okfail
+
+        ld hl,s_tmpfile         ; --- 2: abrir, tamano y releer ---
+        ld e,0
+        ld a,53
+        call cmd_name
+        jp c,sw_to
+        cp 0FFh
+        jp z,sw_noopen
+        ld (sr_h),a
+        call f_stat1
+        jp c,sw_to
+        ld hl,(fs_size)
+        ld de,SW_SIZE
+        or a
+        sbc hl,de
+        jr z,swt2
+        ld hl,err_a
+        call inc16
+swt2:    ld hl,1234h
+        ld (xrnd+1),hl
+        ld b,SW_SIZE/256
+swt3:    push bc
+        ld a,(sr_h)
+        ld de,256
+        call f_read1
+        call nc,sw_cmp256
+        pop bc
+        jp c,sw_to
+        djnz swt3
+        ld b,5
+        ld hl,s_sw_read
+        ld de,(err_a)
+        call line_num
+
+        ld a,(sr_h)             ; --- 3: F_SEEK + F_WRITE + relectura ---
+        ld hl,1000
+        call f_seek1
+        jp c,sw_to
+        ld hl,5678h
+        ld (xrnd+1),hl
+        ld a,56                 ; F_WRITE
+        call m_send
+        jp c,sw_to
+        ld a,(sr_h)
+        call m_send
+        jp c,sw_to
+        xor a
+        call m_send             ; 256 = 0100h
+        jp c,sw_to
+        ld a,1
+        call m_send
+        jp c,sw_to
+        ld b,0
+swt4:    push bc
+        call xrnd
+        call m_send
+        pop bc
+        jp c,sw_to
+        djnz swt4
+        call m_recv             ; estado del F_WRITE
+        jp c,sw_to
+        or a
+        jr z,swt5
+        ld hl,err_b
+        call inc16
+swt5:    ld a,(sr_h)
+        ld hl,1000
+        call f_seek1
+        jp c,sw_to
+        ld hl,5678h
+        ld (xrnd+1),hl
+        ld a,(sr_h)
+        ld de,256
+        call f_read1
+        jp c,sw_to
+        ld hl,(err_a)           ; sw_cmp256 cuenta en err_a: se pasa a err_b
+        push hl
+        ld hl,0
+        ld (err_a),hl
+        call sw_cmp256
+        ld hl,(err_a)
+        ld de,(err_b)
+        add hl,de
+        ld (err_b),hl
+        pop hl
+        ld (err_a),hl
+        ld b,6
+        ld hl,s_sw_seek
+        ld de,(err_b)
+        call line_num
+
+        ld a,(sr_h)             ; --- 4: cerrar, borrar y comprobar ---
+        call f_close1
+        jp c,sw_to
+        ld hl,s_tmpfile
+        ld e,1
+        ld a,4                  ; DEL
+        call cmd_name
+        jp c,sw_to
+        push af
+        ld b,7
+        ld hl,s_sw_del
+        call line
+        pop af
+        call sw_okfail
+        ld hl,s_tmpfile
+        ld e,0
+        ld a,53
+        call cmd_name
+        jp c,sw_to
+        cp 0FFh
+        jr z,swt6
+        call f_close1           ; se ha abierto: no se habia borrado
+        ld hl,err_b
+        call inc16
+        ld hl,s_sw_still
+        call out_str
+swt6:    call SLOW_FAST
+        jp two_results
+
+; A = estado -> imprime OK (0) o FAIL (y cuenta en err_b)
+sw_okfail:
+        or a
+        ld hl,s_ok
+        jr z,sof1
+        push af
+        ld hl,err_b
+        call inc16
+        pop af
+        ld hl,s_fail
+sof1:   jp out_str
+
+; Compara rd_buf (256 bytes) con la secuencia de xrnd; cuenta en err_a.
+sw_cmp256:
+        push af
+        ld de,rd_buf
+        ld b,0
+sc1:    push bc
+        push de
+        call xrnd
+        pop de
+        ex de,hl
+        cp (hl)
+        ex de,hl
+        jr z,sc2
+        push de
+        ld hl,err_a
+        call inc16
+        pop de
+sc2:    inc de
+        pop bc
+        djnz sc1
+        pop af
+        or a                    ; NC
+        ret
+
+sw_noopen:
+        call SLOW_FAST
+        ld b,5
+        ld hl,s_sw_noopen
+        call line
+        ld hl,1
+        ld b,8
+        call line_result
+        ld bc,9999
+        ret
+
+sw_to:  jp sd_to
+
+; =============================================================
+; Test 17: paginas de sistema, no destructivo (USR 24627)
+; Las paginas de los bloques 0-3 (ROM, ROM de expansion, BASIC, este
+; programa) vistas por el bloque 5: cada byte se lee, se escribe su
+; complemento, se relee y se restaura. En FAST y con DI. La pagina donde
+; esta el propio bucle de prueba (la 3, este programa) se prueba con una
+; copia del bucle en el buffer de impresora, para no modificar nunca los
+; bytes que se estan ejecutando.
+; =============================================================
+sp_test:
+        ld hl,s_sp_title
+        call title
+        ld b,2
+        ld hl,s_sp_d1
+        call line
+        call SET_FAST
+        di
+        call save_map
+        ld hl,PRBUFF            ; guarda el buffer de impresora
+        ld de,sp_save
+        ld bc,SPL_LEN
+        ldir
+        ld hl,sp_loop           ; copia del bucle en el buffer
+        ld de,PRBUFF
+        ld bc,SPL_LEN
+        ldir
+        ld hl,0
+        ld (err_a),hl
+        ld c,0                  ; C = bloque 0-3 (su pagina)
+spt1:   push bc
+        ld hl,saved_map
+        ld a,l
+        add a,c
+        ld l,a
+        jr nc,spt2
+        inc h
+spt2:   ld a,(hl)
+        ld (sp_page),a
+        ld c,DETBLK
+        call map_page
+        ld hl,DETBLK*2000h
+        ld bc,0                 ; BC = errores de esta pagina
+        ld a,(saved_map+3)      ; la pagina de este programa?
+        ld e,a
+        ld a,(sp_page)
+        cp e
+        jr z,spt3
+        call sp_loop            ; bucle en su sitio
+        jr spt4
+spt3:   call PRBUFF             ; bucle copiado en el buffer
+spt4:   ld (sp_err),bc
+        pop bc
+        push bc
+        ld a,c                  ; fila 4 + bloque
+        add a,4
+        ld b,a
+        ld hl,s_sp_page
+        call line
+        ld a,(sp_page)
+        call out_dec2
+        ld hl,s_sp_errs
+        ld de,(sp_err)
+        call line_num_c
+        ld hl,(err_a)
+        ld de,(sp_err)
+        add hl,de
+        ld (err_a),hl
+        pop bc
+        inc c
+        ld a,c
+        cp 4
+        jp nz,spt1
+
+        ld a,(saved_map+DETBLK) ; restaura el bloque 5 y el buffer
+        ld c,DETBLK
+        call map_page
+        ld hl,sp_save
+        ld de,PRBUFF
+        ld bc,SPL_LEN
+        ldir
+        call SLOW_FAST
+        ld hl,(err_a)
+        ld b,9
+        call line_result
+        ld bc,(err_a)
+        ret
+
+; HL = etiqueta, DE = numero -> los imprime en la posicion actual
+line_num_c:
+        call out_str
+        ex de,hl
+        call out_dec16
+        ex de,hl
+        ret
+
+; Bucle de prueba (independiente de la posicion: solo saltos relativos).
+; HL = inicio del bloque ventana, BC = contador de errores.
+sp_loop:
+        ld a,(hl)
+        ld e,a
+        cpl
+        ld (hl),a
+        cp (hl)                 ; Z si se escribio bien
+        ld (hl),e               ; restaura
+        jr z,spl1
+        inc bc
+spl1:   inc hl
+        ld a,h
+        cp DETBLK*32+32
+        jr nz,sp_loop
+        ret
+SPL_LEN equ $-sp_loop
+
 call_hl:
         jp (hl)
 
@@ -2260,7 +3486,7 @@ out_hex16:
 ; -------------------------------------------------------------
 ; Textos (32 columnas como maximo)
 ; -------------------------------------------------------------
-s_title:   db "SD81 BOOSTER TEST - MEMORY V0.6",0
+s_title:   db "SD81 BOOSTER TEST - MEMORY V0.8",0
 s_mode32:  db "32K MODE: USE LOAD *RAM48 FIRST",0
 s_pages:   db "PAGES: ",0
 s_full:    db " (FULL PAGING)",0
@@ -2280,42 +3506,42 @@ s_block:   db " BLOCK ",0
 s_addr:    db "ADDR ",0
 s_exp:     db " EXP ",0
 s_got:     db " GOT ",0
-s_mc_title: db "SD81 BOOSTER TEST - MC45 V0.6",0
+s_mc_title: db "SD81 BOOSTER TEST - MC45 V0.8",0
 s_mc_code: db "CODE IN BLOCKS 4-5: LD BC,0302",0
 s_mc_on:   db "MC45 ON:  MUST RETURN 0302",0
 s_mc_off:  db "MC45 OFF: FORCED NOPS, 0000",0
 s_mc_head: db "ADDR  MC45 ON     MC45 OFF",0
 s_mc_res:  db "RESULT: ",0
 s_fail:    db "FAIL",0
-s_ms_title: db "SD81 TEST - MAPPER STRESS V0.6",0
+s_ms_title: db "SD81 TEST - MAPPER STRESS V0.8",0
 s_ms_d1:   db "RANDOM OUT $E7 TO BLOCKS 4-7",0
 s_ms_d2:   db "READBACK + PAGE SIGNATURE",0
 s_ms_n:    db "2048 SINGLE, 512 BURSTS OF 4",0
 s_ms_rb:   db "READBACK ERRORS: ",0
 s_ms_rt:   db "ROUTING ERRORS: ",0
-s_pk_title: db "SD81 TEST - POKE 2045 V0.6",0
+s_pk_title: db "SD81 TEST - POKE 2045 V0.8",0
 s_pk_d1:   db "100 X POKE 2045,170 AND 85",0
 s_pk_d2:   db "FRAMES MUST RUN ONLY WHEN ON",0
 s_pk_on:   db "170 (SUPERFAST ON) FAILS: ",0
 s_pk_off:  db "85 (NATIVE) FAILS: ",0
-s_si_title: db "SD81 TEST - SIMULATED INT V0.6",0
+s_si_title: db "SD81 TEST - SIMULATED INT V0.8",0
 s_si_d1:   db "RST 38H X100, POKE 2038-2040",0
 s_si_d2:   db "MUST JUMP ONLY IF ON+SUPERFAST",0
 s_si_en:   db "ON+SUPERFAST (JUMP) FAILS: ",0
 s_si_dis:  db "OFF (NO JUMP) FAILS: ",0
 s_si_sf:   db "ON,NATIVE (NO JUMP) FAILS: ",0
-s_rl_title: db "SD81 TEST - ROMLOCK V0.6",0
+s_rl_title: db "SD81 TEST - ROMLOCK V0.8",0
 s_rl_d1:   db "10 X POKE 2045 WITH/WITHOUT",0
 s_rl_d2:   db "LOAD *ROMLOCK",0
 s_rl_off:  db "UNLOCKED (MUST WORK) FAILS: ",0
 s_rl_on:   db "LOCKED (NO EFFECT) FAILS: ",0
-s_mu_title: db "SD81 TEST - MCU PROTOCOL V0.6",0
+s_mu_title: db "SD81 TEST - MCU PROTOCOL V0.8",0
 s_mu_d1:   db "2000 X SETBYTE + GETBYTE",0
 s_mu_d2:   db "RANDOM INDEX 64-127 AND VALUE",0
 s_mu_n:    db "2000 TRANSFERS DONE",0
 s_mu_err:  db "WRONG VALUES: ",0
 s_mu_to:   db "MCU TIMEOUT AT TRANSFER ",0
-s_in_title: db "SD81 TEST - MACHINE INFO V0.6",0
+s_in_title: db "SD81 TEST - MACHINE INFO V0.8",0
 s_in_mcu:  db "MCU ",0
 s_in_rom:  db "  ROM ",0
 s_in_fpga: db "  FPGA ",0
@@ -2331,7 +3557,7 @@ s_in_own:  db "OWN PAGES (48K)",0
 s_in_mirror: db "MIRROR OF 2/3 (32K)",0
 s_in_map:  db "MAPPER (BLOCK:PAGE)",0
 s_in_ramtop: db "RAMTOP: ",0
-s_up_title: db "SD81 TEST - UNPAGED MEMORY V0.6",0
+s_up_title: db "SD81 TEST - UNPAGED MEMORY V0.8",0
 s_up_d1:   db "BLOCKS 4-7, PAGES P/Q, 4 OFFS.",0
 s_up_d2:   db "0/F:WRITE 00/FF 1/2:PAGE P/Q",0
 s_up_d3:   db "L/R: LOW RAM / ROM ALIAS",0
@@ -2345,10 +3571,59 @@ s_up_1:    db " 1:",0
 s_up_2:    db " 2:",0
 s_up_l:    db " L:",0
 s_up_r:    db " R:",0
+s_rg_title: db "SD81 TEST - MAPPER REGS V0.8",0
+s_rg_d1:   db "EVERY PAGE IN BLOCKS 4-7",0
+s_rg_d2:   db "OTHER FIELD RANDOM, READ ALL 4",0
+s_rg_w:    db "WRITES: ",0
+s_rg_e:    db "READBACK ERRORS: ",0
+s_b0_title: db "SD81 TEST - BLOCK 0 PROTECT V0.8",0
+s_b0_d1:   db "WRITES TO THE ROM (NOT PORTS)",0
+s_b0_d2:   db "MUST BE IGNORED",0
+s_b0_n:    db "10 ADDRESSES TESTED",0
+s_b0_w:    db "WRITABLE: ",0
+s_fr_title: db "SD81 TEST - FRAME RATE V0.8",0
+s_fr_d1:   db "VSYNC PER RTC SECOND",0
+s_fr_nat:  db "NATIVE: ",0
+s_fr_slow: db "NEEDS SLOW MODE",0
+s_fr_sf:   db "SUPERFAST: ",0
+s_fr_fps:  db " FPS",0
+s_rtc_to:  db "RTC TIMEOUT / NOT RUNNING",0
+s_rt_title: db "SD81 TEST - RTC AND BATTERY V0.8",0
+s_rt_now:  db "RTC ",0
+s_rt_run:  db "SECONDS RUNNING: ",0
+s_rt_bat:  db "BATTERY: ",0
+s_rt_range: db " OUT OF RANGE",0
+s_ay_title: db "SD81 TEST - AY REGISTERS V0.8",0
+s_ay_d1:   db "A: $CF/$0F  B: $C7/$07",0
+s_ay_d2:   db "REGS 0,2,4,11,12 X 12 VALUES",0
+s_ay_a:    db "CHIP A ERRORS: ",0
+s_ay_b:    db "CHIP B ERRORS: ",0
+s_sr_title: db "SD81 TEST - SD READ V0.8",0
+s_sr_d1:   db "SDBOOST.ROM VS THE ROM IN RAM",0
+s_sr_size: db "FILE SIZE: ",0
+s_sr_b0:   db "DIFFERENT IN BLOCK 0: ",0
+s_sr_b1:   db "DIFFERENT IN BLOCK 1: ",0
+s_sr_2nd:  db "SECOND READ CHECKSUM: ",0
+s_sr_first: db "FIRST DIFFERENCE AT ",0
+s_sd_to:   db "SD/MCU TIMEOUT OR NO FILE",0
+s_romfile: db "/SYS/SDBOOST.ROM",0
+s_tmpfile: db "/SD81TEST.TMP",0
+s_sw_title: db "SD81 TEST - SD WRITE V0.8",0
+s_sw_d1:   db "/SD81TEST.TMP, 4096 BYTES",0
+s_sw_save: db "SAVE: ",0
+s_sw_read: db "READ BACK ERRORS: ",0
+s_sw_seek: db "SEEK+WRITE ERRORS: ",0
+s_sw_del:  db "DELETE: ",0
+s_sw_still: db " STILL THERE",0
+s_sw_noopen: db "CANNOT OPEN THE FILE",0
+s_sp_title: db "SD81 TEST - SYSTEM PAGES V0.8",0
+s_sp_d1:   db "BLOCKS 0-3, NON DESTRUCTIVE",0
+s_sp_page: db "PAGE ",0
+s_sp_errs: db " ERRORS: ",0
 s_ok_sp:   db " OK",0
 s_bad_sp:  db " BAD",0
 s_fail_n:  db " FAILED",0
-s_m67_title: db "SD81 TEST - MC45 BLOCKS 6-7 V0.6",0
+s_m67_title: db "SD81 TEST - MC45 BLOCKS 6-7 V0.8",0
 s_m67_mirror: db "6/7 MIRROR 2/3: LOAD *RAM48",0
 s_m67_code: db "CODE IN BLOCKS 6-7: LD BC,0302",0
 s_m67_on:  db "MC45+POKE 2062,170: 0302",0
@@ -2401,3 +3676,22 @@ up_r0:      db 0
 up_rf:      db 0
 up_lo:      db 0
 up_ro:      db 0
+rg_exp:     ds 4        ; registros del mapper: paginas esperadas 4-7
+fr_n:       dw 0        ; frecuencia de cuadro: cuadros medidos
+vs_total:   dw 0        ; VSYNC acumulados de las lecturas de $AF
+sec0:       db 0        ; segundos del RTC al empezar a esperar
+rtc_buf:    ds 22       ; "AAAA-MM-DD HH:MM:SS.CC" (codigos ZX81)
+bat_buf:    ds 5        ; "V.mmm" (codigos ZX81)
+ay_err:     dw 0        ; AY: contador de errores del chip en curso
+ay_save:    ds 5        ; AY: registros originales
+fs_size:    ds 8        ; F_STAT: tamano (4) + fecha y hora (4)
+rd_buf:     ds 256      ; bloque leido con F_READ
+sr_sum:     dw 0        ; lectura de SD: suma de la pasada en curso
+sr_sum1:    dw 0        ; suma de la primera pasada
+sr_off:     dw 0        ; desplazamiento en el fichero
+sr_cnt:     dw 0        ; bytes del bloque en curso
+sr_h:       db 0        ; handle del fichero abierto
+sr_second:  db 0        ; 1 = segunda pasada (solo suma)
+sp_page:    db 0        ; paginas de sistema: pagina en curso
+sp_err:     dw 0        ; errores de esa pagina
+sp_save:    ds 33       ; copia del buffer de impresora

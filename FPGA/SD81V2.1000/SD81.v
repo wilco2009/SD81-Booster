@@ -432,13 +432,32 @@ Port $7FEF (01111111 11101111) - IN:
 	wire color_mode = chroma_mode_reg[4];
 	wire color_enable = chroma_mode_reg[5];
 	
+	// ------------------------------------------------------------------
+	// CAPTURA DE ESCRITURAS DEL Z80 (POKEs de configuracion y puertos OUT)
+	//
+	// Todas se muestrean de forma SINCRONA en el flanco de SUBIDA del reloj
+	// del Z80 (negedge iclock, iclock = nCLOCK invertido):
+	//   - escritura en memoria (POKE): el unico flanco de subida con MREQ y
+	//     WR bajos es el de T3 -- direccion estable desde T1, dato desde
+	//     T1/T2, lejos de cualquier transicion;
+	//   - escritura de E/S (OUT): TW y T3, las dos con el mismo dato.
+	// Antes cada registro usaba su propia condicion combinacional como reloj
+	// (always @(posedge xxx_wr)): se capturaba en el instante en que bajaba
+	// /WR (dato quiza aun asentandose en el lado FPGA), y cualquier rebote o
+	// glitch en /WR, /MREQ, /IORQ o las direcciones generaba flancos de mas
+	// con datos transitorios. En el ZX81 caia del lado bueno por casualidad;
+	// en un TS1500 (otra carga/forma del bus) se perdian o corrompian POKEs
+	// de sprites, del mapper, de Superfast... (Mario sin sprites, CP/M+ sin
+	// arrancar). Misma familia que la carrera del NOP forzado (ver
+	// forced_NOP_cycle).
+	// ------------------------------------------------------------------
 	wire chroma_mode_wr = ~nIOWR & (Addr==16'h7FEF);
 	wire chroma_mode_rd = ~nIORD & (Addr==16'h7FEF);
-	always@(posedge chroma_mode_wr or negedge nRESET) 
+	always@(negedge iclock or negedge nRESET)
 	begin
 		if (nRESET==0) begin
 			chroma_mode_reg <= 8'b00001100;
-		end else begin
+		end else if (chroma_mode_wr) begin
 			chroma_mode_reg <= data;
 		end
 	end
@@ -463,7 +482,7 @@ Port $7FEF (01111111 11101111) - IN:
 	always@(negedge nMREQ)
 		if (~nRFSH) ROMTABLE[15:8] = Addr[15:8];
 	
-	always@(posedge poke_wr or negedge nRESET) begin
+	always@(negedge iclock or negedge nRESET) begin
 		if (nRESET == 1'b0) begin
 			border_char[0] <= 8'b00000000;
 			border_char[1] <= 8'b00111100;
@@ -481,7 +500,7 @@ Port $7FEF (01111111 11101111) - IN:
 			sf80_en <= 1'b0;
 			block0Writable <= 1'b0;		// reset: bloque 0 protegido (ROM)
 			wrx_en <= 1'b0;
-		end else begin
+		end else if (poke_wr) begin
 			// POKE 2041,ROMTABLE_low	-> set low part of ROMTABLE addr
 			// POKE 2042,ROMTABLE_high	-> set high part of ROMTABLE addr
 			// POKE 2043,HFILE_low		-> set low part of HFILE addr
@@ -496,8 +515,8 @@ Port $7FEF (01111111 11101111) - IN:
 			// POKE 2048..2055			-> define border pattern (8 bytes)
 //			if (Addr == 16'd2041) ROMTABLE[7:0] = data;
 //			if (Addr == 16'd2042) ROMTABLE[15:8] = data;
-			if (Addr == 16'd2043) HFILE[7:0] = data;
-			if (Addr == 16'd2044) HFILE[15:8] = data;
+			if (Addr == 16'd2043) HFILE[7:0] <= data;
+			if (Addr == 16'd2044) HFILE[15:8] <= data;
 			if ((Addr == 16'd2045) && (data==8'd170)) begin
 				sfast_mode_en <= 1'b1;
 				sfHR_en <= 1'b0;
@@ -565,9 +584,9 @@ Port $7FEF (01111111 11101111) - IN:
 	// efecto en modo nativo (no Superfast); ver sfast_mode_en en col_cnt_b.
 	reg [2:0] sf_hscroll = 3'd0;
 	wire sf_hscroll_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2090);
-	always @(posedge sf_hscroll_wr or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf_hscroll <= 3'd0;
-		else sf_hscroll <= data[2:0];
+		else if (sf_hscroll_wr) sf_hscroll <= data[2:0];
 	end
 
 	// POKE 2094 (0-15): CALIBRACION de la PRUEBA de 80 columnas. Desplaza
@@ -576,9 +595,9 @@ Port $7FEF (01111111 11101111) - IN:
 	// col_cnt_b. Por defecto 0 (valor de partida, 138).
 	reg [3:0] sf80_x_shift = 4'd0;
 	wire sf80_x_shift_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2094);
-	always @(posedge sf80_x_shift_wr or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf80_x_shift <= 4'd0;
-		else sf80_x_shift <= data[3:0];
+		else if (sf80_x_shift_wr) sf80_x_shift <= data[3:0];
 	end
 
 	// POKE 2095 (0-15): recorta el ANCHO activo en caracteres (80-N), por
@@ -587,9 +606,9 @@ Port $7FEF (01111111 11101111) - IN:
 	// "cuanto mide" para saber cuantas columnas caben de verdad.
 	reg [3:0] sf80_width_trim = 4'd0;
 	wire sf80_width_trim_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2095);
-	always @(posedge sf80_width_trim_wr or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf80_width_trim <= 4'd0;
-		else sf80_width_trim <= data[3:0];
+		else if (sf80_width_trim_wr) sf80_width_trim <= data[3:0];
 	end
 
 	// POKE 2091/2092/2093: mapa de bits de que filas de texto (0-23) aplican
@@ -604,17 +623,17 @@ Port $7FEF (01111111 11101111) - IN:
 	wire sf_hscroll_rows_l_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2091);
 	wire sf_hscroll_rows_m_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2092);
 	wire sf_hscroll_rows_h_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2093);
-	always @(posedge sf_hscroll_rows_l_wr or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf_hscroll_rows_l <= 8'hFF;
-		else sf_hscroll_rows_l <= data;
+		else if (sf_hscroll_rows_l_wr) sf_hscroll_rows_l <= data;
 	end
-	always @(posedge sf_hscroll_rows_m_wr or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf_hscroll_rows_m <= 8'hFF;
-		else sf_hscroll_rows_m <= data;
+		else if (sf_hscroll_rows_m_wr) sf_hscroll_rows_m <= data;
 	end
-	always @(posedge sf_hscroll_rows_h_wr or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf_hscroll_rows_h <= 8'hFF;
-		else sf_hscroll_rows_h <= data;
+		else if (sf_hscroll_rows_h_wr) sf_hscroll_rows_h <= data;
 	end
 
 	// POKE 2096/2097 (16 bits, low/high) + POKE 2098: direccion de pantalla
@@ -644,22 +663,22 @@ Port $7FEF (01111111 11101111) - IN:
 	// (D_FILE), sin depender de si alguien activo el override antes y se
 	// olvido de desactivarlo. dfile_ovr_en solo puede tener un always que
 	// lo controle (regla de un solo driver), asi que esta condicion se
-	// mete en la sensibilidad de su propio always en vez de en el bloque
-	// de POKE 2045 (que solo llega hasta la direccion 2058).
+	// comprueba en su propio always en vez de en el bloque de POKE 2045
+	// (que solo llega hasta la direccion 2058).
 	wire dfile_ovr_clear = poke_wr && (Addr==16'd2045) && (data==8'd85);
-	always @(posedge dfile_ovr_lo_wr or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) DFILE_OVERRIDE[7:0] <= 8'd0;
-		else DFILE_OVERRIDE[7:0] <= data;
+		else if (dfile_ovr_lo_wr) DFILE_OVERRIDE[7:0] <= data;
 	end
-	always @(posedge dfile_ovr_hi_wr or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) DFILE_OVERRIDE[15:8] <= 8'd0;
-		else DFILE_OVERRIDE[15:8] <= data;
+		else if (dfile_ovr_hi_wr) DFILE_OVERRIDE[15:8] <= data;
 	end
-	always @(posedge dfile_ovr_en_wr or posedge dfile_ovr_clear or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) dfile_ovr_en <= 1'b0;
 		else if (dfile_ovr_clear) dfile_ovr_en <= 1'b0;	// POKE 2045,85: modo nativo
-		else if (data==8'd170) dfile_ovr_en <= 1'b1;	// POKE 2098,170: activa el override
-		else if (data==8'd85) dfile_ovr_en <= 1'b0;	// POKE 2098,85: vuelve a D_FILE
+		else if (dfile_ovr_en_wr && data==8'd170) dfile_ovr_en <= 1'b1;	// POKE 2098,170: activa el override
+		else if (dfile_ovr_en_wr && data==8'd85) dfile_ovr_en <= 1'b0;	// POKE 2098,85: vuelve a D_FILE
 	end
 	// Direccion de pantalla EFECTIVA que usan char_addr/char_addr_80/
 	// attr_addr_m1: DFILE_OVERRIDE si esta activado, o el DFILE de siempre
@@ -686,21 +705,21 @@ Port $7FEF (01111111 11101111) - IN:
 	wire attr_ovr_lo_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2059);
 	wire attr_ovr_hi_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2060);
 	wire attr_ovr_en_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2061);
-	always @(posedge attr_ovr_lo_wr or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) ATTR_BASE_OVERRIDE[7:0] <= 8'd0;
-		else ATTR_BASE_OVERRIDE[7:0] <= data;
+		else if (attr_ovr_lo_wr) ATTR_BASE_OVERRIDE[7:0] <= data;
 	end
-	always @(posedge attr_ovr_hi_wr or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) ATTR_BASE_OVERRIDE[15:8] <= 8'd0;
-		else ATTR_BASE_OVERRIDE[15:8] <= data;
+		else if (attr_ovr_hi_wr) ATTR_BASE_OVERRIDE[15:8] <= data;
 	end
 	// Mismo dfile_ovr_clear de arriba (POKE 2045,85): volver a nativo
 	// desactiva los dos overrides a la vez, no solo el de D_FILE.
-	always @(posedge attr_ovr_en_wr or posedge dfile_ovr_clear or negedge nRESET) begin
+	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) attr_ovr_en <= 1'b0;
 		else if (dfile_ovr_clear) attr_ovr_en <= 1'b0;	// POKE 2045,85: modo nativo
-		else if (data==8'd170) attr_ovr_en <= 1'b1;	// POKE 2061,170: activa el override
-		else if (data==8'd85) attr_ovr_en <= 1'b0;	// POKE 2061,85: vuelve al de siempre
+		else if (attr_ovr_en_wr && data==8'd170) attr_ovr_en <= 1'b1;	// POKE 2061,170: activa el override
+		else if (attr_ovr_en_wr && data==8'd85) attr_ovr_en <= 1'b0;	// POKE 2061,85: vuelve al de siempre
 	end
 
 	// Fila de texto actual (0-23), calculada directamente de line_cnt: es
@@ -746,14 +765,35 @@ Port $7FEF (01111111 11101111) - IN:
 	wire sprite_poke_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) &&
 								 (Addr >= SPR_SEL_ADDR) && (Addr < SPR_BASE_ADDR+28);
 
+	// Todo se captura en el flanco de subida de T3 (ver "CAPTURA DE
+	// ESCRITURAS DEL Z80" arriba) y se entrega a los sprite_slot (dominio
+	// pixel_clk) como registros ESTABLES: campo, dato y sprite destino solo
+	// cambian con una escritura nueva, y spr_we dura un ciclo de reloj del
+	// Z80 (~307ns, 2 flancos de pixel_clk que escriben el mismo valor). Antes
+	// los slots muestreaban a pixel_clk las lineas crudas de direccion/dato
+	// mientras duraba /WR, y la ultima muestra podia caer justo en la subida
+	// de /WR con la direccion o el dato cambiando: campo o valor equivocados.
 	reg [7:0] spr_sel = 8'd0;
-	always @(posedge sprite_poke_wr or negedge nRESET) begin
-		if (nRESET == 1'b0) spr_sel <= 8'd0;
-		else if (Addr == SPR_SEL_ADDR) spr_sel <= data;
+	reg       spr_we = 1'b0;
+	reg [4:0] spr_field = 5'd0;
+	reg [7:0] spr_data = 8'd0;
+	reg [7:0] spr_dest = 8'd0;
+	always @(negedge iclock or negedge nRESET) begin
+		if (nRESET == 1'b0) begin
+			spr_sel <= 8'd0;
+			spr_we <= 1'b0;
+		end else begin
+			spr_we <= sprite_poke_wr && (Addr >= SPR_BASE_ADDR);
+			if (sprite_poke_wr) begin
+				if (Addr == SPR_SEL_ADDR) spr_sel <= data;
+				else begin
+					spr_field <= Addr[4:0] - SPR_BASE_ADDR[4:0];
+					spr_data <= data;
+					spr_dest <= spr_sel;
+				end
+			end
+		end
 	end
-
-	wire       spr_field_wr = sprite_poke_wr && (Addr >= SPR_BASE_ADDR);
-	wire [4:0] spr_field    = Addr[4:0] - SPR_BASE_ADDR[4:0];
 
 	// Origen de coordenadas de los sprites: columna 0 / fila 0 = esquina
 	// superior izquierda del area visible, para que el programador use las
@@ -809,14 +849,14 @@ Port $7FEF (01111111 11101111) - IN:
 	genvar si;
 	generate
 		for (si = 0; si < NUM_SPRITES; si = si + 1) begin : SPRITES
-			wire this_spr_sel = spr_field_wr && (spr_sel == si);
+			wire this_spr_sel = spr_we && (spr_dest == si);
 			sprite_slot sprite_inst (
 				.clk(pixel_clk),
 				.reset(~nRESET),
 				.cfg_sel(this_spr_sel),
 				.cfg_field(spr_field),
-				.cfg_data(data),
-				.cfg_we(spr_field_wr),
+				.cfg_data(spr_data),
+				.cfg_we(spr_we),
 				.pos_x(spr_pos_x),
 				.pos_y(spr_pos_y),
 				.active(spr_active[si]),
@@ -1118,14 +1158,15 @@ Port $7FEF (01111111 11101111) - IN:
 									{ROMTABLE[15:10],SEL_128CHARS?char_latch_fast[7]:ROMTABLE[9],char_latch_fast[5:0],line_cnt_b}; //superfast textmode
 									
 	reg [1:0] beeper_reg = 0;
-	always@(negedge cs_SPULA or negedge nRESET)
+	// Captura sincrona (TW/T3 del OUT), ver "CAPTURA DE ESCRITURAS DEL Z80".
+	always@(negedge iclock or negedge nRESET)
 	begin
 		if (nRESET==0) begin
-			sp_border = 3'h7;
-			beeper_reg = 2'b0;
-		end else begin 
-			sp_border = data[2:0];
-			beeper_reg = data[4:3];
+			sp_border <= 3'h7;
+			beeper_reg <= 2'b0;
+		end else if (cs_SPULA) begin
+			sp_border <= data[2:0];
+			beeper_reg <= data[4:3];
 		end
 	end
 	
@@ -1654,8 +1695,21 @@ assign DEBUG_RDY = 1'b0;
 //    INTERRUPTS SIMULATION
 // ***************************************************
 
-	wire enable_int = ~nMREQ&&~nWR&&(Addr==16'd2040)&&D0;
-	wire disable_int = ~nMREQ&&~nWR&&(Addr==16'd2040)&&~D0;
+	// POKE 2040: se registra en el flanco de subida de T3 (ver "CAPTURA DE
+	// ESCRITURAS DEL Z80") y sim_int recibe un pulso limpio de un ciclo de
+	// reloj del Z80, en vez de la condicion combinacional cruda (con D0
+	// muestreado a system_clk mientras duraba /WR).
+	reg enable_int = 1'b0;
+	reg disable_int = 1'b0;
+	always @(negedge iclock or negedge nRESET) begin
+		if (nRESET == 1'b0) begin
+			enable_int <= 1'b0;
+			disable_int <= 1'b0;
+		end else begin
+			enable_int <= ~nMREQ && ~nWR && (Addr==16'd2040) && D0;
+			disable_int <= ~nMREQ && ~nWR && (Addr==16'd2040) && ~D0;
+		end
+	end
 	reg [15:0] int_addr = 16514;
 	wire [7:0] int_data_out;
 	wire int_out_en;
@@ -1672,7 +1726,7 @@ assign DEBUG_RDY = 1'b0;
 	// POKE 2038,int_addr_low	-> set low part of la rutina de interrupciones simuladas
 	// POKE 2039,int_addr_high	-> set high part de la rutina de interrupciones simuladas
 	// POKE 2040,1/0			-> enable_int / disable_int (interrupciones simuladas SUPERFAST/SPECTRUM)
-	always@(posedge iclock or negedge nRESET) begin
+	always@(negedge iclock or negedge nRESET) begin
 		if (nRESET == 1'b0) begin
 			int_mode <= 0;
 		end else if (poke_wr_int) begin
@@ -1716,8 +1770,9 @@ assign DEBUG_RDY = 1'b0;
 		// comparte el patron x8h).
 		wire dbuf_port_wr = mapper_port_wr && (D3&~D2&~D1&~D0) && (FULL_PAGING || block0Writable);
 
-		// mapper port
-		always @(posedge mapper_port_wr or negedge nRESET)
+		// mapper port -- captura sincrona en TW/T3 del OUT (ver "CAPTURA DE
+		// ESCRITURAS DEL Z80"); las dos muestras escriben el mismo valor.
+		always @(negedge iclock or negedge nRESET)
 		begin
 			if (nRESET==1'b0)
 			begin
@@ -1729,7 +1784,7 @@ assign DEBUG_RDY = 1'b0;
 				block[5] <= 6'd5;
 				block[6] <= ~nMODE48K?6'd6:6'd2;
 				block[7] <= ~nMODE48K?6'd7:6'd3;
-			end else begin
+			end else if (mapper_port_wr) begin
 				// pseudo-bloque 8: no tocar la tabla de bloques
 				if (!((D3&~D2&~D1&~D0) && (FULL_PAGING || block0Writable)))
 					block[{D2,D1,D0}] <= FULL_PAGING ? {A13,A12,A11,A10,A9,A8} : {1'b0,D7,D6,D5,D4,D3};
@@ -1748,35 +1803,49 @@ assign DEBUG_RDY = 1'b0;
 		//     bits2:0 = front_blk;  B=0 = OFF
 		reg old_poke2057 = 1'b0;
 		reg old_dbufport = 1'b0;
-		wire poke2057 = poke_wr && (Addr == 16'd2057);
+		// Las dos vias se registran en el flanco de subida de T3 (ver
+		// "CAPTURA DE ESCRITURAS DEL Z80"): poke2057/dbuf_port_s son pulsos
+		// limpios de un ciclo del Z80 y dbuf_val/dbuf_port_val guardan el
+		// valor estable. Antes se detectaba el flanco de la condicion cruda a
+		// system_clk y se leia 'data' en la primera muestra, justo al bajar /WR.
+		reg poke2057 = 1'b0;
+		reg dbuf_port_s = 1'b0;
+		reg [7:0] dbuf_val = 8'd0;
+		reg [4:0] dbuf_port_val = 5'd0;		// {A13,A12,A10,A9,A8}
+		always @(negedge iclock) begin
+			poke2057 <= poke_wr && (Addr == 16'd2057);
+			dbuf_port_s <= dbuf_port_wr;
+			if (poke_wr && (Addr == 16'd2057)) dbuf_val <= data;
+			if (dbuf_port_wr) dbuf_port_val <= {A13,A12,A10,A9,A8};
+		end
 		always @(posedge system_clk) begin
 			old_poke2057 <= poke2057;
-			old_dbufport <= dbuf_port_wr;
+			old_dbufport <= dbuf_port_s;
 			if (~nRESET) begin
 				dbuf_en <= 1'b0;
 				auto_blit_en <= 1'b0;
 			end else begin
 				if (poke2057 & ~old_poke2057) begin
-					if (data[7:3]==5'b10101) begin		// 168+blk: AUTO
+					if (dbuf_val[7:3]==5'b10101) begin		// 168+blk: AUTO
 						dbuf_en      <= 1'b1;
-						front_blk    <= data[2:0];
+						front_blk    <= dbuf_val[2:0];
 						auto_blit_en <= 1'b1;
 					end
-					if (data[7:3]==5'b11001) begin		// 200+blk: MANUAL
+					if (dbuf_val[7:3]==5'b11001) begin		// 200+blk: MANUAL
 						dbuf_en      <= 1'b1;
-						front_blk    <= data[2:0];
+						front_blk    <= dbuf_val[2:0];
 						auto_blit_en <= 1'b0;
 					end
-					if (data==8'd85) begin
+					if (dbuf_val==8'd85) begin
 						dbuf_en      <= 1'b0;
 						auto_blit_en <= 1'b0;
 					end
 				end
-				if (dbuf_port_wr & ~old_dbufport) begin
-					if (A13) begin							// bit5 del valor (B) = enable
+				if (dbuf_port_s & ~old_dbufport) begin
+					if (dbuf_port_val[4]) begin							// bit5 del valor (B) = enable
 						dbuf_en      <= 1'b1;
-						front_blk    <= {A10,A9,A8};		// bits2:0 del valor = front_blk
-						auto_blit_en <= ~A12;					// bit4 del valor (B): 0=AUTO, 1=MANUAL
+						front_blk    <= dbuf_port_val[2:0];		// bits2:0 del valor = front_blk
+						auto_blit_en <= ~dbuf_port_val[3];					// bit4 del valor (B): 0=AUTO, 1=MANUAL
 					end else begin
 						dbuf_en      <= 1'b0;
 						auto_blit_en <= 1'b0;
@@ -1829,10 +1898,10 @@ assign DEBUG_RDY = 1'b0;
 		// 6/7 y que nada mas del sistema va a tocar esa zona mientras tanto.
 		reg mc45_ext67 = 1'b0;
 		wire mc45_ext67_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2062);
-		always @(posedge mc45_ext67_wr or negedge nRESET) begin
+		always @(negedge iclock or negedge nRESET) begin
 			if (nRESET==1'b0) mc45_ext67 <= 1'b0;
-			else if (data==8'd170) mc45_ext67 <= 1'b1;
-			else if (data==8'd85) mc45_ext67 <= 1'b0;
+			else if (mc45_ext67_wr && data==8'd170) mc45_ext67 <= 1'b1;
+			else if (mc45_ext67_wr && data==8'd85) mc45_ext67 <= 1'b0;
 		end
 		wire M1NOT_signal = ~nM1 & ~nMREQ & ~nRD & A15 & (mc45_ext67 | ~A14);
 		assign nHALT = M1NOT_signal & EN_MC45? 1'b0: 1'bz;
@@ -1901,7 +1970,12 @@ assign DEBUG_RDY = 1'b0;
 		assign nWRx =~nRESET?1'bz:(nWR | nMREQ | ((~A13&~A14&~A15)&~block0Writable) );
 		
 		//external MEM active for RAM and ROM
-		assign nMEM_OE = ~nRESET?nMEM_OEm:int_dataout_en?1'b1:&nRD&nRFSH|nMREQ&nRFSH;
+		// La SRAM se apaga cuando es la FPGA la que sirve el dato: el JP de las
+		// interrupciones simuladas y la lectura de FRAMES en Superfast (16436/
+		// 16437, contador que decrementa la FPGA). Sin lFRAMES_read/
+		// hFRAMES_read aqui, la SRAM y la FPGA conducian el bus a la vez y
+		// se leia el valor de la RAM (o una mezcla): FRAMES parecia parado.
+		assign nMEM_OE = ~nRESET?nMEM_OEm:(int_dataout_en|lFRAMES_read|hFRAMES_read)?1'b1:&nRD&nRFSH|nMREQ&nRFSH;
 		
 // ************************************************
 //		AY-8912

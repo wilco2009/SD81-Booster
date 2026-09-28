@@ -6,15 +6,37 @@ creciendo por fases (ver el plan al final).
 
 ## Ensamblar
 
+El programa está partido en un núcleo y tres módulos. Primero hay que
+ensamblar el núcleo, que genera `sd81test.sym`, y después los módulos, que
+incluyen ese `.sym` para usar las rutinas del núcleo:
+
 ```
-pasmo sd81test.asm SD81TEST.BIN
+pasmo sd81test.asm SD81TEST.BIN sd81test.sym
+pasmo sd81mem.asm SD81MEM.BIN
+pasmo sd81sys.asm SD81SYS.BIN
+pasmo sd81av.asm SD81AV.BIN
 ```
+
+Cualquier cambio en el núcleo obliga a reensamblar los tres módulos. Si
+no se hace, el núcleo lo detecta y no los ejecuta (ver más abajo).
+
+`compila.bat` hace los cuatro pasos, se para en el primer error y copia los
+binarios a la carpeta `SD81\TEST` del emulador EightyOne. También genera el
+`.sym` de cada módulo.
+
+| Fichero | Dirección | Contenido |
+|---|---|---|
+| `SD81TEST.BIN` (`sd81test.asm`) | 20480 (`$5000`) | núcleo: tabla de saltos, rutinas comunes (pantalla, teclado, MCU, mapper), textos y variables compartidas |
+| `SD81MEM.BIN` (`sd81mem.asm`) | 24576 (`$6000`) | memoria, mapper, ejecución (MC45) y puertos mapeados en memoria |
+| `SD81SYS.BIN` (`sd81sys.asm`) | 24576 (`$6000`) | protocolo MCU, información, frecuencia de cuadro, RTC y SD |
+| `SD81AV.BIN` (`sd81av.asm`) | 24576 (`$6000`) | AY, sprites, borde, Chroma81, Superfast, teclado y sonido |
 
 ## Uso
 
-Copia `SD81TEST.BIN` y el stub BASIC (`SD81TEST.B81`, pásalo a `.P` con el
-emulador) a la misma carpeta de la SD. El stub carga el binario y muestra
-un menú por categorías, cada una con su submenú:
+Copia los cuatro `.BIN` y el stub BASIC (`SD81TEST.B81`, pásalo a `.P` con
+el emulador) a la misma carpeta de la SD. El stub carga el núcleo, y antes
+de cada prueba carga su módulo si no está ya cargado. Muestra un menú por
+categorías, cada una con su submenú:
 
 ```
 SD81 BOOSTER HARDWARE TEST
@@ -25,48 +47,80 @@ SD81 BOOSTER HARDWARE TEST
 4 MCU, RTC AND SD
 5 VIDEO
 6 SOUND
-7 MACHINE INFO
+7 INPUT (KEYBOARD, JOYSTICK)
+8 MACHINE INFO
 0 EXIT
 ```
 
-El menú está en BASIC a propósito: cuando el programa corre en FAST la
-pantalla solo se ve mientras el BASIC espera (`PAUSE`/`INPUT`). Cada prueba
+El menú está en BASIC y en SLOW. No espera las teclas con `PAUSE`, porque
+en SLOW `PAUSE` pasa a FAST y genera la imagen por su cuenta, y la imagen
+salta al entrar y al salir. Tampoco usa un bucle con `INKEY$`, porque en
+SLOW da una vuelta cada muchos milisegundos y se come las pulsaciones
+cortas. Usa dos rutinas del núcleo que leen el teclado sin parar:
+`USR 20552` espera una cifra y devuelve su valor, y `USR 20555` espera una
+tecla cualquiera. Las pruebas solo pasan a FAST cuando
+lo necesitan: si miden con FRAMES, si tocan la ROM o la página del vídeo,
+o si remapean bloques que en modo 32K son el espejo del vídeo. Cada prueba
 tiene un punto de entrada fijo en la tabla de saltos del principio del
-binario (prueba N en `USR 24576+3*N`, así añadir pruebas no cambia las
+núcleo (prueba N en `USR 20480+3*N`, así añadir pruebas no cambia las
 anteriores), deja sus resultados en pantalla y devuelve su número de
-fallos:
+fallos. La entrada del núcleo comprueba que en `$6000` está el módulo de
+esa prueba, ensamblado con este núcleo: la cabecera del módulo lleva su
+número y el `bss_end` del núcleo. Si no, escribe `MODULE MISSING OR
+OUTDATED` y devuelve 9999. Para llamar a una prueba a mano con `USR`, hay
+que cargar antes su módulo con `LOAD FAST "SD81xxx.BIN" CODE 24576`.
+Las entradas 24 y 25 (`USR 20552` y `USR 20555`) son las rutinas de
+teclado del menú; las pruebas nuevas irán a partir de la 26.
 
-| N | Entrada | Prueba | Devuelve |
-|---|---|---|---|
-| 0 | `USR 24576` | Memoria (destructiva) | páginas con errores (255 = no se ejecutó, modo 32K) |
-| 1 | `USR 24579` | MC45 bloques 4–5 | comprobaciones fallidas (0–10) |
-| 2 | `USR 24582` | MC45 bloques 6–7 | comprobaciones fallidas (0–8; 255 = no se ejecutó) |
-| 3 | `USR 24585` | Estrés del mapper | errores de relectura + enrutado |
-| 4 | `USR 24588` | Captura de `POKE 2045` | fallos (de 200) |
-| 5 | `USR 24591` | Interrupciones simuladas | fallos (de 300) |
-| 6 | `USR 24594` | ROMLOCK | fallos (de 30) |
-| 7 | `USR 24597` | Protocolo con el MCU | valores erróneos (9999 = el MCU dejó de contestar) |
-| 8 | `USR 24600` | Información de la máquina | 0 |
-| 9 | `USR 24603` | Memoria no paginada en los bloques 4–7 | comprobaciones que no son PAGED (0–16) |
-| 10 | `USR 24606` | Registros del mapper | lecturas erróneas |
-| 11 | `USR 24609` | Protección del bloque 0 | direcciones que se han podido escribir (0–10) |
-| 12 | `USR 24612` | Frecuencia de cuadro | medidas fuera de rango (9999 = el RTC no contesta) |
-| 13 | `USR 24615` | RTC y batería | fallos (9999 = el RTC no contesta) |
-| 14 | `USR 24618` | Registros de los AY | lecturas erróneas |
-| 15 | `USR 24621` | Lectura de la SD | bytes distintos (9999 = timeout o no hay fichero) |
-| 16 | `USR 24624` | Escritura de la SD | fallos (9999 = timeout o no se puede abrir) |
-| 17 | `USR 24627` | Páginas de sistema (bloques 0–3) | bytes que no se pueden escribir |
+| N | Entrada | Módulo | Prueba | Devuelve |
+|---|---|---|---|---|
+| 0 | `USR 20480` | MEM | Memoria (destructiva) | páginas con errores (255 = no se ejecutó, modo 32K) |
+| 1 | `USR 20483` | MEM | MC45 bloques 4–5 | comprobaciones fallidas (0–10) |
+| 2 | `USR 20486` | MEM | MC45 bloques 6–7 | comprobaciones fallidas (0–8; 255 = no se ejecutó) |
+| 3 | `USR 20489` | MEM | Estrés del mapper | errores de relectura + enrutado |
+| 4 | `USR 20492` | MEM | Captura de `POKE 2045` | fallos (de 200) |
+| 5 | `USR 20495` | — | *(reservada: interrupciones simuladas, quitada de momento)* | siempre 9999 |
+| 6 | `USR 20498` | MEM | ROMLOCK | fallos (de 30) |
+| 7 | `USR 20501` | SYS | Protocolo con el MCU | valores erróneos (9999 = el MCU dejó de contestar) |
+| 8 | `USR 20504` | SYS | Información de la máquina | 0 |
+| 9 | `USR 20507` | MEM | Memoria no paginada en los bloques 4–7 | comprobaciones que no son PAGED (0–16) |
+| 10 | `USR 20510` | MEM | Registros del mapper | lecturas erróneas |
+| 11 | `USR 20513` | MEM | Protección del bloque 0 | direcciones que se han podido escribir (0–10) |
+| 12 | `USR 20516` | SYS | Frecuencia de cuadro | medidas fuera de rango (9999 = el RTC no contesta) |
+| 13 | `USR 20519` | SYS | RTC y batería | fallos (9999 = el RTC no contesta) |
+| 14 | `USR 20522` | AV | Registros de los AY | lecturas erróneas |
+| 15 | `USR 20525` | SYS | Lectura de la SD | bytes distintos (9999 = timeout o no hay fichero) |
+| 16 | `USR 20528` | SYS | Escritura de la SD | fallos (9999 = timeout o no se puede abrir) |
+| 17 | `USR 20531` | MEM | Páginas de sistema (bloques 0–3) | bytes que no se pueden escribir |
+| 18 | `USR 20534` | AV | Sprites (interactiva) | respuestas N (0–3) |
+| 19 | `USR 20537` | AV | Patrón de borde (interactiva) | respuestas N (0–1) |
+| 20 | `USR 20540` | AV | Chroma81 (interactiva) | respuestas N (0–1) |
+| 21 | `USR 20543` | AV | Modos Superfast (interactiva) | respuestas N (0–3) |
+| 22 | `USR 20546` | AV | Teclado y joystick (interactiva) | respuestas N (0–1) |
+| 23 | `USR 20549` | AV | Sonido (interactiva) | respuestas N (0–2) |
+| 24 | `USR 20552` | — | *(utilidad del menú: espera una cifra)* | la cifra |
+| 25 | `USR 20555` | — | *(utilidad del menú: espera una tecla)* | — |
+| 26 | `USR 20558` | AV | Juegos de caracteres 128C y 256C (interactiva) | respuestas N (0–3) |
+| 27 | `USR 20561` | AV | 70 y 80 columnas (interactiva) | respuestas N (0–2) |
+| 28 | `USR 20564` | AV | Scroll fino (interactiva) | respuestas N (0–1) |
+| 29 | `USR 20567` | AV | Chroma81 modo 1 (interactiva) | respuestas N (0–2) |
+| 30 | `USR 20570` | AV | Doble buffer (interactiva) | respuestas N (0–3) |
 
-- El programa vive en 24576 ($6000, bloque 3), por encima de RAMTOP.
+- Todo vive en los bloques 2 y 3, por encima de RAMTOP, y tiene que quedar
+  por debajo de `$8000`, porque las pruebas remapean los bloques 4–7:
+  - El núcleo va de 20480 (`$5000`) a `$5FFF`. Su final real, con los
+    buffers, que no van en el `.bin`, es `bss_end` en `sd81test.sym`.
+  - Cada módulo va de `$6000` a `$7FFF`, el bloque 3 entero. Su final es
+    `mbss_end`.
 - Necesita el **modo 48K** (el de defecto) para el test de memoria y el de
   MC45 en los bloques 6–7: en modo 32K (`LOAD *RAM48 STOP`) los bloques 6/7
   son el espejo que lee el vídeo; esos tests lo detectan y no arrancan.
 - Para probar las 64 páginas (512K), ejecuta antes `LOAD *FULLPAG`. En
   paginación simple solo se prueban 32.
-- Las pruebas que remapean bloques, activan Superfast o hablan con el MCU
-  se ejecutan en FAST con las rutinas de la ROM `SET_FAST` (`$02E7`) y
-  `SLOW_FAST` (`$0207`), las mismas que el `LOAD` del interface: da igual
-  llamarlas desde FAST o desde SLOW.
+- Las pruebas que necesitan FAST usan las rutinas de la ROM `SET_FAST`
+  (`$02E7`) y `SLOW_FAST` (`$0207`), las mismas que el `LOAD` del
+  interface. Da igual llamarlas desde FAST o desde SLOW. Las de protocolo
+  MCU e información van en SLOW; las de SD, en FAST, porque tardan.
 
 **El test de memoria es destructivo** para todas las páginas que no son de
 sistema: discos RAM de CP/M, pantallas guardadas, etc. Lo normal es
@@ -95,7 +149,7 @@ restaura los bytes que usa como firma).
 ### Pantalla
 
 ```
-SD81 BOOSTER TEST - MEMORY V0.8
+SD81 BOOSTER TEST - MEMORY V0.9
 PAGES: 64 (FULL PAGING)
 S=SYSTEM .=OK X=FAIL R=ROUTING
 
@@ -143,7 +197,7 @@ fuerza de verdad los NOPs por encima de 32K, que es justo lo que MC45 tiene
 que anular. Al terminar deja MC45 apagado.
 
 ```
-SD81 BOOSTER TEST - MC45 V0.8
+SD81 BOOSTER TEST - MC45 V0.9
 
 CODE IN BLOCKS 4-5: LD BC,0302
 MC45 ON:  MUST RETURN 0302
@@ -173,7 +227,8 @@ cuatro direcciones de esos bloques y lo ejecuta:
 Por eso solo se prueba en direcciones cuyo "espejo" en los bloques 2/3
 controla el programa y contiene un `RET`: `$C03C` y `$C040` (su espejo es el
 buffer de impresora, `$403C`/`$4040`, que se guarda y se restaura) y dos
-direcciones `$E000+x` cuyo espejo `$6000+x` está dentro del propio programa.
+direcciones del bloque 6 o 7 cuyo espejo (la misma dirección menos `$8000`)
+cae dentro del propio programa.
 Saltar a cualquier otra dirección ejecutaría variables de sistema o el
 BASIC y colgaría la máquina.
 
@@ -189,7 +244,7 @@ BASIC y colgaría la máquina.
 - Al terminar deja MC45 y la extensión apagados.
 
 ```
-SD81 TEST - MC45 BLOCKS 6-7 V0.8
+SD81 TEST - MC45 BLOCKS 6-7 V0.9
 
 CODE IN BLOCKS 6-7: LD BC,0302
 MC45+POKE 2062,170: 0302
@@ -230,25 +285,11 @@ Cada comprobación escribe 1000 en `FRAMES`, espera 1,5 cuadros y mira si
 ha bajado de 1 a 3. Al terminar se restaura `FRAMES` y se deja el vídeo
 nativo.
 
-## Interrupciones simuladas
+## Interrupciones simuladas (quitada de momento)
 
-Con `POKE 2040,1` y Superfast, la FPGA sustituye la búsqueda de opcode en
-`$0038` por un `JP` a la dirección de `POKE 2038/2039`. Se prueba con un
-`RST 38h` explícito (con las interrupciones deshabilitadas), 100 veces en
-tres casos:
-
-| Caso | Tiene que |
-|---|---|
-| Activas + Superfast | saltar a la rutina de prueba |
-| Desactivadas (`POKE 2040,0`) | no saltar |
-| Activas sin Superfast | no saltar |
-
-Si no salta se ejecuta la rutina de la ROM en `$0038`, preparada para que
-vuelva sin peligro: con `C=2` hace `POP` de la dirección de retorno y acaba
-en `LD R,A / EI / JP (HL)`, con HL apuntando a una rutina que hace `DI`.
-Con `A=40h`, el bit 6 de R se queda a 1 durante 64 búsquedas, así que
-`/INT` (que en el ZX81 sale de A6 durante el refresco) no se activa antes
-de ese `DI`.
+La prueba se ha quitado: la FPGA solo sustituye el `RST 38h` en Superfast
+y no genera `/INT` (en el ZX81 sale de A6), así que de momento no sirven
+como interrupción por cuadro. `USR 20495` sigue reservada y devuelve 9999.
 
 ## ROMLOCK
 
@@ -384,6 +425,155 @@ el buffer de impresora, para no modificar nunca los bytes que se están
 ejecutando. El bucle solo usa saltos relativos, así que funciona en
 cualquier dirección.
 
+## Pruebas interactivas
+
+El programa pinta o suena algo y pregunta; se contesta con **Y** o **N**
+(cada N cuenta como un fallo). Necesitan SLOW, porque la pantalla tiene que
+verse mientras esperan tecla y se temporizan con `FRAMES`; en FAST avisan y
+no se ejecutan.
+
+### Sprites
+
+Configura los 32 sprites por hardware como cajas de 8×8 en una rejilla de
+8×4 (selección, activación, posición, color, datos y máscara por `POKE`
+2100–2128) y hace tres preguntas: si se ven los 32, si se desplazan 40
+píxeles a la derecha y vuelven, y si desaparecen al desactivarlos. Si falla
+alguna escritura se ve en qué sprite y en qué campo.
+
+### Patrón de borde
+
+Tablero de ajedrez en el borde (`POKE 2048-2055` y `POKE 2047,170`) en
+Superfast texto, y después borde liso (`POKE 2047,85`). El patrón es solo
+de Superfast: en vídeo nativo no se prueba.
+
+### Chroma81
+
+Modo 0 (color por código de carácter): tabla de color en `$C000`, con 8
+bytes por código, uno por línea de píxeles, papel en el nibble alto y
+tinta en el bajo. Todo en papel blanco salvo las letras A–H, con papel de
+0 a 7; se pintan 8 filas con esas letras, que tienen que verse como barras
+negra, azul, roja, magenta, verde, cian, amarilla y blanca. Una novena fila
+con la I tiene un papel distinto en cada línea de píxeles: se ven 8 franjas
+finas dentro de la fila. Escribe en la
+página del bloque 6, así que no se ejecuta en modo 32K.
+
+### Modos Superfast
+
+- **Texto:** la misma pantalla, generada por la FPGA.
+- **HiRes nativo:** bitmap lineal en `$E000` (HFILE); arriba tablero de
+  ajedrez, abajo barras verticales.
+- **Spectrum:** bitmap con el orden de líneas del Spectrum en `$E000` y
+  atributos en `$F800`: 8 bandas de color y una X (comprueba el reordenado
+  de líneas). El color del modo Spectrum necesita Chroma activado.
+
+Los dos modos gráficos tapan la pantalla de texto: se entra con una tecla y
+se vuelve con otra, y después se pregunta. Escribe en la página del bloque
+7, así que no se ejecuta en modo 32K.
+
+### Teclado y joystick
+
+Matriz de las 40 teclas en vivo: la que está pulsada sale en vídeo inverso
+(SHIFT se muestra como `*`, ENTER como `>` y SPACE como `-`). El joystick
+se ve como las teclas que tiene asignadas, porque la FPGA las inyecta en la
+lectura del teclado. También muestra en vivo los bits 6 (puente 50/60 Hz)
+y 7 (entrada de cinta) del puerto FE. Se sale con SHIFT+SPACE.
+
+### Sonido
+
+Seis tonos cada vez más agudos, unos 0,4 s cada uno: canales A, B y C del
+chip A (`$CF`/`$0F`) y después del chip B (`$C6`/`$06`, los puertos
+documentados). Luego `SAY "HELLO"` con el sintetizador de voz del MCU. En
+el emulador el chip A solo suena con el tipo de AY configurado como ZonX.
+
+### Pantalla alternativa
+
+Las pruebas de 256 caracteres, 70/80 columnas y scroll fino montan su
+propia pantalla en `$8000` (bloque 4) y la muestran con la dirección de
+pantalla alternativa (`POKE 2096/2097` y `POKE 2098,170`). El BASIC y la
+ROM siguen con su D_FILE, que en SLOW se ejecuta: no admite códigos con el
+bit 6 a 1 ni otro ancho de fila. `POKE 2045,85` apaga la dirección
+alternativa sola. Como en los modos Superfast, se entra con una tecla y se
+vuelve con otra. Estas pruebas y la de doble buffer machacan el contenido
+de los bloques 4 y 5.
+
+### Juegos de caracteres (128C y 256C)
+
+- **128C, en vídeo nativo:** pinta los códigos 0–63 y 128–191 en las filas
+  3–6, manda el comando `SEL_128CHARS` (`$1B`) y pone I = `$3C`. La tabla
+  de `$3C00-$3FFF` viene precargada con los caracteres de la ROM, así que
+  la pantalla tiene que verse igual. Después da la vuelta a los 128
+  glifos, y toda la pantalla, textos incluidos, tiene que salir boca
+  abajo. Luego los deja como estaban y vuelve a 64C (`$1C`, I = `$1E`).
+- **256C, en Superfast texto:** los 256 códigos en 16 filas de 16, en la
+  pantalla alternativa, con `SEL_256CHARS` (`$41`) e I = `$38`. Se da la
+  vuelta a los grupos 1 (`$3A00`, códigos 64–127) y 3 (`$3E00`,
+  192–255). Las cuatro bandas de 4 filas tienen que salir así: normal,
+  boca abajo, inversa, e inversa boca abajo. El bit 7 invierte también en
+  este modo.
+
+Al final restaura las tablas, el registro I y el modo de caracteres que
+hubiera antes. Apaga WRX (`POKE 2058,85`), porque con WRX la zona de 8–16K
+deja de ser la tabla de caracteres.
+
+### 70 y 80 columnas
+
+Superfast texto ancho sobre la pantalla alternativa: `POKE 2045,173` da 70
+columnas de 8 píxeles, con filas de 71 bytes, y `POKE 2045,174` da 80
+columnas de 7 píxeles, con filas de 81 bytes. Cada fila lleva un byte de
+relleno al final, como el NEWLINE del modo de 32 columnas, y la pantalla
+empieza con un byte inicial; el hardware no lee ninguno de los dos. Cada
+fila lleva un bloque en la primera y en la última columna. Arriba y
+abajo hay una regla con las unidades (filas 0 y 23) y las decenas (filas 1
+y 22) de cada columna. Tiene que verse entera, sin cortes por ningún lado.
+No usa `LOAD *COL70/*COL80`, que además parchean la ROM: aquí solo se
+prueba el vídeo.
+
+### Scroll fino
+
+Barras verticales, un bloque cada 4 columnas, en Superfast texto sobre la
+pantalla alternativa. También hay bloque en la columna 32, que es la que
+asoma al desplazar. Con `POKE 2091-2093,55h` solo se desplazan las filas
+pares, y `POKE 2090` va y viene de 0 a 7 cada 2 cuadros hasta que se pulsa
+una tecla. Al terminar deja el scroll a 0 y las tres máscaras a 255, como
+tras un reset.
+
+### Chroma81 modo 1
+
+Superfast texto con color en modo 1, por posición (`OUT $7FEF,37h`):
+- **Tabla de siempre:** en D_FILE+`$8000` (bloque 6), con papel =
+  columna/4, que da 8 barras verticales.
+- **Tabla alternativa** (`POKE 2059/2060` = `$A000`, `POKE 2061,170`): con
+  papel = fila/3, que da 8 barras horizontales.
+
+La tinta es blanca sobre los papeles oscuros y negra sobre los claros, así
+que los textos de la prueba se siguen leyendo. No se ejecuta en modo 32K.
+
+### Doble buffer
+
+HiRes nativo con HFILE en `$8000` (bloque 4). Tiene dos partes, y cada una
+se ve con una tecla y se deja con otra.
+
+**AUTO** (`POKE 2057,173`, front = bloque 5). En cada VSYNC la FPGA copia el
+bloque HFILE (4) al espejo del front, que es lo que se ve. La secuencia es:
+1. Se muestra un tablero de ajedrez.
+2. Al activar el doble buffer, la imagen no tiene que cambiar.
+3. Se llena de ruido la SRAM del bloque 5. No tiene que verse: la máscara
+   de escritura impide que llegue al espejo del front.
+4. Se pintan barras en el bloque 4. Van apareciendo a medida que se
+   dibujan: cada cuadro es una foto completa del bloque 4 en ese VSYNC, y
+   el dibujo dura varios cuadros.
+
+**MANUAL** (`POKE 2057,200+B`). No hay copia: se ve el espejo del front. La
+secuencia es:
+1. Se pinta un tablero en el bloque 4 y se pone como front.
+2. Se pintan barras en el bloque 5, que no se ve.
+3. Se llena de ruido el bloque 4, el front. No tiene que verse.
+4. Al pasar el front al bloque 5, las barras tienen que aparecer de golpe.
+
+Al final pregunta tres cosas: si en AUTO se vio el tablero y luego las
+barras, si en MANUAL las barras aparecieron de golpe, y si en ningún
+momento apareció ruido.
+
 ## Plan de pruebas
 
 Estado: **hecha**, *pendiente*.
@@ -401,19 +591,28 @@ Estado: **hecha**, *pendiente*.
 | 2.2 | Ejecución | MC45 bloques 6–7 | Auto | **hecha** |
 | 2.3 | Ejecución | Espejo de vídeo en 48K | Auto | cubierta por la 2.2 (extensión apagada) |
 | 3.1 | Puertos en memoria | Captura de `POKE 2045` | Auto | **hecha** |
-| 3.2 | Puertos en memoria | Interrupciones simuladas | Auto | **hecha** |
+| 3.2 | Puertos en memoria | Interrupciones simuladas | Auto | *quitada de momento*: sin `/INT` no sirven como interrupción por cuadro |
 | 3.3 | Puertos en memoria | ROMLOCK | Auto | **hecha** |
 | 3.4 | Puertos en memoria | Ráfagas de POKEs con `LDIR` | Auto/visual | *descartada*: no hay un efecto legible para comprobarla (la captura ya es síncrona) |
-| 3.5 | Puertos en memoria | Sprites (rejilla de 32) | Visual | *pendiente* |
-| 4.x | Vídeo | Texto 64/128/256, WRX, Chroma, borde, Superfast, scroll, 80 col., doble buffer | Visual | *pendiente* |
+| 3.5 | Puertos en memoria | Sprites (rejilla de 32) | Visual | **hecha** |
+| 4.3 | Vídeo | Chroma81 modo 0 | Visual | **hecha** |
+| 4.4 | Vídeo | Patrón de borde | Visual | **hecha** |
+| 4.5 | Vídeo | Superfast texto, HiRes nativo y Spectrum | Visual | **hecha** |
+| 4.8 | Vídeo | Juegos de caracteres 128C (nativo) y 256C (Superfast) | Visual | **hecha** |
+| 4.9 | Vídeo | 70 y 80 columnas, pantalla alternativa (2096–2098) | Visual | **hecha** |
+| 4.10 | Vídeo | Scroll fino por filas (2090–2093) | Visual | **hecha** |
+| 4.11 | Vídeo | Chroma81 modo 1, tabla normal y alternativa (2059–2061) | Visual | **hecha** |
+| 4.12 | Vídeo | Doble buffer AUTO y MANUAL (2057) | Visual | **hecha** |
+| 4.13 | Vídeo | WRX en 8–16K (2058) | Visual | *pendiente*: necesita una rutina de vídeo WRX propia |
 | 4.7 | Vídeo | Frecuencia de cuadro (contador VSYNC del puerto `$AF`) | Auto | **hecha** |
 | 5.1 | MCU y SD | Protocolo (`SETBYTE`/`GETBYTE`) | Auto | **hecha** |
 | 5.2 | MCU y SD | Lectura de SD (`SDBOOST.ROM` contra la ROM en memoria) | Auto | **hecha** |
 | 5.3 | MCU y SD | Escritura de SD (fichero temporal) | Auto | **hecha** |
 | 5.4 | MCU y SD | RTC y batería | Auto | **hecha** |
 | 6.1 | Sonido | Registros de los AY | Auto | **hecha** |
-| 6.x | Sonido | Tonos, beeper, SAY, VGM | Audio | *pendiente* |
-| 7.x | Entrada | Teclado, joystick, bits del puerto FE en vivo | Visual | *pendiente* |
+| 6.2 | Sonido | Tonos AY (2 chips × 3 canales) y SAY | Audio | **hecha** |
+| 6.x | Sonido | Beeper (modo Spectrum), VGM, PEG | Audio | *pendiente* |
+| 7.x | Entrada | Teclado, joystick, bits del puerto FE en vivo | Visual | **hecha** |
 | 8.1 | Información | Ficha de la máquina | Auto | **hecha** |
 | 8.2 | Información | Reloj de la CPU | Auto | *pendiente* (falta una referencia de tiempo independiente del Z80: el RTC solo da segundos enteros) |
 

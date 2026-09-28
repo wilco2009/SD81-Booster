@@ -1433,7 +1433,7 @@ void cmd_AY_get_reg(){
   ToggleClock();
   reg = GetByteFromZ80_IT();  
 
-  if (reg <= 015) 
+  if (reg <= 15)    // decimal: "015" era octal (13) y R14/R15 salian a 0
     value = ay_registers[reg];
   else 
     value = 0;

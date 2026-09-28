@@ -17,12 +17,13 @@
         db MOD_SYS              ; cabecera: id del modulo
         dw bss_end              ; y fin del nucleo con el que se ensamblo
 ; Tabla de saltos del modulo (el nucleo entra por MOD_ORG+3+3*n)
-        jp mu_test             ; 0: USR 20501
-        jp info_test           ; 1: USR 20504
-        jp fr_test             ; 2: USR 20516
-        jp rt_test             ; 3: USR 20519
-        jp sr_test             ; 4: USR 20525
-        jp sw_test             ; 5: USR 20528
+        jp mu_test             ; 0: USR 22549
+        jp info_test           ; 1: USR 22552
+        jp fr_test             ; 2: USR 22564
+        jp rt_test             ; 3: USR 22567
+        jp sr_test             ; 4: USR 22573
+        jp sw_test             ; 5: USR 22576
+        jp ck_test             ; 6: USR 22636
 
 ; B = fila, HL = etiqueta, DE = numero -> "etiqueta" + numero. Conserva BC.
 line_num:
@@ -113,7 +114,7 @@ mcu_getbyte:
         ret
 
 ; =============================================================
-; Test 7: protocolo con el MCU (USR 20501)
+; Test 7: protocolo con el MCU (USR 22549)
 ; 2000 veces SETBYTE + GETBYTE en un indice volatil al azar (64-127, que
 ; no usa nadie) con un valor al azar; se compara lo leido. Cada espera
 ; tiene limite de tiempo: si el MCU deja de contestar se para y lo dice.
@@ -182,7 +183,7 @@ mu_to:  pop bc                  ; transferencia = MU_N - restantes + 1
         ret
 
 ; =============================================================
-; Test 8: informacion de la maquina (USR 20504)
+; Test 8: informacion de la maquina (USR 22552)
 ; =============================================================
 info_test:
         ld hl,s_in_title
@@ -297,7 +298,7 @@ im2:    ld a,(hl)
         ret
 
 ; =============================================================
-; Test 12: frecuencia de cuadro (USR 20516)
+; Test 12: frecuencia de cuadro (USR 22564)
 ; Cuenta VSYNC durante un segundo del RTC del MCU. El puerto $AF da en
 ; D6-D1 los VSYNC desde la lectura anterior y se pone a 0 al leerlo, asi
 ; que se acumulan TODAS sus lecturas (in_clk), incluidas las del propio
@@ -491,7 +492,179 @@ brd1:   in a,(DATAPORT)
         jp wait_diff
 
 ; =============================================================
-; Test 13: RTC y bateria (USR 20519)
+; Test 36: reloj de la CPU (USR 22636)
+; En FAST (sin NMI ni video, la CPU a toda velocidad): se sincroniza con
+; un cambio de segundo del RTC, ejecuta un bucle de CK_N*3276 =
+; 16.248.960 T (5,0 s a 3,25 MHz) y vuelve a leer el RTC. Con las
+; centesimas del RTC (el del STM32 las da de verdad), MHz = T /
+; transcurrido; resolucion 1/100 s en 5 s, un 0,2%. La latencia de las
+; dos lecturas del RTC es la misma y se cancela. Tiene que salir 3,25
+; MHz +-1,5%. Sin centesimas (el RTC siempre da .00) no se puede medir.
+; =============================================================
+CK_N    equ 4960                ; vueltas de 3276 T
+; MHz*100 = (CK_N*3276/100) / transcurrido = 162490 / cs; 162490 =
+; 2*65536 + 31418 (se escribe en dos partes: pasmo trabaja con 16 bits)
+CK_NUMH equ 2
+CK_NUML equ 31418
+
+ck_test:
+        ld hl,s_ck_title
+        call title
+        call plines
+        db 2
+        dw s_ck_d1
+        db 3
+        dw s_ck_d2
+        db 0FFh
+        ld hl,0
+        ld (err_a),hl
+        call SET_FAST
+        call wait_sec           ; rtc_buf = justo despues del cambio
+        jp c,ck_to
+        call ck_stamp
+        ld (ck_t0),hl
+        ld de,CK_N              ; --- bucle: 3276 T por vuelta ---
+ckl1:   ld b,250                ; (7)
+ckl2:   djnz ckl2               ; (249*13 + 8)
+        dec de                  ; (6)
+        ld a,d                  ; (4)
+        or e                    ; (4)
+        jp nz,ckl1              ; (10)
+        call rtc_read
+        jp c,ck_to
+        call ck_stamp
+        ld (ck_t1),hl
+        or a                    ; centesimas a 0: puede ser casualidad o
+        jr nz,ck1               ; un RTC sin centesimas; 1/4 s despues se
+        ld de,250               ; vuelve a mirar
+ckl3:   ld b,250
+ckl4:   djnz ckl4
+        dec de
+        ld a,d
+        or e
+        jp nz,ckl3
+        call rtc_read
+        jp c,ck_to
+        call ck_stamp
+        or a
+        jp z,ck_nocc
+ck1:    call SLOW_FAST
+        ld hl,(ck_t1)           ; transcurrido = t1 - t0 (1/100 s)
+        ld de,(ck_t0)
+        or a
+        sbc hl,de
+        jr nc,ck2
+        ld de,6000              ; cambio de minuto
+        add hl,de
+ck2:    ld (ck_el),hl
+        call plnum
+        db 5
+        dw s_ck_el,ck_el
+        ld de,(ck_el)
+        ld a,d
+        or e
+        jp z,ck_nocc2
+        ld a,CK_NUMH            ; A:HL = 162490
+        ld hl,CK_NUML
+        ld bc,0                 ; BC = CK_NUM / transcurrido (MHz*100)
+ckd1:   or a
+        sbc hl,de
+        sbc a,0
+        jr c,ckd2
+        inc bc
+        jr ckd1
+ckd2:   ld (ck_mhz),bc
+        ld h,b                  ; parte entera y centesimas
+        ld l,c
+        ld e,0
+        ld bc,100
+ckp1:   or a
+        sbc hl,bc
+        jr c,ckp2
+        inc e
+        jr ckp1
+ckp2:   add hl,bc               ; L = centesimas, E = MHz
+        push hl
+        push de
+        call pline
+        db 6
+        dw s_ck_mhz
+        pop de
+        ld a,e
+        cp 10
+        ld a,Z_Q
+        jr nc,ckp3
+        ld a,e
+        add a,Z_0
+ckp3:   call out_char
+        ld a,Z_DOT
+        call out_char
+        pop hl
+        ld a,l
+        call out_dec2
+        ld hl,s_ck_unit
+        call out_str
+        ld hl,(ck_mhz)          ; 3,20-3,30 MHz
+        ld de,320
+        or a
+        sbc hl,de
+        jr c,ck_bad
+        ld de,11
+        or a
+        sbc hl,de
+        jr c,ck_ok
+ck_bad: ld hl,err_a
+        call inc16
+ck_ok:  ld hl,(err_a)
+        ld b,8
+        call line_result
+        ld bc,(err_a)
+        ret
+
+ck_nocc:
+        call SLOW_FAST
+ck_nocc2:
+        call pline
+        db 5
+        dw s_ck_nocc
+        ld bc,9999
+        ret
+
+ck_to:  call SLOW_FAST
+        call pline
+        db 5
+        dw s_rtc_to
+        ld bc,9999
+        ret
+
+; rtc_buf -> HL = segundos*100 + centesimas, A = centesimas
+ck_stamp:
+        call rtc_sec
+        ld hl,0
+        or a
+        jr z,cks2
+        ld b,a
+        ld de,100
+cks1:   add hl,de
+        djnz cks1
+cks2:   ld a,(rtc_buf+20)
+        sub Z_0
+        ld b,a
+        add a,a
+        add a,a
+        add a,b
+        add a,a                 ; decenas*10
+        ld b,a
+        ld a,(rtc_buf+21)
+        sub Z_0
+        add a,b
+        ld e,a
+        ld d,0
+        add hl,de
+        ret
+
+; =============================================================
+; Test 13: RTC y bateria (USR 22567)
 ; Muestra la fecha/hora, comprueba que los segundos avanzan y que la
 ; bateria del RTC esta entre 2,5 y 3,6 V.
 ; =============================================================
@@ -647,7 +820,7 @@ f_seek1:
         jp m_recv
 
 ; =============================================================
-; Test 15: lectura de la SD (USR 20525)
+; Test 15: lectura de la SD (USR 22573)
 ; Lee /SYS/SDBOOST.ROM (F_OPEN/F_STAT/F_READ, bloques de 256) y lo compara
 ; con la ROM cargada en memoria (se carga en la direccion 0: bloques 0 y
 ; 1). Lo lee dos veces y compara las sumas de control de las dos lecturas.
@@ -809,7 +982,7 @@ sd_to:  call SLOW_FAST
         ret
 
 ; =============================================================
-; Test 16: escritura de la SD (USR 20528)
+; Test 16: escritura de la SD (USR 22576)
 ;   1. SAVE /SD81TEST.TMP con 4096 bytes pseudoaleatorios (semilla fija).
 ;   2. F_OPEN + F_STAT (tamano 4096) + F_READ: tiene que coincidir.
 ;   3. F_SEEK 1000 + F_WRITE de 256 bytes nuevos; F_SEEK + F_READ: igual.
@@ -1056,6 +1229,13 @@ s_fr_slow: db "NEEDS SLOW MOD",'E'+80h
 s_fr_sf:   db "SUPERFAST:",' '+80h
 s_fr_fps:  db " FP",'S'+80h
 s_rtc_to:  db "RTC TIMEOUT / NOT RUNNIN",'G'+80h
+s_ck_title: db "CPU CLOC",'K'+80h
+s_ck_d1:   db "FAST LOOP OF 16248960 T, TIME",'D'+80h
+s_ck_d2:   db "WITH THE RTC (1/100 S",')'+80h
+s_ck_el:   db "ELAPSED (1/100 S):",' '+80h
+s_ck_mhz:  db "CPU CLOCK:",' '+80h
+s_ck_unit: db " MHZ (3.25",')'+80h
+s_ck_nocc: db "RTC WITHOUT 1/100 S: NO MEASUR",'E'+80h
 s_rt_title: db "RTC AND BATTER",'Y'+80h
 s_rt_now:  db "RTC",' '+80h
 s_rt_run:  db "SECONDS RUNNING:",' '+80h
@@ -1084,6 +1264,10 @@ mu_idx:     db 0        ; protocolo MCU: indice y valor en curso
 mu_val:     db 0
 fr_n:       dw 0        ; frecuencia de cuadro: cuadros medidos
 sec0:       db 0        ; segundos del RTC al empezar a esperar
+ck_t0:      dw 0        ; reloj de la CPU: instantes (s*100+cs),
+ck_t1:      dw 0        ; transcurrido (1/100 s) y MHz*100
+ck_el:      dw 0
+ck_mhz:     dw 0
 sr_sum:     dw 0        ; lectura de SD: suma de la pasada en curso
 sr_sum1:    dw 0        ; suma de la primera pasada
 sr_off:     dw 0        ; desplazamiento en el fichero

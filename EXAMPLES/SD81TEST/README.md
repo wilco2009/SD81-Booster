@@ -21,20 +21,21 @@ Cualquier cambio en el núcleo obliga a reensamblar los tres módulos. Si
 no se hace, el núcleo lo detecta y no los ejecuta (ver más abajo).
 
 `compila.bat` hace los cuatro pasos, se para en el primer error y copia los
-binarios a la carpeta `SD81\TEST` del emulador EightyOne. También genera el
-`.sym` de cada módulo.
+binarios y `SD81TEST.VGM` a la carpeta `SD81\TEST` del emulador EightyOne.
+También genera el `.sym` de cada módulo.
 
 | Fichero | Dirección | Contenido |
 |---|---|---|
-| `SD81TEST.BIN` (`sd81test.asm`) | 20480 (`$5000`) | núcleo: tabla de saltos, rutinas comunes (pantalla, teclado, MCU, mapper), textos y variables compartidas |
+| `SD81TEST.BIN` (`sd81test.asm`) | 22528 (`$5800`) | núcleo: tabla de saltos, rutinas comunes (pantalla, teclado, MCU, mapper), textos y variables compartidas |
 | `SD81MEM.BIN` (`sd81mem.asm`) | 24576 (`$6000`) | memoria, mapper, ejecución (MC45) y puertos mapeados en memoria |
 | `SD81SYS.BIN` (`sd81sys.asm`) | 24576 (`$6000`) | protocolo MCU, información, frecuencia de cuadro, RTC y SD |
 | `SD81AV.BIN` (`sd81av.asm`) | 24576 (`$6000`) | AY, sprites, borde, Chroma81, Superfast, teclado y sonido |
 
 ## Uso
 
-Copia los cuatro `.BIN` y el stub BASIC (`SD81TEST.B81`, pásalo a `.P` con
-el emulador) a la misma carpeta de la SD. El stub carga el núcleo, y antes
+Copia los cuatro `.BIN`, `SD81TEST.VGM` (lo usa la prueba de VGM) y el
+stub BASIC (`SD81TEST.B81`, pásalo a `.P` con el emulador) a la misma
+carpeta de la SD. El stub carga el núcleo, y antes
 de cada prueba carga su módulo si no está ya cargado. Muestra un menú por
 categorías, cada una con su submenú:
 
@@ -46,9 +47,10 @@ SD81 BOOSTER HARDWARE TEST
 3 MEMORY-MAPPED PORTS
 4 MCU, RTC AND SD
 5 VIDEO
-6 SOUND
-7 INPUT (KEYBOARD, JOYSTICK)
-8 MACHINE INFO
+6 SUPERFAST VIDEO
+7 SOUND
+8 INPUT (KEYBOARD, JOYSTICK)
+9 MACHINE INFO
 0 EXIT
 ```
 
@@ -57,58 +59,66 @@ en SLOW `PAUSE` pasa a FAST y genera la imagen por su cuenta, y la imagen
 salta al entrar y al salir. Tampoco usa un bucle con `INKEY$`, porque en
 SLOW da una vuelta cada muchos milisegundos y se come las pulsaciones
 cortas. Usa dos rutinas del núcleo que leen el teclado sin parar:
-`USR 20552` espera una cifra y devuelve su valor, y `USR 20555` espera una
+`USR 22600` espera una cifra y devuelve su valor, y `USR 22603` espera una
 tecla cualquiera. Las pruebas solo pasan a FAST cuando
 lo necesitan: si miden con FRAMES, si tocan la ROM o la página del vídeo,
 o si remapean bloques que en modo 32K son el espejo del vídeo. Cada prueba
 tiene un punto de entrada fijo en la tabla de saltos del principio del
-núcleo (prueba N en `USR 20480+3*N`, así añadir pruebas no cambia las
+núcleo (prueba N en `USR 22528+3*N`, así añadir pruebas no cambia las
 anteriores), deja sus resultados en pantalla y devuelve su número de
 fallos. La entrada del núcleo comprueba que en `$6000` está el módulo de
 esa prueba, ensamblado con este núcleo: la cabecera del módulo lleva su
 número y el `bss_end` del núcleo. Si no, escribe `MODULE MISSING OR
 OUTDATED` y devuelve 9999. Para llamar a una prueba a mano con `USR`, hay
 que cargar antes su módulo con `LOAD FAST "SD81xxx.BIN" CODE 24576`.
-Las entradas 24 y 25 (`USR 20552` y `USR 20555`) son las rutinas de
+Las entradas 24 y 25 (`USR 22600` y `USR 22603`) son las rutinas de
 teclado del menú; las pruebas nuevas irán a partir de la 26.
 
 | N | Entrada | Módulo | Prueba | Devuelve |
 |---|---|---|---|---|
-| 0 | `USR 20480` | MEM | Memoria (destructiva) | páginas con errores (255 = no se ejecutó, modo 32K) |
-| 1 | `USR 20483` | MEM | MC45 bloques 4–5 | comprobaciones fallidas (0–10) |
-| 2 | `USR 20486` | MEM | MC45 bloques 6–7 | comprobaciones fallidas (0–8; 255 = no se ejecutó) |
-| 3 | `USR 20489` | MEM | Estrés del mapper | errores de relectura + enrutado |
-| 4 | `USR 20492` | MEM | Captura de `POKE 2045` | fallos (de 200) |
-| 5 | `USR 20495` | — | *(reservada: interrupciones simuladas, quitada de momento)* | siempre 9999 |
-| 6 | `USR 20498` | MEM | ROMLOCK | fallos (de 30) |
-| 7 | `USR 20501` | SYS | Protocolo con el MCU | valores erróneos (9999 = el MCU dejó de contestar) |
-| 8 | `USR 20504` | SYS | Información de la máquina | 0 |
-| 9 | `USR 20507` | MEM | Memoria no paginada en los bloques 4–7 | comprobaciones que no son PAGED (0–16) |
-| 10 | `USR 20510` | MEM | Registros del mapper | lecturas erróneas |
-| 11 | `USR 20513` | MEM | Protección del bloque 0 | direcciones que se han podido escribir (0–10) |
-| 12 | `USR 20516` | SYS | Frecuencia de cuadro | medidas fuera de rango (9999 = el RTC no contesta) |
-| 13 | `USR 20519` | SYS | RTC y batería | fallos (9999 = el RTC no contesta) |
-| 14 | `USR 20522` | AV | Registros de los AY | lecturas erróneas |
-| 15 | `USR 20525` | SYS | Lectura de la SD | bytes distintos (9999 = timeout o no hay fichero) |
-| 16 | `USR 20528` | SYS | Escritura de la SD | fallos (9999 = timeout o no se puede abrir) |
-| 17 | `USR 20531` | MEM | Páginas de sistema (bloques 0–3) | bytes que no se pueden escribir |
-| 18 | `USR 20534` | AV | Sprites (interactiva) | respuestas N (0–3) |
-| 19 | `USR 20537` | AV | Patrón de borde (interactiva) | respuestas N (0–1) |
-| 20 | `USR 20540` | AV | Chroma81 (interactiva) | respuestas N (0–1) |
-| 21 | `USR 20543` | AV | Modos Superfast (interactiva) | respuestas N (0–3) |
-| 22 | `USR 20546` | AV | Teclado y joystick (interactiva) | respuestas N (0–1) |
-| 23 | `USR 20549` | AV | Sonido (interactiva) | respuestas N (0–2) |
-| 24 | `USR 20552` | — | *(utilidad del menú: espera una cifra)* | la cifra |
-| 25 | `USR 20555` | — | *(utilidad del menú: espera una tecla)* | — |
-| 26 | `USR 20558` | AV | Juegos de caracteres 128C y 256C (interactiva) | respuestas N (0–3) |
-| 27 | `USR 20561` | AV | 70 y 80 columnas (interactiva) | respuestas N (0–2) |
-| 28 | `USR 20564` | AV | Scroll fino (interactiva) | respuestas N (0–1) |
-| 29 | `USR 20567` | AV | Chroma81 modo 1 (interactiva) | respuestas N (0–2) |
-| 30 | `USR 20570` | AV | Doble buffer (interactiva) | respuestas N (0–3) |
+| 0 | `USR 22528` | MEM | Memoria (destructiva) | páginas con errores (255 = no se ejecutó, modo 32K) |
+| 1 | `USR 22531` | MEM | MC45 bloques 4–5 | comprobaciones fallidas (0–10) |
+| 2 | `USR 22534` | MEM | MC45 bloques 6–7 | comprobaciones fallidas (0–8; 255 = no se ejecutó) |
+| 3 | `USR 22537` | MEM | Estrés del mapper | errores de relectura + enrutado |
+| 4 | `USR 22540` | MEM | Captura de `POKE 2045` | fallos (de 200) |
+| 5 | `USR 22543` | — | *(reservada: interrupciones simuladas, quitada de momento)* | siempre 9999 |
+| 6 | `USR 22546` | MEM | ROMLOCK | fallos (de 30) |
+| 7 | `USR 22549` | SYS | Protocolo con el MCU | valores erróneos (9999 = el MCU dejó de contestar) |
+| 8 | `USR 22552` | SYS | Información de la máquina | 0 |
+| 9 | `USR 22555` | MEM | Memoria no paginada en los bloques 4–7 | comprobaciones que no son PAGED (0–16) |
+| 10 | `USR 22558` | MEM | Registros del mapper | lecturas erróneas |
+| 11 | `USR 22561` | MEM | Protección del bloque 0 | direcciones que se han podido escribir (0–10) |
+| 12 | `USR 22564` | SYS | Frecuencia de cuadro | medidas fuera de rango (9999 = el RTC no contesta) |
+| 13 | `USR 22567` | SYS | RTC y batería | fallos (9999 = el RTC no contesta) |
+| 14 | `USR 22570` | AV | Registros de los AY | lecturas erróneas |
+| 15 | `USR 22573` | SYS | Lectura de la SD | bytes distintos (9999 = timeout o no hay fichero) |
+| 16 | `USR 22576` | SYS | Escritura de la SD | fallos (9999 = timeout o no se puede abrir) |
+| 17 | `USR 22579` | MEM | Páginas de sistema (bloques 0–3) | bytes que no se pueden escribir |
+| 18 | `USR 22582` | AV | Sprites (interactiva) | respuestas N (0–3) |
+| 19 | `USR 22585` | AV | Patrón de borde (interactiva) | respuestas N (0–1) |
+| 20 | `USR 22588` | AV | Chroma81 (interactiva) | respuestas N (0–1) |
+| 21 | `USR 22591` | AV | Modos Superfast (interactiva) | respuestas N (0–3) |
+| 22 | `USR 22594` | AV | Teclado y joystick (interactiva) | respuestas N (0–1) |
+| 23 | `USR 22597` | AV | Sonido (interactiva) | respuestas N (0–2) |
+| 24 | `USR 22600` | — | *(utilidad del menú: espera una cifra)* | la cifra |
+| 25 | `USR 22603` | — | *(utilidad del menú: espera una tecla)* | — |
+| 26 | `USR 22606` | AV | Juegos de caracteres 128C y 256C (interactiva) | respuestas N (0–3) |
+| 27 | `USR 22609` | AV | 70 y 80 columnas (interactiva) | respuestas N (0–2) |
+| 28 | `USR 22612` | AV | Scroll fino (interactiva) | respuestas N (0–1) |
+| 29 | `USR 22615` | AV | Chroma81 modo 1 (interactiva) | respuestas N (0–2) |
+| 30 | `USR 22618` | AV | Doble buffer (interactiva) | respuestas N (0–3) |
+| 31 | `USR 22621` | AV | Registros del AY del MCU | lecturas erróneas (9999 = el MCU no contesta) |
+| 32 | `USR 22624` | AV | Beeper del modo Spectrum (interactiva) | respuestas N (0–2) |
+| 33 | `USR 22627` | AV | Reproductor VGM (interactiva) | respuestas N o error del MCU (9999 = no contesta) |
+| 34 | `USR 22630` | AV | Generador de efectos PEG (interactiva) | respuestas N (9999 = el MCU no contesta) |
+| 35 | `USR 22633` | AV | Alta resolución WRX (interactiva) | respuestas N (0–3) |
+| 36 | `USR 22636` | SYS | Reloj de la CPU | 0 = 3,20–3,30 MHz, 1 = fuera (9999 = el RTC no contesta o no da centésimas) |
 
 - Todo vive en los bloques 2 y 3, por encima de RAMTOP, y tiene que quedar
   por debajo de `$8000`, porque las pruebas remapean los bloques 4–7:
-  - El núcleo va de 20480 (`$5000`) a `$5FFF`. Su final real, con los
+  - El BASIC (stub, pantalla y variables) va hasta 22527 (`CLEAR 22527`).
+    Con el núcleo en 20480 se quedaba sin memoria (informe 4).
+  - El núcleo va de 22528 (`$5800`) a `$5FFF`. Su final real, con los
     buffers, que no van en el `.bin`, es `bss_end` en `sd81test.sym`.
   - Cada módulo va de `$6000` a `$7FFF`, el bloque 3 entero. Su final es
     `mbss_end`.
@@ -289,7 +299,7 @@ nativo.
 
 La prueba se ha quitado: la FPGA solo sustituye el `RST 38h` en Superfast
 y no genera `/INT` (en el ZX81 sale de A6), así que de momento no sirven
-como interrupción por cuadro. `USR 20495` sigue reservada y devuelve 9999.
+como interrupción por cuadro. `USR 22543` sigue reservada y devuelve 9999.
 
 ## ROMLOCK
 
@@ -371,6 +381,23 @@ el MCU.
 - **Vídeo nativo:** necesita SLOW (sin vídeo no hay VSYNC). Tiene que dar
   50 o 60 según `MARGIN` (55 o 31), con ±2 de margen.
 - **Superfast:** la FPGA genera su propio cuadro PAL; tiene que dar 50 ±2.
+
+## Reloj de la CPU
+
+Mide a qué velocidad va el Z80. En FAST, sin NMI ni vídeo, la CPU va a
+toda velocidad:
+1. Se sincroniza con un cambio de segundo del RTC.
+2. Ejecuta un bucle de exactamente 16.248.960 T (4960 vueltas de 3276 T),
+   que son 5,0 s a 3,25 MHz.
+3. Vuelve a leer el RTC.
+
+El resultado es MHz = T / transcurrido. Con las centésimas del RTC, que el
+del STM32 da de verdad, la resolución es de 1/100 s en 5 s, un 0,2 %. La
+latencia de las dos lecturas es la misma y se cancela. Tiene que salir
+3,25 MHz ± 1,5 %: sirve para clones o máquinas modificadas a otra
+velocidad. Si el RTC no da centésimas (siempre `.00`, como el emulador de
+momento), lo dice y no mide, porque solo con segundos el error sería de
+hasta un 20 %.
 
 ## RTC y batería
 
@@ -485,6 +512,62 @@ chip A (`$CF`/`$0F`) y después del chip B (`$C6`/`$06`, los puertos
 documentados). Luego `SAY "HELLO"` con el sintetizador de voz del MCU. En
 el emulador el chip A solo suena con el tipo de AY configurado como ZonX.
 
+### Registros del AY del MCU
+
+Es el AY que emula el MCU, el que suena con `PLAY`, VGM, PEG y `SAY`, no
+los dos de la FPGA. Escribe R0–R15 con `AY_SET_REG` (24), usando los 12
+valores de la prueba de los AY, y los relee con `AY_GET_REG` (25). Tiene
+que salir el byte entero, porque el MCU guarda lo escrito tal cual. R14 y
+R15 necesitan un firmware posterior al arreglo de `cmd_AY_get_reg`. Antes
+comparaba el registro con `015`, que en C es octal y vale 13, y R14/R15
+salían siempre a 0: con un firmware anterior hay unos 22 fallos. Al final
+deja el mezclador apagado y los volúmenes a 0.
+
+### Beeper del modo Spectrum
+
+En modo Spectrum (`POKE 2045,172`) el puerto `FBh` hace de ULA del
+Spectrum: el bit 4 (EAR) es el beeper, y los bits 2–0 son el color del
+borde, que necesita Chroma. El bit 3 (MIC) apenas suena. Toca tres tonos
+cada vez más agudos, de unos 500, 665 y 900 Hz y unos 0,4 s cada uno, con
+el borde en azul, rojo y verde. Los tonos se generan en FAST, porque sin
+las NMI el periodo es estable; la imagen la sigue dando la FPGA. La
+pantalla Spectrum, en blanco, va en `$8000`.
+
+### Reproductor VGM
+
+Reproduce con `PLAY_VGM` (34), que lo abre y empieza a sonar,
+`SD81TEST.VGM`, un fichero de 380 bytes que va en la misma carpeta que los
+binarios. Tras unas 4 notas lo pausa 1 s (36) y lo reanuda (37); al final
+lo para (35). Tiene que oírse la escala con un silencio a la mitad. Si el
+fichero no está, sale `VGM ERROR, STATUS n`.
+
+El fichero lleva una cabecera completa de 256 bytes: versión 1.51, fin
+del fichero, número de muestras, reloj del AY y desplazamiento de los
+datos en `$34`. Los datos empiezan en `$100`, como en la mayoría de VGM
+reales: el firmware lee el desplazamiento de `$34`, pero otros
+reproductores, como el emulador, saltan siempre a `$100`. Los datos son la
+escala de do mayor en el canal A, a 0,25 s por nota. Cada nota vuelve a
+escribir el mezclador y el volumen: la pausa reinicia el AY del MCU y la
+reanudación no lo restaura, así que un VGM que solo los escribiera al
+principio seguiría en silencio.
+
+El VGM no se crea ni se borra en cada prueba:
+- **Firmware:** `STOP_VGM` no cierra el fichero, solo lo rebobina. Borrar
+  un fichero abierto no es seguro, porque el reproductor se queda
+  apuntando a clusters liberados. El fichero solo se cierra si llega al
+  final sin STOP.
+- **Emulador:** no lo cierra nunca, ni siquiera al acabar, así que en
+  Windows se queda bloqueado.
+
+### Generador de efectos PEG
+
+Carga con `LOAD_PEG` (40) dos programas de `EXAMPLES/PEG`, con los bytes
+de sus `.peb`: `coin` en la dirección 0 y `siren` en la 16. Son palabras
+de 16 bits, con el byte bajo primero, y como los saltos son relativos
+sirven en cualquier dirección. Lanza `coin` en el hilo 0 y, cuando acaba,
+`siren` en el hilo 1 con `PLAY_PEG` (41). Tienen que oírse las tres notas
+de la moneda y después la sirena, unos 1,8 s.
+
 ### Pantalla alternativa
 
 Las pruebas de 256 caracteres, 70/80 columnas y scroll fino montan su
@@ -548,6 +631,36 @@ Superfast texto con color en modo 1, por posición (`OUT $7FEF,37h`):
 La tinta es blanca sobre los papeles oscuros y negra sobre los claros, así
 que los textos de la prueba se siguen leyendo. No se ejecuta en modo 32K.
 
+### Alta resolución WRX
+
+Usa el controlador de Wilf Rigter de 1996, que viene en la documentación
+de EightyOne. En cada una de las 192 líneas pone I = byte alto de la
+dirección de la línea y R = byte bajo, y ejecuta en la mitad alta 32 bytes
+a 0. El vídeo los convierte en NOP y, en el refresco de cada uno, el
+pixel sale de la dirección I:R. Cada línea dura 207 T. El controlador se
+engancha con IX, el vector del vídeo de la ROM, y se sale volviendo a
+IX = `$0281`. Tiene tres partes, cada una con tecla para ver y tecla para
+volver:
+
+| Parte | Bitmap | `POKE 2058` | Qué se tiene que ver |
+|---|---|---|---|
+| A | `$A000` (bloque 5) | — | el marco y la X |
+| B | la misma página, vista en `$2000` (bloque 1) | 170 (WRX en 8–16K) | lo mismo |
+| C | igual que B | 85 (generador de caracteres) | una imagen revuelta, sin la X |
+
+La parte A comprueba el WRX normal: con I ≥ `$40`, la FPGA siempre deja
+pasar la dirección de refresco. B y C comprueban el conmutador de 8–16K
+(`POKE 2058`). En C se ven columnas de puntos: todas las columnas de una
+línea leen el mismo byte, porque el código de carácter es el del NOP.
+En el emulador, de momento, la parte A sale en negro: con el SD81 aplica
+`POKE 2058` a cualquier valor de I (ver la especificación del emulador).
+
+El bloque 1 guarda la ROM de expansión (de `$2000` a unos `$331B`), así que
+durante B y C la prueba pone en el bloque 1 la página del bloque 5, y al
+terminar lo devuelve a su página. En ese tiempo no se usa nada de la ROM
+de expansión: la rutina de vídeo de la ROM está en el bloque 0 y es
+idéntica a la original.
+
 ### Doble buffer
 
 HiRes nativo con HFILE en `$8000` (bloque 4). Tiene dos partes, y cada una
@@ -603,7 +716,7 @@ Estado: **hecha**, *pendiente*.
 | 4.10 | Vídeo | Scroll fino por filas (2090–2093) | Visual | **hecha** |
 | 4.11 | Vídeo | Chroma81 modo 1, tabla normal y alternativa (2059–2061) | Visual | **hecha** |
 | 4.12 | Vídeo | Doble buffer AUTO y MANUAL (2057) | Visual | **hecha** |
-| 4.13 | Vídeo | WRX en 8–16K (2058) | Visual | *pendiente*: necesita una rutina de vídeo WRX propia |
+| 4.13 | Vídeo | WRX en `$A000` y en 8–16K (2058) | Visual | **hecha** |
 | 4.7 | Vídeo | Frecuencia de cuadro (contador VSYNC del puerto `$AF`) | Auto | **hecha** |
 | 5.1 | MCU y SD | Protocolo (`SETBYTE`/`GETBYTE`) | Auto | **hecha** |
 | 5.2 | MCU y SD | Lectura de SD (`SDBOOST.ROM` contra la ROM en memoria) | Auto | **hecha** |
@@ -611,10 +724,13 @@ Estado: **hecha**, *pendiente*.
 | 5.4 | MCU y SD | RTC y batería | Auto | **hecha** |
 | 6.1 | Sonido | Registros de los AY | Auto | **hecha** |
 | 6.2 | Sonido | Tonos AY (2 chips × 3 canales) y SAY | Audio | **hecha** |
-| 6.x | Sonido | Beeper (modo Spectrum), VGM, PEG | Audio | *pendiente* |
+| 6.3 | Sonido | Registros del AY del MCU (`AY_SET_REG`/`AY_GET_REG`) | Auto | **hecha** |
+| 6.4 | Sonido | Beeper y borde del modo Spectrum (puerto `FBh`) | Audio/visual | **hecha** |
+| 6.5 | Sonido | Reproductor VGM (reproducir, pausar, reanudar, parar) | Audio | **hecha** |
+| 6.6 | Sonido | Generador de efectos PEG (carga y dos hilos) | Audio | **hecha** |
 | 7.x | Entrada | Teclado, joystick, bits del puerto FE en vivo | Visual | **hecha** |
 | 8.1 | Información | Ficha de la máquina | Auto | **hecha** |
-| 8.2 | Información | Reloj de la CPU | Auto | *pendiente* (falta una referencia de tiempo independiente del Z80: el RTC solo da segundos enteros) |
+| 8.2 | Información | Reloj de la CPU (bucle en FAST contra las centésimas del RTC) | Auto | **hecha** |
 
 Ideas para más adelante: una opción que encadene todas las pruebas
 automáticas no destructivas y dé una tabla OK/FALLO, y guardar el informe

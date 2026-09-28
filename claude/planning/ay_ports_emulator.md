@@ -1,8 +1,10 @@
-# Especificación para el emulador: puertos AY, ROMLOCK y doble buffer
+# Especificación para el emulador: puertos AY, ROMLOCK, doble buffer, VGM, WRX y RTC
 
 Dos cosas que el emulador tiene que reproducir como el hardware real, y que
 SD81TEST comprueba: los puertos de los dos chips AY (primera parte),
-`LOAD *ROMLOCK` (segunda parte) y el doble buffer (tercera parte).
+`LOAD *ROMLOCK` (segunda parte), el doble buffer (tercera parte) dónde
+empiezan los datos de un VGM (cuarta parte), el WRX por encima de 16K
+(quinta parte) y las centésimas del RTC (sexta parte).
 
 # 1. Puertos de los chips AY
 
@@ -274,4 +276,126 @@ HiRes nativo (`POKE 2045,171`) con HFILE en `$8000` (bloque 4):
 Si en el paso 2.4 se ve el ruido, el emulador no aplica la máscara de
 escritura en modo MANUAL, o en MANUAL muestra la memoria del bloque
 front en lugar de su espejo.
+
+# 4. VGM: dónde empiezan los datos
+
+Referencias:
+- Firmware: `Arduino/SD81BoosterV2_039_STM32/VGM.cpp`, `openVGM()`.
+- Emulador: `src/SD81Booster/SD81Booster.cpp`, `VgmOpen()`, `VgmStop()` y
+  el bucle de `UpdateVgm()`.
+
+## Qué hace el firmware
+
+Según la especificación VGM, el campo de 32 bits en `$34` es el
+desplazamiento de los datos, relativo a la propia posición `$34`:
+
+```c
+VGMFile.seekSet(0x34);
+dataOffsetRel = <4 bytes little-endian>;
+vgm_data_start = dataOffsetRel ? (0x34 + dataOffsetRel) : 0x40;
+VGMFile.seekSet(vgm_data_start);
+```
+
+- Si el campo vale 0 (VGM anteriores a la versión 1.50), los datos
+  empiezan en `$40`.
+- El bucle (`VGM_mode == 1`) vuelve a `vgm_data_start`, no a una posición
+  fija.
+
+## Qué hace el emulador (y falla)
+
+`VgmOpen()` salta siempre a 256 (`seekg(256)`), y `VgmStop()` y el bucle
+también rebobinan a 256. Funciona con los VGM que tienen los datos
+justo en `$100`, que son la mayoría (desplazamiento `$CC`), pero no con los
+demás:
+- Un VGM con los datos en `$40`, o con una cabecera más corta o más larga,
+  se reproduce desde un punto equivocado.
+- Si el fichero mide menos de 256 bytes, no suena nada.
+
+**Arreglo:** leer el campo de `$34` como el firmware, guardar el inicio de
+los datos y usarlo en `VgmOpen()`, en `VgmStop()` y al repetir en bucle.
+
+## El fichero se queda abierto (y bloqueado)
+
+`VgmStop()`, que se llama con `STOP_VGM` y también al acabar el fichero
+sin bucle, rebobina pero no cierra `m_vgmStream`. El fichero sigue abierto
+hasta el siguiente `VgmOpen()` o hasta un reset. En Windows eso lo
+bloquea: no se puede borrar ni sobrescribir desde el ZX81 (`LOAD *DEL`,
+SAVE) ni desde el explorador de Windows.
+
+El firmware se comporta así:
+- `STOP_VGM` tampoco cierra el fichero, solo hace `seekSet(0)`.
+- Al llegar al final sin bucle, tras 10 lecturas fallidas, sí lo cierra
+  (`VGMFile.close()`).
+
+**Arreglo propuesto:**
+- Al llegar al final sin bucle, cerrar el stream, como el firmware.
+- Si se quiere poder borrar el fichero con STOP, abrirlo compartido para
+  borrado. En Windows, `_wfsopen`/`CreateFile` con `FILE_SHARE_DELETE`;
+  `std::ifstream` no lo permite.
+
+## Cómo se ve con SD81TEST
+
+La prueba de VGM (menú 6 → 5) reproduce `SD81TEST.VGM`, que se copia junto a los binarios y tiene
+la cabecera completa y los datos en `$100`, así que funciona con el
+emulador tal cual. No lo crea ni lo borra. Para
+reproducir el fallo del emulador hay que usar un VGM con otro
+desplazamiento, por ejemplo uno con el campo de `$34` a 0 y los datos en
+`$40`.
+
+# 5. WRX: `POKE 2058` solo afecta a I entre $20 y $3F
+
+Referencias:
+- FPGA: `FPGA/SD81V2.1000/SD81.v`, asignación de `A9x..A0x` (hacia la
+  línea 1961).
+- Emulador: `src/zx81/zx81.cpp`, `zx81_opcode_fetch()`, `sd81WrxOff`.
+
+## Qué hace la FPGA
+
+En el refresco, la dirección I:R pasa **tal cual** a la memoria, que es
+lo que necesita el WRX, cuando:
+
+```verilog
+(nQS_en & (nRFSH | A14 | A15 | (wrx_en & A13)))
+```
+
+- **Con I ≥ $40** (A14 o A15 a 1), siempre.
+- **Con I entre $20 y $3F** (A13 a 1), solo con `POKE 2058,170`
+  (`wrx_en`).
+- Con `POKE 2058,85`, esa zona es el generador de caracteres en RAM: la
+  dirección se construye con `{A9, código, línea}`.
+
+## Qué hace el emulador (y falla)
+
+```cpp
+bool sd81WrxOff = sd81booster && !sd81booster->IsWrxEnabled();
+bool wrxAccess  = (zx81.truehires == HIRESWRX) && !bit6 && !sd81WrxOff && ...
+```
+
+Con el SD81, `POKE 2058,85` apaga el WRX para **todos** los valores de I.
+Un programa WRX con la pantalla en `$4000` o más arriba no se ve si no se
+ha hecho antes `POKE 2058,170`. En el hardware sí se ve.
+
+**Arreglo:** que `sd81WrxOff` solo cuente cuando I está entre $20 y $3F
+(`region8KAccess`).
+
+## Cómo lo comprueba SD81TEST (menú 5 → 4, `USR 22633`)
+
+| Parte | Bitmap | `POKE 2058` | Qué se tiene que ver |
+|---|---|---|---|
+| A | `$A000`, I = $A0–$B7 | 85 | el marco y la X. **En el emulador sale negro:** es este fallo |
+| B | `$2000` (bloque 1 = página del bloque 5) | 170 | el marco y la X |
+| C | `$2000` | 85 | columnas de puntos, sin la X (generador de caracteres) |
+
+# 6. RTC: centésimas
+
+`CMD_RTC` (`$32`) sin parámetros devuelve `"AAAA-MM-DD HH:MM:SS.CC"`. El
+firmware rellena las centésimas con el RTC del STM32
+(`rtc.getSubSeconds()/10`, en `RTC.cpp`). El emulador escribe siempre
+`.00` (`SD81Booster.cpp`, `case 0x32`, `"%02d.00"`).
+
+**Arreglo:** sacar las centésimas de los milisegundos del reloj del
+sistema, por ejemplo con `std::chrono::system_clock` y `(ms % 1000) / 10`.
+
+La prueba del reloj de la CPU de SD81TEST (menú 4 → 5, `USR 22636`) las
+necesita. Con `.00` dice `RTC WITHOUT 1/100 S: NO MEASURE` y devuelve 9999.
 

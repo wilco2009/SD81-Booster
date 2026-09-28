@@ -2,44 +2,51 @@
 ; SD81TEST.ASM -- Test de hardware del SD81 Booster: NUCLEO
 ;
 ; v0.9: menu (en el stub BASIC, con submenus) y una entrada fija por
-; prueba en la tabla de saltos del principio: prueba N en USR 20480+3*N.
-;   USR 20480 -> test de MEMORIA (paginas del mapper y enrutado por bloques)
-;   USR 20483 -> test de MC45 (ejecucion de codigo en los bloques 4 y 5)
-;   USR 20486 -> test de la extension de MC45 a los bloques 6 y 7
-;   USR 20489 -> estres del mapper (OUT $E7 aleatorios + relectura)
-;   USR 20492 -> captura de POKE 2045 (Superfast), medida con FRAMES
-;   USR 20495 -> (reservada: interrupciones simuladas, quitada de momento)
-;   USR 20498 -> ROMLOCK (con el bloqueo POKE 2045 no hace nada)
-;   USR 20501 -> estres del protocolo con el MCU (SETBYTE/GETBYTE)
-;   USR 20504 -> informacion de la maquina
-;   USR 20507 -> memoria no paginada en los bloques 4-7
-;   USR 20510 -> registros del mapper (todas las paginas, bloques 4-7)
-;   USR 20513 -> proteccion del bloque 0
-;   USR 20516 -> frecuencia de cuadro (VSYNC por segundo del RTC)
-;   USR 20519 -> RTC y bateria
-;   USR 20522 -> registros de los chips AY
-;   USR 20525 -> lectura de la SD (SDBOOST.ROM contra la ROM en memoria)
-;   USR 20528 -> escritura de la SD (SAVE, F_SEEK/F_WRITE, DEL)
-;   USR 20531 -> paginas de sistema (bloques 0-3), no destructivo
+; prueba en la tabla de saltos del principio: prueba N en USR 22528+3*N.
+;   USR 22528 -> test de MEMORIA (paginas del mapper y enrutado por bloques)
+;   USR 22531 -> test de MC45 (ejecucion de codigo en los bloques 4 y 5)
+;   USR 22534 -> test de la extension de MC45 a los bloques 6 y 7
+;   USR 22537 -> estres del mapper (OUT $E7 aleatorios + relectura)
+;   USR 22540 -> captura de POKE 2045 (Superfast), medida con FRAMES
+;   USR 22543 -> (reservada: interrupciones simuladas, quitada de momento)
+;   USR 22546 -> ROMLOCK (con el bloqueo POKE 2045 no hace nada)
+;   USR 22549 -> estres del protocolo con el MCU (SETBYTE/GETBYTE)
+;   USR 22552 -> informacion de la maquina
+;   USR 22555 -> memoria no paginada en los bloques 4-7
+;   USR 22558 -> registros del mapper (todas las paginas, bloques 4-7)
+;   USR 22561 -> proteccion del bloque 0
+;   USR 22564 -> frecuencia de cuadro (VSYNC por segundo del RTC)
+;   USR 22567 -> RTC y bateria
+;   USR 22570 -> registros de los chips AY
+;   USR 22573 -> lectura de la SD (SDBOOST.ROM contra la ROM en memoria)
+;   USR 22576 -> escritura de la SD (SAVE, F_SEEK/F_WRITE, DEL)
+;   USR 22579 -> paginas de sistema (bloques 0-3), no destructivo
 ;   Interactivas (el usuario confirma con Y/N; necesitan SLOW):
-;   USR 20534 -> sprites por hardware
-;   USR 20537 -> patron de borde
-;   USR 20540 -> Chroma81 modo 0 (barras de color)
-;   USR 20543 -> modos Superfast (texto, HiRes nativo, Spectrum)
-;   USR 20546 -> teclado y joystick en vivo
-;   USR 20549 -> sonido (tonos AY y SAY)
+;   USR 22582 -> sprites por hardware
+;   USR 22585 -> patron de borde
+;   USR 22588 -> Chroma81 modo 0 (barras de color)
+;   USR 22591 -> modos Superfast (texto, HiRes nativo, Spectrum)
+;   USR 22594 -> teclado y joystick en vivo
+;   USR 22597 -> sonido (tonos AY y SAY)
 ;   Utilidades para el stub BASIC:
-;   USR 20552 -> espera una cifra 0-9 y devuelve su valor
-;   USR 20555 -> espera una tecla cualquiera
+;   USR 22600 -> espera una cifra 0-9 y devuelve su valor
+;   USR 22603 -> espera una tecla cualquiera
 ;   Video 4.x (interactivas):
-;   USR 20558 -> juegos de caracteres 128C y 256C
-;   USR 20561 -> 70 y 80 columnas (pantalla alternativa)
-;   USR 20564 -> scroll fino por filas
-;   USR 20567 -> Chroma81 modo 1 (tabla normal y alternativa)
-;   USR 20570 -> doble buffer (HiRes, modo AUTO)
+;   USR 22606 -> juegos de caracteres 128C y 256C
+;   USR 22609 -> 70 y 80 columnas (pantalla alternativa)
+;   USR 22612 -> scroll fino por filas
+;   USR 22615 -> Chroma81 modo 1 (tabla normal y alternativa)
+;   USR 22618 -> doble buffer (HiRes, AUTO y MANUAL)
+;   Sonido:
+;   USR 22621 -> registros del AY del MCU (automatica)
+;   USR 22624 -> beeper del modo Spectrum
+;   USR 22627 -> reproductor VGM
+;   USR 22630 -> generador de efectos PEG
+;   USR 22633 -> alta resolucion WRX (en $A000 y en 8-16K)
+;   USR 22636 -> reloj de la CPU (bucle en FAST contra el RTC)
 ;
 ; ESTRUCTURA: este fichero es el nucleo (tabla de saltos, rutinas comunes,
-; textos y variables compartidas), en 20480 ($5000). Las pruebas estan en
+; textos y variables compartidas), en 22528 ($5800). Las pruebas estan en
 ; tres modulos que se cargan de uno en uno en MOD_ORG ($6000, el bloque 3
 ; entero):
 ;   SD81MEM.BIN (sd81mem.asm): memoria, mapper, ejecucion y puertos
@@ -62,52 +69,60 @@
 ; =============================================================
 ; Todo tiene que quedar en los bloques 2-3 (por debajo de $8000): las
 ; pruebas remapean los bloques 4-7 y machacarian lo que hubiera ahi. El
-; nucleo va de 20480 a MOD_ORG (comprobar bss_end en sd81test.sym) y cada
-; modulo de MOD_ORG a $8000 (comprobar mbss_end en su .sym).
+; nucleo va de 22528 a MOD_ORG (comprobar bss_end en sd81test.sym) y cada
+; modulo de MOD_ORG a $8000 (comprobar mbss_end en su .sym). El nucleo no
+; empieza en 20480 para dejarle sitio al BASIC: el stub, con su D_FILE y
+; sus variables, llega casi a 20480 y se quedaba sin memoria (informe 4).
 MOD_ORG equ 6000h       ; donde se cargan los modulos (byte bajo = 0)
 MOD_MEM equ 1           ; id de cada modulo (primer byte de su cabecera)
 MOD_SYS equ 2
 MOD_AV  equ 3
 
-        org 20480
+        org 22528
 
 ; Tabla de saltos: un punto de entrada fijo por prueba (prueba N en
-; USR 20480+3*N). Las pruebas viven en tres modulos (MEM, SYS y AV) que
+; USR 22528+3*N). Las pruebas viven en tres modulos (MEM, SYS y AV) que
 ; el stub BASIC carga en MOD_ORG; cada entrada pasa por run_mod, que
 ; comprueba que el modulo cargado es el suyo.
-        jp t00                 ; USR 20480 mem_test (MEM)
-        jp t01                 ; USR 20483 mc45_test (MEM)
-        jp t02                 ; USR 20486 mc67_test (MEM)
-        jp t03                 ; USR 20489 ms_test (MEM)
-        jp t04                 ; USR 20492 pk_test (MEM)
-        jp ia_noslow           ; USR 20495 (reservada, devuelve 9999)
-        jp t06                 ; USR 20498 rl_test (MEM)
-        jp t07                 ; USR 20501 mu_test (SYS)
-        jp t08                 ; USR 20504 info_test (SYS)
-        jp t09                 ; USR 20507 up_test (MEM)
-        jp t10                 ; USR 20510 rg_test (MEM)
-        jp t11                 ; USR 20513 b0_test (MEM)
-        jp t12                 ; USR 20516 fr_test (SYS)
-        jp t13                 ; USR 20519 rt_test (SYS)
-        jp t14                 ; USR 20522 ay_test (AV)
-        jp t15                 ; USR 20525 sr_test (SYS)
-        jp t16                 ; USR 20528 sw_test (SYS)
-        jp t17                 ; USR 20531 sp_test (MEM)
-        jp t18                 ; USR 20534 spr_test (AV)
-        jp t19                 ; USR 20537 bd_test (AV)
-        jp t20                 ; USR 20540 ch_test (AV)
-        jp t21                 ; USR 20543 sf_test (AV)
-        jp t22                 ; USR 20546 kb_test (AV)
-        jp t23                 ; USR 20549 so_test (AV)
+        jp t00                 ; USR 22528 mem_test (MEM)
+        jp t01                 ; USR 22531 mc45_test (MEM)
+        jp t02                 ; USR 22534 mc67_test (MEM)
+        jp t03                 ; USR 22537 ms_test (MEM)
+        jp t04                 ; USR 22540 pk_test (MEM)
+        jp ia_noslow           ; USR 22543 (reservada, devuelve 9999)
+        jp t06                 ; USR 22546 rl_test (MEM)
+        jp t07                 ; USR 22549 mu_test (SYS)
+        jp t08                 ; USR 22552 info_test (SYS)
+        jp t09                 ; USR 22555 up_test (MEM)
+        jp t10                 ; USR 22558 rg_test (MEM)
+        jp t11                 ; USR 22561 b0_test (MEM)
+        jp t12                 ; USR 22564 fr_test (SYS)
+        jp t13                 ; USR 22567 rt_test (SYS)
+        jp t14                 ; USR 22570 ay_test (AV)
+        jp t15                 ; USR 22573 sr_test (SYS)
+        jp t16                 ; USR 22576 sw_test (SYS)
+        jp t17                 ; USR 22579 sp_test (MEM)
+        jp t18                 ; USR 22582 spr_test (AV)
+        jp t19                 ; USR 22585 bd_test (AV)
+        jp t20                 ; USR 22588 ch_test (AV)
+        jp t21                 ; USR 22591 sf_test (AV)
+        jp t22                 ; USR 22594 kb_test (AV)
+        jp t23                 ; USR 22597 so_test (AV)
 ; Utilidades para el stub BASIC (no son pruebas; las pruebas nuevas van
-; detras, a partir de USR 20558)
-        jp menu_key            ; USR 20552: espera una cifra 0-9 -> valor
-        jp key_any             ; USR 20555: espera una tecla cualquiera
-        jp t26                 ; USR 20558 cs_test (AV)
-        jp t27                 ; USR 20561 wd_test (AV)
-        jp t28                 ; USR 20564 fs_test (AV)
-        jp t29                 ; USR 20567 c1_test (AV)
-        jp t30                 ; USR 20570 db_test (AV)
+; al final de la tabla)
+        jp menu_key            ; USR 22600: espera una cifra 0-9 -> valor
+        jp key_any             ; USR 22603: espera una tecla cualquiera
+        jp t26                 ; USR 22606 cs_test (AV)
+        jp t27                 ; USR 22609 wd_test (AV)
+        jp t28                 ; USR 22612 fs_test (AV)
+        jp t29                 ; USR 22615 c1_test (AV)
+        jp t30                 ; USR 22618 db_test (AV)
+        jp t31                 ; USR 22621 ma_test (AV)
+        jp t32                 ; USR 22624 bp_test (AV)
+        jp t33                 ; USR 22627 vg_test (AV)
+        jp t34                 ; USR 22630 pg_test (AV)
+        jp t35                 ; USR 22633 wx_test (AV)
+        jp t36                 ; USR 22636 ck_test (SYS)
 
 t00:    ld a,MOD_MEM*32+0
         jr run_mod
@@ -145,31 +160,11 @@ t17:    ld a,MOD_MEM*32+9
         jr run_mod
 t18:    ld a,MOD_AV*32+1
         jr run_mod
-t19:    ld a,MOD_AV*32+2
-        jr run_mod
-t20:    ld a,MOD_AV*32+3
-        jr run_mod
-t21:    ld a,MOD_AV*32+4
-        jr run_mod
-t22:    ld a,MOD_AV*32+5
-        jr run_mod
-t23:    ld a,MOD_AV*32+6
-        jr run_mod
-t26:    ld a,MOD_AV*32+7
-        jr run_mod
-t27:    ld a,MOD_AV*32+8
-        jr run_mod
-t28:    ld a,MOD_AV*32+9
-        jr run_mod
-t29:    ld a,MOD_AV*32+10
-        jr run_mod
-t30:    ld a,MOD_AV*32+11
-        jr run_mod
-
 ; A = modulo*32 + numero de la prueba dentro del modulo. Si en MOD_ORG
 ; esta ese modulo, ensamblado con este nucleo (la cabecera lleva su
 ; bss_end), salta a su entrada (MOD_ORG+3+3*n); si no, lo dice y
 ; devuelve 9999.
+; (va a mitad de los stubs para que todos lleguen con JR)
 run_mod:
         ld c,a
         ld hl,MOD_ORG
@@ -201,6 +196,40 @@ rm_bad: call pline
         dw s_nomod
         ld bc,9999
         ret
+
+t19:    ld a,MOD_AV*32+2
+        jr run_mod
+t20:    ld a,MOD_AV*32+3
+        jr run_mod
+t21:    ld a,MOD_AV*32+4
+        jr run_mod
+t22:    ld a,MOD_AV*32+5
+        jr run_mod
+t23:    ld a,MOD_AV*32+6
+        jr run_mod
+t26:    ld a,MOD_AV*32+7
+        jr run_mod
+t27:    ld a,MOD_AV*32+8
+        jr run_mod
+t28:    ld a,MOD_AV*32+9
+        jr run_mod
+t29:    ld a,MOD_AV*32+10
+        jr run_mod
+t30:    ld a,MOD_AV*32+11
+        jr run_mod
+t31:    ld a,MOD_AV*32+12
+        jr run_mod
+t32:    ld a,MOD_AV*32+13
+        jr run_mod
+t33:    ld a,MOD_AV*32+14
+        jr run_mod
+t34:    ld a,MOD_AV*32+15
+        jr run_mod
+t35:    ld a,MOD_AV*32+16
+        jr run_mod
+t36:    ld a,MOD_SYS*32+6
+        jr run_mod
+
 
 ; -------------------------------------------------------------
 ; Teclado. En BASIC, un bucle con INKEY$ en SLOW da una vuelta cada

@@ -53,22 +53,22 @@
         db MOD_MEM              ; cabecera: id del modulo
         dw bss_end              ; y fin del nucleo con el que se ensamblo
 ; Tabla de saltos del modulo (el nucleo entra por MOD_ORG+3+3*n)
-        jp mem_test            ; 0: USR 20480
-        jp mc45_test           ; 1: USR 20483
-        jp mc67_test           ; 2: USR 20486
-        jp ms_test             ; 3: USR 20489
-        jp pk_test             ; 4: USR 20492
-        jp rl_test             ; 5: USR 20498
-        jp up_test             ; 6: USR 20507
-        jp rg_test             ; 7: USR 20510
-        jp b0_test             ; 8: USR 20513
-        jp sp_test             ; 9: USR 20531
+        jp mem_test            ; 0: USR 22528
+        jp mc45_test           ; 1: USR 22531
+        jp mc67_test           ; 2: USR 22534
+        jp ms_test             ; 3: USR 22537
+        jp pk_test             ; 4: USR 22540
+        jp rl_test             ; 5: USR 22546
+        jp up_test             ; 6: USR 22555
+        jp rg_test             ; 7: USR 22558
+        jp b0_test             ; 8: USR 22561
+        jp sp_test             ; 9: USR 22579
 
 s_title equ s_up_title+8    ; comparte texto
 s_bad_sp equ s_bad_n    ; comparte texto
 
 ; -------------------------------------------------------------
-; Test de memoria (USR 20480)
+; Test de memoria (USR 22528)
 ; -------------------------------------------------------------
 mem_test:
         call save_map
@@ -114,7 +114,7 @@ st1:    call detect_pages
         ret
 
 ; -------------------------------------------------------------
-; Test de MC45 (USR 20483)
+; Test de MC45 (USR 22531)
 ;
 ; Escribe LD BC,0302h / RET (01 02 03 C9) en varios puntos de los bloques
 ; 4 y 5 y lo ejecuta con BC=0:
@@ -253,7 +253,7 @@ mr3:    pop hl
         ret
 
 ; -------------------------------------------------------------
-; Test de la extension de MC45 a los bloques 6/7 (USR 20486)
+; Test de la extension de MC45 a los bloques 6/7 (USR 22534)
 ;
 ; Con MC45 y POKE 2062,170 se puede ejecutar codigo en los bloques 6/7
 ; (paginas propias, no el espejo de 2/3). Prueba:
@@ -438,7 +438,7 @@ psx:    ld a,2
         ret
 
 ; =============================================================
-; Test 3: estres del mapper (USR 20489)
+; Test 3: estres del mapper (USR 22537)
 ;
 ; Escribe en cada pagina que no es de sistema una firma (numero de pagina
 ; y su complemento en los 2 primeros bytes; los originales se guardan y se
@@ -643,7 +643,7 @@ sig_map:
         ret
 
 ; =============================================================
-; Test 4: captura de POKE 2045 (USR 20492)
+; Test 4: captura de POKE 2045 (USR 22540)
 ; 100 veces: POKE 2045,170 tiene que poner en marcha FRAMES (Superfast) y
 ; POKE 2045,85 tiene que pararlo (video nativo). En FAST.
 ; =============================================================
@@ -695,7 +695,7 @@ pk3:    pop bc
         jp two_results
 
 ; =============================================================
-; Test 6: ROMLOCK (USR 20498)
+; Test 6: ROMLOCK (USR 22546)
 ; 10 veces: sin bloqueo POKE 2045,170/85 tiene que funcionar; con
 ; LOAD *ROMLOCK (comando $44), POKE 2045,170 no tiene que tener efecto.
 ; Deja ROMLOCK apagado. En FAST.
@@ -760,7 +760,7 @@ rl4:    pop bc
         jp two_results
 
 ; =============================================================
-; Test 9: memoria no paginada en los bloques 4-7 (USR 20507)
+; Test 9: memoria no paginada en los bloques 4-7 (USR 22555)
 ;
 ; Busca algo dentro de la maquina que conteste en $8000-$FFFF a la vez que
 ; el interface y no dependa de la pagina (p.ej. la RAM interna del TS1500
@@ -976,7 +976,7 @@ up_find:
 up_offs: dw 0000h, 0555h, 1AAAh, 1FFFh
 
 ; =============================================================
-; Test 10: registros del mapper (USR 20510)
+; Test 10: registros del mapper (USR 22558)
 ; Cada pagina en cada bloque 4-7, con el formato del modo activo: en
 ; paginacion simple la pagina va en D7-D3 del dato (y B, que no debe
 ; usarse, lleva basura); en completa va en B (y D7-D3 llevan basura).
@@ -1081,7 +1081,7 @@ rc2:    inc hl
         ret
 
 ; =============================================================
-; Test 11: proteccion del bloque 0 (USR 20513)
+; Test 11: proteccion del bloque 0 (USR 22561)
 ; El bloque 0 es de solo lectura: escribir el complemento en direcciones
 ; de la ROM que no son puertos de configuracion (2038-2130 se evitan) no
 ; tiene que cambiar nada. Si alguna cambia se restaura en el acto. En FAST
@@ -1138,7 +1138,7 @@ b02:    pop hl
 b0_addrs: dw 0000h, 0001h, 0100h, 0555h, 07F0h, 0900h, 0AAAh, 1000h, 1555h, 1FFFh
 
 ; =============================================================
-; Test 17: paginas de sistema, no destructivo (USR 20531)
+; Test 17: paginas de sistema, no destructivo (USR 22579)
 ; Las paginas de los bloques 0-3 (ROM, ROM de expansion, BASIC, este
 ; programa) vistas por el bloque 5: cada byte se lee, se escribe su
 ; complemento, se relee y se restaura. En FAST y con DI. La pagina donde

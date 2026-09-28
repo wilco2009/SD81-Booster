@@ -44,6 +44,9 @@
 ;   USR 22630 -> generador de efectos PEG
 ;   USR 22633 -> alta resolucion WRX (en $A000 y en 8-16K)
 ;   USR 22636 -> reloj de la CPU (bucle en FAST contra el RTC)
+;   USR 22639 -> borra los resultados apuntados (utilidad)
+;   USR 22642 -> resumen de las pruebas apuntadas; lo guarda en
+;                SD81TEST.TXT
 ;
 ; ESTRUCTURA: este fichero es el nucleo (tabla de saltos, rutinas comunes,
 ; textos y variables compartidas), en 22528 ($5800). Las pruebas estan en
@@ -53,7 +56,7 @@
 ;   SD81SYS.BIN (sd81sys.asm): MCU, RTC, SD, frecuencia de cuadro e info
 ;   SD81AV.BIN  (sd81av.asm):  sonido, video interactivo y entrada
 ; Los modulos usan las rutinas del nucleo a traves de su .sym, asi que
-; cualquier cambio en el nucleo obliga a reensamblarlos (run_mod lo
+; cualquier cambio en el nucleo obliga a reensamblarlos (run_t lo
 ; detecta y no los ejecuta).
 ; Pensado para ir creciendo con mas pruebas (puertos mapeados en memoria,
 ; mapper, Superfast...) y para comprobar el interface en maquinas nuevas
@@ -82,90 +85,75 @@ MOD_AV  equ 3
 
 ; Tabla de saltos: un punto de entrada fijo por prueba (prueba N en
 ; USR 22528+3*N). Las pruebas viven en tres modulos (MEM, SYS y AV) que
-; el stub BASIC carga en MOD_ORG; cada entrada pasa por run_mod, que
-; comprueba que el modulo cargado es el suyo.
-        jp t00                 ; USR 22528 mem_test (MEM)
-        jp t01                 ; USR 22531 mc45_test (MEM)
-        jp t02                 ; USR 22534 mc67_test (MEM)
-        jp t03                 ; USR 22537 ms_test (MEM)
-        jp t04                 ; USR 22540 pk_test (MEM)
+; el stub BASIC carga en MOD_ORG; cada entrada hace CALL run_t, que saca
+; N de la direccion de retorno, comprueba que el modulo cargado es el
+; suyo, ejecuta la prueba y apunta su resultado en rep_res (para el
+; resumen).
+usr_tab:
+        call run_t             ; USR 22528 mem_test (MEM)
+        call run_t             ; USR 22531 mc45_test (MEM)
+        call run_t             ; USR 22534 mc67_test (MEM)
+        call run_t             ; USR 22537 ms_test (MEM)
+        call run_t             ; USR 22540 pk_test (MEM)
         jp ia_noslow           ; USR 22543 (reservada, devuelve 9999)
-        jp t06                 ; USR 22546 rl_test (MEM)
-        jp t07                 ; USR 22549 mu_test (SYS)
-        jp t08                 ; USR 22552 info_test (SYS)
-        jp t09                 ; USR 22555 up_test (MEM)
-        jp t10                 ; USR 22558 rg_test (MEM)
-        jp t11                 ; USR 22561 b0_test (MEM)
-        jp t12                 ; USR 22564 fr_test (SYS)
-        jp t13                 ; USR 22567 rt_test (SYS)
-        jp t14                 ; USR 22570 ay_test (AV)
-        jp t15                 ; USR 22573 sr_test (SYS)
-        jp t16                 ; USR 22576 sw_test (SYS)
-        jp t17                 ; USR 22579 sp_test (MEM)
-        jp t18                 ; USR 22582 spr_test (AV)
-        jp t19                 ; USR 22585 bd_test (AV)
-        jp t20                 ; USR 22588 ch_test (AV)
-        jp t21                 ; USR 22591 sf_test (AV)
-        jp t22                 ; USR 22594 kb_test (AV)
-        jp t23                 ; USR 22597 so_test (AV)
+        call run_t             ; USR 22546 rl_test (MEM)
+        call run_t             ; USR 22549 mu_test (SYS)
+        call run_t             ; USR 22552 info_test (SYS)
+        call run_t             ; USR 22555 up_test (MEM)
+        call run_t             ; USR 22558 rg_test (MEM)
+        call run_t             ; USR 22561 b0_test (MEM)
+        call run_t             ; USR 22564 fr_test (SYS)
+        call run_t             ; USR 22567 rt_test (SYS)
+        call run_t             ; USR 22570 ay_test (AV)
+        call run_t             ; USR 22573 sr_test (SYS)
+        call run_t             ; USR 22576 sw_test (SYS)
+        call run_t             ; USR 22579 sp_test (MEM)
+        call run_t             ; USR 22582 spr_test (AV)
+        call run_t             ; USR 22585 bd_test (AV)
+        call run_t             ; USR 22588 ch_test (AV)
+        call run_t             ; USR 22591 sf_test (AV)
+        call run_t             ; USR 22594 kb_test (AV)
+        call run_t             ; USR 22597 so_test (AV)
 ; Utilidades para el stub BASIC (no son pruebas; las pruebas nuevas van
 ; al final de la tabla)
         jp menu_key            ; USR 22600: espera una cifra 0-9 -> valor
         jp key_any             ; USR 22603: espera una tecla cualquiera
-        jp t26                 ; USR 22606 cs_test (AV)
-        jp t27                 ; USR 22609 wd_test (AV)
-        jp t28                 ; USR 22612 fs_test (AV)
-        jp t29                 ; USR 22615 c1_test (AV)
-        jp t30                 ; USR 22618 db_test (AV)
-        jp t31                 ; USR 22621 ma_test (AV)
-        jp t32                 ; USR 22624 bp_test (AV)
-        jp t33                 ; USR 22627 vg_test (AV)
-        jp t34                 ; USR 22630 pg_test (AV)
-        jp t35                 ; USR 22633 wx_test (AV)
-        jp t36                 ; USR 22636 ck_test (SYS)
+        call run_t             ; USR 22606 cs_test (AV)
+        call run_t             ; USR 22609 wd_test (AV)
+        call run_t             ; USR 22612 fs_test (AV)
+        call run_t             ; USR 22615 c1_test (AV)
+        call run_t             ; USR 22618 db_test (AV)
+        call run_t             ; USR 22621 ma_test (AV)
+        call run_t             ; USR 22624 bp_test (AV)
+        call run_t             ; USR 22627 vg_test (AV)
+        call run_t             ; USR 22630 pg_test (AV)
+        call run_t             ; USR 22633 wx_test (AV)
+        call run_t             ; USR 22636 ck_test (SYS)
+        jp rep_clear           ; USR 22639: borra los resultados apuntados
+        call run_t             ; USR 22642 rp_test (SYS): resumen
 
-t00:    ld a,MOD_MEM*32+0
-        jr run_mod
-t01:    ld a,MOD_MEM*32+1
-        jr run_mod
-t02:    ld a,MOD_MEM*32+2
-        jr run_mod
-t03:    ld a,MOD_MEM*32+3
-        jr run_mod
-t04:    ld a,MOD_MEM*32+4
-        jr run_mod
-t06:    ld a,MOD_MEM*32+5
-        jr run_mod
-t07:    ld a,MOD_SYS*32+0
-        jr run_mod
-t08:    ld a,MOD_SYS*32+1
-        jr run_mod
-t09:    ld a,MOD_MEM*32+6
-        jr run_mod
-t10:    ld a,MOD_MEM*32+7
-        jr run_mod
-t11:    ld a,MOD_MEM*32+8
-        jr run_mod
-t12:    ld a,MOD_SYS*32+2
-        jr run_mod
-t13:    ld a,MOD_SYS*32+3
-        jr run_mod
-t14:    ld a,MOD_AV*32+0
-        jr run_mod
-t15:    ld a,MOD_SYS*32+4
-        jr run_mod
-t16:    ld a,MOD_SYS*32+5
-        jr run_mod
-t17:    ld a,MOD_MEM*32+9
-        jr run_mod
-t18:    ld a,MOD_AV*32+1
-        jr run_mod
-; A = modulo*32 + numero de la prueba dentro del modulo. Si en MOD_ORG
-; esta ese modulo, ensamblado con este nucleo (la cabecera lleva su
-; bss_end), salta a su entrada (MOD_ORG+3+3*n); si no, lo dice y
-; devuelve 9999.
-; (va a mitad de los stubs para que todos lleguen con JR)
-run_mod:
+; Entrada comun de las pruebas (CALL run_t desde la tabla): N = (retorno
+; - usr_tab - 3) / 3. Busca en mt_tab su modulo y su numero dentro de el;
+; si en MOD_ORG esta ese modulo, ensamblado con este nucleo (la cabecera
+; lleva su bss_end), ejecuta su entrada (MOD_ORG+3+3*n); si no, lo dice y
+; da 9999. El resultado (BC) se apunta en rep_res[N] y se devuelve.
+run_t:
+        pop hl
+        ld de,-(usr_tab+3)
+        add hl,de               ; HL = 3*N
+        ld a,l
+        ld b,0FFh
+rt0:    inc b
+        sub 3
+        jr nc,rt0
+        ld a,b
+        ld (rep_t),a
+        ld hl,mt_tab
+        add a,l
+        ld l,a
+        jr nc,rtm1
+        inc h
+rtm1:    ld a,(hl)
         ld c,a
         ld hl,MOD_ORG
         rlca
@@ -190,45 +178,77 @@ run_mod:
         add a,3
         ld l,a
         ld h,MOD_ORG/256
-        jp (hl)
+        call rt_hl              ; la prueba: BC = resultado
+rm_rec: ld a,(rep_t)            ; rep_res[N] = BC
+        ld l,a
+        ld h,0
+        add hl,hl
+        ld de,rep_res
+        add hl,de
+        ld (hl),c
+        inc hl
+        ld (hl),b
+        ret
 rm_bad: call pline
         db 2
         dw s_nomod
         ld bc,9999
+        jr rm_rec
+rt_hl:  jp (hl)
+
+; Borra los resultados apuntados (FFFFh = no ejecutada)
+rep_clear:
+        ld hl,rep_res
+        ld b,REP_N*2
+rclr1:    ld (hl),0FFh
+        inc hl
+        djnz rclr1
         ret
 
-t19:    ld a,MOD_AV*32+2
-        jr run_mod
-t20:    ld a,MOD_AV*32+3
-        jr run_mod
-t21:    ld a,MOD_AV*32+4
-        jr run_mod
-t22:    ld a,MOD_AV*32+5
-        jr run_mod
-t23:    ld a,MOD_AV*32+6
-        jr run_mod
-t26:    ld a,MOD_AV*32+7
-        jr run_mod
-t27:    ld a,MOD_AV*32+8
-        jr run_mod
-t28:    ld a,MOD_AV*32+9
-        jr run_mod
-t29:    ld a,MOD_AV*32+10
-        jr run_mod
-t30:    ld a,MOD_AV*32+11
-        jr run_mod
-t31:    ld a,MOD_AV*32+12
-        jr run_mod
-t32:    ld a,MOD_AV*32+13
-        jr run_mod
-t33:    ld a,MOD_AV*32+14
-        jr run_mod
-t34:    ld a,MOD_AV*32+15
-        jr run_mod
-t35:    ld a,MOD_AV*32+16
-        jr run_mod
-t36:    ld a,MOD_SYS*32+6
-        jr run_mod
+; modulo*32 + numero dentro del modulo de cada prueba N (0 = no es de
+; ningun modulo: la entrada no pasa por run_t)
+mt_tab:
+        db MOD_MEM*32+0
+        db MOD_MEM*32+1
+        db MOD_MEM*32+2
+        db MOD_MEM*32+3
+        db MOD_MEM*32+4
+        db 0                 ; 5
+        db MOD_MEM*32+5
+        db MOD_SYS*32+0
+        db MOD_SYS*32+1
+        db MOD_MEM*32+6
+        db MOD_MEM*32+7
+        db MOD_MEM*32+8
+        db MOD_SYS*32+2
+        db MOD_SYS*32+3
+        db MOD_AV*32+0
+        db MOD_SYS*32+4
+        db MOD_SYS*32+5
+        db MOD_MEM*32+9
+        db MOD_AV*32+1
+        db MOD_AV*32+2
+        db MOD_AV*32+3
+        db MOD_AV*32+4
+        db MOD_AV*32+5
+        db MOD_AV*32+6
+        db 0                 ; 24
+        db 0                 ; 25
+        db MOD_AV*32+7
+        db MOD_AV*32+8
+        db MOD_AV*32+9
+        db MOD_AV*32+10
+        db MOD_AV*32+11
+        db MOD_AV*32+12
+        db MOD_AV*32+13
+        db MOD_AV*32+14
+        db MOD_AV*32+15
+        db MOD_AV*32+16
+        db MOD_SYS*32+6
+        db 0                 ; 37
+        db MOD_SYS*32+7
+REP_N   equ 39              ; entradas de la tabla con resultado
+
 
 
 ; -------------------------------------------------------------
@@ -865,4 +885,6 @@ vs_total:   dw 0        ; VSYNC acumulados de las lecturas de $AF
 ; -------------------------------------------------------------
 bss:
 saved_map    equ bss   ; pagina de cada bloque al empezar
-bss_end      equ saved_map+8
+rep_res      equ saved_map+8   ; resultado de cada prueba (FFFFh = no ejecutada)
+rep_t        equ rep_res+REP_N*2   ; N de la prueba en curso
+bss_end      equ rep_t+1

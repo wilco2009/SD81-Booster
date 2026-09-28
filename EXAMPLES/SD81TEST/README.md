@@ -50,7 +50,7 @@ SD81 BOOSTER HARDWARE TEST
 6 SUPERFAST VIDEO
 7 SOUND
 8 INPUT (KEYBOARD, JOYSTICK)
-9 MACHINE INFO
+9 INFO AND SUMMARY
 0 EXIT
 ```
 
@@ -69,7 +69,8 @@ anteriores), deja sus resultados en pantalla y devuelve su número de
 fallos. La entrada del núcleo comprueba que en `$6000` está el módulo de
 esa prueba, ensamblado con este núcleo: la cabecera del módulo lleva su
 número y el `bss_end` del núcleo. Si no, escribe `MODULE MISSING OR
-OUTDATED` y devuelve 9999. Para llamar a una prueba a mano con `USR`, hay
+OUTDATED` y devuelve 9999. Además apunta el resultado de cada prueba que
+se ejecuta, para el resumen (ver más abajo). Para llamar a una prueba a mano con `USR`, hay
 que cargar antes su módulo con `LOAD FAST "SD81xxx.BIN" CODE 24576`.
 Las entradas 24 y 25 (`USR 22600` y `USR 22603`) son las rutinas de
 teclado del menú; las pruebas nuevas irán a partir de la 26.
@@ -113,6 +114,8 @@ teclado del menú; las pruebas nuevas irán a partir de la 26.
 | 34 | `USR 22630` | AV | Generador de efectos PEG (interactiva) | respuestas N (9999 = el MCU no contesta) |
 | 35 | `USR 22633` | AV | Alta resolución WRX (interactiva) | respuestas N (0–3) |
 | 36 | `USR 22636` | SYS | Reloj de la CPU | 0 = 3,20–3,30 MHz, 1 = fuera (9999 = el RTC no contesta o no da centésimas) |
+| 37 | `USR 22639` | — | *(utilidad: borra los resultados apuntados)* | — |
+| 38 | `USR 22642` | SYS | Resumen (y `SD81TEST.TXT`) | pruebas con FAIL |
 
 - Todo vive en los bloques 2 y 3, por encima de RAMTOP, y tiene que quedar
   por debajo de `$8000`, porque las pruebas remapean los bloques 4–7:
@@ -381,6 +384,31 @@ el MCU.
 - **Vídeo nativo:** necesita SLOW (sin vídeo no hay VSYNC). Tiene que dar
   50 o 60 según `MARGIN` (55 o 31), con ±2 de margen.
 - **Superfast:** la FPGA genera su propio cuadro PAL; tiene que dar 50 ±2.
+
+## Resumen y pasada automática
+
+La entrada común del núcleo (`run_t`) apunta en `rep_res` el resultado de
+cada prueba que se ejecuta. `USR 22639` borra esos resultados; el stub lo
+hace al arrancar. En el menú **9 INFO AND SUMMARY**:
+
+- **2 RUN ALL AUTOMATIC TESTS:** borra los resultados y ejecuta, una tras
+  otra, las 17 pruebas automáticas, cargando el módulo que toque. Son
+  todas menos la de memoria, que es destructiva, las interactivas y la
+  ficha de la máquina: MC45 4–5 y 6–7, estrés del mapper, `POKE 2045`,
+  ROMLOCK, protocolo MCU, memoria no paginada, registros del mapper,
+  bloque 0, frecuencia de cuadro, RTC, AY, lectura y escritura de SD,
+  páginas de sistema, AY del MCU y reloj de la CPU. Al acabar muestra el
+  resumen. Algunas machacan unos pocos bytes de los bloques 4–7.
+- **3 SUMMARY OF LAST RESULTS:** el resumen de lo que se haya ejecutado
+  desde entonces, también a mano desde los otros menús.
+
+El resumen (`USR 22642`) muestra una línea por prueba automática con
+`OK`, `FAIL` y el valor que devolvió, o `NOT RUN`, y los totales. Además
+lo guarda en `SD81TEST.TXT`, en la carpeta actual: ASCII con CR LF, con
+la fecha del RTC y las versiones de MCU, ROM y FPGA en la cabecera, para
+comparar máquinas. El texto se monta con las mismas rutinas de pantalla,
+en códigos ZX81 en `$8000`, y se pasa a ASCII al mandarlo. Devuelve el
+número de pruebas con `FAIL`.
 
 ## Reloj de la CPU
 
@@ -731,7 +759,4 @@ Estado: **hecha**, *pendiente*.
 | 7.x | Entrada | Teclado, joystick, bits del puerto FE en vivo | Visual | **hecha** |
 | 8.1 | Información | Ficha de la máquina | Auto | **hecha** |
 | 8.2 | Información | Reloj de la CPU (bucle en FAST contra las centésimas del RTC) | Auto | **hecha** |
-
-Ideas para más adelante: una opción que encadene todas las pruebas
-automáticas no destructivas y dé una tabla OK/FALLO, y guardar el informe
-en la SD (`SD81TEST.TXT`) para comparar máquinas.
+| 9.1 | Resumen | Pasada automática, tabla OK/FAIL e informe `SD81TEST.TXT` | Auto | **hecha** |

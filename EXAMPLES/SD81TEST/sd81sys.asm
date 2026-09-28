@@ -24,6 +24,7 @@
         jp sr_test             ; 4: USR 22573
         jp sw_test             ; 5: USR 22576
         jp ck_test             ; 6: USR 22636
+        jp rp_test             ; 7: USR 22642
 
 ; B = fila, HL = etiqueta, DE = numero -> "etiqueta" + numero. Conserva BC.
 line_num:
@@ -664,6 +665,260 @@ cks2:   ld a,(rtc_buf+20)
         ret
 
 ; =============================================================
+; Test 38: resumen (USR 22642)
+; El nucleo apunta en rep_res el resultado de cada prueba que se ejecuta
+; (FFFFh = no ejecutada; USR 22639 lo borra). Esto lo muestra para las
+; pruebas automaticas de rp_list (OK si 0, FAIL y el valor si no) y lo
+; guarda en SD81TEST.TXT (en la carpeta actual; ASCII con CR LF), con la
+; fecha del RTC y las versiones. El texto se monta en RP_BUF (bloque 4)
+; en codigos ZX81 con las mismas rutinas de pantalla (cur_ptr apunta al
+; buffer; 76h = fin de linea) y se pasa a ASCII al mandarlo.
+; Devuelve el numero de pruebas con FAIL.
+; =============================================================
+RP_BUF  equ 8000h
+
+rp_test:
+        ld hl,s_rp_title
+        call title
+        xor a                   ; --- pantalla: filas 2-19 ---
+        ld (rp_txt),a
+        ld a,1
+        ld (rp_row),a
+        call rp_body
+
+        ld a,1                  ; --- texto ---
+        ld (rp_txt),a
+        ld hl,RP_BUF
+        ld (cur_ptr),hl
+        ld hl,s_rp_head
+        call out_str
+        call rp_nl
+        call rtc_read
+        jr c,rpt2
+        ld hl,s_rp_date
+        call out_str
+        ld hl,rtc_buf           ; "AAAA-MM-DD HH:MM:SS" (sin centesimas)
+        ld b,19
+rpt1:   ld a,(hl)
+        call out_char
+        inc hl
+        djnz rpt1
+        call rp_nl
+rpt2:   ld hl,s_in_mcu
+        call out_str
+        ld a,CMD_VER
+        call info_ver
+        ld hl,s_in_rom
+        call out_str
+        ld a,(ROMVER)
+        call out_ver
+        ld hl,s_in_fpga
+        call out_str
+        ld a,CMD_FPGAVER
+        call info_ver
+        call rp_nl
+        call rp_body            ; empieza con una linea en blanco
+        call rp_nl
+        ld hl,(cur_ptr)         ; bytes del buffer y del fichero (cada
+        ld de,RP_BUF            ; 76h se convierte en CR LF)
+        or a
+        sbc hl,de
+        ld (rp_n),hl
+        ld b,h
+        ld c,l
+rpt3:   ld a,(de)
+        cp 76h
+        jr nz,rpt4
+        inc hl
+rpt4:   inc de
+        dec bc
+        ld a,b
+        or c
+        jr nz,rpt3
+        ld (rp_len),hl
+
+        ld a,10                 ; --- SAVE ---
+        call m_send
+        jp c,rp_to
+        ld hl,s_rp_file
+        ld e,1
+        call send_name
+        jp c,rp_to
+        ld a,(rp_len)
+        call m_send
+        jp c,rp_to
+        ld a,(rp_len+1)
+        call m_send
+        jp c,rp_to
+        ld hl,RP_BUF
+        ld bc,(rp_n)
+rps1:   ld a,(hl)
+        cp 76h
+        jr nz,rps2
+        ld a,0Dh
+        call m_send
+        jp c,rp_to
+        ld a,0Ah
+        jr rps3
+rps2:   call zx2asc
+rps3:   call m_send
+        jp c,rp_to
+        inc hl
+        dec bc
+        ld a,b
+        or c
+        jr nz,rps1
+        call m_recv             ; estado del SAVE
+        jp c,rp_to
+        or a
+        jr nz,rp_err
+        call pline
+        db 20
+        dw s_rp_saved
+        jr rp_end
+rp_err: push af
+        call pline
+        db 20
+        dw s_rp_err
+        pop af
+        call rp_num
+        jr rp_end
+rp_to:  call pline
+        db 20
+        dw s_sd_to
+rp_end: ld a,(rp_bad)
+        ld c,a
+        ld b,0
+        ret
+
+; Una linea por prueba de rp_list y la de totales. Cuenta OK, FAIL y no
+; ejecutadas. Cada linea empieza con rp_nl.
+rp_body:
+        xor a
+        ld (rp_ok),a
+        ld (rp_bad),a
+        ld (rp_nr),a
+        ld hl,rp_list
+rb1:    ld a,(hl)
+        cp 0FFh
+        jr z,rb2
+        push hl
+        call rp_nl
+        pop hl
+        ld a,(hl)               ; "NN NOMBRE RESULTADO"
+        inc hl
+        push af
+        call out_dec2
+        xor a
+        call out_char
+        call out_str            ; nombre (17 columnas); HL -> la siguiente
+        xor a
+        call out_char
+        pop af
+        push hl
+        call rp_result
+        pop hl
+        jr rb1
+rb2:    call rp_nl
+        ld hl,s_rp_ok
+        call out_str
+        ld a,(rp_ok)
+        call rp_num
+        ld hl,s_rp_fail
+        call out_str
+        ld a,(rp_bad)
+        call rp_num
+        ld hl,s_rp_nr
+        call out_str
+        ld a,(rp_nr)
+rp_num: ld l,a
+        ld h,0
+        jp out_dec16
+
+; A = N -> "OK", "FAIL n" o "NOT RUN" segun rep_res[N]
+rp_result:
+        ld l,a
+        ld h,0
+        add hl,hl
+        ld de,rep_res
+        add hl,de
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ld a,d
+        and e
+        inc a
+        jr nz,rr1
+        ld hl,rp_nr             ; FFFFh: no se ha ejecutado
+        inc (hl)
+        ld hl,s_rp_notrun
+        jp out_str
+rr1:    ld a,d
+        or e
+        jr nz,rr2
+        ld hl,rp_ok
+        inc (hl)
+        ld hl,s_ok
+        jp out_str
+rr2:    ld hl,rp_bad
+        inc (hl)
+        ld hl,s_rp_failn
+        call out_str
+        ex de,hl
+        jp out_dec16
+
+; Fin de linea: en pantalla, a la fila siguiente; en el texto, 76h
+rp_nl:
+        ld a,(rp_txt)
+        or a
+        jr nz,rpn1
+        ld a,(rp_row)
+        inc a
+        ld (rp_row),a
+        push bc
+        ld b,a
+        ld c,0
+        call set_at
+        pop bc
+        ret
+rpn1:   ld a,76h
+        jp out_char
+
+; A = codigo ZX81 -> ASCII (el video inverso se ignora; lo que no esta
+; en asctab sale como '?'). Conserva BC, DE, HL.
+zx2asc:
+        and 7Fh
+        cp 26h
+        jr c,za1
+        add a,'A'-26h
+        ret
+za1:    cp 1Ch
+        jr c,za2
+        add a,'0'-1Ch
+        ret
+za2:    push hl
+        push de
+        ld e,a
+        ld hl,asctab
+za3:    ld a,(hl)
+        or a
+        jr z,za4
+        ld d,a
+        inc hl
+        ld a,(hl)
+        inc hl
+        cp e
+        jr nz,za3
+        ld a,d
+        pop de
+        pop hl
+        ret
+za4:    ld a,'?'
+        pop de
+        pop hl
+        ret
+
+; =============================================================
 ; Test 13: RTC y bateria (USR 22567)
 ; Muestra la fecha/hora, comprueba que los segundos avanzan y que la
 ; bateria del RTC esta entre 2,5 y 3,6 V.
@@ -1236,6 +1491,37 @@ s_ck_el:   db "ELAPSED (1/100 S):",' '+80h
 s_ck_mhz:  db "CPU CLOCK:",' '+80h
 s_ck_unit: db " MHZ (3.25",')'+80h
 s_ck_nocc: db "RTC WITHOUT 1/100 S: NO MEASUR",'E'+80h
+s_rp_title: db "SUMMAR",'Y'+80h
+s_rp_head: db "SD81 BOOSTER TEST V0.9 - SUMMAR",'Y'+80h
+s_rp_date: db "DATE",' '+80h
+s_rp_ok:   db "OK:",' '+80h
+s_rp_fail: db "  FAIL:",' '+80h
+s_rp_nr:   db "  NOT RUN:",' '+80h
+s_rp_notrun: db "NOT RU",'N'+80h
+s_rp_failn: db "FAIL",' '+80h
+s_rp_saved: db "SAVED TO SD81TEST.TX",'T'+80h
+s_rp_err:  db "SD ERROR",' '+80h
+s_rp_file: db "SD81TEST.TXT",0
+; Pruebas automaticas del resumen: N y nombre (17 columnas)
+rp_list:
+        db 1, "MC45 BLOCKS 4-5 ",' '+80h
+        db 2, "MC45 BLOCKS 6-7 ",' '+80h
+        db 3, "MAPPER STRESS   ",' '+80h
+        db 4, "POKE 2045       ",' '+80h
+        db 6, "ROMLOCK         ",' '+80h
+        db 7, "MCU PROTOCOL    ",' '+80h
+        db 9, "UNPAGED MEMORY  ",' '+80h
+        db 10, "MAPPER REGISTERS",' '+80h
+        db 11, "BLOCK 0 PROTECT ",' '+80h
+        db 12, "FRAME RATE      ",' '+80h
+        db 13, "RTC AND BATTERY ",' '+80h
+        db 14, "AY REGISTERS    ",' '+80h
+        db 15, "SD READ         ",' '+80h
+        db 16, "SD WRITE        ",' '+80h
+        db 17, "SYSTEM PAGES    ",' '+80h
+        db 31, "MCU AY REGISTERS",' '+80h
+        db 36, "CPU CLOCK       ",' '+80h
+        db 0FFh
 s_rt_title: db "RTC AND BATTER",'Y'+80h
 s_rt_now:  db "RTC",' '+80h
 s_rt_run:  db "SECONDS RUNNING:",' '+80h
@@ -1268,6 +1554,13 @@ ck_t0:      dw 0        ; reloj de la CPU: instantes (s*100+cs),
 ck_t1:      dw 0        ; transcurrido (1/100 s) y MHz*100
 ck_el:      dw 0
 ck_mhz:     dw 0
+rp_txt:     db 0        ; resumen: 0 = pantalla, 1 = texto
+rp_row:     db 0        ; fila de pantalla en curso
+rp_ok:      db 0        ; pruebas OK, FAIL y no ejecutadas
+rp_bad:     db 0
+rp_nr:      db 0
+rp_n:       dw 0        ; bytes del texto y del fichero
+rp_len:     dw 0
 sr_sum:     dw 0        ; lectura de SD: suma de la pasada en curso
 sr_sum1:    dw 0        ; suma de la primera pasada
 sr_off:     dw 0        ; desplazamiento en el fichero

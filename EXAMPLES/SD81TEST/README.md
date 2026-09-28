@@ -6,7 +6,7 @@ creciendo por fases (ver el plan al final).
 
 ## Ensamblar
 
-El programa está partido en un núcleo y tres módulos. Primero hay que
+El programa está partido en un núcleo y cuatro módulos. Primero hay que
 ensamblar el núcleo, que genera `sd81test.sym`, y después los módulos, que
 incluyen ese `.sym` para usar las rutinas del núcleo:
 
@@ -15,9 +15,10 @@ pasmo sd81test.asm SD81TEST.BIN sd81test.sym
 pasmo sd81mem.asm SD81MEM.BIN
 pasmo sd81sys.asm SD81SYS.BIN
 pasmo sd81av.asm SD81AV.BIN
+pasmo sd81net.asm SD81NET.BIN
 ```
 
-Cualquier cambio en el núcleo obliga a reensamblar los tres módulos. Si
+Cualquier cambio en el núcleo obliga a reensamblar los cuatro módulos. Si
 no se hace, el núcleo lo detecta y no los ejecuta (ver más abajo).
 
 `compila.bat` hace los cuatro pasos, se para en el primer error y copia los
@@ -30,10 +31,11 @@ También genera el `.sym` de cada módulo.
 | `SD81MEM.BIN` (`sd81mem.asm`) | 24576 (`$6000`) | memoria, mapper, ejecución (MC45) y puertos mapeados en memoria |
 | `SD81SYS.BIN` (`sd81sys.asm`) | 24576 (`$6000`) | protocolo MCU, información, frecuencia de cuadro, RTC y SD |
 | `SD81AV.BIN` (`sd81av.asm`) | 24576 (`$6000`) | AY, sprites, borde, Chroma81, Superfast, teclado y sonido |
+| `SD81NET.BIN` (`sd81net.asm`) | 24576 (`$6000`) | red a través del módulo WiFi |
 
 ## Uso
 
-Copia los cuatro `.BIN`, `SD81TEST.VGM` (lo usa la prueba de VGM) y el
+Copia los cinco `.BIN`, `SD81TEST.VGM` (lo usa la prueba de VGM) y el
 stub BASIC (`SD81TEST.B81`, pásalo a `.P` con el emulador) a la misma
 carpeta de la SD. El stub carga el núcleo, y antes
 de cada prueba carga su módulo si no está ya cargado. Muestra un menú por
@@ -45,7 +47,7 @@ SD81 BOOSTER HARDWARE TEST
 1 MEMORY AND MAPPER
 2 EXECUTION (MC45)
 3 MEMORY-MAPPED PORTS
-4 MCU, RTC AND SD
+4 MCU, RTC, SD AND NETWORK
 5 VIDEO
 6 SUPERFAST VIDEO
 7 SOUND
@@ -116,6 +118,9 @@ teclado del menú; las pruebas nuevas irán a partir de la 26.
 | 36 | `USR 22636` | SYS | Reloj de la CPU | 0 = 3,20–3,30 MHz, 1 = fuera (9999 = el RTC no contesta o no da centésimas) |
 | 37 | `USR 22639` | — | *(utilidad: borra los resultados apuntados)* | — |
 | 38 | `USR 22642` | SYS | Resumen (y `SD81TEST.TXT`) | pruebas con FAIL |
+| 39 | `USR 22645` | NET | Módulo WiFi conectado (`/MAN/IP.TXT`) | 0 = conectado, 1 = no (9999 = el MCU no contesta) |
+| 40 | `USR 22648` | NET | Conexión TCP: HTTP a `example.org` | 0 = responde, 1 = no |
+| 41 | `USR 22651` | NET | Hora de Internet contra el RTC | 0 = ±3 s, 1 = no (9999 = sin conexión o sin fecha) |
 
 - Todo vive en los bloques 2 y 3, por encima de RAMTOP, y tiene que quedar
   por debajo de `$8000`, porque las pruebas remapean los bloques 4–7:
@@ -385,6 +390,38 @@ el MCU.
   50 o 60 según `MARGIN` (55 o 31), con ±2 de margen.
 - **Superfast:** la FPGA genera su propio cuadro PAL; tiene que dar 50 ±2.
 
+## Red (módulo WiFi)
+
+El puente de red del SD81 funciona como un módem Hayes ya conectado. El
+Z80 manda y recibe bytes con `NET_WRITE` (67) y `NET_READ` (66), y el
+ESP32 interpreta los comandos AT (`ATZ`, `ATE0`, `ATDT host:puerto`,
+`ATH`, `+++`) y lleva el socket TCP (ver
+`claude/planning/net_bridge_emulator.md`). No hay ICMP (ping) ni UDP
+(NTP), así que la prueba de conexión es HTTP. Las esperas se cuentan con
+`FRAMES`, así que necesitan SLOW. Lo recibido se acumula en `$8000`.
+
+- **Módulo WiFi (`USR 22645`):** lee `/MAN/IP.TXT`, el mismo fichero que
+  `LOAD THEN PRINT "*IP"`. El STM32 lo escribe al arrancar con
+  `NO CONNEXION...`, y el ESP32 lo sobrescribe al conectarse con su
+  versión y su IP. Muestra la IP y la versión, o el aviso si no hay
+  conexión.
+- **Conexión TCP (`USR 22648`):**
+  1. `ATZ` y `ATE0`, que tienen que contestar `OK`.
+  2. `ATDT example.org:80`; si no conecta, `example.net`.
+  3. `HEAD / HTTP/1.0` y la respuesta, hasta que el servidor cuelga
+     (`NO CARRIER`). Tiene que empezar por `HTTP/1.`, y se muestra la
+     línea de estado.
+
+  `example.org` y `example.net` están reservados por la RFC 2606 para
+  ejemplos y los mantiene la IANA. No se usa `example.com`, porque
+  algunos routers rechazan su DNS.
+- **Hora de Internet (`USR 22651`):** la cabecera `Date:` de esa respuesta
+  (hora UTC de un servidor sincronizado por NTP) contra el RTC. Como el
+  RTC lleva la hora local, con el desfase y el horario de verano de
+  `NTP.CFG`, solo se comparan minutos y segundos. Vale para todas las
+  zonas con desfase de horas enteras. Tiene que diferir 3 s como mucho;
+  si no, sugiere `LOAD *NTP`.
+
 ## Resumen y pasada automática
 
 La entrada común del núcleo (`run_t`) apunta en `rep_res` el resultado de
@@ -392,13 +429,14 @@ cada prueba que se ejecuta. `USR 22639` borra esos resultados; el stub lo
 hace al arrancar. En el menú **9 INFO AND SUMMARY**:
 
 - **2 RUN ALL AUTOMATIC TESTS:** borra los resultados y ejecuta, una tras
-  otra, las 17 pruebas automáticas, cargando el módulo que toque. Son
+  otra, las 20 pruebas automáticas, cargando el módulo que toque. Son
   todas menos la de memoria, que es destructiva, las interactivas y la
   ficha de la máquina: MC45 4–5 y 6–7, estrés del mapper, `POKE 2045`,
   ROMLOCK, protocolo MCU, memoria no paginada, registros del mapper,
   bloque 0, frecuencia de cuadro, RTC, AY, lectura y escritura de SD,
-  páginas de sistema, AY del MCU y reloj de la CPU. Al acabar muestra el
-  resumen. Algunas machacan unos pocos bytes de los bloques 4–7.
+  páginas de sistema, AY del MCU, reloj de la CPU, WiFi, conexión TCP y
+  hora de Internet. Al acabar muestra el resumen. Sin módulo WiFi, las tres
+  de red salen como fallo. Algunas machacan unos pocos bytes de los bloques 4–7.
 - **3 SUMMARY OF LAST RESULTS:** el resumen de lo que se haya ejecutado
   desde entonces, también a mano desde los otros menús.
 
@@ -760,3 +798,6 @@ Estado: **hecha**, *pendiente*.
 | 8.1 | Información | Ficha de la máquina | Auto | **hecha** |
 | 8.2 | Información | Reloj de la CPU (bucle en FAST contra las centésimas del RTC) | Auto | **hecha** |
 | 9.1 | Resumen | Pasada automática, tabla OK/FAIL e informe `SD81TEST.TXT` | Auto | **hecha** |
+| 10.1 | Red | Módulo WiFi conectado (`/MAN/IP.TXT`) | Auto | **hecha** |
+| 10.2 | Red | Conexión TCP por los comandos AT (HTTP a `example.org`) | Auto | **hecha** |
+| 10.3 | Red | Hora de Internet (`Date:`) contra el RTC | Auto | **hecha** |

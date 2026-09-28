@@ -47,14 +47,19 @@
 ;   USR 22639 -> borra los resultados apuntados (utilidad)
 ;   USR 22642 -> resumen de las pruebas apuntadas; lo guarda en
 ;                SD81TEST.TXT
+;   Red (modulo WiFi, modulo NET):
+;   USR 22645 -> modulo WiFi conectado (/MAN/IP.TXT)
+;   USR 22648 -> conexion TCP: HTTP a example.org (o example.net)
+;   USR 22651 -> hora: cabecera Date: contra el RTC
 ;
 ; ESTRUCTURA: este fichero es el nucleo (tabla de saltos, rutinas comunes,
 ; textos y variables compartidas), en 22528 ($5800). Las pruebas estan en
-; tres modulos que se cargan de uno en uno en MOD_ORG ($6000, el bloque 3
+; cuatro modulos que se cargan de uno en uno en MOD_ORG ($6000, el bloque 3
 ; entero):
 ;   SD81MEM.BIN (sd81mem.asm): memoria, mapper, ejecucion y puertos
 ;   SD81SYS.BIN (sd81sys.asm): MCU, RTC, SD, frecuencia de cuadro e info
 ;   SD81AV.BIN  (sd81av.asm):  sonido, video interactivo y entrada
+;   SD81NET.BIN (sd81net.asm): red a traves del modulo WiFi
 ; Los modulos usan las rutinas del nucleo a traves de su .sym, asi que
 ; cualquier cambio en el nucleo obliga a reensamblarlos (run_t lo
 ; detecta y no los ejecuta).
@@ -68,6 +73,7 @@
 ;   pasmo sd81mem.asm SD81MEM.BIN
 ;   pasmo sd81sys.asm SD81SYS.BIN
 ;   pasmo sd81av.asm SD81AV.BIN
+;   pasmo sd81net.asm SD81NET.BIN
 ; Cargar/usar: ver README.md (incluye el stub BASIC, SD81TEST.B81).
 ; =============================================================
 ; Todo tiene que quedar en los bloques 2-3 (por debajo de $8000): las
@@ -80,11 +86,13 @@ MOD_ORG equ 6000h       ; donde se cargan los modulos (byte bajo = 0)
 MOD_MEM equ 1           ; id de cada modulo (primer byte de su cabecera)
 MOD_SYS equ 2
 MOD_AV  equ 3
+MOD_NET equ 4
 
         org 22528
 
 ; Tabla de saltos: un punto de entrada fijo por prueba (prueba N en
-; USR 22528+3*N). Las pruebas viven en tres modulos (MEM, SYS y AV) que
+; USR 22528+3*N). Las pruebas viven en cuatro modulos (MEM, SYS, AV y
+; NET) que
 ; el stub BASIC carga en MOD_ORG; cada entrada hace CALL run_t, que saca
 ; N de la direccion de retorno, comprueba que el modulo cargado es el
 ; suyo, ejecuta la prueba y apunta su resultado en rep_res (para el
@@ -131,6 +139,9 @@ usr_tab:
         call run_t             ; USR 22636 ck_test (SYS)
         jp rep_clear           ; USR 22639: borra los resultados apuntados
         call run_t             ; USR 22642 rp_test (SYS): resumen
+        call run_t             ; USR 22645 nw_wifi (NET)
+        call run_t             ; USR 22648 nw_http (NET)
+        call run_t             ; USR 22651 nw_time (NET)
 
 ; Entrada comun de las pruebas (CALL run_t desde la tabla): N = (retorno
 ; - usr_tab - 3) / 3. Busca en mt_tab su modulo y su numero dentro de el;
@@ -247,7 +258,10 @@ mt_tab:
         db MOD_SYS*32+6
         db 0                 ; 37
         db MOD_SYS*32+7
-REP_N   equ 39              ; entradas de la tabla con resultado
+        db MOD_NET*32+0
+        db MOD_NET*32+1
+        db MOD_NET*32+2
+REP_N   equ 42              ; entradas de la tabla con resultado
 
 
 

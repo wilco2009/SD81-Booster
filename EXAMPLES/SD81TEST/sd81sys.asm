@@ -680,9 +680,8 @@ RP_BUF  equ 8000h
 rp_test:
         ld hl,s_rp_title
         call title
-        xor a                   ; --- pantalla: filas 2-19 ---
+        xor a                   ; --- pantalla: filas 1-20 y 22 ---
         ld (rp_txt),a
-        ld a,1
         ld (rp_row),a
         call rp_body
 
@@ -773,18 +772,18 @@ rps3:   call m_send
         or a
         jr nz,rp_err
         call pline
-        db 20
+        db 23
         dw s_rp_saved
         jr rp_end
 rp_err: push af
         call pline
-        db 20
+        db 23
         dw s_rp_err
         pop af
         call rp_num
         jr rp_end
 rp_to:  call pline
-        db 20
+        db 23
         dw s_sd_to
 rp_end: ld a,(rp_bad)
         ld c,a
@@ -819,7 +818,8 @@ rb1:    ld a,(hl)
         call rp_result
         pop hl
         jr rb1
-rb2:    call rp_nl
+rb2:    call rp_nl          ; (en pantalla se salta la fila 21, la del BASIC)
+        call rp_nl
         ld hl,s_rp_ok
         call out_str
         ld a,(rp_ok)
@@ -1521,6 +1521,9 @@ rp_list:
         db 17, "SYSTEM PAGES    ",' '+80h
         db 31, "MCU AY REGISTERS",' '+80h
         db 36, "CPU CLOCK       ",' '+80h
+        db 39, "WIFI (IP.TXT)   ",' '+80h
+        db 40, "TCP (HTTP)      ",' '+80h
+        db 41, "INTERNET TIME   ",' '+80h
         db 0FFh
 s_rt_title: db "RTC AND BATTER",'Y'+80h
 s_rt_now:  db "RTC",' '+80h

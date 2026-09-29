@@ -55,9 +55,13 @@ ve lo que se teclea aunque otro programa lo hubiera dejado apagado.
 | ENTER+tecla | símbolos: los serigrafiados, más `@ \ \| ~ \` { } [ ] _ ! # % &` |
 | SHIFT+0 / SHIFT+9 | DEL / BS |
 | SHIFT+. | TAB |
-| SHIFT+5/6/7/8 | flechas WordStar (^S ^X ^E ^D) |
+| SHIFT+5/6/7/8 | flechas izquierda/abajo/arriba/derecha: mandan las secuencias ANSI `ESC [ D/B/A/C`, que es lo que entienden las BBS (en CP/M son las de WordStar, ^S ^X ^E ^D) |
 
-El teclado es el mismo que el de CP/M (ver "Tabla de teclado de CP/M" en
+Con el eco local, los códigos de control se ven en notación `^X`: `^[` es
+ESC y `^C` es CTRL+C. Así se ve que se han mandado; el emulador de
+terminal los ignoraría, y un ESC empezaría una secuencia.
+
+El teclado es el mismo que el de CP/M, salvo las flechas (ver "Tabla de teclado de CP/M" en
 el manual).
 
 ## Memoria

@@ -32,7 +32,9 @@
 ;      SHIFT+ENTER, tecla   CTRL+tecla
 ;      ENTER+tecla      simbolos (los serigrafiados y @ \ | ~ ` { } [ ] _ ...)
 ;      SHIFT+0 / SHIFT+9    DEL / BS
-;      SHIFT+5/6/7/8    flechas WordStar (^S ^X ^E ^D)
+;      SHIFT+5/6/7/8    flechas: mandan ESC [ D/B/A/C (ANSI); en CP/M son
+;                       las de WordStar (^S ^X ^E ^D)
+;  Con el eco local, los codigos de control se ven como ^X.
 ;
 ;  Memoria (vale en modo 32K y 48K):
 ;      $6000-          este programa (y la fuente, que se copia arriba)
@@ -81,6 +83,13 @@ BLINK_RATE  equ 25              ; VSYNC por semiciclo de parpadeo
 RXMAX       equ 128             ; lo que cabe en un solo NET_READ
 EXITKEY     equ 01Dh            ; ^]  (ENTER+0)
 ECHOKEY     equ 01Ch            ; ^\  (ENTER+9)
+; Flechas (SHIFT+7/6/8/5): codigos internos que el bucle convierte en las
+; secuencias ANSI ESC [ A/B/C/D, que es lo que entienden las BBS. En CP/M
+; son ^E ^X ^D ^S (WordStar), que aqui no le sirven a nadie.
+KEY_UP      equ 081h            ; -> ESC [ A
+KEY_DOWN    equ 082h            ; -> ESC [ B
+KEY_RIGHT   equ 083h            ; -> ESC [ C
+KEY_LEFT    equ 084h            ; -> ESC [ D
 
 ; --- telnet ----------------------------------------------------------
 T_SE        equ 0F0h
@@ -193,22 +202,53 @@ do_kbd:     call con_cist           ; hay tecla?
             jp   z,done
             cp   ECHOKEY
             jr   z,do_echo
-            ld   (txbyte),a
+            cp   KEY_UP             ; una flecha?
+            jr   c,kb_send
+            cp   KEY_LEFT+1
+            jr   nc,kb_send
+            sub  KEY_UP-'A'         ; KEY_UP..KEY_LEFT -> 'A'..'D'
+            ld   (arrow_seq+2),a
+            ld   hl,arrow_seq       ; ESC [ letra
+            ld   b,3
+            call net_write
+            jp   loop
+kb_send:    ld   (txbyte),a
             ld   hl,txbyte
             ld   b,1
             call net_write
             ld   a,(localecho)
             or   a
-            jr   z,loop
+            jp   z,loop
             ld   a,(txbyte)         ; y, si toca, pintarla aqui tambien
+            call echo_char
+            jp   loop
+
+; A = tecla mandada -> eco local. Al otro lado va solo el CR, pero en
+; pantalla hace falta tambien el LF. Los codigos de control no pasan por
+; el emulador de terminal (los ignoraria, y un ESC empezaria una
+; secuencia): se ensenan como ^X, igual que en los terminales de siempre.
+; BS y TAB si se ejecutan.
+echo_char:  cp   00Dh
+            jr   nz,ec1
             ld   c,a
             call con_co
-            ld   a,(txbyte)
-            cp   00Dh               ; al otro lado va solo el CR, pero en
-            jr   nz,loop            ; pantalla hace falta el LF
             ld   c,00Ah
+            jp   con_co
+ec1:        cp   008h
+            jr   z,ec_out
+            cp   009h
+            jr   z,ec_out
+            cp   07Fh               ; DEL -> ^?
+            jr   z,ec_ctl
+            cp   020h
+            jr   nc,ec_out
+ec_ctl:     push af
+            ld   c,'^'
             call con_co
-            jp   loop
+            pop  af
+            xor  040h               ; ^A..^_ y ^? (7Fh xor 40h = 3Fh)
+ec_out:     ld   c,a
+            jp   con_co
 
 ; --- conmutar el eco local, y decir como ha quedado -------------------
 do_echo:    ld   a,(localecho)
@@ -501,6 +541,8 @@ con_co:
             jr   z,co_lf
             cp   08h
             jr   z,co_bs
+            cp   09h
+            jr   z,co_tab
             cp   20h
             ret  c                  ; otros controles -> ignorar
             jp   print_glyph
@@ -516,6 +558,14 @@ co_bs:      ld   a,(cur_col)
             ret  z
             dec  a
             ld   (cur_col),a
+            ret
+co_tab:     ld   a,(cur_col)        ; TAB: a la siguiente columna multiplo
+            and  0F8h               ; de 8 (no esta en chario.z80: alli lo
+            add  a,8                ; expande el BDOS)
+            cp   SCRW
+            jr   c,ct_ok
+            ld   a,SCRW-1
+ct_ok:      ld   (cur_col),a
             ret
 ; --- secuencia ESC '=' fila col (gotoxy ADM-3A, offset $20) ---
 co_seq:     cp   4
@@ -1253,12 +1303,12 @@ keymap:     defb 000h,'z','x','c','v'      ; A8 : SHIFT Z X C V (base)
             defb 00Dh,'l','k','j','h'      ; A14
             defb ' ','.','m','n','b'       ; A15
 
-keymap_shift: ; SHIFT: mayusculas + funciones (0=DEL, 9=BS, 5/6/7/8=flechas WordStar)
+keymap_shift: ; SHIFT: mayusculas + funciones (0=DEL, 9=BS, 5/6/7/8=flechas ANSI)
             defb 000h,'Z','X','C','V'      ; A8
             defb 'A','S','D','F','G'       ; A9
             defb 'Q','W','E','R','T'       ; A10
-            defb 01Bh,000h,000h,000h,013h  ; A11: 1=ESC, 5=izq(^S)
-            defb 07Fh,008h,004h,005h,018h  ; A12: 0=DEL,9=BS,8=der(^D),7=arr(^E),6=abj(^X)
+            defb 01Bh,000h,000h,000h,KEY_LEFT       ; A11: 1=ESC, 5=izquierda
+            defb 07Fh,008h,KEY_RIGHT,KEY_UP,KEY_DOWN ; A12: 0=DEL,9=BS,8=der,7=arr,6=abj
             defb 'P','O','I','U','Y'       ; A13
             defb 00Dh,'L','K','J','H'      ; A14
             defb ' ',009h,'M','N','B'      ; A15: .=TAB
@@ -1289,6 +1339,7 @@ at_esc:     defb "+++"
 at_h:       defb "ATH",13
 AT_H_LEN    equ $-at_h
 tn_resp:    defb T_IAC,0,0
+arrow_seq:  defb 01Bh,'[',0
 
 ; ---------------------------------------------------------------------
 ;  Variables (se ponen a cero al arrancar)

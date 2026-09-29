@@ -102,6 +102,8 @@ Versión 1.0
 
 [9.7 Módulo WiFi (opcional)](#módulo-wifi-opcional)
 
+[9.8 Terminal telnet --- TELNET](#terminal-telnet-telnet)
+
 [10. Sonido](#sonido)
 
 [10.1 Comando PLAY --- Música con el chip AY](#comando-play-música-con-el-chip-ay)
@@ -223,6 +225,8 @@ Versión 1.0
 [16.6 Errores de actualización de firmware](#errores-de-actualización-de-firmware)
 
 [16.7 Uso de la consola de depuración como herramienta de diagnóstico](#uso-de-la-consola-de-depuración-como-herramienta-de-diagnóstico)
+
+[16.8 Programa de test del hardware --- SD81TEST](#programa-de-test-del-hardware-sd81test)
 
 [17. Actualización del firmware](#actualización-del-firmware)
 
@@ -1210,6 +1214,35 @@ Durante la actualización, el LED STAT parpadea en rosa. Si termina con éxito, 
 El módulo necesita programarse por USB **la primera vez** (o si deja de responder y no se puede usar la actualización por SD de arriba). A partir de ahí, todas las actualizaciones posteriores pueden hacerse por tarjeta SD.
 
 Requiere el **IDE de Arduino** con el soporte de placas ESP32 instalado, seleccionando la placa **ESP32C3 Dev Module**. Los ajustes exactos de la placa (velocidad de subida, tamaño de flash, etc.) están documentados en **FIRMWARE/README_update.md**, dentro del repositorio del proyecto.
+
+## 9.8 Terminal telnet --- TELNET
+
+TELNET es una terminal para conectarse a BBS y servidores telnet desde el ZX81, a través del módulo WiFi. Muestra 80 columnas por 24 filas en modo Superfast, con la fuente CP437 de 256 caracteres y colores ANSI, y entiende las secuencias de control que usan las BBS (ANSI y ADM-3A). Está en Software.zip, en la carpeta SD81/TOOLS/TELNET: copia la carpeta a la SD y carga el programa:
+
+> LOAD \"TELNET.P\"
+
+La terminal funciona como un módem Hayes: los comandos AT se teclean en la propia pantalla.
+
+| Comando | Efecto |
+|------------------------------------|------------------------------------|
+| ATDT host:puerto | Conecta con el servidor (por ejemplo ATDT bbs.ejemplo.org:23). Responde CONNECT o NO CARRIER. |
+| ATH | Cuelga. |
+| +++ | Vuelve a modo comando sin colgar (con un segundo de silencio antes y después). |
+| ATO | Vuelve a la conexión. |
+
+**Teclas especiales:**
+
+| **Tecla** | **Acción** |
+|------------------------------------|------------------------------------|
+| **ENTER + 0** | Salir: cuelga si hay conexión y vuelve al BASIC. |
+| **ENTER + 9** | Eco local sí/no, para servidores que no devuelven lo que se teclea. |
+| **SHIFT + 1** | ESC. |
+| **SHIFT + ENTER y una tecla** | CTRL + tecla. |
+| **ENTER + tecla** | Símbolos: los serigrafiados y además @ \\ \| \~ \` { } \[ \] \_ ! \# % &. |
+| **SHIFT + 0 / SHIFT + 9** | DEL / retroceso. |
+| **SHIFT + 5/6/7/8** | Flechas izquierda, abajo, arriba y derecha: envían las secuencias ANSI ESC \[ D/B/A/C, que es lo que entienden las BBS. |
+
+El teclado es el mismo que el de CP/M (ver la tabla de teclado de CP/M en el Apéndice I), salvo las flechas. Con el eco local activado, los códigos de control se muestran como \^X (\^\[ es ESC y \^C es CTRL + C). La terminal contesta a la negociación telnet del servidor aceptando solo ECHO y SUPPRESS-GO-AHEAD, así que las BBS no muestran caracteres extraños al conectar. Usa la memoria de los bloques 4 y 5 (\$8000-\$97FF) para la pantalla, los colores y la fuente.
 
 # 10. Sonido
 
@@ -2335,6 +2368,20 @@ El firmware de producción emite mensajes básicos de estado que permiten identi
 |:----:|------------------------------------------------------------------|
 | **💡** | *Para desarrolladores: recompilando el firmware con la macro DEBUG activa se obtiene una salida mucho más detallada, incluyendo el progreso de las operaciones de flash, el estado de los registros del AY y los detalles de cada comando recibido del Z80.* |
 
+## 16.8 Programa de test del hardware --- SD81TEST
+
+SD81TEST comprueba el interface de forma sistemática: memoria y mapper, ejecución en MC45, puertos mapeados en memoria, MCU, RTC, SD, vídeo (Superfast, Chroma81, sprites, 128/256 caracteres, 70/80 columnas, doble buffer, WRX), sonido (chips AY, beeper, VGM, PEG y voz), teclado y joystick, y red a través del módulo WiFi. Sirve para comprobar un interface recién montado o para diagnosticar un fallo. Está en Software.zip, en la carpeta SD81/TOOLS/SD81TEST: copia la carpeta completa a la SD (los cinco ficheros .BIN, SD81TEST.VGM y SD81TEST.P) y carga el programa:
+
+> LOAD \"SD81TEST.P\"
+
+El menú agrupa las pruebas por categorías. Las automáticas terminan con RESULT: OK o RESULT: FAIL; las interactivas dibujan o hacen sonar algo y preguntan si se ve o se oye bien (Y/N).
+
+**Pasada automática e informe:**
+
+En el menú 9 (INFO AND SUMMARY), la opción 2 ejecuta seguidas las 20 pruebas automáticas y muestra un resumen con el resultado de cada una. El resumen se guarda también en el fichero SD81TEST.TXT, en la misma carpeta, junto con la fecha y las versiones del MCU, la ROM y la FPGA, para comparar máquinas o adjuntarlo a una consulta.
+
+La prueba de memoria (menú 1, opción 1) es destructiva: borra el contenido de todas las páginas de RAM que no son de sistema (discos RAM de CP/M, pantallas guardadas\...). Por eso no forma parte de la pasada automática. Las pruebas interactivas necesitan el modo SLOW (el de arranque), y las de red, el módulo WiFi configurado.
+
 # 17. Actualización del firmware
 
 El SD81 Booster tiene dos componentes de firmware actualizables: el microcontrolador (MCU) y la FPGA.
@@ -2446,9 +2493,14 @@ LOAD \*FPGA
 
 # 19. Historial de versiones del firmware
 
-| **Versión** | **Fecha** | **Novedades principales**               |
-|-------------|-----------|-----------------------------------------|
-| **1.0**     | 2025      | Primera versión de lanzamiento público. |
+| **Versión** | **Fecha** | **Novedades principales** |
+|---------|---------|------------------------------------------------------|
+| **1.0** | 2025 | Primera versión de lanzamiento público. |
+| **1.1** | 07/2026 | Comprobación e instalación de actualizaciones desde la página web del módulo WiFi; registro de diagnóstico del módulo en la SD. |
+| **1.2** | 09/2026 | Sprites por hardware, scroll fino en Superfast, 256 caracteres definibles; correcciones del color Chroma81 y del joystick. |
+| **1.3** | 09/2026 | Puente de red tipo módem (BBS/telnet, comandos AT), modos de 70 y 80 columnas, MC45 en los bloques 6 y 7, pantalla y atributos alternativos, y CP/M 3. |
+| **1.4** | 09/2026 | Snapshots de EightyOne (LOAD \*Z81), LOAD \*ROMLOCK y corrección de la basura en el borde con juegos WRX. |
+| **1.5** | 09/2026 | Terminal TELNET y programa de test SD81TEST. FPGA: captura síncrona de escrituras y lectura de FRAMES en Superfast. MCU: DEL con rutas absolutas y lectura de los registros 14 y 15 del AY. |
 
 |  |  |
 |:----:|------------------------------------------------------------------|

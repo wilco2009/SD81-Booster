@@ -102,6 +102,8 @@ Version 1.0
 
 [9.7 WiFi Module (optional)](#wifi-module-optional)
 
+[9.8 Telnet Terminal --- TELNET](#telnet-terminal-telnet)
+
 [10. Sound](#sound)
 
 [10.1 PLAY Command --- Music with the AY chip](#play-command-music-with-the-ay-chip)
@@ -211,6 +213,8 @@ Version 1.0
 [16.6 Firmware Update Errors](#firmware-update-errors)
 
 [16.7 Using the Debug Console as a Diagnostic Tool](#using-the-debug-console-as-a-diagnostic-tool)
+
+[16.8 Hardware Test Program --- SD81TEST](#hardware-test-program-sd81test)
 
 [17. Firmware Update](#firmware-update)
 
@@ -1170,6 +1174,35 @@ During the update, the STAT LED blinks pink. If it finishes successfully, it tur
 The module needs to be programmed over USB **the first time** (or if it stops responding and the SD card update above cannot run). After that, all further updates can use the SD card method described above.
 
 This requires the **Arduino IDE** with ESP32 board support installed, selecting board **ESP32C3 Dev Module**. The exact board settings (upload speed, flash size, etc.) are documented in **FIRMWARE/README_update.md** in the project repository.
+
+## 9.8 Telnet Terminal --- TELNET
+
+TELNET is a terminal for connecting to BBSes and telnet servers from the ZX81, through the WiFi module. It shows 80 columns by 24 rows in Superfast mode, with the 256-character CP437 font and ANSI colours, and understands the control sequences BBSes use (ANSI and ADM-3A). It is in Software.zip, in the SD81/TOOLS/TELNET folder: copy the folder to the SD card and load the program:
+
+> LOAD \"TELNET.P\"
+
+The terminal works like a Hayes modem: AT commands are typed on the terminal screen itself.
+
+| Command | Effect |
+|------------------------------------|------------------------------------|
+| ATDT host:port | Connects to the server (for example ATDT bbs.example.org:23). Answers CONNECT or NO CARRIER. |
+| ATH | Hangs up. |
+| +++ | Goes back to command mode without hanging up (with one second of silence before and after). |
+| ATO | Returns to the connection. |
+
+**Special keys:**
+
+| **Key** | **Action** |
+|------------------------------------|------------------------------------|
+| **ENTER + 0** | Exit: hangs up if connected and returns to BASIC. |
+| **ENTER + 9** | Local echo on/off, for servers that don\'t echo what you type. |
+| **SHIFT + 1** | ESC. |
+| **SHIFT + ENTER, then a key** | CTRL + key. |
+| **ENTER + key** | Symbols: the ones printed on the keys plus @ \\ \| \~ \` { } \[ \] \_ ! \# % &. |
+| **SHIFT + 0 / SHIFT + 9** | DEL / backspace. |
+| **SHIFT + 5/6/7/8** | Left, down, up and right arrows: send the ANSI sequences ESC \[ D/B/A/C, which is what BBSes understand. |
+
+The keyboard is the same as in CP/M (see the CP/M keyboard table in Appendix I), except for the arrows. With local echo on, control codes are shown as \^X (\^\[ is ESC and \^C is CTRL + C). The terminal answers the server\'s telnet negotiation accepting only ECHO and SUPPRESS-GO-AHEAD, so BBSes don\'t show odd characters when you connect. It uses memory in blocks 4 and 5 (\$8000-\$97FF) for the screen, the colours and the font.
 
 # 10. Sound
 
@@ -2216,6 +2249,20 @@ The production firmware emits basic status messages that allow identifying which
 | **💡** | *For developers: recompiling the firmware with the DEBUG macro active produces much more detailed output, including flash operation progress, AY register status, and the details of each command received from the Z80.* |
 |------|------------------------------------------------------------------|
 
+## 16.8 Hardware Test Program --- SD81TEST
+
+SD81TEST checks the interface systematically: memory and mapper, MC45 execution, memory-mapped ports, MCU, RTC, SD card, video (Superfast, Chroma81, sprites, 128/256 characters, 70/80 columns, double buffer, WRX), sound (AY chips, beeper, VGM, PEG and speech), keyboard and joystick, and networking through the WiFi module. Use it to check a freshly assembled interface or to track down a fault. It is in Software.zip, in the SD81/TOOLS/SD81TEST folder: copy the whole folder to the SD card (the five .BIN files, SD81TEST.VGM and SD81TEST.P) and load the program:
+
+> LOAD \"SD81TEST.P\"
+
+The menu groups the tests by category. Automatic tests end with RESULT: OK or RESULT: FAIL; interactive tests draw or play something and ask whether it looks or sounds right (Y/N).
+
+**Automatic run and report:**
+
+In menu 9 (INFO AND SUMMARY), option 2 runs the 20 automatic tests one after another and shows a summary with the result of each. The summary is also saved to SD81TEST.TXT, in the same folder, together with the date and the MCU, ROM and FPGA versions, to compare machines or attach it to a support request.
+
+The memory test (menu 1, option 1) is destructive: it wipes every RAM page that isn\'t a system page (CP/M RAM disks, saved screens\...). That\'s why it isn\'t part of the automatic run. Interactive tests need SLOW mode (the power-on default), and network tests need a configured WiFi module.
+
 # 17. Firmware Update
 
 The SD81 Booster has two independently updatable firmware components: the microcontroller (MCU) and the FPGA.
@@ -2325,9 +2372,14 @@ LOAD \*FPGA
 
 # 19. Firmware Version History
 
-| **Version** | **Date** | **Main changes**      |
-|-------------|----------|-----------------------|
-| **1.0**     | 2025     | First public release. |
+| **Version** | **Date** | **Main changes** |
+|---------|---------|------------------------------------------------------|
+| **1.0** | 2025 | First public release. |
+| **1.1** | 07/2026 | Update check and install from the WiFi module\'s web page; module diagnostic log on the SD card. |
+| **1.2** | 09/2026 | Hardware sprites, Superfast fine scroll, 256 definable characters; Chroma81 colour and joystick fixes. |
+| **1.3** | 09/2026 | Modem-style network bridge (BBS/telnet, AT commands), 70 and 80 column modes, MC45 in blocks 6 and 7, alternative screen and attributes, and CP/M 3. |
+| **1.4** | 09/2026 | EightyOne snapshots (LOAD \*Z81), LOAD \*ROMLOCK and fix for border garbage with WRX games. |
+| **1.5** | 09/2026 | TELNET terminal and SD81TEST test program. FPGA: synchronous write capture and FRAMES reads in Superfast. MCU: DEL with absolute paths and reading AY registers 14 and 15. |
 
 | **ℹ** | *This history will be updated with each new firmware version. Check the project repository for the complete changelog.* |
 |------|------------------------------------------------------------------|

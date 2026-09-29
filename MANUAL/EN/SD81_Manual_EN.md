@@ -1196,6 +1196,7 @@ The terminal works like a Hayes modem: AT commands are typed on the terminal scr
 |------------------------------------|------------------------------------|
 | **ENTER + 0** | Exit: hangs up if connected and returns to BASIC. |
 | **ENTER + 9** | Local echo on/off, for servers that don\'t echo what you type. |
+| **ENTER + 8** | Colours: white on black (at start-up), green on black or yellow on blue. Colours set by the BBS are kept. |
 | **SHIFT + 1** | ESC. |
 | **SHIFT + ENTER, then a key** | CTRL + key. |
 | **ENTER + key** | Symbols: the ones printed on the keys plus @ \\ \| \~ \` { } \[ \] \_ ! \# % &. |

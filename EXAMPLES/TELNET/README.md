@@ -2,7 +2,8 @@
 
 Terminal para conectarse a BBS y servidores telnet desde el ZX81, a través
 del módulo WiFi del SD81 Booster. Pantalla de 80×24 en Superfast, con
-caracteres de 7 píxeles, la fuente CP437 de 256 caracteres y colores ANSI.
+caracteres de 7 píxeles, la fuente CP437 de 256 caracteres y colores ANSI. Por
+defecto, texto blanco sobre fondo negro (se cambia con ENTER+8).
 
 Está hecha a partir del terminal de CP/M Plus (`CPM3_SD81`):
 
@@ -50,6 +51,7 @@ ve lo que se teclea aunque otro programa lo hubiera dejado apagado.
 |---|---|
 | ENTER+0 | salir (cuelga si hay conexión) |
 | ENTER+9 | eco local sí/no, para cuando el otro lado no hace eco; arranca apagado |
+| ENTER+8 | colores: blanco sobre negro (al arrancar), verde sobre negro o amarillo sobre azul. Cambia el color por defecto y repinta lo que lo tenía; los colores que pone la BBS se respetan |
 | SHIFT+1 | ESC |
 | SHIFT+ENTER y luego una tecla | CTRL+tecla (el cursor pasa a subrayado mientras espera) |
 | ENTER+tecla | símbolos: los serigrafiados, más `@ \ \| ~ \` { } [ ] _ ! # % &` |

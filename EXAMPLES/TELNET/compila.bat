@@ -1,7 +1,7 @@
 @echo off
 rem Ensambla TELNET y lo copia a la carpeta SD81\TELNET del emulador.
 cd /d "%~dp0"
-set DEST=\ClaudeCode\Eightyone2\EightyOne\SD81\TELNET
+set DEST=\ClaudeCode\Eightyone2\EightyOne\SD81\SD81\TOOLS\TELNET
 
 pasmo telnet.asm telnet.bin telnet.sym || goto error
 if not exist "%DEST%" mkdir "%DEST%"

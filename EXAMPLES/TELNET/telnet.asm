@@ -28,6 +28,8 @@
 ;      ENTER+0          salir (cuelga si hay conexion)
 ;      ENTER+9          eco local si/no (para cuando el otro lado no
 ;                       hace eco; arranca apagado)
+;      ENTER+8          colores: blanco sobre negro (al arrancar), verde
+;                       sobre negro, amarillo sobre azul
 ;      SHIFT+1          ESC
 ;      SHIFT+ENTER, tecla   CTRL+tecla
 ;      ENTER+tecla      simbolos (los serigrafiados y @ \ | ~ ` { } [ ] _ ...)
@@ -71,9 +73,11 @@ FONT_I      equ FONT_ADDR/256
 SCRW        equ 80
 SCRH        equ 24
 ROWSTRIDE   equ 81              ; 80 caracteres + 1 byte de relleno
-ATTR_SCREEN equ 01Eh            ; papel azul, tinta amarilla brillante
+; Colores: atributo PPPP IIII (papel arriba, tinta abajo; en cada nibble
+; brillo, verde, rojo, azul). El color por defecto sale de scheme_tab y
+; se cambia con ENTER+8.
 CHROMA_PORT equ 07FEFh
-CHROMA_ON   equ 031h            ; color + modo 1 (atributos) + borde azul
+CHROMA_BASE equ 030h            ; color + modo 1 (atributos); + el borde
 CHROMA_OFF  equ 00Ch
 CURSOR_BLOCK equ 0DBh           ; bloque solido CP437 (cursor normal)
 CURSOR_UNDER equ 05Fh           ; guion bajo (cursor en modo CTRL)
@@ -83,6 +87,7 @@ BLINK_RATE  equ 25              ; VSYNC por semiciclo de parpadeo
 RXMAX       equ 128             ; lo que cabe en un solo NET_READ
 EXITKEY     equ 01Dh            ; ^]  (ENTER+0)
 ECHOKEY     equ 01Ch            ; ^\  (ENTER+9)
+COLORKEY    equ 01Eh            ; ^^  (ENTER+8)
 ; Flechas (SHIFT+7/6/8/5): codigos internos que el bucle convierte en las
 ; secuencias ANSI ESC [ A/B/C/D, que es lo que entienden las BBS. En CP/M
 ; son ^E ^X ^D ^S (WordStar), que aqui no le sirven a nadie.
@@ -116,7 +121,8 @@ start:      ld   a,i
             ld   bc,VARS_LEN-1
             ld   (hl),0
             ldir
-            ld   a,ATTR_SCREEN
+            ld   a,(scheme_tab)     ; esquema de color 0
+            ld   (def_attr),a
             ld   (cur_attr),a
 
             ld   hl,FONT_ADDR       ; fuente: codigos 0-31 a cero (no se
@@ -141,7 +147,8 @@ start:      ld   a,i
             ld   a,170
             ld   (2061),a
             ld   bc,CHROMA_PORT
-            ld   a,CHROMA_ON
+            ld   a,(scheme_tab+1)   ; borde del esquema 0
+            or   CHROMA_BASE
             out  (c),a
             xor  a
             ld   (2094),a           ; sin desplazar ni recortar
@@ -202,6 +209,8 @@ do_kbd:     call con_cist           ; hay tecla?
             jp   z,done
             cp   ECHOKEY
             jr   z,do_echo
+            cp   COLORKEY
+            jp   z,do_color
             cp   KEY_UP             ; una flecha?
             jr   c,kb_send
             cp   KEY_LEFT+1
@@ -260,6 +269,53 @@ do_echo:    ld   a,(localecho)
             ld   hl,msg_eco_off
 de_say:     call puts
             jp   loop
+
+; --- siguiente esquema de color: repinta lo que tenia el color por
+; defecto (lo que ha pintado la BBS con sus colores se queda) -----------
+do_color:   ld   a,(scheme)
+            inc  a
+            cp   N_SCHEMES
+            jr   c,dc1
+            xor  a
+dc1:        ld   (scheme),a
+            add  a,a
+            ld   e,a
+            ld   d,0
+            ld   hl,scheme_tab
+            add  hl,de
+            ld   d,(hl)             ; D = color nuevo
+            inc  hl
+            ld   a,(hl)             ; borde
+            or   CHROMA_BASE
+            ld   bc,CHROMA_PORT
+            out  (c),a
+            ld   a,(def_attr)
+            ld   e,a                ; E = color viejo
+            ld   hl,ATTR
+            ld   bc,1+ROWSTRIDE*SCRH
+dc2:        ld   a,(hl)
+            cp   e
+            jr   nz,dc3
+            ld   (hl),d
+dc3:        inc  hl
+            dec  bc
+            ld   a,b
+            or   c
+            jr   nz,dc2
+            ld   a,(cur_attr)
+            cp   e
+            jr   nz,dc4
+            ld   a,d
+            ld   (cur_attr),a
+dc4:        ld   a,d
+            ld   (def_attr),a
+            jp   loop
+
+; Esquemas de color: atributo por defecto y borde (0-7, GRB)
+scheme_tab: defb 00Fh,0             ; blanco brillante sobre negro (al arrancar)
+            defb 00Ch,0             ; verde brillante sobre negro
+            defb 01Eh,1             ; amarillo brillante sobre azul (CP/M)
+N_SCHEMES   equ 3
 
 ; --- salir: colgar si hay conexion y devolver el video al BASIC -------
 done:       ld   hl,msg_off
@@ -830,7 +886,7 @@ ap_full:    xor  a
 ansi_sgr:   ld   a,(ansi_cnt)
             or   a
             jr   nz,sgr_loop0
-            ld   a,ATTR_SCREEN      ; "ESC [ m" a secas = reset
+            ld   a,(def_attr)       ; "ESC [ m" a secas = reset
             ld   (cur_attr),a
             jp   ansi_done
 sgr_loop0:  ld   b,a
@@ -847,7 +903,7 @@ sgr_loop:   ld   a,(hl)
 
 sgr_apply:  or   a                  ; 0 = todo a los valores por defecto
             jr   nz,sgr_n1
-            ld   a,ATTR_SCREEN
+            ld   a,(def_attr)
             ld   (cur_attr),a
             ret
 sgr_n1:     cp   1                  ; 1 = brillo en la tinta
@@ -1328,7 +1384,8 @@ keymap_sym:  ; ENTER+tecla: simbolos serigrafiados y los que faltan
 ; ---------------------------------------------------------------------
 msg_on:     defb "SD81 TELNET - terminal ANSI 80x24",13,10
             defb "Connect: ATDT host:port (ATH hangs up, +++ = command mode)",13,10
-            defb "ENTER+0 exit, ENTER+9 local echo, SHIFT+ENTER then key = CTRL",13,10
+            defb "ENTER+0 exit, ENTER+9 local echo, ENTER+8 colours",13,10
+            defb "SHIFT+ENTER then key = CTRL, SHIFT+5/6/7/8 = arrows",13,10
             defb 13,10,0
 msg_eco_on: defb 13,10,"[local echo on]",13,10,0
 msg_eco_off: defb 13,10,"[local echo off]",13,10,0
@@ -1353,7 +1410,9 @@ enter_used: defs 1
 blink:      defs 1
 cursor_on:  defs 1
 term_state: defs 1
-cur_attr:   defs 1              ; color con el que se imprime (ATTR_SCREEN)
+cur_attr:   defs 1              ; color con el que se imprime
+def_attr:   defs 1              ; color por defecto (el del esquema)
+scheme:     defs 1              ; esquema de color en curso (0-2)
 ansi_n:     defs 1              ; parametro ANSI que se acumula
 ansi_par:   defs 4              ; parametros ya cerrados
 ansi_cnt:   defs 1

@@ -1236,6 +1236,7 @@ La terminal funciona como un módem Hayes: los comandos AT se teclean en la prop
 |------------------------------------|------------------------------------|
 | **ENTER + 0** | Salir: cuelga si hay conexión y vuelve al BASIC. |
 | **ENTER + 9** | Eco local sí/no, para servidores que no devuelven lo que se teclea. |
+| **ENTER + 8** | Colores: blanco sobre negro (al arrancar), verde sobre negro o amarillo sobre azul. Los colores que pone la BBS se respetan. |
 | **SHIFT + 1** | ESC. |
 | **SHIFT + ENTER y una tecla** | CTRL + tecla. |
 | **ENTER + tecla** | Símbolos: los serigrafiados y además @ \\ \| \~ \` { } \[ \] \_ ! \# % &. |

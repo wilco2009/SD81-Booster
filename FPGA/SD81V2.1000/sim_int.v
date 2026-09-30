@@ -1,130 +1,182 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
-// Company:
-// Engineer:
+// sim_int -- interrupciones simuladas a 50 Hz (modos Superfast, con DI)
 //
-// Create Date:    23:36:41 10/09/2025
-// Design Name:
-// Module Name:    sim_int
-// Project Name:
-// Target Devices:
-// Tool versions:
-// Description:
+//  La FPGA no llega a /INT (en el ZX81 esta cableada a A6) ni a /NMI, asi
+//  que la interrupcion se hace INYECTANDO instrucciones en el bus:
 //
-//  Interrupciones simuladas para modo SUPERFAST/SPECTRUM.
+//   1. Con cada VSYNC queda una interrupcion pendiente.
+//   2. En la primera M1 que empiece instruccion (boundary, de m1_tracker)
+//      se sirve FF, RST 38h, en vez del opcode. La CPU guarda X+1 (ya ha
+//      leido el opcode en X) y salta a $0038.
+//   3. En $0038-$003A se sirve CALL int_addr (CD lo hi): la CPU guarda
+//      $003B y salta a la rutina del usuario, que acaba con un RET normal.
+//   4. Al volver, en $003B-$003E se sirve el epilogo
+//         EX (SP),HL / DEC HL / EX (SP),HL / RET
+//      que corrige X+1 -> X y vuelve a la instruccion interrumpida. La M1
+//      en $003B marca el final de la rutina: hasta entonces no se inyecta
+//      otra (un RST no respeta DI, asi que no hay otra proteccion).
 //
-//  El vector RST 38h del ZX81 real solo tiene sentido en modo de video
-//  normal (SLOW/FAST), donde la propia CPU ejecuta la rutina de video
-//  temporizada a ciclo exacto. En modo SUPERFAST/SPECTRUM el video lo
-//  genera la FPGA (VSYNC_gen) y la CPU nunca necesita pasar por ese
-//  vector para pintar nada, asi que queda libre para nuestro uso.
+//  Todo se sirve por DIRECCION y solo en su fase: entre medias hay
+//  lecturas y escrituras reales de la pila (las del RST, el CALL y los EX
+//  (SP),HL) que no se tocan. Fuera de una interrupcion en curso, $0038 se
+//  lee de la ROM como siempre.
 //
-//  El ZX81 trabaja en modo de interrupcion IM1: cualquier /INT
-//  reconocido (incluido el generado de forma nativa por el propio
-//  refresco de memoria -R- realimentado en A6, que sigue funcionando
-//  incluso con la CPU parada en HALT) fuerza siempre un fetch real en
-//  $0038, con la direccion de retorno correcta ya apilada por el propio
-//  hardware. No hace falta simular nada de eso: solo hay que vigilar
-//  ese fetch y, si estamos en modo SUPERFAST/SPECTRUM con las
-//  interrupciones simuladas activas, sustituir lo que se lee ahi por
-//  un "JP int_addr" (3 bytes, sin tocar la pila) en vez del contenido
-//  real de la ROM.
+//  Solo con sfast_mode_en: en video nativo la INT, la NMI y los HALT son
+//  parte de la generacion de la imagen. Y el programa tiene que tener DI:
+//  con EI las interrupciones reales de A6 inundarian $0038.
 //
-//  Al ser siempre un fetch M1 en una direccion fija alcanzada solo por
-//  salto (real /INT o un RST 38 explicito), es por construccion un
-//  limite de instruccion limpio: no hace falta esperar flancos de M1
-//  arbitrarios, ni encadenar prefijos DD/FD/CB/ED, ni tratar el HALT
-//  como caso especial. Fuera de SUPERFAST/SPECTRUM esta logica no
-//  interviene nunca, asi que no anade ciclos ni riesgo al modo de
-//  video normal.
+//  La decision de inyectar (arm) solo cambia fuera de las M1, asi que es
+//  estable durante toda la lectura: o se sirve el FF entero o no se toca.
+//  Como se decide antes de empezar la M1, la SRAM no llega a conducir el
+//  bus en las lecturas que sirve la FPGA (nMEM_OE sube con MREQ y RD).
 //
-//  Como la direccion de retorno real ya la pone la CPU en la pila al
-//  aceptar la interrupcion, se usa JP (no CALL): no se apila nada
-//  extra, y la rutina de usuario en int_addr solo tiene que terminar
-//  con EI:RET para reanudar el programa interrumpido.
+//  POKE 2038/2039: direccion de la rutina (int_addr)
+//  POKE 2040,1/0:  activa / desactiva
 //
-// Dependencies:
-//
-// Revision:
-// Revision 0.02 - Sustituido el enganche por vsync/M1 arbitrario por
-//                 enganche fijo en el vector $0038 (solo SUPERFAST/SPECTRUM)
+// Revision 0.04 - Todo el estado en el dominio del reloj del Z80 (iclock):
+//                 a 26 MHz las lecturas asincronas podian perder una
+//                 transicion y colgar el Z80 en el hardware
+// Revision 0.03 - Inyeccion de RST 38h en limites de instruccion (paso 2)
+// Revision 0.02 - JP int_addr en el vector $0038 (las interrupciones venian
+//                 de A6 y no servian para nada)
 // Revision 0.01 - File Created
-// Additional Comments:
-//
 //////////////////////////////////////////////////////////////////////////////////
 module sim_int(
-	input wire clk,
+	input wire iclock,					// nCLOCK, como m1_tracker
 	input wire nreset,
 	input wire enable_int,
 	input wire disable_int,
-	input wire superfast_mode,			// sfast_mode_en (cubre texto/HiRes/Spectrum)
+	input wire superfast_mode,			// sfast_mode_en (texto/HiRes/Spectrum)
+	input wire vsync,
+	input wire boundary,				// m1_tracker: la proxima M1 empieza instruccion
 	input wire [15:0] int_addr,
 	input wire [15:0] addr,
 	input wire nM1,
 	input wire nRD,
 	input wire nMREQ,
+	input wire nRFSH,
 	output reg [7:0] data_out,
-	output reg enable_out,
-	output reg [1:0] state,
-	output reg enabled
+	output reg enable_out,				// servir data_out en esta lectura
+	output wire [1:0] state,
+	output reg enabled,
+	output wire [7:0] status,			// para el puerto de depuracion
+	output reg [15:0] count				// interrupciones inyectadas
     );
 
 	localparam [1:0]
-		stIDLE 		= 0,		// esperando el fetch M1 en $0038
-		stOP_LOW	= 1,		// insertando byte bajo de int_addr
-		stOP_HIGH	= 2;		// insertando byte alto de int_addr
+		phIDLE  = 2'd0,		// sin interrupcion en curso
+		phENTRY = 2'd1,		// RST inyectado: servir CALL int_addr en $0038-$003A
+		phISR   = 2'd2,		// rutina del usuario: esperar la M1 en $003B
+		phEPI   = 2'd3;		// epilogo en $003C-$003E
 
-	wire m1rd = ~(nMREQ|nRD|nM1);
-	wire rd   = ~(nMREQ|nRD);
-	reg old_rd = 0;
-	wire rdflange = ~rd && old_rd;					// fin del ciclo de lectura actual
+	reg [1:0] phase = phIDLE;
+	reg pending = 1'b0;			// VSYNC sin atender
+	reg arm = 1'b0;				// la proxima M1 recibe el RST
+	reg [1:0] vs_sync = 2'b00;	// VSYNC viene del dominio de system_clk
+	reg vs_prev = 1'b0;
+	reg m1_prev = 1'b0;
+	reg [15:0] m1_addr = 16'd0;	// direccion de la ultima M1
 
-	wire hit_vector = enabled && superfast_mode && (addr==16'h0038) && m1rd;
+	assign state = phase;
+	assign status = {enabled, pending, arm, superfast_mode, 2'b00, phase};
 
-	always @(posedge clk or negedge nreset) begin
+	wire rd = ~(nMREQ | nRD);
+	wire m1rd = rd & ~nM1;
+	// Las M1 se siguen igual que en m1_tracker: muestras en la subida de
+	// iclock (bajada del reloj del Z80) y el final se ve en la bajada de T3,
+	// con el bus ya en el refresco. Todo el estado vive en este dominio: con
+	// system_clk, /MREQ y /RD llegaban asincronos y un flanco que cayera
+	// justo en el reloj podia verse distinto en unos biestables que en
+	// otros, perderse el final de una lectura y quedarse la fase atascada
+	// (y el RET de la rutina iba a la ROM de $003B).
+	wire m1_sample = ~nMREQ & ~nM1 & nRFSH;
+	wire m1_end = m1_prev & ~m1_sample;
+
+	// Lo que se sirve en ESTA lectura: combinacional, estable mientras dure
+	always @(*) begin
+		enable_out = 1'b0;
+		data_out = 8'h00;
+		if (m1rd && arm) begin
+			enable_out = 1'b1;
+			data_out = 8'hFF;						// RST 38h
+		end else if (phase == phENTRY && rd) begin
+			if (addr == 16'h0038 && ~nM1) begin
+				enable_out = 1'b1;
+				data_out = 8'hCD;					// CALL nn
+			end else if (addr == 16'h0039 && nM1) begin
+				enable_out = 1'b1;
+				data_out = int_addr[7:0];
+			end else if (addr == 16'h003A && nM1) begin
+				enable_out = 1'b1;
+				data_out = int_addr[15:8];
+			end
+		end else if (phase == phISR && m1rd && addr == 16'h003B) begin
+			enable_out = 1'b1;
+			data_out = 8'hE3;						// EX (SP),HL
+		end else if (phase == phEPI && m1rd) begin
+			if (addr == 16'h003C) begin
+				enable_out = 1'b1;
+				data_out = 8'h2B;					// DEC HL
+			end else if (addr == 16'h003D) begin
+				enable_out = 1'b1;
+				data_out = 8'hE3;					// EX (SP),HL
+			end else if (addr == 16'h003E) begin
+				enable_out = 1'b1;
+				data_out = 8'hC9;					// RET
+			end
+		end
+	end
+
+	always @(posedge iclock or negedge nreset) begin
 		if (~nreset) begin
-			state <= stIDLE;
-			old_rd <= 0;
-			enable_out <= 0;
-			data_out <= 0;
-			enabled <= 0;
+			enabled <= 1'b0;
+			phase <= phIDLE;
+			pending <= 1'b0;
+			arm <= 1'b0;
+			vs_sync <= 2'b00;
+			vs_prev <= 1'b0;
+			m1_prev <= 1'b0;
+			m1_addr <= 16'd0;
+			count <= 16'd0;
 		end else begin
-			old_rd <= rd;
-			if (enable_int)  enabled <= 1'b1;		// POKE 2040,1 -> activa interrupciones simuladas
-			if (disable_int) enabled <= 1'b0;		// POKE 2040,0 -> las desactiva
+			vs_sync <= {vs_sync[0], vsync};
+			vs_prev <= vs_sync[1];
+			m1_prev <= m1_sample;
+			if (m1_sample)
+				m1_addr <= addr;					// se queda con la de T2
 
-			case (state)
-				stIDLE: begin
-					if (hit_vector) begin
-						data_out   <= 8'hC3;		// JP nn (no toca la pila)
-						enable_out <= 1'b1;
-					end
-					if (rdflange && enable_out) begin	// espera a que termine este M1 antes de cambiar de byte
-						enable_out <= 1'b0;
-						state      <= stOP_LOW;
-					end
-				end
-				stOP_LOW: begin
-					if (rd) begin
-						data_out   <= int_addr[7:0];
-						enable_out <= 1'b1;
-					end
-					if (rdflange) begin
-						enable_out <= 1'b0;
-						state      <= stOP_HIGH;
-					end
-				end
-				stOP_HIGH: begin
-					if (rd) begin
-						data_out   <= int_addr[15:8];
-						enable_out <= 1'b1;
-					end
-					if (rdflange) begin
-						enable_out <= 1'b0;
-						state      <= stIDLE;
-					end
-				end
-			endcase
+			if (enable_int)  enabled <= 1'b1;		// POKE 2040,1
+			if (disable_int) enabled <= 1'b0;		// POKE 2040,0
+
+			// La decision solo cambia fuera de las M1. Se recalcula en la
+			// bajada de T4 con el boundary y la fase ya al dia (los dos
+			// cambian en la bajada de T3), antes de la M1 siguiente.
+			if (~m1_sample)
+				arm <= enabled & superfast_mode & pending & (phase == phIDLE) & boundary;
+
+			// Transiciones: al acabar cada M1, por su direccion. Las lecturas
+			// del CALL ($0039/$003A) se sirven en ENTRY hasta que acaba la
+			// primera M1 de la rutina.
+			if (m1_end) begin
+				case (phase)
+					phIDLE:  if (arm) phase <= phENTRY;					// el RST ya esta dentro
+					phENTRY: if (m1_addr != 16'h0038) phase <= phISR;	// ya en la rutina
+					phISR:   if (m1_addr == 16'h003B) phase <= phEPI;	// la rutina ha vuelto
+					phEPI:   if (m1_addr == 16'h003E) phase <= phIDLE;	// fin: vuelve a X
+				endcase
+			end
+
+			// VSYNC -> interrupcion pendiente (solo activas y en Superfast)
+			if (~enabled || ~superfast_mode)
+				pending <= 1'b0;
+			else if (vs_sync[1] & ~vs_prev)
+				pending <= 1'b1;
+			else if (m1_end && phase == phIDLE && arm)
+				pending <= 1'b0;
+
+			if (m1_end && phase == phIDLE && arm)
+				count <= count + 1'b1;
 		end
 	end
 
@@ -169,6 +221,9 @@ endmodule
 //                4/5  instrucciones DD CB / FD CB
 //                6    ultimo opcode leido en una M1
 //                7    estado (0 normal, 1 segundo byte de CB/ED, 2 tras DD/FD)
+//                8    interrupciones simuladas: activas, pendiente, arm,
+//                     Superfast, -, -, fase (2 bits) -- en vivo
+//                9/10 interrupciones inyectadas (bajo/alto) -- en vivo
 //                15   firma 51h: el detector esta presente
 //////////////////////////////////////////////////////////////////////////////////
 module m1_tracker(
@@ -181,6 +236,8 @@ module m1_tracker(
 	input wire nWR,
 	input wire [15:0] addr,
 	input wire [7:0] data,
+	input wire [7:0] si_status,	// de sim_int, para el puerto de depuracion
+	input wire [15:0] si_count,
 	output wire boundary,		// 1: la proxima M1 empieza una instruccion
 	output reg [7:0] dbg_out	// lo que devuelve IN del puerto $3FEF
     );
@@ -289,6 +346,9 @@ module m1_tracker(
 			4'd5:  dbg_out = s_idxcb[15:8];
 			4'd6:  dbg_out = s_last;
 			4'd7:  dbg_out = {6'd0, s_state};
+			4'd8:  dbg_out = si_status;
+			4'd9:  dbg_out = si_count[7:0];
+			4'd10: dbg_out = si_count[15:8];
 			4'd15: dbg_out = 8'h51;
 			default: dbg_out = 8'h00;
 		endcase

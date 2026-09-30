@@ -1732,7 +1732,8 @@ assign DEBUG_RDY = 1'b0;
 
 	// POKE 2038,int_addr_low	-> set low part of la rutina de interrupciones simuladas
 	// POKE 2039,int_addr_high	-> set high part de la rutina de interrupciones simuladas
-	// POKE 2040,1/0			-> enable_int / disable_int (interrupciones simuladas SUPERFAST/SPECTRUM)
+	// POKE 2040,1/0			-> enable_int / disable_int (interrupciones simuladas en Superfast, con DI:
+	//							RST 38h inyectado en un limite de instruccion con cada VSYNC, ver sim_int.v)
 	always@(negedge iclock or negedge nRESET) begin
 		if (nRESET == 1'b0) begin
 			int_mode <= 0;
@@ -1743,30 +1744,14 @@ assign DEBUG_RDY = 1'b0;
 	end
 	
 	
-	sim_int sim_int_inst (
-		.clk(system_clk),
-		.nreset(nRESET),
-		.enable_int(enable_int),
-		.disable_int(disable_int),
-		.superfast_mode(sfast_mode_en),
-		.int_addr(int_addr),
-		.addr(Addr),
-		.nRD(nRD),
-		.nM1(nM1),
-		.nMREQ(nMREQ),
-		.data_out(int_data_out),
-		.enable_out(int_out_en),
-		.enabled(int_enabled),
-		.state(int_state)
-	);
-
-	// Detector de limites de instruccion (paso 1 de las interrupciones
-	// simuladas por inyeccion): sigue las M1 y sabe si la siguiente empieza
-	// una instruccion. De momento solo se usa desde el puerto de
-	// depuracion $3FEF (ver m1_tracker en sim_int.v).
+	// Detector de limites de instruccion: sigue las M1 y sabe si la
+	// siguiente empieza una instruccion, que es donde sim_int puede inyectar
+	// su RST 38h. Puerto de depuracion $3FEF (ver m1_tracker en sim_int.v).
 	wire [7:0] m1t_data;
 	wire m1t_boundary;
 	wire m1t_rd = ~nIORD & (Addr == 16'h3FEF);
+	wire [7:0] si_status;
+	wire [15:0] si_count;
 	m1_tracker m1_tracker_inst (
 		.iclock(iclock),
 		.nreset(nRESET),
@@ -1777,11 +1762,35 @@ assign DEBUG_RDY = 1'b0;
 		.nWR(nWR),
 		.addr(Addr),
 		.data(data),
+		.si_status(si_status),
+		.si_count(si_count),
 		.boundary(m1t_boundary),
 		.dbg_out(m1t_data)
 	);
-		
-	
+
+	sim_int sim_int_inst (
+		.iclock(iclock),
+		.nreset(nRESET),
+		.enable_int(enable_int),
+		.disable_int(disable_int),
+		.superfast_mode(sfast_mode_en),
+		.vsync(vsync),
+		.boundary(m1t_boundary),
+		.int_addr(int_addr),
+		.addr(Addr),
+		.nRD(nRD),
+		.nM1(nM1),
+		.nMREQ(nMREQ),
+		.nRFSH(nRFSH),
+		.data_out(int_data_out),
+		.enable_out(int_out_en),
+		.enabled(int_enabled),
+		.state(int_state),
+		.status(si_status),
+		.count(si_count)
+	);
+
+
 // ***************************************************
 //		MEMORY MAPPER
 // ***************************************************

@@ -1123,11 +1123,18 @@ Port $7FEF (01111111 11101111) - IN:
 	// monocromo no se notaba: esa franja negra era indistinguible del
 	// borde, tambien negro.
 	//
-	// Se compensa leyendo el atributo con el indice anterior, que es lo que
-	// el modo de 8 pixeles hace por si solo. Solo afecta a char7_en: el
-	// modo de 70 columnas y el de 32 siguen exactamente igual que antes.
-	wire [6:0] attr_col_80 = (char7_en && scr_col_80!=7'd0) ? scr_col_80-7'd1
-																			  : scr_col_80;
+	// Se compensa leyendo el atributo con el indice anterior.
+	//
+	// En 70 COLUMNAS PASA LO MISMO, aunque por el orden de los estados
+	// parecia que cuadraba solo (y en el emulador cuadra): comprobado en
+	// hardware con el explorador de 70 columnas, la ultima cifra de la
+	// fecha y la hora de la cabecera salian con el atributo de la columna
+	// siguiente (negro sobre negro, invisibles) y la columna 69 con el
+	// byte 70 de relleno de la fila (el blanco de fondo), igual que el
+	// sintoma de 80 columnas. Asi que la compensacion vale para los dos
+	// anchos del modo ancho; el de 32 columnas no se toca.
+	wire [6:0] attr_col_80 = (scr_col_80!=7'd0) ? scr_col_80-7'd1
+															 : scr_col_80;
 	wire [15:0] attr_rel_addr = sf80_en ? (row_stride_80+attr_col_80)
 													  : ({scr_row,5'b00000} + scr_row+scr_col2);
 	// Sin override (de siempre): misma direccion que el caracter pero con
@@ -1752,6 +1759,27 @@ assign DEBUG_RDY = 1'b0;
 		.enabled(int_enabled),
 		.state(int_state)
 	);
+
+	// Detector de limites de instruccion (paso 1 de las interrupciones
+	// simuladas por inyeccion): sigue las M1 y sabe si la siguiente empieza
+	// una instruccion. De momento solo se usa desde el puerto de
+	// depuracion $3FEF (ver m1_tracker en sim_int.v).
+	wire [7:0] m1t_data;
+	wire m1t_boundary;
+	wire m1t_rd = ~nIORD & (Addr == 16'h3FEF);
+	m1_tracker m1_tracker_inst (
+		.iclock(iclock),
+		.nreset(nRESET),
+		.nM1(nM1),
+		.nMREQ(nMREQ),
+		.nRFSH(nRFSH),
+		.nIORQ(nIORQ),
+		.nWR(nWR),
+		.addr(Addr),
+		.data(data),
+		.boundary(m1t_boundary),
+		.dbg_out(m1t_data)
+	);
 		
 	
 // ***************************************************
@@ -2284,7 +2312,7 @@ assign DEBUG_RDY = 1'b0;
 				micro_wr) data_dir <= 1'b0;
 			else if (micro_rd) data_dir<= 1'b1;
 			else if (~nOE_CTRL_CLOCK || !nOE_IL || mapper_port_rd || kbdint || 
-				chroma_mode_rd || int_dataout_en) data_dir <= 1'b0;
+				chroma_mode_rd || int_dataout_en || m1t_rd) data_dir <= 1'b0;
 			else data_dir<= 1'b1;
 		end
 		
@@ -2298,6 +2326,7 @@ assign DEBUG_RDY = 1'b0;
 						ay_psg_read[1]?ay_data_o[1][7]:
 						micro_wr?O7:
 						micro_rd?1'bz:
+						m1t_rd? m1t_data[7] :
 						mapper_port_rd? mapper_data[7] : 
 						int_dataout_en? int_data_out[7]:
 						1'bz;
@@ -2310,6 +2339,7 @@ assign DEBUG_RDY = 1'b0;
 						ay_psg_read[1]?ay_data_o[1][6]:
 						micro_wr?O6:
 						micro_rd?1'bz:
+						m1t_rd? m1t_data[6] :
 						mapper_port_rd? mapper_data[6] : 
 						int_dataout_en? int_data_out[6]:
 						1'bz;
@@ -2322,6 +2352,7 @@ assign DEBUG_RDY = 1'b0;
 						ay_psg_read[1]?ay_data_o[1][5]:
 						micro_wr?O5:
 						micro_rd?1'bz:
+						m1t_rd? m1t_data[5] :
 						mapper_port_rd? mapper_data[5] : 
 						chroma_mode_rd? 1'b0:					// Colour modes availables, chroma switch 6 allways on
 						int_dataout_en? int_data_out[5]:
@@ -2335,6 +2366,7 @@ assign DEBUG_RDY = 1'b0;
 						ay_psg_read[1]?ay_data_o[1][4]:
 						micro_wr?O4:
 						micro_rd?1'bz:
+						m1t_rd? m1t_data[4] :
 						mapper_port_rd? mapper_data[4] : 
 						kbdint & !kbd_data[4]?  1'b0:
 						int_dataout_en? int_data_out[4]:
@@ -2348,6 +2380,7 @@ assign DEBUG_RDY = 1'b0;
 						ay_psg_read[1]?ay_data_o[1][3]:
 						micro_wr?O3:
 						micro_rd?1'bz: 
+						m1t_rd? m1t_data[3] :
 						mapper_port_rd? mapper_data[3] : 
 						kbdint & !kbd_data[3]?  1'b0:
 						int_dataout_en? int_data_out[3]:
@@ -2361,6 +2394,7 @@ assign DEBUG_RDY = 1'b0;
 						ay_psg_read[1]?ay_data_o[1][2]:
 						micro_wr?O2:
 						micro_rd?1'bz:
+						m1t_rd? m1t_data[2] :
 						mapper_port_rd? mapper_data[2] : 
 						kbdint & !kbd_data[2]?  1'b0:
 						int_dataout_en? int_data_out[2]:
@@ -2374,6 +2408,7 @@ assign DEBUG_RDY = 1'b0;
 						ay_psg_read[1]?ay_data_o[1][1]:
 						micro_wr?O1:
 						micro_rd?1'bz:
+						m1t_rd? m1t_data[1] :
 						mapper_port_rd? mapper_data[1] : 
 						kbdint & !kbd_data[1]?  1'b0:
 						int_dataout_en? int_data_out[1]:
@@ -2388,6 +2423,7 @@ assign DEBUG_RDY = 1'b0;
 						ay_psg_read[1]?ay_data_o[1][0]:
 						micro_wr?O0:
 						micro_rd?1'bz:
+						m1t_rd? m1t_data[0] :
 						mapper_port_rd? mapper_data[0] : 
 						kbdint & !kbd_data[0]?  1'b0:
 						int_dataout_en? int_data_out[0]:

@@ -1,10 +1,14 @@
 ; =============================================================
-; EXPLORER.ASM -- Explorador de archivos SD81 Booster (42 columnas)
+; EXPLORER.ASM -- Explorador de archivos SD81 Booster (70 columnas)
 ;
 ; Navega carpetas de la SD, carga programas .P (y en general cualquier
 ; archivo, devolviendo el control al BASIC con su nombre) y gestiona
 ; archivos (nueva carpeta, borrar, renombrar, copiar/mover), en modo
-; Superfast HiRes Spectrum (42 columnas via fuente comprimida de 6px).
+; Superfast texto de 70 columnas (caracteres de 8x8): fuente de 256
+; caracteres (Spectrum en 32-127, iconos y graficos del ZX81 en 0-31 y
+; el logo de la cabecera en 128-155) y un atributo de color por caracter
+; (Chroma81 modo 1). Solo el visor de .SCR pasa un momento a HiRes
+; Spectrum.
 ;
 ; Construido y depurado de forma incremental en HW real (ver vtest1..9
 ; en esta misma carpeta -- cada paso confirmado antes de añadir el
@@ -16,6 +20,10 @@
 ;         1/2=pagina arriba/abajo  N=nueva carpeta D=borrar R=renombrar
 ;         C=marcar copiar X=marcar mover V=pegar  ESPACIO=salir
 ;         S=panel de configuracion (lateral)
+;         E=editar el archivo (sale al BASIC con USR = longitud + 256;
+;           el stub carga el editor, EDIT.BIN, con el nombre en F$)
+;         K=pantalla de ayuda con todas las teclas
+;         L=ver cualquier archivo en el visor de texto (no solo los .TXT)
 ;
 ; Ensamblar con pasmo: pasmo explorer.asm EXPLORER.BIN
 ; Cargar/usar: ver README.md (incluye el stub BASIC necesario).
@@ -47,31 +55,66 @@ VIDRESTOREPAGE  equ VIDBLOCK    ; identidad: bloque 7 -> pagina 7
 VIDBASE         equ VIDBLOCK*2000h     ; direccion base del bloque (bitmap)
 VIDBASE_HI      equ VIDBLOCK*32        ; byte alto de VIDBASE (VIDBASE/256)
 ATTRBASE_HI     equ VIDBASE_HI+18h     ; byte alto del area de atributos
-NORM_ATTR       equ 038h        ; papel blanco, tinta negra
-SEL_ATTR        equ 00Fh        ; papel azul, tinta blanca (resaltado)
-PATH_ATTR       equ 020h        ; papel verde, tinta negra
+; Pantalla de texto de 70 columnas en el mismo bloque: DFILE, atributos
+; (con la misma geometria) y fuente de 256 caracteres (2 KB alineados,
+; I = TXT_FONT/256). El visor de .SCR usa el bloque entero como bitmap
+; Spectrum y al volver se reconstruye todo (video_text_on).
+TXT_DFILE       equ VIDBASE             ; 1 + 24 filas de 71 bytes
+TXT_ATTR        equ VIDBASE+0800h       ; misma geometria (el +0800h es solo H)
+TXT_FONT        equ VIDBASE+1000h
+SCRW            equ 70
+ROWSTRIDE       equ 71              ; 70 caracteres + 1 byte de relleno
+; caracteres propios (0-31 de la fuente)
+G_PLAY          equ 1
+G_PAUSE         equ 2
+G_STOP          equ 3
+G_UP            equ 4
+G_DOWN          equ 5
+G_LEFT          equ 6
+G_RIGHT         equ 7
+G_FIRE          equ 8
+ZXG             equ 16              ; graficos de bloque del ZX81 (1-10) en 16-25,
+                                    ; copiados de la ROM al arrancar
+LOGO            equ 128             ; el logo de la cabecera: 28 caracteres
+LOGO_COL        equ (SCRW-28)/2     ; centrado
+; Atributos (Chroma modo 1): PPPP IIII, papel arriba y tinta abajo; en
+; cada nibble brillo, verde, rojo y azul.
+NORM_ATTR       equ 070h        ; papel blanco, tinta negra
+SEL_ATTR        equ 017h        ; papel azul, tinta blanca (resaltado)
+PATH_ATTR       equ 040h        ; papel verde, tinta negra
+HDR_ATTR        equ 000h        ; cabecera: franja negra
+LOGO_ATTR       equ 0A0h        ; el logo: papel rojo brillante, tinta negra
+CLOCK_ATTR      equ 005h        ; reloj: papel negro, tinta cian
+HELP_ATTR       equ 017h        ; barra de ayuda: papel azul, tinta blanca
+HELPKEY_ATTR    equ 01Eh        ; y sus teclas: tinta amarilla
+CLIP_ATTR       equ 02Fh        ; C o X con algo marcado: papel rojo
+CURSOR_ATTR     equ 007h        ; cursor de la entrada de texto (invertido)
+CHROMA_TEXT     equ 031h        ; color + modo 1 (atributos), borde azul
 MAXVIS          equ 21
 CLOCK_TICK_THRESHOLD equ 2000   ; pasadas de rk_wait por refresco del reloj
                                  ; en vivo -- sin calibrar en hardware real
-PANEL_ATTRCOL0  equ 20          ; 1ª columna de atributo (0-31) del panel de config.
-LIST_ATTRCOLS   equ PANEL_ATTRCOL0      ; columnas de atributo de la lista con panel activo
-LIST_MAXCHARS   equ 26          ; caracteres (6px) que caben en LIST_ATTRCOLS sin invadir el panel
-PANEL_TXTCOL    equ 27          ; columna de texto (6px) donde arranca el panel
-PANEL_VALCOL    equ 37          ; columna donde arranca el valor (ON/OFF/128/64) de cada opcion
-PANEL_ATTR      equ 028h        ; papel cian, tinta negra (filas de opciones)
-PANEL_KEY_ON_ATTR equ 02Ah      ; papel cian, tinta roja (letra de tecla activa)
+PANEL_COL0      equ 46          ; 1ª columna del panel de configuracion
+LIST_ATTRCOLS   equ PANEL_COL0  ; columnas de la lista con el panel activo
+LIST_MAXCHARS   equ PANEL_COL0-1 ; caracteres del nombre con el panel activo
+PANEL_TXTCOL    equ PANEL_COL0+2 ; columna donde arranca el texto del panel
+PANEL_TXTW      equ SCRW-PANEL_TXTCOL ; ancho del texto del panel
+PANEL_VALCOL    equ PANEL_TXTCOL+10 ; columna del valor (128/64) de cada opcion
+PANEL_ATTR      equ 050h        ; papel cian, tinta negra (filas de opciones)
+PANEL_KEY_ON_ATTR equ 052h      ; papel cian, tinta roja (letra de tecla activa)
 PANEL_BASE_ATTR equ PANEL_ATTR  ; fondo base del panel: tambien cian
-PANEL_TITLE_ATTR equ 01Fh       ; papel magenta, tinta blanca (fila del titulo) -- prueba
-; columnas de bytes (0-31) donde pegar con blit_cols cada icono -- salen
-; de extract_icon.py (preposicionan el icono a nivel de pixel, alineado
-; con columnas de texto de 6px; ver cabecera de ese script) y NO se
-; recalculan aqui porque el desplazamiento sub-byte ya esta "horneado"
-; en el recurso .bin correspondiente.
-PANEL_ICONJOY_COL   equ 24   ; iconos de flechas (5 bytes, pixel visible 198)
-PANEL_JOY_VALCOL    equ 33   ; teclas QAOP: mismo pixel (198) que el icono
-PANEL_ICONSTOP_COL  equ 24   ; bajo la T (pixel 192)
-PANEL_ICONPAUSE_COL equ 25   ; bajo la Y (pixel 204)
-PANEL_ICONPLAY_COL  equ 27   ; bajo la U (pixel 216)
+PANEL_TITLE_ATTR equ 037h       ; papel magenta, tinta blanca (fila del titulo)
+PANEL_JOY_VALCOL equ PANEL_TXTCOL+8 ; teclas del joystick (y sus flechas encima)
+; dialogos: recuadro encima de la pantalla, con el titulo, el campo de
+; texto (o el nombre, al borrar) y una linea con las teclas
+DLG_TOP         equ 8           ; filas DLG_TOP..DLG_BOT
+DLG_BOT         equ 14
+DLG_L           equ 7           ; columnas DLG_L..DLG_L+DLG_W-1
+DLG_W           equ 56
+TI_COL          equ DLG_L+2     ; columna del texto y del campo
+TI_W            equ DLG_W-4     ; ancho del campo
+DLG_ATTR        equ 017h        ; recuadro: papel azul, tinta blanca
+DLG_TITLE_ATTR  equ 01Fh        ; titulo: tinta blanca brillante
+DLG_HINT_ATTR   equ 015h        ; teclas: tinta cian
 namebuf         equ VIDBASE+1B00h
 
 ; -------------------------------------------------------------
@@ -94,10 +137,12 @@ viewer_buf       equ viewer_remaining+4  ; VWR_BUFSIZE bytes
 ; texto (nunca estan activos a la vez), añade su propio estado a
 ; continuacion del buffer.
 ; -------------------------------------------------------------
-HEXROW_BYTES    equ 8            ; bytes por fila en pantalla
-HEXR_ASCII_COL  equ 33           ; columna de texto (6px) donde arranca la
-                                  ; columna ASCII/ZX81: 6 (offset) + 2 +
-                                  ; 24 (8 pares hex) + 1 = 33
+HEXROW_BYTES    equ 16           ; bytes por fila en pantalla
+HEXR_ASCII_COL  equ 54           ; columna donde arranca la columna
+                                  ; ASCII/ZX81: 6 (offset) + 16 x " XX"
+                                  ; = 54; va pegada, separada por color
+HEX_OFS_ATTR    equ 071h         ; offset: tinta azul
+HEX_ASC_ATTR    equ 050h         ; columna ASCII/ZX81: papel cian
 hexr_row        equ viewer_buf+VWR_BUFSIZE  ; 2 bytes: fila (offset/HEXROW_BYTES) en curso durante el render
 hexr_count      equ hexr_row+2               ; 1 byte: bytes reales de la fila en curso (1-8)
 hexr_nrows      equ hexr_count+1             ; 1 byte: filas realmente pintadas (para PgDn)
@@ -113,29 +158,10 @@ retname:        ; buffer ESTABLE del nombre devuelto a BASIC (24579=ORG+3),
 start:
         di
 
-        ; --- HFILE en el bloque VIDBLOCK, remapeado a VIDPAGE ---
+        ; --- pantalla en el bloque VIDBLOCK, remapeado a VIDPAGE ---
         ld a,VIDBLOCK
         ld e,VIDPAGE
         call mcu_map
-        xor a
-        ld (2043),a             ; HFILE bajo
-        ld a,VIDBASE_HI
-        ld (2044),a             ; HFILE alto
-
-        ; (el primer video_clear lo hace vt_refresh mas abajo)
-
-        ; --- Chroma81 ON (bit5) ---
-        ld bc,7fefh
-        ld a,20h
-        out (c),a
-
-        ; --- modo Superfast HiRes Spectrum ---
-        ld a,172
-        ld (2045),a
-
-        ; --- borde azul ---
-        ld a,1
-        out (0fbh),a
 
         ; --- estado inicial conocido del panel de config: WRX OFF,
         ; FULLPAG OFF, MC45 OFF, CHR 64 (no hay forma de leer el estado
@@ -153,6 +179,8 @@ start:
         call mcu_send
         ld a,28                   ; CMD_chars64
         call mcu_send
+        call video_text_on        ; 70 columnas (y 256 caracteres: el modo
+                                  ; CHR elegido se aplica al salir)
 
         ; --- joystick: configuracion por defecto, enviada nada mas
         ; arrancar (antes no se mandaba ninguna hasta tocarlo en el panel) ---
@@ -181,10 +209,10 @@ start:
 vt_update_clock:
         ld hl,rtc_buf
         call rtc_fetch
-        ld a,05h                 ; tinta cian, papel negro
+        ld a,CLOCK_ATTR
         ld (cur_attr),a
         ld d,0
-        ld e,0
+        ld e,1
         call p42_setxy
         ld a,(rtc_buf+8)         ; DD/MM/AA (rtc_buf = "yyyy-mm-dd ...")
         call p42_putchar
@@ -202,7 +230,7 @@ vt_update_clock:
         call p42_putchar
         ld a,(rtc_buf+3)
         call p42_putchar
-        ld e,32
+        ld e,SCRW-9
         call p42_setxy
         ld a,(rtc_buf+11)
         call p42_putchar
@@ -230,15 +258,10 @@ vt_update_clock:
 ; -------------------------------------------------------------
 vt_refresh:
         call video_clear
-
-        ld ix,BG_ROW0
-        xor a
-        call blit_row
-        ld ix,BG_ROW23
-        ld a,23
-        call blit_row
-        call vt_update_clip_icons ; re-tenir C/X si hay algo marcado (el
-                                  ; blit anterior los deja en negro)
+        call draw_header
+        ld hl,help_main
+        call draw_help
+        call vt_update_clip_icons ; C/X en rojo si hay algo marcado
 
         call vt_update_clock
         ld a,1
@@ -253,9 +276,9 @@ vt_refresh:
         call p42_setxy
         ld hl,namebuf
         ld a,(namelen)
-        cp 42
+        cp SCRW
         jr c,vtr_t1
-        ld a,42
+        ld a,SCRW
 vtr_t1: ld b,a
         call p42_string
 
@@ -284,9 +307,8 @@ vtr_nofilter:
         ld (list_attrw),a
         jr vtr_widthdone
 vtr_widthfull:
-        ld a,42
+        ld a,SCRW
         ld (list_maxchars),a
-        ld a,32
         ld (list_attrw),a
 vtr_widthdone:
 
@@ -361,7 +383,7 @@ vlist_done:
 
 ; -------------------------------------------------------------
 ; vt_draw_panel: pinta toda la zona de settings (columnas de atributo
-; PANEL_ATTRCOL0..31) -- fondo azul base, la fila del titulo (1) en
+; PANEL_COL0..SCRW-1) -- fondo cian base, la fila del titulo (1) en
 ; blanco/tinta negra a toda su anchura, y cada fila de opcion (3/5/7/9)
 ; en cian/tinta negra -- y luego el texto encima.
 ; Se llama desde vt_refresh, despues del listado, solo si (cfg_panel)=1.
@@ -450,12 +472,22 @@ vdp_chrval:
         ld c,PANEL_ATTR
         call panel_print
 
-        ; -- iconos de flechas del joystick --
-        ld a,10
-        ld d,PANEL_ICONJOY_COL
-        ld b,5
-        ld ix,ICON_JOY
-        call blit_cols
+        ; -- flechas del joystick, encima de sus teclas --
+        ld a,PANEL_ATTR
+        ld (cur_attr),a
+        ld d,10
+        ld e,PANEL_JOY_VALCOL
+        call p42_setxy
+        ld a,G_UP
+        call p42_putchar
+        ld a,G_DOWN
+        call p42_putchar
+        ld a,G_LEFT
+        call p42_putchar
+        ld a,G_RIGHT
+        call p42_putchar
+        ld a,G_FIRE
+        call p42_putchar
 
         ld d,11
         ld e,PANEL_TXTCOL
@@ -478,21 +510,21 @@ vdp_chrval:
         call panel_print
 
         ; -- iconos STOP/PAUSA/PLAY, cada uno bajo su letra (T/Y/U) --
-        ld a,14
-        ld d,PANEL_ICONSTOP_COL
-        ld b,1
-        ld ix,ICON_STOP
-        call blit_cols
-        ld a,14
-        ld d,PANEL_ICONPAUSE_COL
-        ld b,2
-        ld ix,ICON_PAUSE
-        call blit_cols
-        ld a,14
-        ld d,PANEL_ICONPLAY_COL
-        ld b,1
-        ld ix,ICON_PLAY
-        call blit_cols
+        ld a,PANEL_ATTR
+        ld (cur_attr),a
+        ld d,14
+        ld e,PANEL_TYU_COL
+        call p42_setxy
+        ld a,G_STOP
+        call p42_putchar
+        ld a,' '
+        call p42_putchar
+        ld a,G_PAUSE
+        call p42_putchar
+        ld a,' '
+        call p42_putchar
+        ld a,G_PLAY
+        call p42_putchar
 
         ; -- nombre del VGM/PEB cargado (vacio si no hay ninguno) --
         ld d,15
@@ -575,7 +607,7 @@ panel_print_ver:
         ret
 
 ; vdp_fillrow_base/_title/_opt: A=fila -> tiñe toda la anchura de la zona
-; de settings (columnas PANEL_ATTRCOL0..31) en esa fila, con el atributo
+; de settings (columnas PANEL_COL0..SCRW-1) en esa fila, con el atributo
 ; base/titulo/opcion respectivamente.
 vdp_fillrow_base:
         ld c,PANEL_BASE_ATTR
@@ -586,8 +618,8 @@ vdp_fillrow_title:
 vdp_fillrow_opt:
         ld c,PANEL_ATTR
 vdp_fillrow_common:
-        ld d,PANEL_ATTRCOL0
-        ld b,32-PANEL_ATTRCOL0
+        ld d,PANEL_COL0
+        ld b,SCRW-PANEL_COL0
         jp fill_row_attr_col
 
 ; panel_print: D=fila,E=columna,HL=puntero texto,B=longitud,C=atributo.
@@ -638,8 +670,8 @@ panel_onoff:
 
 panel_title:    defb "SETTINGS"
 panel_title_len equ $-panel_title
-; centrado en el hueco de texto del panel (PANEL_TXTCOL..41, 15 columnas)
-PANEL_TITLE_COL equ PANEL_TXTCOL+(15-panel_title_len)/2
+; centrado en el hueco de texto del panel (PANEL_TXTW columnas)
+PANEL_TITLE_COL equ PANEL_TXTCOL+(PANEL_TXTW-panel_title_len)/2
 
 panel_lbl_wrx:         defb "W WRX"
 panel_lbl_wrx_len      equ $-panel_lbl_wrx
@@ -659,8 +691,8 @@ panel_lbl_filter1:     defb ". FILTER"
 panel_lbl_filter1_len  equ $-panel_lbl_filter1
 panel_lbl_filter2:     defb "(SHIFT+1)=RESET"
 panel_lbl_filter2_len  equ $-panel_lbl_filter2
-; centrado igual que el titulo (PANEL_TXTCOL..41, 15 columnas)
-PANEL_TYU_COL equ PANEL_TXTCOL+(15-panel_lbl_tyu_len)/2
+; centrado igual que el titulo (PANEL_TXTW columnas)
+PANEL_TYU_COL equ PANEL_TXTCOL+(PANEL_TXTW-panel_lbl_tyu_len)/2
 
 str_off:        defb "OFF"
 str_on:         defb "ON "
@@ -729,7 +761,57 @@ vt_loop:
         jp z,vt_reset_filter
         cp 29
         jp z,vt_edit_filter
+        cp 30
+        jp z,vt_edit
+        cp 31
+        jp z,vt_help
+        cp 32
+        jp z,vt_view_any
         jp vt_loop
+
+; -------------------------------------------------------------
+; vt_help: tecla K -- pantalla con todas las teclas; cualquier tecla
+; vuelve al listado.
+; -------------------------------------------------------------
+vt_help:
+        xor a
+        ld (clock_screen_active),a
+        call video_clear
+        call draw_header
+        ld hl,help_back
+        call draw_help
+        ld hl,help_text
+vh1:    ld a,(hl)                 ; fila (0FFh = fin), columna, texto
+        cp 0FFh
+        jr z,vh_done
+        ld d,a
+        inc hl
+        ld e,(hl)
+        inc hl
+        call p42_setxy
+        ld a,NORM_ATTR
+        ld (cur_attr),a
+vh2:    ld a,(hl)                 ; texto hasta 0; {tecla} en otro color
+        inc hl
+        or a
+        jr z,vh1
+        ld c,HELPTXT_KEY_ATTR
+        cp '{'
+        jr z,vh3
+        ld c,NORM_ATTR
+        cp '}'
+        jr z,vh3
+        call p42_putchar
+        jr vh2
+vh3:    ld a,c
+        ld (cur_attr),a
+        jr vh2
+vh_done:
+        call read_key
+        jp vt_refresh_and_loop
+
+HELPTXT_KEY_ATTR equ 071h        ; las teclas: papel blanco, tinta azul
+
 
 ; -------------------------------------------------------------
 ; vt_updir: tecla 5 -- copia literal de do_updir en explorer.asm (CD ..
@@ -804,6 +886,7 @@ vt_edit_filter:
 vef_noprefill:
         ld hl,prompt_filter
         ld b,prompt_filter_len
+        ld de,hint_edit
         call show_prompt
         call text_input
         ld a,(namelen)
@@ -824,7 +907,7 @@ vef_nocopy:
         jp vt_loop
 
 prompt_filter:
-        defb "FILTER (WILDCARDS):"
+        defb "FILTER (WILDCARDS, EMPTY = SHOW ALL)"
 prompt_filter_len equ $-prompt_filter
 
 ; vt_reset_filter: SHIFT+1 -- quita el filtro de listado (si habia) y
@@ -879,17 +962,9 @@ vt_toggle_chr:
         ld a,(cfg_panel)
         or a
         jp z,vt_loop
-        ld a,(cfg_chr128)
-        xor 1
-        ld (cfg_chr128),a
-        or a
-        jr z,vtchr_64
-        ld a,27                   ; CMD_chars128
-        jr vtchr_send
-vtchr_64:
-        ld a,28                   ; CMD_chars64
-vtchr_send:
-        call mcu_send
+        ld a,(cfg_chr128)         ; se aplica al salir (video_off): el
+        xor 1                     ; explorador se ve en modo de 256
+        ld (cfg_chr128),a         ; caracteres, y mandarlo ahora lo apagaria
         call vt_refresh
         jp vt_loop
 
@@ -929,6 +1004,7 @@ vt_edit_joy:
         ld (ti_allow_space),a
         ld hl,prompt_joy
         ld b,prompt_joy_len
+        ld de,hint_joy
         call show_prompt
         call text_input
         xor a
@@ -949,7 +1025,7 @@ vt_edit_joy:
         jp vt_refresh_and_loop
 
 prompt_joy:
-        defb "JOYSTICK KEYS (UP,DOWN,LEFT,RIGHT,FIRE):"
+        defb "JOYSTICK KEYS: UP, DOWN, LEFT, RIGHT, FIRE"
 prompt_joy_len equ $-prompt_joy
 
 ; -------------------------------------------------------------
@@ -1033,14 +1109,7 @@ vvc_done:
         jp vt_loop
 
 vt_exit:
-        ld a,85
-        ld (2045),a             ; Superfast OFF (vuelve a modo ZX81 normal)
-        ld bc,7fefh
-        xor a
-        out (c),a               ; Chroma81 OFF
-        ld a,VIDBLOCK
-        ld e,VIDRESTOREPAGE
-        call mcu_map            ; restaura bloque VIDBLOCK a su pagina identidad
+        call video_off
         ld bc,0
         ret                     ; USR devuelve BC=0
 
@@ -1283,6 +1352,9 @@ vt_act_dir:
 ; esperan codigos ZX81), desactiva Superfast y sale al BASIC con
 ; BC=longitud del nombre (USR lo devuelve).
 vt_act_loadp:
+        xor a
+vt_act_ret:                     ; entrada con A=1 desde vt_edit
+        ld (retedit),a
         ld a,(namelen)
         ld (retlen),a
         or a
@@ -1302,18 +1374,32 @@ vtl_loop:
         pop bc
         djnz vtl_loop
 vtl_done:
-        ld a,85
-        ld (2045),a             ; Superfast OFF
-        ld bc,7fefh
-        xor a
-        out (c),a               ; Chroma81 OFF
-        ld a,VIDBLOCK
-        ld e,VIDRESTOREPAGE
-        call mcu_map            ; restaura bloque VIDBLOCK a su pagina identidad
+        call video_off
         ld a,(retlen)
         ld c,a
-        ld b,0
+        ld a,(retedit)
+        ld b,a
         ret                     ; USR devuelve BC = longitud del nombre
+                                ; (+256 si es para editarlo)
+
+; -------------------------------------------------------------
+; vt_edit: tecla E -- como vt_act_loadp (sale al BASIC con el nombre en
+; retname), pero USR devuelve longitud + 256: el stub lo reconoce y
+; carga el editor (EDIT.BIN) con el nombre en F$. Sobre una carpeta no
+; hace nada.
+; -------------------------------------------------------------
+vt_edit:
+        ld hl,(cur_index)
+        ex de,hl
+        call get_row
+        ld a,(namelen)
+        or a
+        jp z,vt_loop
+        ld a,(namebuf)
+        cp '<'
+        jp z,vt_loop
+        ld a,1
+        jp vt_act_ret
 
 VGM_NAME_MAXLEN equ 15   ; ancho de texto util del panel (PANEL_TXTCOL..41)
 
@@ -1525,11 +1611,12 @@ vtlp_short:
 ; -------------------------------------------------------------
 ; vt_view_scr: ENTER sobre un archivo .SCR -- captura de pantalla
 ; Spectrum nativa (6912 bytes: 6144 de bitmap "de tercios" + 768 de
-; atributo, ver comentario de calc_bmp_addr y extract_bg.py). Se lee en
+; atributo, ver spec_bmp_addr). Pasa a HiRes Spectrum (video_spectrum_on) y
+; al volver reconstruye la pantalla de texto. Se lee en
 ; bloques de 256 bytes (una scanline x los 8 bytes-fila de un tercio, o
 ; 8 filas de atributo) -- NO fila a fila, que serian cientos de
 ; peticiones MCU -- y cada bloque se reparte directamente a las filas
-; de pantalla reales via calc_bmp_addr/calc_attr_addr. Espera cualquier
+; de pantalla reales via spec_bmp_addr/spec_attr_addr. Espera cualquier
 ; tecla y vuelve al listado.
 ; -------------------------------------------------------------
 vt_view_scr:
@@ -1540,7 +1627,7 @@ vt_view_scr:
         ld (viewer_handle),a
         xor a
         ld (clock_screen_active),a
-        call video_clear
+        call video_spectrum_on
 
         ; -- bitmap: 3 tercios x 8 scanlines x 256 bytes (8 filas x 32) --
         xor a
@@ -1564,7 +1651,7 @@ vscr_rit_loop:
         ld b,a
         ld a,(vscr_rit)
         add a,b                  ; a = fila global (0-23)
-        call calc_bmp_addr       ; hl = direccion scanline0 de esa fila
+        call spec_bmp_addr       ; hl = direccion scanline0 de esa fila
         ld a,(vscr_line)
         add a,h
         ld h,a                   ; += scanline (cada una sale +100h)
@@ -1611,7 +1698,7 @@ vscr_attr_rit_loop:
         ld b,a
         ld a,(vscr_rit)
         add a,b
-        call calc_attr_addr
+        call spec_attr_addr
         ex de,hl
         ld hl,(vscr_srcptr)
         ld bc,32
@@ -1632,7 +1719,25 @@ vscr_attr_rit_loop:
         ld a,(viewer_handle)
         call f_close
         call read_key
+        call video_text_on        ; el bitmap ha machacado pantalla y fuente
         jp vt_refresh_and_loop
+
+; -------------------------------------------------------------
+; vt_view_any: tecla L -- abre la entrada seleccionada en el visor de
+; texto aunque no sea .TXT (listados .B81, .BAS, .CFG...). Sobre una
+; carpeta no hace nada.
+; -------------------------------------------------------------
+vt_view_any:
+        ld hl,(cur_index)
+        ex de,hl
+        call get_row
+        ld a,(namelen)
+        or a
+        jp z,vt_loop
+        ld a,(namebuf)
+        cp '<'
+        jp z,vt_loop
+        jp vt_view_txt
 
 ; -------------------------------------------------------------
 ; vt_view_txt: ENTER sobre un archivo .TXT -- lo abre en modo ASCII
@@ -1747,21 +1852,16 @@ vt_view_ip:
         cp 0FFh
         jp nz,vt_view_txt_opened
 
-        call video_clear
-        ld a,NORM_ATTR
-        ld (cur_attr),a
-        ld d,10
-        ld e,13
-        call p42_setxy
         ld hl,noconn_msg
         ld b,noconn_msg_len
-        call p42_string
+        ld de,hint_anykey
+        call show_prompt
         call read_key
         jp vt_refresh_and_loop
 
 ip_path:        defb "/MAN/IP.TXT"
 ip_path_len     equ $-ip_path
-noconn_msg:     defb "NO CONNEXION"
+noconn_msg:     defb "NO CONNECTION (/MAN/IP.TXT NOT FOUND)"
 noconn_msg_len  equ $-noconn_msg
 
 ; vwr_render: repinta la pantalla completa del visor. Vuelve siempre al
@@ -1784,12 +1884,9 @@ vwr_render:
         ld (viewer_remaining+2),hl
 
         call video_clear
-        ld ix,BG_ROW0
-        xor a
-        call blit_row
-        ld ix,BG_ROW23
-        ld a,23
-        call blit_row
+        call draw_header
+        ld hl,help_viewer
+        call draw_help
 
         ld hl,(viewer_topline)
         ld a,h
@@ -1837,7 +1934,7 @@ vwr_printdone:
 vwr_row: defb 0
 
 ; vwr_nextline: lee la siguiente linea del stream (via vwr_getchar) y la
-; deja en namebuf/(namelen), recortada a 42 caracteres -- sigue
+; deja en namebuf/(namelen), recortada a SCRW caracteres -- sigue
 ; consumiendo caracteres hasta el '\n' aunque no quepan mas, para no
 ; perder la cuenta de bytes del fichero. Ignora '\r'. Devuelve Z si se
 ; leyo una linea (aunque este vacia); NZ si no quedaba nada que leer.
@@ -1851,19 +1948,42 @@ vnl_charloop:
         jr z,vnl_charloop         ; ignora CR (por si el fichero es CRLF)
         cp 10
         jr z,vnl_done             ; LF: fin de linea
+        cp 9
+        jr z,vnl_tab
+        cp 32
+        jr c,vnl_dot
+        cp 127
+        jr c,vnl_put
+vnl_dot:
+        ld a,'.'                  ; controles y 127-255: no se pueden ver
+vnl_put:
+        call vnl_append
+        jr vnl_charloop
+vnl_tab:                          ; TAB: espacios hasta la columna multiplo de 8
+        ld a,' '
+        call vnl_append
+        ld a,(namelen)
+        cp SCRW
+        jr nc,vnl_charloop
+        and 7
+        jr nz,vnl_tab
+        jr vnl_charloop
+
+; vnl_append: A=caracter -> al final de namebuf si cabe (SCRW); si no,
+; se pierde (la linea sigue consumiendose hasta el LF). Destruye AF,DE,HL.
+vnl_append:
         ld c,a
         ld a,(namelen)
-        cp 42
-        jr nc,vnl_charloop        ; linea ya llena: seguir consumiendo sin guardar
+        cp SCRW
+        ret nc
         ld hl,namebuf
         ld e,a
         ld d,0
         add hl,de
         ld (hl),c
-        ld a,(namelen)
         inc a
         ld (namelen),a
-        jr vnl_charloop
+        ret
 vnl_done:
         xor a                     ; Z=1
         ret
@@ -1978,7 +2098,7 @@ vt_view_hex:
 
         ld (viewer_handle),a
         call f_stat
-        ld a,32
+        ld a,SCRW
         ld (list_attrw),a         ; hexr_down/up reutilizan copy_row/clear_row
                                   ; (respetan este ancho); el visor es
                                   ; siempre a pantalla completa, sin panel
@@ -2009,8 +2129,8 @@ hexr_loop:
 ; hexr_toggle_zx: tecla Z -- alterna la columna de la derecha entre
 ; interpretar cada byte como ASCII (por defecto) o como codigo de
 ; caracter ZX81 (via zx_to_ascii, la misma tabla que usa el listado para
-; los nombres de archivo). Los graficos de bloque (01-0A) se dibujan a
-; nivel de bitmap (ver hexr_invloop/p42_draw_block/zxblock_tbl). Los
+; los nombres de archivo). Los graficos de bloque (01-0A) se dibujan con
+; caracteres propios de la fuente (ver hexr_invloop/p42_draw_block). Los
 ; tokens de palabra clave de BASIC no tienen representacion, asi que
 ; salen como '?' (igual que hace zx_to_ascii con cualquier codigo que
 ; no sepa convertir).
@@ -2110,6 +2230,7 @@ hexr_goto:
         ld (namelen),a
         ld hl,prompt_goto
         ld b,prompt_goto_len
+        ld de,hint_edit
         call show_prompt
         call text_input
         ld a,(namelen)
@@ -2120,7 +2241,7 @@ hexr_goto:
         ld a,(hexg_val)
         and 0F0h
         ld (hexg_val),a
-        ld b,3                     ; /8 (byte -> fila): 3 desplazamientos
+        ld b,4                     ; /16 (byte -> fila): 4 desplazamientos
                                    ; a la derecha de los 32 bits
 hxg_rshift:
         ld hl,hexg_val+3
@@ -2139,7 +2260,7 @@ hexr_goto_redraw:
         jp hexr_loop
 
 prompt_goto:
-        defb "GOTO ADDRESS (HEX):"
+        defb "GO TO ADDRESS (HEX)"
 prompt_goto_len equ $-prompt_goto
 
 ; vwr_pgup/vwr_pgdn (VWR_ROWS) valen igual aqui: misma pantalla, mismo
@@ -2185,21 +2306,9 @@ hexr_render:
         xor a
         ld (clock_screen_active),a
         call video_clear
-        ld ix,BG_ROW0
-        xor a
-        call blit_row
-        ld ix,BG_ROW23
-        ld a,23
-        call blit_row
-
-        ld a,06h                 ; tinta amarilla, papel negro
-        ld (cur_attr),a
-        ld d,23
-        ld e,20                  ; ~columna 14 de 8px (14*8/6), +1
-        call p42_setxy
-        ld hl,hexr_hint
-        ld b,hexr_hint_len
-        call p42_string
+        call draw_header
+        ld hl,help_hex
+        call draw_help
 
         ld hl,(viewer_topline)
         ld (hexr_row),hl
@@ -2228,8 +2337,6 @@ hexr_rowloop:
 hexr_done:
         ret
 
-hexr_hint:     defb "G-GOTO Z-ZX/ASC     "
-hexr_hint_len  equ $-hexr_hint
 
 ; hexr_row_process: procesa UNA fila -- (hexr_row)=numero de fila,
 ; (vwr_row)=fila de pantalla donde pintarla. Calcula el offset, mira con
@@ -2281,8 +2388,9 @@ hrp_gotcount:
 
 ; hexr_printrow: construye en namebuf y pinta la fila actual (offset en
 ; (hexr_row), datos en viewer_buf, (hexr_count) bytes reales) en la fila
-; de pantalla (vwr_row). Formato: "OOOOOO  h1 h2 .. h8  a1a2..a8"
-; (recorta a huecos en blanco si la fila es la ultima y es parcial).
+; de pantalla (vwr_row). Formato: "OOOOOO h1 h2 .. h16a1a2..a16" (70
+; columnas justas: el offset y la columna ASCII se distinguen por color;
+; huecos en blanco si la fila es la ultima y es parcial).
 hexr_printrow:
         xor a
         ld (namelen),a
@@ -2296,10 +2404,6 @@ hexr_printrow:
         call nb_hexbyte
         ld a,l
         call nb_hexbyte
-        ld a,' '
-        call nb_append
-        ld a,' '
-        call nb_append
 
         ld a,(hexr_count)
         ld b,a
@@ -2307,11 +2411,11 @@ hexr_printrow:
         jr z,hexr_hex_blanks
         ld hl,viewer_buf
 hexr_hex_real:
+        ld a,' '
+        call nb_append
         ld a,(hl)
         inc hl
         call nb_hexbyte
-        ld a,' '
-        call nb_append
         djnz hexr_hex_real
 hexr_hex_blanks:
         ld a,HEXROW_BYTES
@@ -2329,9 +2433,6 @@ hexr_hex_blankloop:
         call nb_append
         djnz hexr_hex_blankloop
 hexr_asciicol:
-        ld a,' '
-        call nb_append
-
         ld a,(hexr_count)
         ld b,a
         or a
@@ -2375,10 +2476,21 @@ hexr_prdone:
         ld a,(namelen)
         ld b,a
         call p42_string
+        ld a,(vwr_row)            ; el offset y la columna ASCII en su color
+        ld d,0
+        ld b,6
+        ld c,HEX_OFS_ATTR
+        call fill_row_attr_col
+        ld a,(vwr_row)
+        ld d,HEXR_ASCII_COL
+        ld b,HEXROW_BYTES
+        ld c,HEX_ASC_ATTR
+        call fill_row_attr_col
 
-        ; -- modo ZX81: dibuja los graficos de bloque (codigos 01-08, ver
-        ; p42_draw_block/zxblock_tbl) e invierte (a nivel de bitmap, ver
-        ; p42_invert_cell) los caracteres cuyo byte tenia el bit7 a 1 --
+        ; -- modo ZX81: pone los graficos de bloque (codigos 01-0A, los
+        ; caracteres ZXG.. de la fuente, ver p42_draw_block) e invierte (por
+        ; atributo, ver p42_invert_cell) los caracteres cuyo byte tenia el
+        ; bit7 a 1 --
         ld a,(hexr_zxmode)
         or a
         ret z
@@ -2492,6 +2604,7 @@ vt_newfolder:
                                  ; un nombre editable en otros casos)
         ld hl,prompt_newfolder
         ld b,prompt_newfolder_len
+        ld de,hint_edit
         call show_prompt
         call text_input
         ld a,(namelen)
@@ -2520,19 +2633,17 @@ vt_delete:
         jp z,vt_loop
         ld hl,prompt_delete
         ld b,prompt_delete_len
+        ld de,hint_delete
         call show_prompt
 
-        ; --- mostrar el nombre del archivo/carpeta a borrar ---
-        ld a,NORM_ATTR
-        ld (cur_attr),a
-        ld d,8
-        ld e,0
-        call p42_setxy
+        ; --- el nombre del archivo/carpeta a borrar, en el campo ---
+        ld a,(ti_row)
+        call dlg_field
         ld hl,namebuf
         ld a,(namelen)
-        cp 42
+        cp TI_W
         jr c,vtd_nt1
-        ld a,42
+        ld a,TI_W
 vtd_nt1: ld b,a
         call p42_string
 
@@ -2560,7 +2671,7 @@ vtd_done:
         jp vt_refresh_and_loop
 
 prompt_delete:
-        defb "DELETE? ENTER=YES  SPACE=NO"
+        defb "DELETE"
 prompt_delete_len equ $-prompt_delete
 
 ; -------------------------------------------------------------
@@ -2590,6 +2701,7 @@ vt_rename:
 vtr_skipcopy:
         ld hl,prompt_rename
         ld b,prompt_rename_len
+        ld de,hint_edit
         call show_prompt
         call text_input
         ld a,(namelen)
@@ -2607,7 +2719,7 @@ vtr_skipcopy:
         jp vt_refresh_and_loop
 
 prompt_rename:
-        defb "RENAME - NEW NAME:"
+        defb "RENAME"
 prompt_rename_len equ $-prompt_rename
 
 ; -------------------------------------------------------------
@@ -2652,51 +2764,55 @@ vtm_noname:
         jp vt_loop
 
 ; -------------------------------------------------------------
-; vt_update_clip_icons: tiñe de azul la tinta del icono C o X (fila 23)
-; segun (clip_mode) -- 1=copiar marcado (icono C), 2=mover marcado
-; (icono X), 0=nada (los deja en negro, su color normal). Se llama al
-; marcar/pegar y despues de cada blit de la fila 23 en vt_refresh (que
-; la deja en negro por defecto).
+; vt_update_clip_icons: pone en rojo la C o la X de la barra de ayuda
+; (fila 23) segun (clip_mode) -- 1=copiar marcado (C), 2=mover marcado
+; (X), 0=nada. Se llama al marcar/pegar y despues de pintar la barra en
+; vt_refresh (que las deja con el color de las demas teclas).
 ; -------------------------------------------------------------
-ICON_COL_C equ 14
-ICON_COL_X equ 16
 vt_update_clip_icons:
-        ld c,ICON_COL_C
-        xor a                     ; negro
-        call vt_set_icon_ink
-        ld c,ICON_COL_X
-        xor a
-        call vt_set_icon_ink
+        ld a,'C'
+        ld c,HELPKEY_ATTR
+        call vt_set_key_attr
+        ld a,'X'
+        ld c,HELPKEY_ATTR
+        call vt_set_key_attr
         ld a,(clip_mode)
         cp 1
-        jr z,vtuci_c
+        ld a,'C'
+        jr z,vtuci_set
+        ld a,(clip_mode)
         cp 2
-        jr z,vtuci_x
-        ret
-vtuci_c:
-        ld c,ICON_COL_C
-        ld a,1                    ; azul
-        jr vt_set_icon_ink
-vtuci_x:
-        ld c,ICON_COL_X
-        ld a,1                    ; azul
+        ret nz
+        ld a,'X'
+vtuci_set:
+        ld c,CLIP_ATTR
 
-; vt_set_icon_ink: cambia solo los 3 bits de tinta del atributo de la
-; fila 23, dejando papel/brillo tal cual.
-; IN: C=columna (0-31), A=nuevo color de tinta (0-7). Destruye AF,HL.
-vt_set_icon_ink:
-        push af
+; vt_set_key_attr: A=letra de tecla, C=atributo -> cambia el atributo de
+; la PRIMERA tecla resaltada de la fila 23 que sea esa letra (la de
+; "Ccopy" y no la de "SPC", que va despues). Destruye AF,B,DE,HL.
+vt_set_key_attr:
+        ld e,a
         ld a,23
-        call calc_attr_addr       ; hl = direccion atributo fila23 columna0
-        ld a,l
-        add a,c
-        ld l,a
-        pop af
-        ld b,a
+        call text_row_addr        ; hl = caracter 0 de la fila 23
+        ld b,SCRW
+vska1:  ld a,(hl)
+        cp e
+        jr nz,vska2
+        ld a,h
+        add a,08h                 ; su atributo
+        ld h,a
         ld a,(hl)
-        and 0F8h
-        or b
-        ld (hl),a
+        cp HELPKEY_ATTR
+        jr z,vska3
+        cp CLIP_ATTR
+        jr z,vska3
+        ld a,h
+        sub 08h
+        ld h,a
+vska2:  inc hl
+        djnz vska1
+        ret
+vska3:  ld (hl),c
         ret
 
 ; build_srcpath: clip_srcpath = directorio actual + '/' (si hace falta) +
@@ -2782,22 +2898,73 @@ vtp_send:
 ; copia literal de explorer.asm.
 ; =============================================================
 show_prompt:
+        ; HL=titulo, B=longitud, DE=linea de teclas (terminada en 0, o 0
+        ; si no hay). Pinta el recuadro ENCIMA de lo que haya en pantalla
+        ; (el que llama repinta despues) y deja (ti_row) en la fila del
+        ; campo.
         xor a
         ld (clock_screen_active),a
+        push de
         push hl
         push bc
-        call video_clear
+        ld a,DLG_TOP
+        ld b,DLG_BOT-DLG_TOP+1
+sp1:    push af
+        push bc
+        ld d,DLG_L
+        ld b,DLG_W
+        ld c,DLG_ATTR
+        call fill_row_col
+        pop bc
+        pop af
+        inc a
+        djnz sp1
         pop bc
         pop hl
-        ld a,NORM_ATTR
+        ld a,DLG_TITLE_ATTR
         ld (cur_attr),a
-        ld d,10
-        ld e,0
+        ld d,DLG_TOP+1
+        ld e,TI_COL
         call p42_setxy
         call p42_string
-        ld a,12
+        pop hl
+        ld a,h
+        or l
+        jr z,sp2
+        ld a,DLG_HINT_ATTR
+        ld (cur_attr),a
+        ld d,DLG_BOT-1
+        ld e,TI_COL
+        call p42_setxy
+sp3:    ld a,(hl)
+        inc hl
+        or a
+        jr z,sp2
+        call p42_putchar
+        jr sp3
+sp2:    ld a,DLG_TOP+3
         ld (ti_row),a
         ret
+
+; dlg_field: A=fila -> el campo del dialogo en blanco (NORM_ATTR) y el
+; cursor de texto al principio. Destruye AF,BC,DE,HL.
+dlg_field:
+        push af
+        ld d,TI_COL
+        ld b,TI_W
+        ld c,NORM_ATTR
+        call fill_row_col
+        ld a,NORM_ATTR
+        ld (cur_attr),a
+        pop af
+        ld d,a
+        ld e,TI_COL
+        jp p42_setxy
+
+hint_edit:      defb "ENTER ok  SPACE cancel  SHIFT+0 del  SHIFT+1 undo",0
+hint_joy:       defb "ENTER ok  SHIFT+0 del  SHIFT+1 undo  (5 keys)",0
+hint_delete:    defb "ENTER delete  SPACE cancel",0
+hint_anykey:    defb "Press a key",0
 
 confirm_yesno:
         call read_key
@@ -2822,25 +2989,14 @@ text_input:
         ld a,(namelen)
         ld (ti_cursor),a
 ti_loop:
-        ld a,NORM_ATTR
-        ld (cur_attr),a
         ld a,(ti_row)
-        ld d,a
-        ld e,0
-        call p42_setxy
-        ld hl,ti_spaces
-        ld b,ti_spaceslen
-        call p42_string
-        ld a,(ti_row)
-        ld d,a
-        ld e,0
-        call p42_setxy
+        call dlg_field            ; campo en blanco (y sin el cursor anterior)
         ld hl,namebuf
         ld a,(namelen)
         ld b,a
         call p42_string
 
-        call draw_cursor          ; raya de 6px en la columna del cursor
+        call draw_cursor          ; celda del cursor en video inverso
 
         call read_char
         cp 13
@@ -2987,12 +3143,8 @@ ti_delete_before:
         ldir
         ret
 
-ti_spaces:
-        defb "                                          "
-ti_spaceslen equ $-ti_spaces
-
 prompt_newfolder:
-        defb "NEW FOLDER - NAME:"
+        defb "NEW FOLDER"
 prompt_newfolder_len equ $-prompt_newfolder
 
 ; =============================================================
@@ -3123,8 +3275,8 @@ calc_screen_row:
         ret
 
 ; -------------------------------------------------------------
-; scroll_list_up/scroll_list_down/copy_row/clear_row: copia literal de
-; explorer.asm, usando VIDBASE_HI/ATTRBASE_HI (derivados de VIDBLOCK).
+; scroll_list_up/scroll_list_down: desplazan las filas del listado (sin
+; tocar el panel: copy_row respeta (list_attrw)).
 ; -------------------------------------------------------------
 scroll_list_up:
         ld b,1
@@ -3158,100 +3310,124 @@ sl_down_loop:
         jr nc,sl_down_loop
         ret
 
-cp_srcrow:      defb 0
-cp_dstrow:      defb 0
-cp_srcaddr:     defw 0
-cp_dstaddr:     defw 0
+; =============================================================
+; PANTALLA DE TEXTO (70 columnas): un byte por caracter en TXT_DFILE y
+; su atributo en la misma posicion de TXT_ATTR (0800h mas arriba, asi
+; que basta con sumarle 08h a H).
+; =============================================================
 
-copy_row:
+; text_row_addr: A=fila -> HL=caracter 0 de esa fila. Destruye AF.
+text_row_addr:
+        push de
+        add a,a
+        ld e,a
+        ld d,0
+        ld hl,row_tab
+        add hl,de
+        ld a,(hl)
+        inc hl
+        ld h,(hl)
+        ld l,a
+        pop de
+        ret
+
+; text_addr: D=fila, E=columna -> HL=caracter. Destruye AF.
+text_addr:
         ld a,d
-        ld (cp_dstrow),a
+        call text_row_addr
         ld a,e
-        ld (cp_srcrow),a
-
-        call calc_bmp_addr
-        ld (cp_srcaddr),hl
-        ld a,(cp_dstrow)
-        call calc_bmp_addr
-        ld (cp_dstaddr),hl
-
-; copy_row/clear_row: limitadas a (list_attrw) columnas (32 con el panel
-; cerrado, igual que siempre) para no desplazar/borrar el panel de
-; configuracion cuando el listado hace scroll con el panel abierto.
-        ld b,8
-cpr_loop:
-        push bc
-        ld hl,(cp_srcaddr)
-        ld de,(cp_dstaddr)
-        ld a,(list_attrw)
-        ld c,a
-        ld b,0
-        ldir
-        ld hl,(cp_srcaddr)
+        add a,l
+        ld l,a
+        ret nc
         inc h
-        ld (cp_srcaddr),hl
-        ld hl,(cp_dstaddr)
-        inc h
-        ld (cp_dstaddr),hl
-        pop bc
-        djnz cpr_loop
-
-        ld a,(cp_srcrow)
-        call calc_attr_addr
-        ex de,hl
-        ld a,(cp_dstrow)
-        call calc_attr_addr
-        ex de,hl
-        ld a,(list_attrw)
-        ld c,a
-        ld b,0
-        ldir
         ret
 
-clear_row:
-        push af
-        call calc_bmp_addr
-        ld b,8
-cr_loop:
-        push bc
+row_tab:
+        defw TXT_DFILE+1+ROWSTRIDE*0,  TXT_DFILE+1+ROWSTRIDE*1
+        defw TXT_DFILE+1+ROWSTRIDE*2,  TXT_DFILE+1+ROWSTRIDE*3
+        defw TXT_DFILE+1+ROWSTRIDE*4,  TXT_DFILE+1+ROWSTRIDE*5
+        defw TXT_DFILE+1+ROWSTRIDE*6,  TXT_DFILE+1+ROWSTRIDE*7
+        defw TXT_DFILE+1+ROWSTRIDE*8,  TXT_DFILE+1+ROWSTRIDE*9
+        defw TXT_DFILE+1+ROWSTRIDE*10, TXT_DFILE+1+ROWSTRIDE*11
+        defw TXT_DFILE+1+ROWSTRIDE*12, TXT_DFILE+1+ROWSTRIDE*13
+        defw TXT_DFILE+1+ROWSTRIDE*14, TXT_DFILE+1+ROWSTRIDE*15
+        defw TXT_DFILE+1+ROWSTRIDE*16, TXT_DFILE+1+ROWSTRIDE*17
+        defw TXT_DFILE+1+ROWSTRIDE*18, TXT_DFILE+1+ROWSTRIDE*19
+        defw TXT_DFILE+1+ROWSTRIDE*20, TXT_DFILE+1+ROWSTRIDE*21
+        defw TXT_DFILE+1+ROWSTRIDE*22, TXT_DFILE+1+ROWSTRIDE*23
+
+; copy_row: D=fila destino, E=fila origen -> copia (list_attrw)
+; caracteres con sus atributos. Destruye AF,BC,DE,HL.
+copy_row:
+        ld a,e
+        call text_row_addr
         push hl
-        ld (hl),0
-        ld d,h
-        ld e,l
-        inc de
+        ld a,d
+        call text_row_addr
+        ex de,hl                  ; de = destino
+        pop hl                    ; hl = origen
+        push hl
+        push de
         ld a,(list_attrw)
-        dec a
         ld c,a
         ld b,0
         ldir
+        pop de
         pop hl
-        inc h
-        pop bc
-        djnz cr_loop
-
-        pop af
-        call calc_attr_addr
-        ld a,NORM_ATTR
-        ld (hl),a
-        ld d,h
-        ld e,l
-        inc de
+        ld a,h
+        add a,08h
+        ld h,a
+        ld a,d
+        add a,08h
+        ld d,a
         ld a,(list_attrw)
-        dec a
         ld c,a
         ld b,0
         ldir
         ret
 
-; -------------------------------------------------------------
-; redraw_row_attr / fill_row_attr / blit_row / calc_bmp_addr /
-; calc_attr_addr: usan VIDBASE_HI/ATTRBASE_HI (derivados de VIDBLOCK).
+; clear_row: A=fila -> (list_attrw) espacios con NORM_ATTR.
+clear_row:
+        ld c,NORM_ATTR
+        push af
+        ld a,(list_attrw)
+        ld b,a
+        pop af
+        ld d,0
+        jr fill_row_col
+
+; blank_row: A=fila, C=atributo -> fila entera en blanco.
+blank_row:
+        ld b,SCRW
+        ld d,0
+; fill_row_col: A=fila, D=columna, B=anchura, C=atributo -> espacios con
+; ese atributo. Destruye AF,BC,DE,HL.
+fill_row_col:
+        push bc
+        push de
+        call text_row_addr
+        pop de
+        ld e,d
+        ld d,0
+        add hl,de
+        pop bc
+frc1:   ld (hl),' '
+        ld a,h
+        add a,08h
+        ld h,a
+        ld (hl),c
+        sub 08h
+        ld h,a
+        inc hl
+        djnz frc1
+        ret
+
 ; -------------------------------------------------------------
 ; redraw_row_attr: repintado parcial de UNA fila del listado (usado por
 ; vt_down/vt_up sin cruzar pagina). Respeta (list_maxchars)/(list_attrw)
 ; -- igual que vlist_loop en vt_refresh -- para no invadir el panel de
-; configuracion cuando esta abierto (si esta cerrado valen 42/32 y el
-; comportamiento es identico al de siempre).
+; configuracion cuando esta abierto. A=fila, DE=indice, C=atributo.
+; -------------------------------------------------------------
 redraw_row_attr:
         ld (rra_row),a
         push bc
@@ -3260,6 +3436,9 @@ redraw_row_attr:
         ld a,c
         ld (rra_attr),a
         ld (cur_attr),a
+
+        ld a,(rra_row)
+        call clear_row            ; lo que quedara del nombre anterior
 
         ld a,(rra_row)
         ld d,a
@@ -3287,38 +3466,205 @@ rra_t1: call p42_string
 rra_row:  defb 0
 rra_attr: defb 0
 
+; fill_row_attr: A=fila, C=attr -> la fila entera (solo atributos)
 fill_row_attr:
-        ld b,32
+        ld b,SCRW
         ld d,0
         jr fill_row_attr_col
 
-; fill_row_attr_n: como fill_row_attr pero con anchura B (1-32) desde la
+; fill_row_attr_n: como fill_row_attr pero con anchura B desde la
 ; columna 0. Usada por el listado cuando el panel de config esta activo,
 ; para no pintar el resalte de seleccion encima del panel.
 fill_row_attr_n:
         ld d,0
-        jr fill_row_attr_col
 
-; fill_row_attr_col: A=fila, D=columna inicial de atributo(0-31),
-; B=anchura(1-32 cols), C=attr -> destruye AF,BC,DE,HL
+; fill_row_attr_col: A=fila, D=columna inicial, B=anchura, C=attr ->
+; destruye AF,BC,DE,HL
 fill_row_attr_col:
-        call calc_attr_addr      ; hl = direccion columna 0 de la fila
-        ld a,d
+        push de
+        call text_row_addr
+        pop de
+        ld a,h
+        add a,08h
+        ld h,a                    ; hl = atributo de la columna 0
+        ld e,d
         ld d,0
-        ld e,a
-        add hl,de                ; hl += columna inicial
-        ld (hl),c
-        ld d,h
-        ld e,l
-        inc de
-        ld a,b
-        dec a
-        ld c,a
-        ld b,0
+        add hl,de
+fra1:   ld (hl),c
+        inc hl
+        djnz fra1
+        ret
+
+; video_clear: pantalla en blanco con NORM_ATTR
+video_clear:
+        ld hl,TXT_DFILE
+        ld de,TXT_DFILE+1
+        ld bc,ROWSTRIDE*24
+        ld (hl),' '
+        ldir
+        ld hl,TXT_ATTR
+        ld de,TXT_ATTR+1
+        ld bc,ROWSTRIDE*24
+        ld (hl),NORM_ATTR
         ldir
         ret
 
-video_clear:
+; draw_header: fila 0, franja negra con el logo centrado (el reloj lo
+; pone vt_update_clock)
+draw_header:
+        xor a
+        ld c,HDR_ATTR
+        call blank_row
+        ld a,LOGO_ATTR
+        ld (cur_attr),a
+        ld d,0
+        ld e,LOGO_COL
+        call p42_setxy
+        ld b,28                   ; contador en B: p42_putchar no
+        ld a,LOGO                 ; conserva A, pero si BC
+dhd1:   push af
+        call p42_putchar
+        pop af
+        inc a
+        djnz dhd1
+        ret
+
+; draw_help: HL=texto terminado en 0 -> fila 23. Un '|' no se pinta y
+; marca el caracter siguiente como tecla (HELPKEY_ATTR).
+draw_help:
+        push hl
+        ld a,23
+        ld c,HELP_ATTR
+        call blank_row
+        ld d,23
+        ld e,0
+        call p42_setxy
+        pop hl
+dh1:    ld a,(hl)
+        inc hl
+        or a
+        ret z
+        ld c,HELP_ATTR
+        cp '|'
+        jr nz,dh2
+        ld a,(hl)
+        inc hl
+        ld c,HELPKEY_ATTR
+dh2:    push hl
+        push af
+        ld a,c
+        ld (cur_attr),a
+        pop af
+        call p42_putchar
+        pop hl
+        jr dh1
+
+help_main:      defb " |8open |5up |Nnew |Ddel |Rren |Ccopy |Xcut |Vpaste |Eedit |Ssetup |Kkeys |S|P|Cexit",0
+help_back:      defb " any key: back to the list",0
+help_viewer:    defb " |6|7 line   |1|2 page   |S|P|A|C|E exit",0
+help_hex:       defb " |6|7 line   |1|2 page   |G goto   |Z ZX81/ASCII   |S|P|A|C|E exit",0
+
+; -------------------------------------------------------------
+; draw_cursor: la celda (ti_row, ti_cursor) en video inverso, por
+; atributo. text_input vuelve a pintar la fila en cada tecla, asi que el
+; cursor anterior desaparece solo.
+; -------------------------------------------------------------
+draw_cursor:
+        ld a,(ti_row)
+        ld d,a
+        ld a,(ti_cursor)
+        add a,TI_COL
+        ld e,a
+        call text_addr
+        ld a,h
+        add a,08h
+        ld h,a
+        ld (hl),CURSOR_ATTR
+        ret
+
+; -------------------------------------------------------------
+; p42_invert_cell: D=fila, E=columna -> la celda en video inverso
+; (intercambia papel y tinta) -- para el modo ZX81 inverso (bit 7) del
+; visor hexadecimal. Destruye AF,HL.
+; -------------------------------------------------------------
+p42_invert_cell:
+        call text_addr
+        ld a,h
+        add a,08h
+        ld h,a
+        ld a,(hl)
+        rrca
+        rrca
+        rrca
+        rrca
+        ld (hl),a
+        ret
+
+; -------------------------------------------------------------
+; p42_draw_block: A=codigo de bloque ZX81 (1-0Ah), D=fila, E=columna ->
+; pone en la celda el grafico de bloque (los caracteres ZXG.. de la
+; fuente, copiados de la ROM). Destruye AF,HL.
+; -------------------------------------------------------------
+p42_draw_block:
+        push af
+        call text_addr
+        pop af
+        add a,ZXG-1
+        ld (hl),a
+        ret
+
+; -------------------------------------------------------------
+; video_text_on: fuente, pantalla en blanco y modo de 70 columnas con
+; atributos por caracter y 256 caracteres. Al arrancar y al volver del
+; visor de .SCR (que usa el bloque entero para el bitmap).
+; -------------------------------------------------------------
+video_text_on:
+        ld hl,TXT_FONT            ; 0-31: propios (el resto a cero)
+        ld de,TXT_FONT+1
+        ld bc,32*8-1
+        ld (hl),0
+        ldir
+        ld hl,glyphs
+        ld de,TXT_FONT
+        ld bc,GLYPHS_LEN
+        ldir
+        ld hl,01E00h+8            ; 16-25: graficos 1-10 de la ROM
+        ld de,TXT_FONT+ZXG*8
+        ld bc,10*8
+        ldir
+        ld hl,FONTBASE            ; 32-127: la de Spectrum
+        ld de,TXT_FONT+32*8
+        ld bc,96*8
+        ldir
+        ld hl,logo_glyphs         ; 128-155: el logo
+        ld de,TXT_FONT+LOGO*8
+        ld bc,LOGO_LEN
+        ldir
+        ld a,TXT_FONT/256
+        ld i,a
+        call video_clear
+        ld hl,TXT_DFILE           ; pantalla y atributos alternativos
+        ld (2096),hl
+        ld a,170
+        ld (2098),a
+        ld hl,TXT_ATTR
+        ld (2059),hl
+        ld a,170
+        ld (2061),a
+        ld bc,7fefh
+        ld a,CHROMA_TEXT
+        out (c),a
+        xor a
+        ld (2094),a               ; sin desplazar ni recortar
+        ld (2095),a
+        ld a,173                  ; Superfast texto, 70 columnas
+        ld (2045),a
+        ld a,41h                  ; CMD_256C
+        jp mcu_send
+
+; video_spectrum_on: para el visor de .SCR -- HiRes Spectrum con el
+; bitmap en VIDBASE (y los atributos detras, en VIDBASE+1800h).
+video_spectrum_on:
         ld hl,VIDBASE
         ld de,VIDBASE+1
         ld bc,17ffh
@@ -3327,286 +3673,42 @@ video_clear:
         ld hl,VIDBASE+1800h
         ld de,VIDBASE+1801h
         ld bc,2ffh
-        ld a,NORM_ATTR
-        ld (hl),a
+        ld (hl),038h              ; papel blanco, tinta negra (Spectrum)
         ldir
+        ld a,85
+        ld (2098),a               ; sin pantalla ni atributos alternativos
+        ld (2061),a
+        xor a
+        ld (2043),a               ; HFILE
+        ld a,VIDBASE_HI
+        ld (2044),a
+        ld bc,7fefh
+        ld a,20h                  ; Chroma81 (atributos Spectrum)
+        out (c),a
+        ld a,172                  ; Superfast HiRes Spectrum
+        ld (2045),a
         ret
 
-blit_row:
-        push af
-        call calc_bmp_addr
-        pop af
-        ld b,8
-br_loop:
-        push bc
-        push hl
-        ex de,hl
-        push ix
-        pop hl
-        ld bc,32
-        ldir
-        push hl
-        pop ix
-        pop hl
-        inc h
-        pop bc
-        djnz br_loop
-
-        call calc_attr_addr
-        ex de,hl
-        push ix
-        pop hl
-        ld bc,32
-        ldir
-        ret
-
-; -------------------------------------------------------------
-; blit_cols: como blit_row pero con anchura y columna inicial variables
-; (para los iconos del panel de configuracion, mas estrechos que una fila
-; completa). Recurso generado por extract_bg.py con rango de columnas:
-; anchura*8 bytes de bitmap (8 scanlines de "anchura" bytes) + anchura
-; bytes de atributo. Entrada: A=fila, D=columna inicial(0-31),
-; B=anchura(cols), IX=recurso. Destruye AF,BC,DE,HL,IX.
-; -------------------------------------------------------------
-blit_cols:
-        ld (blit_row_reg),a
-        ld a,d
-        ld (blit_col_reg),a
-        ld a,b
-        ld (blit_w_reg),a
-
-        ld a,(blit_row_reg)
-        call calc_bmp_addr        ; hl = direccion linea0, columna 0 de la fila
-        ld a,(blit_col_reg)
-        ld e,a
-        ld d,0
-        add hl,de                  ; hl += columna inicial
-
-        ld b,8
-bcl_loop:
-        push bc
-        push hl
-        ex de,hl
-        push ix
-        pop hl
-        ld a,(blit_w_reg)
-        ld c,a
-        ld b,0
-        ldir
-        push hl
-        pop ix
-        pop hl
-        inc h
-        pop bc
-        djnz bcl_loop
-
-        ld a,(blit_row_reg)
-        call calc_attr_addr
-        ld a,(blit_col_reg)
-        ld e,a
-        ld d,0
-        add hl,de
-        ex de,hl
-        push ix
-        pop hl
-        ld a,(blit_w_reg)
-        ld c,a
-        ld b,0
-        ldir
-        ret
-
-; -------------------------------------------------------------
-; draw_cursor: dibuja una raya de 6px de "tinta" en la ULTIMA scanline
-; (linea 7 de 8) de la fila (ti_row), en la columna (ti_cursor). Trabaja
-; a nivel de bitmap, no de atributos: como cada caracter de la fuente
-; comprimida ocupa 6px pero las celdas de atributo son de 8px, resaltar
-; por atributo tiñe parte del caracter vecino (celdas compartidas). Un
-; trazo en el bitmap no tiene ese problema.
-; Destruye AF,BC,DE,HL.
-; -------------------------------------------------------------
-draw_cursor:
-        ld a,(ti_cursor)
-        ld l,a
-        ld h,0
-        add hl,hl
-        ld d,h
-        ld e,l
-        add hl,hl
-        add hl,de                ; hl = ti_cursor*6 (posicion en pixeles)
-        ld a,l                   ; h siempre 0 aqui (TI_MAXLEN=40 -> max 234)
-        ld b,a
-        and 7
-        ld c,a                   ; c = desplazamiento de bit dentro del byte (0-7)
-        ld a,b
-        rrca
-        rrca
-        rrca
-        and 1Fh
-        ld b,a                   ; b = columna de byte (0-31) dentro de la fila
-
-        push bc
-        ld a,(ti_row)
-        call calc_bmp_addr       ; hl = direccion linea0 de la fila
-        pop bc
-        ld a,h
-        add a,7
-        ld h,a                   ; ultima scanline (linea 7 de 8)
-        ld a,l
-        add a,b
-        ld l,a                   ; + columna de byte del cursor
-
-        ; mascara de 6 bits a la izquierda (11111100), desplazada c bits
-        ; y repartida entre este byte y el siguiente
-        ld d,0FCh
-        ld e,0
-        ld a,c
+; video_off: video nativo, I de la ROM, el modo CHR elegido en el panel y
+; el bloque VIDBLOCK a su pagina. Antes de volver al BASIC.
+video_off:
+        ld a,85
+        ld (2045),a               ; Superfast OFF (apaga tambien la pantalla
+                                  ; y los atributos alternativos)
+        ld bc,7fefh
+        xor a
+        out (c),a                 ; Chroma81 OFF
+        ld a,1Eh                  ; I de la ROM ANTES de volver al video
+        ld i,a                    ; nativo (con I >= $40 el WRX va forzado)
+        ld a,(cfg_chr128)
         or a
-        jr z,dc_shifted
-dc_shift:
-        srl d
-        rr e
-        dec a
-        jr nz,dc_shift
-dc_shifted:
-        ld a,(hl)
-        or d
-        ld (hl),a
-        inc hl
-        ld a,(hl)
-        or e
-        ld (hl),a
-        ret
-
-; -------------------------------------------------------------
-; p42_cellpos: D=fila,E=columna (caracteres de 6px, 0-41) -> HL=direccion
-; del primer byte (linea 0) de esa celda en el bitmap, C=desplazamiento
-; de bit (0-7) dentro de ese byte. Comun a p42_invert_cell y
-; p42_draw_block. Destruye AF,B.
-; -------------------------------------------------------------
-p42_cellpos:
-        ld a,d
-        push af                  ; guarda la fila (d se reutiliza como escratch)
-        ld a,e
-        ld l,a
-        ld h,0
-        add hl,hl
-        ld d,h
-        ld e,l
-        add hl,hl
-        add hl,de                ; hl = columna*6 (posicion en pixeles)
-        ld a,l
-        ld b,a
-        and 7
-        ld c,a                   ; c = desplazamiento de bit (0-7)
-        ld a,b
-        rrca
-        rrca
-        rrca
-        and 1Fh
-        ld b,a                   ; b = columna de byte (0-31)
-
-        pop af                   ; recupera la fila
-        push bc
-        call calc_bmp_addr       ; hl = direccion linea0 de la fila
-        pop bc
-        ld a,l
-        add a,b
-        ld l,a                   ; hl += columna de byte
-        ret
-
-; -------------------------------------------------------------
-; p42_invert_cell: D=fila,E=columna (caracteres de 6px, 0-41) -> invierte
-; (XOR) el bloque de 6x8 pixeles de esa posicion, dejando el atributo
-; (papel/tinta) intacto. Mismo truco que draw_cursor (evita el "clash"
-; de la celda de atributo de 8px contra el caracter de 6px) pero
-; aplicado a las 8 scanlines en vez de solo la ultima -- para el modo
-; ZX81 inverso (bit7) del visor hexadecimal. Destruye AF,BC,DE,HL.
-; -------------------------------------------------------------
-p42_invert_cell:
-        call p42_cellpos         ; hl = direccion linea0, c = desplazamiento
-        ld d,0FCh                ; mascara de 6 bits (11111100) desplazada
-        ld e,0                   ; c bits, repartida entre este byte y el
-        ld a,c                   ; siguiente (igual que draw_cursor)
-        or a
-        jr z,pic_shifted
-pic_shift:
-        srl d
-        rr e
-        dec a
-        jr nz,pic_shift
-pic_shifted:
-        ld b,8
-pic_loop:
-        push bc
-        push hl
-        ld a,(hl)
-        xor d
-        ld (hl),a
-        inc hl
-        ld a,(hl)
-        xor e
-        ld (hl),a
-        pop hl
-        inc h
-        pop bc
-        djnz pic_loop
-        ret
-
-; -------------------------------------------------------------
-; p42_draw_block: A=codigo de bloque ZX81 (1-0Ah), D=fila, E=columna ->
-; dibuja (OR, no XOR) el patron de graficos de bloque correspondiente
-; sobre una celda de 6x8 px ya en blanco (ver zxblock_tbl). Destruye
-; AF,BC,DE,HL.
-; -------------------------------------------------------------
-p42_draw_block:
-        push af                  ; codigo de bloque (1-8)
-        call p42_cellpos         ; hl = direccion linea0, c = desplazamiento
-        pop af
-        dec a
-        add a,a
-        add a,a
-        add a,a                  ; a = (codigo-1)*8
-        ld de,zxblock_tbl
-        add a,e
-        ld e,a
-        jr nc,pdb_noc
-        inc d
-pdb_noc:                         ; de = puntero al patron de 8 bytes
-        ld b,8
-pdb_loop:
-        push bc
-        ld a,(de)
-        inc de
-        push de
-        ld d,a
-        ld e,0
-        ld a,c
-        or a
-        jr z,pdb_shifted
-pdb_shift:
-        srl d
-        rr e
-        dec a
-        jr nz,pdb_shift
-pdb_shifted:
-        push hl
-        ld a,(hl)
-        or d
-        ld (hl),a
-        inc hl
-        ld a,(hl)
-        or e
-        ld (hl),a
-        pop hl
-        inc h
-        pop de
-        pop bc
-        djnz pdb_loop
-        ret
-
-; zxblock_tbl: los datos estan al final del fichero (ver mas abajo, junto
-; a specfont.bin/BG_ROW0/etc.) -- es una tabla pura sin saltos ni
-; llamadas, puede vivir por encima de 32768 sin problema.
+        ld a,28                   ; CMD_chars64 (apaga tambien los 256)
+        jr z,vo1
+        ld a,27                   ; CMD_chars128
+vo1:    call mcu_send
+        ld a,VIDBLOCK
+        ld e,VIDRESTOREPAGE
+        jp mcu_map                ; bloque VIDBLOCK a su pagina identidad
 
 ; -------------------------------------------------------------
 ; mcu_map: asigna una pagina fisica a un bloque de 8K (puerto $E7)
@@ -3629,7 +3731,9 @@ mcu_map:
         pop bc
         ret
 
-calc_bmp_addr:
+; spec_bmp_addr / spec_attr_addr: A=fila (0-23) de la pantalla Spectrum
+; del visor de .SCR -> HL=linea 0 de su bitmap / su fila de atributos
+spec_bmp_addr:
         ld l,a
         and 0F8h
         add a,VIDBASE_HI
@@ -3642,7 +3746,7 @@ calc_bmp_addr:
         ld l,a
         ret
 
-calc_attr_addr:
+spec_attr_addr:
         ld h,0
         ld l,a
         add hl,hl
@@ -3714,6 +3818,10 @@ rk_normal1:
         jp z,rk_h
         bit 3,a
         jp z,rk_j
+        bit 2,a
+        jp z,rk_k
+        bit 1,a
+        jp z,rk_l
         ld a,7Fh
         in a,(0FEh)
         bit 0,a
@@ -3744,6 +3852,8 @@ rk_normal1:
         jp z,rk_w
         bit 4,a
         jp z,rk_t
+        bit 2,a
+        jp z,rk_e
         ld a,0DFh
         in a,(0FEh)
         bit 4,a
@@ -3843,6 +3953,15 @@ rk_v:
         jr rk_deb
 rk_z:
         ld a,26
+        jr rk_deb
+rk_e:
+        ld a,30
+        jr rk_deb
+rk_k:
+        ld a,31
+        jr rk_deb
+rk_l:
+        ld a,32
         jr rk_deb
 rk_pgup:
         ld a,13
@@ -4149,9 +4268,12 @@ f_seek:
         jp mcu_recv
 
 ; hex_offset: HL=fila (16 bits) -> DE:HL=offset de 32 bits (fila*
-; HEXROW_BYTES), DE=palabra alta, HL=palabra baja. Destruye AF.
+; HEXROW_BYTES = fila*16), DE=palabra alta, HL=palabra baja. Destruye AF.
 hex_offset:
         ld de,0
+        add hl,hl
+        rl e
+        rl d
         add hl,hl
         rl e
         rl d
@@ -4446,8 +4568,9 @@ zta_tbl:
         defb 34,38,36,58,63,40,41,62,60,61,43,45,42,47,59,44,46
 
 ; =============================================================
-; RENDERIZADO 42 COLUMNAS (fuente 6px comprimida) -- copia literal de
-; explorer.asm.
+; ESCRITURA DE TEXTO (70 columnas). Los nombres p42_* vienen de la
+; version de 42 columnas; ahora cada caracter es un byte en TXT_DFILE y
+; su atributo (cur_attr) en TXT_ATTR.
 ; =============================================================
 p42_setxy:
         ld (xycoords),de
@@ -4459,6 +4582,8 @@ p42_newline:
         ld (xycoords),de
         ret
 
+; p42_string: HL=texto, B=longitud. Se salta los controles y los
+; caracteres de 128 en adelante; 13 = salto de linea.
 p42_string:
         ld a,b
         or a
@@ -4484,165 +4609,33 @@ p42s_skip:
         djnz p42s_loop
         ret
 
+; p42_putchar: A=caracter (cualquier codigo 0-255) en (xycoords), con
+; (cur_attr), y avanza. Conserva BC, DE y HL.
 p42_putchar:
-        exx
         push hl
-        exx
-        ld c,a
-        ld h,0
-        ld l,a
-        ld de,whichcolumn-32
-        add hl,de
-        ld a,(hl)
-        cp 32
-        jr nc,p42_calcchar
-
-        ld de,p42_characters
-        ld l,a
-        call p42_mult8
-        ld b,h
-        ld c,l
-        jr p42_printdata
-
-p42_calcchar:
-        ld de,FONTBASE-256
-        ld l,c
-        call p42_mult8
-
-        ld de,p42_workspace
         push de
-        exx
+        push bc
         ld c,a
-        cpl
-        ld b,a
-        exx
-        ld b,8
-p42_loop1:
-        ld a,(hl)
-        inc hl
-        exx
-        ld e,a
-        and c
-        ld d,a
-        ld a,e
-        rla
-        and b
-        or d
-        exx
-        ld (de),a
-        inc de
-        djnz p42_loop1
-        pop bc
-
-p42_printdata:
-        call p42_testcoords
+        call p42_testcoords       ; de = posicion (ajustada si se salia)
+        call text_addr
+        ld (hl),c
+        ld a,h
+        add a,08h
+        ld h,a
+        ld a,(cur_attr)
+        ld (hl),a
         inc e
         ld (xycoords),de
-        dec e
-        ld a,e
-        sla a
-        ld l,a
-        sla a
-        add a,l
-        ld l,a
-        srl a
-        srl a
-        srl a
-        ld e,a
-        ld a,l
-        and 7
-        push af
-        ex af,af'
-        ld a,d
-        sra a
-        sra a
-        sra a
-        add a,ATTRBASE_HI
-        ld h,a
-        ld a,d
-        and 7
-        rrca
-        rrca
-        rrca
-        add a,e
-        ld l,a
-        ld a,(cur_attr)
-        ld e,a
-        ld (hl),e
-        inc hl
-        pop af
-        cp 3
-        jr c,p42_hop1
-        ld (hl),e
-p42_hop1:
-        dec hl
-        ld a,d
-        and 248
-        add a,VIDBASE_HI
-        ld h,a
-        push hl
-        exx
+        pop bc
+        pop de
         pop hl
-        exx
-        ld a,8
-p42_hop4:
-        push af
-        ld a,(bc)
-        exx
-        push hl
-        ld c,0
-        ld de,1023
-        ex af,af'
-        and a
-        jr z,p42_hop3
-        ld b,a
-        ex af,af'
-p42_hop2:
-        and a
-        rra
-        rr c
-        scf
-        rr d
-        rr e
-        djnz p42_hop2
-        ex af,af'
-p42_hop3:
-        ex af,af'
-        ld b,a
-        ld a,(hl)
-        and d
-        or b
-        ld (hl),a
-        inc hl
-        ld a,(hl)
-        and e
-        or c
-        ld (hl),a
-        pop hl
-        inc h
-        exx
-        inc bc
-        pop af
-        dec a
-        jr nz,p42_hop4
-        exx
-        pop hl
-        exx
-        ret
-
-p42_mult8:
-        ld h,0
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        add hl,de
         ret
 
 p42_testcoords:
         ld de,(xycoords)
 nxtchar:
         ld a,e
-        cp 42
+        cp SCRW
         jr c,ycoord
 nxtline:
         inc d
@@ -4653,159 +4646,6 @@ ycoord:
         ret c
         ld d,0
         ret
-
-whichcolumn:
-        defb 254       ; SPACE
-        defb 254       ; !
-        defb 128       ; "
-        defb 224       ; #
-        defb 128       ; $
-        defb 0         ; % (redefinido)
-        defb 1         ; & (redefinido)
-        defb 128       ; '
-        defb 128       ; (
-        defb 128       ; )
-        defb 128       ; *
-        defb 128       ; +
-        defb 128       ; ,
-        defb 128       ; -
-        defb 128       ; .
-        defb 128       ; /
-        defb 2         ; 0 (redefinido)
-        defb 128       ; 1
-        defb 224       ; 2
-        defb 224       ; 3
-        defb 252       ; 4
-        defb 224       ; 5
-        defb 224       ; 6
-        defb 192       ; 7
-        defb 240       ; 8
-        defb 240       ; 9
-        defb 240       ; :
-        defb 240       ; ;
-        defb 192       ; <
-        defb 240       ; =
-        defb 192       ; >
-        defb 192       ; ?
-        defb 248       ; @
-        defb 240       ; A
-        defb 240       ; B
-        defb 240       ; C
-        defb 240       ; D
-        defb 240       ; E
-        defb 240       ; F
-        defb 240       ; G
-        defb 240       ; H
-        defb 128       ; I
-        defb 240       ; J
-        defb 192       ; K
-        defb 240       ; L
-        defb 240       ; M
-        defb 248       ; N
-        defb 240       ; O
-        defb 240       ; P
-        defb 248       ; Q
-        defb 240       ; R
-        defb 240       ; S
-        defb 3         ; T (redefinido)
-        defb 240       ; U
-        defb 240       ; V
-        defb 240       ; W
-        defb 240       ; X
-        defb 4         ; Y (redefinido)
-        defb 252       ; Z
-        defb 224       ; [
-        defb 252       ; \
-        defb 240       ; ]
-        defb 252       ; ^
-        defb 6         ; _
-        defb 240       ; Libra
-        defb 255       ; a
-        defb 128       ; b
-        defb 255       ; c
-        defb 255       ; d
-        defb 255       ; e
-        defb 255       ; f
-        defb 255       ; g
-        defb 255       ; h
-        defb 255       ; i
-        defb 255       ; j
-        defb 255       ; k
-        defb 255       ; l
-        defb 255       ; m
-        defb 255       ; n
-        defb 255       ; o
-        defb 255       ; p
-        defb 255       ; q
-        defb 255       ; r
-        defb 255       ; s
-        defb 255       ; t
-        defb 255       ; u
-        defb 255       ; v
-        defb 255       ; w
-        defb 255       ; x
-        defb 255       ; y
-        defb 255       ; z
-        defb 128       ; {
-        defb 128       ; |
-        defb 255       ; }
-        defb 128       ; ~
-        defb 5         ; (c) (redefinido, fin de la tabla de columnas)
-
-p42_characters:
-        defb 0           ; %
-        defb 0
-        defb 100
-        defb 104
-        defb 16
-        defb 44
-        defb 76
-        defb 0
-
-        defb 0           ; &
-        defb 32
-        defb 80
-        defb 32
-        defb 84
-        defb 72
-        defb 52
-        defb 0
-
-        defb 0          ; digito 0
-        defb 56
-        defb 76
-        defb 84
-        defb 84
-        defb 100
-        defb 56
-        defb 0
-
-        defb 0           ; Letra T
-        defb 124
-        defb 16
-        defb 16
-        defb 16
-        defb 16
-        defb 16
-        defb 0
-
-        defb 0          ; Letra Y
-        defb 68
-        defb 68
-        defb 40
-        defb 16
-        defb 16
-        defb 16
-        defb 0
-
-        defb 0          ; simbolo (c)
-        defb 48
-        defb 72
-        defb 180
-        defb 164
-        defb 180
-        defb 72
-        defb 48
 
 ; =============================================================
 ; DATOS / VARIABLES DE TRABAJO
@@ -4851,15 +4691,12 @@ cfg_vgm_playing:  defb 0        ; 0=parado/en pausa, 1=sonando
 cfg_vgm_namelen:  defb 0
 cfg_vgm_name:     defs VGM_NAME_MAXLEN
 cfg_media_peb:    defb 0        ; 0=lo cargado es un VGM, 1=es un PEB (que comandos usan T/Y/U)
-blit_row_reg:   defb 0          ; temporales de blit_cols (fila/columna/anchura)
-blit_col_reg:   defb 0
-blit_w_reg:     defb 0
 cur_attr:       defb NORM_ATTR
 namelen:        defb 0
 retlen:         defb 0
+retedit:        defb 0          ; 1 = USR devuelve longitud + 256 (tecla E)
 mcustatus:      defb 0
 xycoords:       defb 0,0
-p42_workspace:  defs 8
 
 ; -- dialogos / entrada de texto --
 ti_row:         defb 0
@@ -4886,39 +4723,60 @@ clip_name:       defs 48
 clip_srcpathlen: defb 0
 clip_srcpath:    defs 100
 
+; textos de la pantalla de ayuda (vt_help): fila, columna, texto con
+; {tecla} en otro color, 0; 0FFh al final
+help_text:
+        defb 2,2,"LIST",0
+        defb 3,4,"{6} {7}     move down / up",0
+        defb 3,38,"{1} {2}      page up / down",0
+        defb 4,4,"{8} {ENTER} open the folder or file",0
+        defb 4,38,"{5}        parent folder",0
+        defb 5,4,"{.}       filter (wildcards)",0
+        defb 5,38,"{SHIFT+1}  remove the filter",0
+        defb 6,4,"{H}       hex viewer",0
+        defb 6,38,"{E}        text editor",0
+        defb 7,4,"{I}       network (IP address)",0
+        defb 7,38,"{SPACE}    exit to BASIC",0
+        defb 8,4,"{L}       view any file as text",0
+        defb 9,2,"FILES",0
+        defb 10,4,"{N}       new folder",0
+        defb 10,38,"{D}        delete",0
+        defb 11,4,"{R}       rename",0
+        defb 11,38,"{V}        paste here",0
+        defb 12,4,"{C}       mark to copy",0
+        defb 12,38,"{X}        mark to move",0
+        defb 14,2,"SETUP PANEL ({S} opens / closes it; its keys only work with it open)",0
+        defb 15,4,"{W}       WRX on / off",0
+        defb 15,38,"{M}        MC45 on / off",0
+        defb 16,4,"{F}       full paging on / off",0
+        defb 16,38,"{A}        64 / 128 characters",0
+        defb 17,4,"{J}       joystick keys",0
+        defb 17,38,"{T} {Y} {U}  stop / pause / play",0
+        defb 19,2,"VIEWERS",0
+        defb 20,4,"{6} {7}     line            {1} {2}      page         {SPACE} back",0
+        defb 21,4,"{G}       go to address (hex viewer)",0
+        defb 21,38,"{Z}        ZX81 / ASCII (hex)",0
+        defb 0FFh
+
 ; -------------------------------------------------------------
-; Fuente 6x8 y decoracion de pantalla (mismos recursos que el explorador)
+; Fuente: la de Spectrum (32-127), el logo (128-155) y los caracteres
+; propios (0-15; los graficos del ZX81 se copian de la ROM a 16-25)
 ; -------------------------------------------------------------
 FONTBASE:
         incbin "specfont.bin"
 
-BG_ROW0:
-        incbin "bg_row0.bin"
-BG_ROW23:
-        incbin "bg_row23.bin"
-ICON_JOY:
-        incbin "icon_joy.bin"
-ICON_STOP:
-        incbin "icon_stop.bin"
-ICON_PAUSE:
-        incbin "icon_pause.bin"
-ICON_PLAY:
-        incbin "icon_play.bin"
+        include "logo.inc"
 
-; zxblock_tbl: patrones de graficos de bloque ZX81 (01-0A), extraidos
-; bit a bit de la ROM real del ZX81 en $1E00. Tabla pura (sin saltos ni
-; llamadas), por eso vive aqui con el resto de recursos, por encima de
-; 32768. Usada por p42_draw_block.
-zxblock_tbl:
-        defb 0e0h,0e0h,0e0h,0e0h,000h,000h,000h,000h   ; 01
-        defb 01Ch,01Ch,01Ch,01Ch,000h,000h,000h,000h   ; 02
-        defb 0FCh,0FCh,0FCh,0FCh,000h,000h,000h,000h   ; 03
-        defb 000h,000h,000h,000h,0e0h,0e0h,0e0h,0e0h   ; 04
-        defb 0e0h,0e0h,0e0h,0e0h,0e0h,0e0h,0e0h,0e0h   ; 05
-        defb 01ch,01ch,01ch,01ch,0e0h,0e0h,0e0h,0e0h   ; 06
-        defb 0FCh,0FCh,0FCh,0FCh,01ch,01Ch,01Ch,01Ch   ; 07
-        defb 0A8h,054h,0A8h,054h,0A8h,054h,0A8h,054h   ; 08
-        defb 000h,000h,000h,000h,0A8h,054h,0A8h,054h   ; 09
-        defb 0A8h,054h,0A8h,054h,000h,000h,000h,000h   ; 0A
+glyphs:
+        defs 8                                          ; 0
+        defb 000h,020h,030h,038h,03Ch,038h,030h,020h    ; 1 G_PLAY
+        defb 000h,000h,066h,066h,066h,066h,000h,000h    ; 2 G_PAUSE
+        defb 000h,000h,03Ch,03Ch,03Ch,03Ch,000h,000h    ; 3 G_STOP
+        defb 000h,010h,038h,07Ch,010h,010h,010h,000h    ; 4 G_UP
+        defb 000h,010h,010h,010h,07Ch,038h,010h,000h    ; 5 G_DOWN
+        defb 000h,010h,030h,07Eh,030h,010h,000h,000h    ; 6 G_LEFT
+        defb 000h,008h,00Ch,07Eh,00Ch,008h,000h,000h    ; 7 G_RIGHT
+        defb 000h,000h,03Ch,07Eh,07Eh,07Eh,03Ch,000h    ; 8 G_FIRE
+GLYPHS_LEN      equ $-glyphs
 
         end

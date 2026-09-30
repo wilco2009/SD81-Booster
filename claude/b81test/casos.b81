@@ -1,0 +1,11 @@
+#!basic-start=30
+# comentario
+10 PRINT "HOLA ""Z"" \"X"
+
+@bucle: LET A=1
+40 GOTO @bucle
+50 PRINT 1+\
+2
+60 LOAD *128C
+70 LOAD *MAP 7,63
+90 REM "A""B" PRINT 10

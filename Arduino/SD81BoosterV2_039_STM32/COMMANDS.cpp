@@ -18,6 +18,7 @@
 #include "VBAT.h"
 #include "RTC.h"
 #include "WIFI_HANDLER.h"
+#include "B81.h"
 
 #define GET_NEXT_CHAR 13
 
@@ -429,6 +430,92 @@ uint32_t result;
   reset_commands();
 }
 
+// Lector de Sfile (ya abierto) para el conversor de .B81
+class SdB81Reader : public B81Reader {
+public:
+  int getByte() override {
+    if (pos >= len) {
+      set_SDLed((millis() % 64)>32);
+      int n = Sfile.read(copy_buffer,BUFFSIZE);
+      pos = 0;
+      len = n > 0 ? n : 0;
+      if (len == 0) return -1;
+    }
+    return copy_buffer[pos++];
+  }
+  bool rewind() override {
+    pos = len = 0;
+    return Sfile.seekSet(0);
+  }
+private:
+  int pos = 0, len = 0;
+};
+
+#define B81_ERR_FILE "/MAN/B81ERR.TXT"
+
+// LOAD "PROG.B81": convierte el listado a .P en memoria y lo envia como si
+// fuera un .P. Si no se puede, longitud 0 y estado 10 (informe P); el
+// detalle queda en /MAN/B81ERR.TXT, que se ve con LOAD THEN PRINT "*B81ERR".
+static void load_B81(const char* path){
+  uint8_t error_code = 0;
+  uint16_t n = 0;
+  B81Error err;
+
+  uint8_t* pbuf = (uint8_t*)malloc(B81_MAX_P);
+  if (pbuf) {
+    SdB81Reader rd;
+    uint32_t st = millis();
+    n = b81_to_p(rd, pbuf, err);
+    log_0("B81 %s: %u bytes, %lu ms", path, n, millis() - st);
+  } else {
+    memset(&err, 0, sizeof(err));
+    err.basicLine = -1;
+    strcpy(err.msg, "OUT OF MEMORY");
+  }
+  Sfile.close();
+
+  if (n) {
+    if (sd.exists(B81_ERR_FILE)) sd.remove(B81_ERR_FILE);
+    SendByteToZ80(n & 0xff);
+    SendByteToZ80((n >> 8) & 0xff);
+    for (uint16_t i=0; i<n; i++){
+      set_SDLed((millis() % 64)>32);
+      SendByteToZ80(pbuf[i]);
+    }
+  } else {
+    log_0("B81 error: %s (line %d)", err.msg, err.fileLine);
+    if (Dfile.open(B81_ERR_FILE, O_CREAT|O_WRITE|O_TRUNC)) {
+      Dfile.print("LOAD ERROR IN B81 FILE\n");
+      Dfile.print(path);
+      Dfile.print("\n");
+      if (err.fileLine) {
+        Dfile.print("TEXT LINE ");
+        Dfile.print(err.fileLine);
+        if (err.basicLine >= 0) {
+          Dfile.print(", BASIC LINE ");
+          Dfile.print(err.basicLine);
+        }
+        Dfile.print("\n");
+      }
+      Dfile.print(err.msg);
+      Dfile.print("\n");
+      if (err.text[0]) {
+        Dfile.print(err.text);
+        Dfile.print("\n");
+      }
+      Dfile.close();
+    }
+    SendByteToZ80(0);
+    SendByteToZ80(0);
+    error_code = 10;
+  }
+  free(pbuf);
+
+  SendByteToZ80(error_code);  // ... and Status
+  ToggleClock();              // Final clock toggle
+  reset_commands();
+}
+
 // COMMAND = 9
 void cmd_load(){
 char s[MAX_FILENAME_LEN];
@@ -595,6 +682,10 @@ uint32_t fsize2;
         reset_commands();
         return;
       }
+      if (strcmp(ext,"B81")==0) {        // BASIC en texto: se convierte a .P
+        load_B81(tmp);
+        return;
+      }
       result = Sfile.read(copy_buffer,BUFFSIZE);
       
       if ((strcmp(ext,"P")==0) || (ext[0]==0)){
@@ -708,7 +799,7 @@ uint8_t error_code;
     uint16_t proglen = h*256+l;
   
     Sfile.seekSet(0);
-    if (!opened || (proglen == 0)) {
+    if (!opened) {                 // 0 bytes es valido: fichero vacio
       log_0("can't save file");
       error_code = 1;
     };
@@ -2110,7 +2201,9 @@ void cmd_bat(){
 // fopen comun:  cmd + len(1) + nombre -> handle (0..3 / 0xFF)
 //   convert=false -> nombre en ASCII puro (cliente CP/M)
 //   convert=true  -> nombre en codigo ZX81 (modo nativo): se traduce a ASCII
-static void do_f_open(bool convert){
+//   create=false  -> solo abre ficheros que ya existen (fopen)
+//   create=true   -> crea el fichero, o lo deja vacio si ya existia (fcreate)
+static void do_f_open(bool convert, bool create = false){
   uint8_t handle = 0xFF;
   check_SD();
   set_SDLed(LED_ON);
@@ -2133,10 +2226,14 @@ static void do_f_open(bool convert){
   }
 
   int h;
-  if (sd.exists(tmp)){                     // NO crear si no existe
+  if (create && T81_dir){                  // un .T81 es de solo lectura
+    log_0("fcreate: %s dentro de un T81",tmp);
+  } else if (create || sd.exists(tmp)){    // fopen NO crea si no existe
     h = -1;
     for (int i=0; i<4; i++) if (!f_opened[i]){ h=i; break; }
-    if (h>=0 && f_handle[h].open(tmp, O_RDWR)){   // equivale a "r+b"
+    // fopen equivale a "r+b"; fcreate a "w+b"
+    if (h>=0 && (create ? f_handle[h].open(tmp, O_RDWR|O_CREAT|O_TRUNC)
+                        : f_handle[h].open(tmp, O_RDWR))){
       f_opened[h] = true;
       handle = (uint8_t) h;
     }
@@ -2156,6 +2253,12 @@ void cmd_f_open(){ do_f_open(false); }
 
 // COMMAND = 58 (0x3A) fopen ZX81 (modo nativo): nombre en codigo ZX81
 void cmd_f_open_zx81(){ do_f_open(true); }
+
+// COMMAND = 71 (0x47) fcreate ASCII y 72 (0x48) fcreate ZX81: como fopen,
+// pero crean el fichero o lo vacian si ya existia. Junto con fwrite, para
+// guardar ficheros de cualquier tamaño (SAVE se queda en 64 KB).
+void cmd_f_create(){ do_f_open(false, true); }
+void cmd_f_create_zx81(){ do_f_open(true, true); }
 
 // COMMAND = 54 (0x36) fseek:  cmd + handle(1) + offset(4 LE) -> status
 void cmd_f_seek(){
@@ -2217,6 +2320,7 @@ void cmd_f_read(){
 }
 
 // COMMAND = 56 (0x38) fwrite:  cmd + handle(1) + count(2 LE) + count bytes -> status
+// count como mucho BUFFSIZE (512); si es mayor, status 0xFF y no se escribe nada.
 void cmd_f_write(){
   uint8_t status = 0xFF;
   ToggleClock();                           // ACK
@@ -2227,13 +2331,16 @@ void cmd_f_write(){
   uint8_t ch = GetByteFromZ80_IT();        // count hi
   uint16_t count = ((uint16_t)ch<<8) | cl;
 
-  // recibir todos los bytes en copy_buffer antes de escribir en bloque
+  // recibir todos los bytes en copy_buffer antes de escribir en bloque. Mas
+  // de BUFFSIZE no caben: se reciben igual (para no perder el paso con el
+  // Z80), pero se descartan y se devuelve error.
   for (uint16_t i=0; i<count; i++){
     ToggleClock();                         // confirma byte anterior
-    copy_buffer[i] = GetByteFromZ80_IT();
+    uint8_t b = GetByteFromZ80_IT();
+    if (i < BUFFSIZE) copy_buffer[i] = b;
   }
   set_SDLed(LED_ON);
-  if (h<4 && f_opened[h]){
+  if (h<4 && f_opened[h] && count<=BUFFSIZE){
     int32_t written = (count>0) ? f_handle[h].write(copy_buffer, count) : count;
     if (written == (int32_t)count){
       f_handle[h].sync();
@@ -2814,5 +2921,7 @@ command_handler commands[] = {
   cmd_romlock_on,       //68 (0x44) LOAD *ROMLOCK
   cmd_romlock_off,      //69 (0x45) LOAD *ROMLOCK STOP
   cmd_loadZ81,          //70 (0x46) LOAD *Z81 "fichero"
+  cmd_f_create,         //71 (0x47) fcreate: crea/vacia y abre, nombre ASCII
+  cmd_f_create_zx81,    //72 (0x48) fcreate con nombre en codigo ZX81
   cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

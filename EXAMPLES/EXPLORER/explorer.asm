@@ -3970,26 +3970,30 @@ rk_pgdn:
         ld a,14
 rk_deb:
         push af
+; espera a que se suelten TODAS las teclas (las 5 de cada fila): antes
+; solo miraba las que habia al escribirlo, y con las nuevas (E, K, L)
+; volvia con la tecla aun pulsada -- la ayuda se cerraba sola y el
+; editor arrancaba con la E pulsada
 rk_rel:
         ld a,0F7h
         in a,(0FEh)
-        and 13h
-        cp 13h
+        and 1Fh
+        cp 1Fh
         jr nz,rk_stillp
         ld a,0EFh
         in a,(0FEh)
-        and 1Ch
-        cp 1Ch
+        and 1Fh
+        cp 1Fh
         jr nz,rk_stillp
         ld a,0BFh
         in a,(0FEh)
-        and 19h
-        cp 19h
+        and 1Fh
+        cp 1Fh
         jr nz,rk_stillp
         ld a,7Fh
         in a,(0FEh)
-        and 0Fh
-        cp 0Fh
+        and 1Fh
+        cp 1Fh
         jr nz,rk_stillp
         ld a,0FDh
         in a,(0FEh)
@@ -3998,13 +4002,13 @@ rk_rel:
         jr nz,rk_stillp
         ld a,0FBh
         in a,(0FEh)
-        and 1Ah
-        cp 1Ah
+        and 1Fh
+        cp 1Fh
         jr nz,rk_stillp
         ld a,0DFh
         in a,(0FEh)
-        and 1Ch
-        cp 1Ch
+        and 1Fh
+        cp 1Fh
         jr nz,rk_stillp
         ld a,0FEh
         in a,(0FEh)

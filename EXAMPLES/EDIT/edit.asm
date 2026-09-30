@@ -25,6 +25,7 @@
 ;      ^K X, ^K D       guardar y salir
 ;      ^K Q, ENTER+0    salir (pregunta si hay cambios sin guardar)
 ;      SHIFT+1          ESC: cancela ^K / ^Q y las preguntas
+;      ENTER+9, ^J      pantalla de ayuda: el teclado y las ordenes
 ;  El teclado es el de TELNET (y el de CP/M): minusculas sin SHIFT,
 ;  ENTER+tecla da los simbolos.
 ;
@@ -101,6 +102,16 @@ CHROMA_OFF  equ 00Ch
 CURSOR_BLOCK equ 0DBh           ; bloque solido CP437 (cursor normal)
 CURSOR_UNDER equ 05Fh           ; guion bajo (cursor en modo CTRL)
 CTRL_GLYPH  equ 0FEh            ; como se ve un caracter de control
+; pantalla de ayuda: cada tecla en azul, con la tecla en blanco, lo que
+; hace con SHIFT en amarillo y lo que da con ENTER en cian
+KEY_ATTR    equ 010h            ; fondo de la tecla: papel azul
+KEYCAP_ATTR equ 01Fh
+KEYSH_ATTR  equ 01Eh
+KEYEN_ATTR  equ 01Dh
+GL_LEFT     equ 1               ; flechas: caracteres propios (los codigos
+GL_RIGHT    equ 2               ; 0-31 del texto se ven como CTRL_GLYPH,
+GL_UP       equ 3               ; asi que no chocan)
+GL_DOWN     equ 4
 BLINK_RATE  equ 25              ; VSYNC por semiciclo de parpadeo
 REP_DELAY   equ 25              ; VSYNC antes de empezar a repetir
 REP_RATE    equ 3               ; VSYNC entre repeticiones
@@ -112,6 +123,7 @@ KEY_RIGHT   equ 083h
 KEY_LEFT    equ 084h
 K_ESC       equ 01Bh
 K_QUIT      equ 01Dh            ; ^]  (ENTER+0)
+K_HELP      equ 01Ch            ; ^\  (ENTER+9)
 
             org  24576
 
@@ -187,12 +199,12 @@ dispatch:   ld   c,a
 
 ctrl_tab:   defw k_none,  k_wleft, k_none,  k_pgdn     ; 00 ^A ^B ^C
             defw k_right, k_up,    k_wright,k_del      ; ^D ^E ^F ^G
-            defw k_bs,    k_char,  k_none,  k_kpre     ; ^H TAB ^J ^K
+            defw k_bs,    k_char,  k_help,  k_kpre     ; ^H TAB ^J ^K
             defw k_none,  k_enter, k_none,  k_none     ; ^L ENTER ^N ^O
             defw k_none,  k_qpre,  k_pgup,  k_left     ; ^P ^Q ^R ^S
             defw k_none,  k_none,  k_none,  k_none     ; ^T ^U ^V ^W
             defw k_down,  k_dline, k_none,  k_none     ; ^X ^Y ^Z ESC
-            defw k_none,  k_quit,  k_none,  k_none     ; ^\ ^] ^^ ^_
+            defw k_help,  k_quit,  k_none,  k_none     ; ^\ ^] ^^ ^_
 
 k_none:     ret
 
@@ -903,7 +915,7 @@ ds_pos:     ld   de,STATUS_ROW+32
             inc  hl
             pop  de
             call put_num
-            ld   de,STATUS_ROW+SCRW-27
+            ld   de,STATUS_ROW+SCRW-25
             ld   hl,msg_help
             jp   put_str
 
@@ -988,6 +1000,14 @@ video_on:   ld   hl,FONT_ADDR       ; fuente: codigos 0-31 a cero (no se
             ld   de,FONT_ADDR+100h
             ld   bc,FONT_LEN
             ldir
+            ld   hl,arrow_glyphs    ; 1-4: flechas de la pantalla de ayuda
+            ld   de,FONT_ADDR+8
+            ld   bc,4*8
+            ldir
+            ld   hl,caret_glyph     ; '^': la fuente lo trae como flecha
+            ld   de,FONT_ADDR+'^'*8 ; hacia arriba, y se confundiria con
+            ld   bc,8               ; la de SHIFT+7
+            ldir
             ld   a,FONT_I
             ld   i,a
             ld   hl,DFILE           ; pantalla en blanco
@@ -995,16 +1015,7 @@ video_on:   ld   hl,FONT_ADDR       ; fuente: codigos 0-31 a cero (no se
             ld   de,DFILE+1
             ld   bc,ROWSTRIDE*SCRH
             ldir
-            ld   hl,ATTR            ; atributos: texto y fila de estado
-            ld   (hl),TEXT_ATTR
-            ld   de,ATTR+1
-            ld   bc,ROWSTRIDE*TEXTH
-            ldir
-            ld   hl,ATTR+1+ROWSTRIDE*TEXTH
-            ld   (hl),STAT_ATTR
-            ld   de,ATTR+2+ROWSTRIDE*TEXTH
-            ld   bc,ROWSTRIDE-1
-            ldir
+            call attr_init
             ld   hl,DFILE           ; pantalla y atributos alternativos
             ld   (2096),hl
             ld   a,170
@@ -1024,10 +1035,169 @@ video_on:   ld   hl,FONT_ADDR       ; fuente: codigos 0-31 a cero (no se
             ld   a,CMD_256C
             jp   mcu_send
 
+; atributos del editor: el texto y la fila de estado
+attr_init:  ld   hl,ATTR
+            ld   (hl),TEXT_ATTR
+            ld   de,ATTR+1
+            ld   bc,ROWSTRIDE*TEXTH
+            ldir
+            ld   hl,ATTR+1+ROWSTRIDE*TEXTH
+            ld   (hl),STAT_ATTR
+            ld   de,ATTR+2+ROWSTRIDE*TEXTH
+            ld   bc,ROWSTRIDE-1
+            ldir
+            ret
+
+; =====================================================================
+;  Pantalla de ayuda (ENTER+9, ^J): el teclado del ZX81 con lo que hace
+;  cada tecla sola, con SHIFT y con ENTER, y las ordenes de WordStar.
+;  Cualquier tecla vuelve; el bucle principal repinta el texto.
+; =====================================================================
+k_help:     ld   hl,DFILE           ; todo en blanco
+            ld   (hl),' '
+            ld   de,DFILE+1
+            ld   bc,ROWSTRIDE*SCRH
+            ldir
+            ld   hl,ATTR
+            ld   (hl),TEXT_ATTR
+            ld   de,ATTR+1
+            ld   bc,ROWSTRIDE*SCRH
+            ldir
+            ld   de,0               ; titulo, como la fila de estado
+            ld   b,SCRW
+            ld   c,STAT_ATTR
+            call fill_attr
+
+            ld   hl,key_tab         ; las 40 teclas: 4 filas de 10
+            ld   d,2
+kh_row:     ld   e,0
+kh_key:     ld   b,7                ; fondo de la tecla, 7x3
+            ld   c,KEY_ATTR
+            call fill_attr
+            inc  d
+            call fill_attr
+            inc  d
+            call fill_attr
+            dec  d
+            dec  d
+            inc  e                  ; y sus tres textos
+            ld   c,KEYCAP_ATTR
+            call put5
+            inc  d
+            ld   c,KEYSH_ATTR
+            call put5
+            inc  d
+            ld   c,KEYEN_ATTR
+            call put5
+            dec  d
+            dec  d
+            ld   a,e
+            add  a,7
+            ld   e,a
+            cp   SCRW
+            jr   c,kh_key
+            ld   a,d
+            add  a,4
+            ld   d,a
+            cp   2+4*4
+            jr   c,kh_row
+
+            ld   hl,kh_lines        ; titulo, leyenda y ordenes
+kh_l1:      ld   a,(hl)
+            cp   0FFh
+            jr   z,kh_wait
+            ld   d,a
+            inc  hl
+            ld   e,(hl)
+            inc  hl
+            ld   c,(hl)
+            inc  hl
+kh_l2:      ld   a,(hl)
+            inc  hl
+            or   a
+            jr   z,kh_l1
+            call put_ch
+            inc  e
+            jr   kh_l2
+
+kh_wait:    call scan_keys          ; que se suelte la que la ha abierto,
+            cp   0FFh               ; esperar otra y que se suelte
+            jr   nz,kh_wait
+            ld   a,e
+            and  3
+            jr   nz,kh_wait
+kh_w2:      call scan_keys
+            cp   0FFh
+            jr   nz,kh_w3
+            ld   a,e
+            and  3
+            jr   z,kh_w2
+kh_w3:      call scan_keys
+            cp   0FFh
+            jr   nz,kh_w3
+            ld   a,e
+            and  3
+            jr   nz,kh_w3
+            jp   attr_init
+
+; fill_attr: D=fila, E=columna, B=ancho, C=atributo (conserva BC, DE y
+; HL: el que llama recorre la tabla de teclas con HL)
+fill_attr:  push hl
+            push bc
+            push de
+            call rc_addr
+            ld   de,ATTR_OFF
+            add  hl,de
+fa1:        ld   (hl),c
+            inc  hl
+            djnz fa1
+            pop  de
+            pop  bc
+            pop  hl
+            ret
+
+; put5: 5 caracteres de (HL) en D,E con el atributo C; HL avanza 5
+put5:       push de
+            ld   b,5
+p5a:        ld   a,(hl)
+            inc  hl
+            call put_ch
+            inc  e
+            djnz p5a
+            pop  de
+            ret
+
+; put_ch: A en D,E con el atributo C (conserva BC, DE y HL)
+put_ch:     push hl
+            push af
+            call rc_addr
+            pop  af
+            ld   (hl),a
+            push de
+            ld   de,ATTR_OFF
+            add  hl,de
+            ld   (hl),c
+            pop  de
+            pop  hl
+            ret
+
+; rc_addr: D=fila, E=columna -> HL (conserva BC y DE)
+rc_addr:    ld   a,d
+            ld   (cur_row),a
+            ld   a,e
+            ld   (cur_col),a
+            jp   char_addr
+
 ; =====================================================================
 ;  Salida: video y memoria como estaban, y al BASIC
 ; =====================================================================
 quit:       ld   sp,(sv_sp)
+qt_rel:     call scan_keys          ; esperar a que se suelte todo: con
+            cp   0FFh               ; ENTER+0 el 0 se suelta antes que el
+            jr   nz,qt_rel          ; ENTER, y el explorador tomaria ese
+            ld   a,e                ; ENTER como "abrir el archivo"
+            and  3
+            jr   nz,qt_rel
             ld   a,85               ; video nativo (apaga tambien la pantalla
             ld   (2045),a           ; y los atributos alternativos)
             ld   bc,CHROMA_PORT
@@ -1820,7 +1990,7 @@ keymap_sym:  ; ENTER+tecla: simbolos serigrafiados y los que faltan
             defb 000h,05Ch,000h,07Eh,060h  ; A9 : S=\ F=~ G=`
             defb 027h,07Bh,07Dh,05Bh,05Fh  ; A10: Q=' W={ E=} R=[ T=_
             defb '!',040h,'#',07Ch,'%'     ; A11: 1=! 2=@ 3=# 4=| 5=%
-            defb 01Dh,000h,000h,000h,'&'   ; A12: 0=^] 6=&
+            defb 01Dh,01Ch,000h,000h,'&'   ; A12: 0=^] (salir) 9=^\ (ayuda) 6=&
             defb 022h,')','(','$',05Dh     ; A13: P=" O=) I=( U=$ Y=]
             defb 00Dh,'=','+','-',05Eh     ; A14: L== K=+ J=- H=^
             defb ' ',',','>','<','*'       ; A15: .=, M=> N=< B=*
@@ -1831,7 +2001,7 @@ keymap_sym:  ; ENTER+tecla: simbolos serigrafiados y los que faltan
 msg_noname: defb "(new file)",0
 msg_line:   defb "Line ",0
 msg_col:    defb "  Col ",0
-msg_help:   defb "^KS save ^KX exit ^KQ quit",0
+msg_help:   defb "ENTER+9: keys & commands",0
 msg_kpre:   defb "^K  S=save  X=save and exit  Q=quit",0
 msg_qpre:   defb "^Q  S=line start  D=line end  R=top  C=bottom",0
 msg_new:    defb "New file",0
@@ -1842,6 +2012,70 @@ msg_nocreate: defb "Can't create the file",0
 msg_wrerr:  defb "Write error: the file may be incomplete",0
 msg_askq:   defb "The text has changes. Save them? (Y/N, ESC = go on editing)",0
 msg_saveas: defb "Save as: ",0
+
+; pantalla de ayuda: flechas (codigos 1-4 de la fuente)
+arrow_glyphs:
+            defb 000h,010h,030h,07Eh,030h,010h,000h,000h   ; GL_LEFT
+            defb 000h,008h,00Ch,07Eh,00Ch,008h,000h,000h   ; GL_RIGHT
+            defb 000h,010h,038h,07Ch,010h,010h,010h,000h   ; GL_UP
+            defb 000h,010h,010h,010h,07Ch,038h,010h,000h   ; GL_DOWN
+caret_glyph: defb 000h,010h,028h,044h,000h,000h,000h,000h  ; '^'
+
+; las 40 teclas, por filas: la tecla, con SHIFT y con ENTER (5 bytes cada uno)
+key_tab:
+            defb '1',' ',' ',' ',' ','E','S','C',' ',' ','!',' ',' ',' ',' '
+            defb '2',' ',' ',' ',' ',' ',' ',' ',' ',' ','@',' ',' ',' ',' '
+            defb '3',' ',' ',' ',' ',' ',' ',' ',' ',' ','#',' ',' ',' ',' '
+            defb '4',' ',' ',' ',' ',' ',' ',' ',' ',' ','|',' ',' ',' ',' '
+            defb '5',' ',' ',' ',' ',GL_LEFT,' ',' ',' ',' ','%',' ',' ',' ',' '
+            defb '6',' ',' ',' ',' ',GL_DOWN,' ',' ',' ',' ','&',' ',' ',' ',' '
+            defb '7',' ',' ',' ',' ',GL_UP,' ',' ',' ',' ',' ',' ',' ',' ',' '
+            defb '8',' ',' ',' ',' ',GL_RIGHT,' ',' ',' ',' ',' ',' ',' ',' ',' '
+            defb '9',' ',' ',' ',' ','D','E','L',' ',' ','K','E','Y','S',' '
+            defb '0',' ',' ',' ',' ','D','E','L',' ',' ','Q','U','I','T',' '
+            defb 'Q',' ',' ',' ',' ',' ',' ',' ',' ',' ',027h,' ',' ',' ',' '
+            defb 'W',' ',' ',' ',' ',' ',' ',' ',' ',' ','{',' ',' ',' ',' '
+            defb 'E',' ',' ',' ',' ',' ',' ',' ',' ',' ','}',' ',' ',' ',' '
+            defb 'R',' ',' ',' ',' ',' ',' ',' ',' ',' ','[',' ',' ',' ',' '
+            defb 'T',' ',' ',' ',' ',' ',' ',' ',' ',' ','_',' ',' ',' ',' '
+            defb 'Y',' ',' ',' ',' ',' ',' ',' ',' ',' ',']',' ',' ',' ',' '
+            defb 'U',' ',' ',' ',' ',' ',' ',' ',' ',' ','$',' ',' ',' ',' '
+            defb 'I',' ',' ',' ',' ',' ',' ',' ',' ',' ','(',' ',' ',' ',' '
+            defb 'O',' ',' ',' ',' ',' ',' ',' ',' ',' ',')',' ',' ',' ',' '
+            defb 'P',' ',' ',' ',' ',' ',' ',' ',' ',' ',022h,' ',' ',' ',' '
+            defb 'A',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' '
+            defb 'S',' ',' ',' ',' ',' ',' ',' ',' ',' ',05Ch,' ',' ',' ',' '
+            defb 'D',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' '
+            defb 'F',' ',' ',' ',' ',' ',' ',' ',' ',' ','~',' ',' ',' ',' '
+            defb 'G',' ',' ',' ',' ',' ',' ',' ',' ',' ','`',' ',' ',' ',' '
+            defb 'H',' ',' ',' ',' ',' ',' ',' ',' ',' ','^',' ',' ',' ',' '
+            defb 'J',' ',' ',' ',' ',' ',' ',' ',' ',' ','-',' ',' ',' ',' '
+            defb 'K',' ',' ',' ',' ',' ',' ',' ',' ',' ','+',' ',' ',' ',' '
+            defb 'L',' ',' ',' ',' ',' ',' ',' ',' ',' ','=',' ',' ',' ',' '
+            defb 'E','N','T','E','R','C','T','R','L',' ',' ',' ',' ',' ',' '
+            defb 'S','H','I','F','T',' ',' ',' ',' ',' ',' ',' ',' ',' ',' '
+            defb 'Z',' ',' ',' ',' ',' ',' ',' ',' ',' ',':',' ',' ',' ',' '
+            defb 'X',' ',' ',' ',' ',' ',' ',' ',' ',' ',';',' ',' ',' ',' '
+            defb 'C',' ',' ',' ',' ',' ',' ',' ',' ',' ','?',' ',' ',' ',' '
+            defb 'V',' ',' ',' ',' ',' ',' ',' ',' ',' ','/',' ',' ',' ',' '
+            defb 'B',' ',' ',' ',' ',' ',' ',' ',' ',' ','*',' ',' ',' ',' '
+            defb 'N',' ',' ',' ',' ',' ',' ',' ',' ',' ','<',' ',' ',' ',' '
+            defb 'M',' ',' ',' ',' ',' ',' ',' ',' ',' ','>',' ',' ',' ',' '
+            defb '.',' ',' ',' ',' ','T','A','B',' ',' ',',',' ',' ',' ',' '
+            defb 'S','P','A','C','E',' ',' ',' ',' ',' ',' ',' ',' ',' ',' '
+
+; titulo, leyenda y ordenes: fila, columna, atributo, texto, 0; 0FFh al final
+kh_lines:
+            defb 0,1,STAT_ATTR,"EDIT - keys and commands (ENTER+9 or ^J)                        any key: back",0
+            defb 18,1,00Fh,"key alone = lowercase",0
+            defb 18,26,00Eh,"yellow = with SHIFT (and capitals)",0
+            defb 18,63,00Dh,"cyan = with ENTER",0
+            defb 19,1,00Fh,"^S ^D ^E ^X  cursor (or SHIFT+5 8 7 6)   ^A ^F  word left / right",0
+            defb 20,1,00Fh,"^R ^C        page up / down              ^Q S  ^Q D  start / end of the line",0
+            defb 21,1,00Fh,"^G  delete right   ^Y  delete the line   ^Q R  ^Q C  start / end of the text",0
+            defb 22,1,00Fh,"^K S  save   ^K X  save and exit   ^K Q  quit (asks if there are changes)",0
+            defb 23,1,00Fh,"CTRL: SHIFT+ENTER, then the key      ESC (SHIFT+1): cancels ^K, ^Q, questions",0
+            defb 0FFh
 
 ; ---------------------------------------------------------------------
 ;  Variables (se ponen a cero al arrancar)

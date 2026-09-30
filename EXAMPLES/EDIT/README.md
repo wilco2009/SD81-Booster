@@ -53,10 +53,11 @@ ENTER (que solo actúa al soltarla, porque también es modificador).
 | ^K S | guardar |
 | ^K X, ^K D | guardar y salir |
 | ^K Q, ENTER+0 | salir (pregunta si hay cambios sin guardar) |
+| ENTER+9, ^J | pantalla de ayuda: el teclado del ZX81 con lo que hace cada tecla (sola, con SHIFT y con ENTER) y las órdenes |
 | SHIFT+1 (ESC) | cancela ^K / ^Q y las preguntas |
 
 La última fila muestra el nombre (con `*` si hay cambios), la línea, la
-columna y un recordatorio de ^K. Los tabuladores se ven hasta la siguiente
+columna y cómo abrir la ayuda (ENTER+9). Los tabuladores se ven hasta la siguiente
 columna múltiplo de 8. Las líneas de más de 80 columnas se desplazan en
 horizontal.
 

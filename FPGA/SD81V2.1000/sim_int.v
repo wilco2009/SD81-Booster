@@ -17,23 +17,34 @@
 //      en $003B marca el final de la rutina: hasta entonces no se inyecta
 //      otra (un RST no respeta DI, asi que no hay otra proteccion).
 //
+//  HALT: con DI un HALT de verdad no acabaria nunca, asi que con las
+//  interrupciones activas un 76 que empiece instruccion (o detras de
+//  DD/FD: DD 76 tambien es HALT) se sirve como FF. La CPU guarda H+1, que
+//  ya es la instruccion de detras; en $0038 se sirve JR $ (18 FE) hasta que
+//  haya VSYNC pendiente, y entonces el CALL. Al volver, en $003B se sirve
+//  directamente RET: sin el DEC HL. Si la interrupcion ya estaba pendiente
+//  al llegar al HALT, el CALL va sin esperar, como en un Z80 con EI.
+//
 //  Todo se sirve por DIRECCION y solo en su fase: entre medias hay
 //  lecturas y escrituras reales de la pila (las del RST, el CALL y los EX
 //  (SP),HL) que no se tocan. Fuera de una interrupcion en curso, $0038 se
-//  lee de la ROM como siempre.
+//  lee de la ROM como siempre. La rutina no puede tener HALT (con DI, en un
+//  Z80 tampoco acabaria).
 //
 //  Solo con sfast_mode_en: en video nativo la INT, la NMI y los HALT son
 //  parte de la generacion de la imagen. Y el programa tiene que tener DI:
 //  con EI las interrupciones reales de A6 inundarian $0038.
 //
-//  La decision de inyectar (arm) solo cambia fuera de las M1, asi que es
-//  estable durante toda la lectura: o se sirve el FF entero o no se toca.
-//  Como se decide antes de empezar la M1, la SRAM no llega a conducir el
-//  bus en las lecturas que sirve la FPGA (nMEM_OE sube con MREQ y RD).
+//  El FF se decide en la subida de T2, con el opcode de la SRAM ya en el
+//  bus (hace falta para ver los HALT), y desde ahi lo sirve la FPGA; la
+//  CPU lo lee en la subida de T3. El resto de lo que se sirve depende de
+//  registros que no cambian durante las lecturas.
 //
 //  POKE 2038/2039: direccion de la rutina (int_addr)
 //  POKE 2040,1/0:  activa / desactiva
 //
+// Revision 0.05 - HALT (paso 3): un 76 se sirve como FF y en $0038 JR $
+//                 hasta el VSYNC. El FF se decide en T2 con el opcode real
 // Revision 0.04 - Todo el estado en el dominio del reloj del Z80 (iclock):
 //                 a 26 MHz las lecturas asincronas podian perder una
 //                 transicion y colgar el Z80 en el hardware
@@ -50,8 +61,10 @@ module sim_int(
 	input wire superfast_mode,			// sfast_mode_en (texto/HiRes/Spectrum)
 	input wire vsync,
 	input wire boundary,				// m1_tracker: la proxima M1 empieza instruccion
+	input wire index_prefix,			// m1_tracker: la proxima M1 va detras de DD/FD
 	input wire [15:0] int_addr,
 	input wire [15:0] addr,
+	input wire [7:0] data,				// el bus (para ver el opcode real)
 	input wire nM1,
 	input wire nRD,
 	input wire nMREQ,
@@ -66,20 +79,27 @@ module sim_int(
 
 	localparam [1:0]
 		phIDLE  = 2'd0,		// sin interrupcion en curso
-		phENTRY = 2'd1,		// RST inyectado: servir CALL int_addr en $0038-$003A
+		phENTRY = 2'd1,		// RST inyectado: $0038-$003A (CALL, o JR $ si es un HALT)
 		phISR   = 2'd2,		// rutina del usuario: esperar la M1 en $003B
 		phEPI   = 2'd3;		// epilogo en $003C-$003E
 
 	reg [1:0] phase = phIDLE;
 	reg pending = 1'b0;			// VSYNC sin atender
-	reg arm = 1'b0;				// la proxima M1 recibe el RST
+	reg arm = 1'b0;				// hay que interrumpir en la proxima M1 que sea limite
 	reg [1:0] vs_sync = 2'b00;	// VSYNC viene del dominio de system_clk
 	reg vs_prev = 1'b0;
 	reg m1_prev = 1'b0;
 	reg [15:0] m1_addr = 16'd0;	// direccion de la ultima M1
+	// Decision en la subida de T2 (bajada de iclock), con el opcode real
+	reg m1_seen = 1'b0;			// ya se ha decidido en esta M1
+	reg inj = 1'b0;				// esta M1 recibe el FF
+	reg inj_halt = 1'b0;		// ... y lo que habia era un HALT
+	reg halted = 1'b0;			// la interrupcion en curso viene de un HALT
+	reg call_now = 1'b0;		// en $0038: CALL (1) o JR $ (0, esperando el VSYNC)
+	reg took_call = 1'b0;		// lo que se sirvio en la ultima M1 en $0038
 
 	assign state = phase;
-	assign status = {enabled, pending, arm, superfast_mode, 2'b00, phase};
+	assign status = {enabled, pending, arm, superfast_mode, halted, call_now, phase};
 
 	wire rd = ~(nMREQ | nRD);
 	wire m1rd = rd & ~nM1;
@@ -92,28 +112,35 @@ module sim_int(
 	// (y el RET de la rutina iba a la ROM de $003B).
 	wire m1_sample = ~nMREQ & ~nM1 & nRFSH;
 	wire m1_end = m1_prev & ~m1_sample;
+	// la interrupcion se entrega: acaba la M1 del CALL en $0038
+	wire call_taken = m1_end && (phase == phENTRY) && (m1_addr == 16'h0038) && call_now;
+
+	// Un HALT que se puede cambiar por el FF: al empezar instruccion o
+	// detras de DD/FD (DD 76 tambien es HALT; CB 76, ED 76 y DD CB d 76 no)
+	wire halt_ok = enabled & superfast_mode & (phase == phIDLE) &
+	               (boundary | index_prefix) & (data == 8'h76);
 
 	// Lo que se sirve en ESTA lectura: combinacional, estable mientras dure
 	always @(*) begin
 		enable_out = 1'b0;
 		data_out = 8'h00;
-		if (m1rd && arm) begin
+		if (m1rd && inj) begin
 			enable_out = 1'b1;
 			data_out = 8'hFF;						// RST 38h
 		end else if (phase == phENTRY && rd) begin
 			if (addr == 16'h0038 && ~nM1) begin
 				enable_out = 1'b1;
-				data_out = 8'hCD;					// CALL nn
+				data_out = call_now ? 8'hCD : 8'h18;	// CALL nn / JR $
 			end else if (addr == 16'h0039 && nM1) begin
 				enable_out = 1'b1;
-				data_out = int_addr[7:0];
-			end else if (addr == 16'h003A && nM1) begin
+				data_out = took_call ? int_addr[7:0] : 8'hFE;
+			end else if (addr == 16'h003A && nM1 && took_call) begin
 				enable_out = 1'b1;
 				data_out = int_addr[15:8];
 			end
 		end else if (phase == phISR && m1rd && addr == 16'h003B) begin
 			enable_out = 1'b1;
-			data_out = 8'hE3;						// EX (SP),HL
+			data_out = halted ? 8'hC9 : 8'hE3;		// RET a X+1 / EX (SP),HL
 		end else if (phase == phEPI && m1rd) begin
 			if (addr == 16'h003C) begin
 				enable_out = 1'b1;
@@ -128,6 +155,29 @@ module sim_int(
 		end
 	end
 
+	// La inyeccion se decide en la primera muestra de la M1 en la subida del
+	// reloj del Z80, que es la de T2: MREQ bajo desde la bajada de T1 y el
+	// dato de la SRAM ya valido. Asi se ve el opcode real (con el FF puesto
+	// ya no se veria), y la CPU no lo lee hasta la subida de T3: queda medio
+	// ciclo para que la FPGA tome el bus.
+	always @(negedge iclock or negedge nreset) begin
+		if (~nreset) begin
+			m1_seen <= 1'b0;
+			inj <= 1'b0;
+			inj_halt <= 1'b0;
+		end else if (~m1_sample) begin
+			m1_seen <= 1'b0;
+			if (~m1_prev) begin					// ya procesado el final de la M1
+				inj <= 1'b0;					// (en la bajada de T3)
+				inj_halt <= 1'b0;
+			end
+		end else if (~m1_seen) begin
+			m1_seen <= 1'b1;
+			inj <= arm | halt_ok;
+			inj_halt <= halt_ok;
+		end
+	end
+
 	always @(posedge iclock or negedge nreset) begin
 		if (~nreset) begin
 			enabled <= 1'b0;
@@ -139,6 +189,9 @@ module sim_int(
 			m1_prev <= 1'b0;
 			m1_addr <= 16'd0;
 			count <= 16'd0;
+			halted <= 1'b0;
+			call_now <= 1'b0;
+			took_call <= 1'b0;
 		end else begin
 			vs_sync <= {vs_sync[0], vsync};
 			vs_prev <= vs_sync[1];
@@ -149,33 +202,46 @@ module sim_int(
 			if (enable_int)  enabled <= 1'b1;		// POKE 2040,1
 			if (disable_int) enabled <= 1'b0;		// POKE 2040,0
 
-			// La decision solo cambia fuera de las M1. Se recalcula en la
-			// bajada de T4 con el boundary y la fase ya al dia (los dos
+			// Las decisiones solo cambian fuera de las M1. Se recalculan en
+			// la bajada de T4 con el boundary y la fase ya al dia (los dos
 			// cambian en la bajada de T3), antes de la M1 siguiente.
-			if (~m1_sample)
+			if (~m1_sample) begin
 				arm <= enabled & superfast_mode & pending & (phase == phIDLE) & boundary;
+				call_now <= pending | ~halted;		// un HALT espera al VSYNC
+			end
 
-			// Transiciones: al acabar cada M1, por su direccion. Las lecturas
-			// del CALL ($0039/$003A) se sirven en ENTRY hasta que acaba la
-			// primera M1 de la rutina.
+			// Transiciones: al acabar cada M1, por su direccion
 			if (m1_end) begin
 				case (phase)
-					phIDLE:  if (arm) phase <= phENTRY;					// el RST ya esta dentro
-					phENTRY: if (m1_addr != 16'h0038) phase <= phISR;	// ya en la rutina
-					phISR:   if (m1_addr == 16'h003B) phase <= phEPI;	// la rutina ha vuelto
-					phEPI:   if (m1_addr == 16'h003E) phase <= phIDLE;	// fin: vuelve a X
+					phIDLE:
+						if (inj) begin						// el RST ya esta dentro
+							phase <= phENTRY;
+							halted <= inj_halt;
+						end
+					phENTRY:
+						if (m1_addr == 16'h0038)
+							took_call <= call_now;			// CALL, o una vuelta mas de JR $
+						else
+							phase <= phISR;					// ya en la rutina
+					phISR:
+						if (m1_addr == 16'h003B)			// la rutina ha vuelto
+							phase <= halted ? phIDLE : phEPI;	// tras un HALT, RET y listo
+					phEPI:
+						if (m1_addr == 16'h003E)
+							phase <= phIDLE;				// fin: vuelve a X
 				endcase
 			end
 
-			// VSYNC -> interrupcion pendiente (solo activas y en Superfast)
+			// VSYNC -> interrupcion pendiente (solo activas y en Superfast);
+			// se atiende con el CALL
 			if (~enabled || ~superfast_mode)
 				pending <= 1'b0;
 			else if (vs_sync[1] & ~vs_prev)
 				pending <= 1'b1;
-			else if (m1_end && phase == phIDLE && arm)
+			else if (call_taken)
 				pending <= 1'b0;
 
-			if (m1_end && phase == phIDLE && arm)
+			if (call_taken)
 				count <= count + 1'b1;
 		end
 	end
@@ -239,6 +305,7 @@ module m1_tracker(
 	input wire [7:0] si_status,	// de sim_int, para el puerto de depuracion
 	input wire [15:0] si_count,
 	output wire boundary,		// 1: la proxima M1 empieza una instruccion
+	output wire index_prefix,	// 1: la proxima M1 va detras de un DD/FD
 	output reg [7:0] dbg_out	// lo que devuelve IN del puerto $3FEF
     );
 
@@ -263,6 +330,7 @@ module m1_tracker(
 	reg [7:0] op_latch = 8'd0;	// el dato de la ultima muestra de la M1
 
 	assign boundary = (state == stNORMAL);
+	assign index_prefix = (state == stINDEX);
 
 	wire m1_sample = ~nMREQ & ~nM1 & nRFSH;
 	// OUT al puerto: IORQ y WR bajos en los flancos de bajada de T2 y TW

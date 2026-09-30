@@ -28,7 +28,7 @@ module tb_sim_int;
 	wire [7:0] fpga_data;
 	wire fpga_en;
 	wire [7:0] bus = fpga_en ? fpga_data : mem_data;	// lo que ve la CPU
-	wire boundary;
+	wire boundary, index_prefix;
 	wire [7:0] dbg_out, si_status;
 	wire [15:0] si_count;
 	wire [1:0] si_state;
@@ -39,12 +39,12 @@ module tb_sim_int;
 		.iclock(iclock), .nreset(nreset), .nM1(nM1), .nMREQ(nMREQ), .nRFSH(nRFSH),
 		.nIORQ(nIORQ), .nWR(nWR), .addr(addr), .data(bus),
 		.si_status(si_status), .si_count(si_count),
-		.boundary(boundary), .dbg_out(dbg_out));
+		.boundary(boundary), .index_prefix(index_prefix), .dbg_out(dbg_out));
 
 	sim_int si (
 		.iclock(iclock), .nreset(nreset), .enable_int(en_pulse), .disable_int(dis_pulse),
 		.superfast_mode(superfast), .vsync(vsync), .boundary(boundary),
-		.int_addr(16'h7000), .addr(addr), .nM1(nM1), .nRD(nRD), .nMREQ(nMREQ), .nRFSH(nRFSH),
+		.index_prefix(index_prefix), .int_addr(16'h7000), .addr(addr), .data(bus), .nM1(nM1), .nRD(nRD), .nMREQ(nMREQ), .nRFSH(nRFSH),
 		.data_out(fpga_data), .enable_out(fpga_en), .state(si_state),
 		.enabled(si_enabled), .status(si_status), .count(si_count));
 
@@ -106,6 +106,33 @@ module tb_sim_int;
 			errors = errors + 1;
 		end else
 			$display("ok    %0s: %h", what, got);
+	end
+	endtask
+
+	// HALT: el 76 en h se ha servido como FF. Espera en JR $ (vueltas vueltas
+	// antes del VSYNC; 0 si ya estaba pendiente), CALL, rutina, RET directo
+	// en $003B y vuelta a h+1
+	task run_halt(input [15:0] h, input integer vueltas);
+		integer i;
+	begin
+		expect_fpga(8'hFF, "HALT -> RST 38h");
+		mem_wr(16'h7FFF); mem_wr(16'h7FFE);				// RST: guarda h+1
+		for (i = 0; i < vueltas; i = i + 1) begin
+			m1(16'h0038, 8'hF5);  expect_fpga(8'h18, "HALT: JR $");
+			mem_rd(16'h0039, 8'h00); expect_fpga(8'hFE, "HALT: JR $ (FE)");
+			repeat (5) @(posedge clk);
+		end
+		if (vueltas > 0) pulse_vsync;
+		m1(16'h0038, 8'hF5);  expect_fpga(8'hCD, "HALT: CALL tras el VSYNC");
+		mem_rd(16'h0039, 8'h00); expect_fpga(8'h00, "CALL lo");
+		mem_rd(16'h003A, 8'h00); expect_fpga(8'h70, "CALL hi");
+		mem_wr(16'h7FFD); mem_wr(16'h7FFC);
+		m1(16'h7000, 8'h00);  expect_mem(8'h00, "rutina: NOP");
+		m1(16'h7001, 8'hC9);  expect_mem(8'hC9, "rutina: RET");
+		mem_rd(16'h7FFC, 8'h3B); mem_rd(16'h7FFD, 8'h00);
+		m1(16'h003B, 8'hFF);  expect_fpga(8'hC9, "HALT: RET directo en $003B");
+		mem_rd(16'h7FFE, h[7:0] + 8'd1); mem_rd(16'h7FFF, h[15:8]);
+		m1(h + 16'd1, 8'h00); expect_mem(8'h00, "vuelta detras del HALT");
 	end
 	endtask
 
@@ -186,6 +213,27 @@ module tb_sim_int;
 		m1(16'h6009, 8'h00);
 		run_interrupt(16'h6009);							// el pendiente, al acabar
 
+		// --- HALT sin nada pendiente: JR $ hasta el VSYNC ---
+		m1(16'h6100, 8'h76);
+		run_halt(16'h6100, 3);
+
+		// --- DD 76 tambien es HALT ---
+		m1(16'h6101, 8'hDD); expect_mem(8'hDD, "DD antes del HALT");
+		m1(16'h6102, 8'h76);
+		run_halt(16'h6102, 2);
+
+		// --- HALT con la interrupcion ya pendiente: CALL sin esperar ---
+		pulse_vsync;
+		m1(16'h6103, 8'h76);
+		run_halt(16'h6103, 0);
+
+		// --- CB 76, ED 76 y DD CB d 76 no son HALT ---
+		m1(16'h6104, 8'hCB); m1(16'h6105, 8'h76); expect_mem(8'h76, "CB 76: sin tocar");
+		m1(16'h6106, 8'hED); m1(16'h6107, 8'h76); expect_mem(8'h76, "ED 76: sin tocar");
+		m1(16'h6108, 8'hDD); m1(16'h6109, 8'hCB); mem_rd(16'h610A, 8'h00);
+		mem_rd(16'h610B, 8'h76); expect_mem(8'h76, "DD CB d 76: sin tocar");
+		m1(16'h610C, 8'h00); expect_mem(8'h00, "tras DD CB d 76: nada");
+
 		// --- $0038 fuera de una interrupcion: la ROM de siempre ---
 		m1(16'h0038, 8'hF5); expect_mem(8'hF5, "$0038 sin interrupcion: ROM");
 
@@ -193,18 +241,20 @@ module tb_sim_int;
 		superfast = 0;
 		pulse_vsync;
 		m1(16'h600A, 8'h00); expect_mem(8'h00, "video nativo: sin RST");
+		m1(16'h600B, 8'h76); expect_mem(8'h76, "video nativo: HALT normal");
 		superfast = 1;
 
 		// --- desactivadas no se inyecta ---
 		#1000 dis_pulse = 1; #400 dis_pulse = 0;			// POKE 2040,0
 		pulse_vsync;
-		m1(16'h600B, 8'h00); expect_mem(8'h00, "desactivadas: sin RST");
+		m1(16'h600C, 8'h00); expect_mem(8'h00, "desactivadas: sin RST");
+		m1(16'h600D, 8'h76); expect_mem(8'h76, "desactivadas: HALT normal");
 
-		if (si_count !== 16'd5) begin
-			$display("ERROR interrupciones contadas: %0d, esperaba 5", si_count);
+		if (si_count !== 16'd8) begin
+			$display("ERROR interrupciones contadas: %0d, esperaba 8", si_count);
 			errors = errors + 1;
 		end else
-			$display("ok    interrupciones contadas: 5");
+			$display("ok    interrupciones contadas: 8");
 
 		if (errors == 0) $display("TODO OK");
 		else $display("%0d ERRORES", errors);

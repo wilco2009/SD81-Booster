@@ -1733,7 +1733,8 @@ assign DEBUG_RDY = 1'b0;
 	// POKE 2038,int_addr_low	-> set low part of la rutina de interrupciones simuladas
 	// POKE 2039,int_addr_high	-> set high part de la rutina de interrupciones simuladas
 	// POKE 2040,1/0			-> enable_int / disable_int (interrupciones simuladas en Superfast, con DI:
-	//							RST 38h inyectado en un limite de instruccion con cada VSYNC, ver sim_int.v)
+	//							RST 38h inyectado en un limite de instruccion con cada VSYNC; los HALT
+	//							esperan al VSYNC, ver sim_int.v)
 	always@(negedge iclock or negedge nRESET) begin
 		if (nRESET == 1'b0) begin
 			int_mode <= 0;
@@ -1749,6 +1750,7 @@ assign DEBUG_RDY = 1'b0;
 	// su RST 38h. Puerto de depuracion $3FEF (ver m1_tracker en sim_int.v).
 	wire [7:0] m1t_data;
 	wire m1t_boundary;
+	wire m1t_index;
 	wire m1t_rd = ~nIORD & (Addr == 16'h3FEF);
 	wire [7:0] si_status;
 	wire [15:0] si_count;
@@ -1765,6 +1767,7 @@ assign DEBUG_RDY = 1'b0;
 		.si_status(si_status),
 		.si_count(si_count),
 		.boundary(m1t_boundary),
+		.index_prefix(m1t_index),
 		.dbg_out(m1t_data)
 	);
 
@@ -1776,8 +1779,10 @@ assign DEBUG_RDY = 1'b0;
 		.superfast_mode(sfast_mode_en),
 		.vsync(vsync),
 		.boundary(m1t_boundary),
+		.index_prefix(m1t_index),
 		.int_addr(int_addr),
 		.addr(Addr),
+		.data(data),
 		.nRD(nRD),
 		.nM1(nM1),
 		.nMREQ(nMREQ),

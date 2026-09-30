@@ -17,9 +17,13 @@ Plan:
    `$003B` el epílogo `EX (SP),HL / DEC HL / EX (SP),HL / RET`, que
    corrige la dirección de retorno (la CPU guarda X+1) y marca el final de
    la rutina: hasta entonces no se inyecta otra.
-3. HALT: un 76 en un límite de instrucción (o detrás de DD/FD) se sirve
-   como FF; en `$0038` la FPGA sirve `JR $` hasta el VSYNC y luego el
-   `CALL`, y el epílogo vuelve sin `DEC HL` (X+1 ya es detrás del HALT).
+3. **HALT** (hecho, probado en hardware): un 76 en un límite de
+   instrucción (o detrás de DD/FD: `DD 76` también es HALT) se sirve como
+   FF; en `$0038` la FPGA sirve `JR $` hasta el VSYNC y luego el `CALL`, y
+   en `$003B` directamente `RET` (H+1 ya es detrás del HALT). Si la
+   interrupción ya estaba pendiente, el `CALL` va sin esperar. Para ver el
+   opcode real, el FF se decide ahora en la subida de T2, con el dato de la
+   SRAM ya en el bus, y la FPGA toma el bus desde ahí.
 
 ## Cómo se usa (paso 2)
 
@@ -41,10 +45,35 @@ rutina: push af                 ; guardar lo que se use
 ```
 
 La rutina se llama una vez por trama (50 Hz) en el primer límite de
-instrucción tras el VSYNC. Usa 4 bytes de la pila del programa (el `RST` y
+instrucción tras el VSYNC. Con las interrupciones activas, `HALT` espera a
+la siguiente (como en un Z80 con EI), así que el bucle típico de un juego
+funciona tal cual:
+
+```
+bucle:  halt                    ; espera a la trama (la rutina ya ha corrido)
+        call mover
+        call pintar
+        jr   bucle
+```
+
+La rutina no puede tener `HALT` (con DI, en un Z80 tampoco acabaría). Usa 4 bytes de la pila del programa (el `RST` y
 el `CALL`) además de lo que guarde ella.
 
 ## Pruebas
+
+### Paso 3: `halttest`
+
+Con las interrupciones activas (la rutina solo cuenta):
+
+1. 100 HALT (50 `HALT` y 50 `DD HALT`): cada uno tiene que esperar una trama
+   y volver una sola vez detrás. Tienen que salir 100 vueltas, 100
+   interrupciones (rutina y FPGA) y 100 tramas (±1). Si volviera al propio
+   HALT saldrían 200 tramas; si no esperara, casi ninguna.
+2. `CB 76`, `ED 76` y `DD CB d 76` no son HALT: 20000 vueltas tienen que
+   tardar pocas tramas, con tantas interrupciones como tramas (±1).
+
+Stub `HALTTEST.B81`. Deja en la primera fila la prueba en curso (columna 0)
+y el carácter que incrementa la rutina (columna 2).
 
 ### Paso 2: `inttest`
 

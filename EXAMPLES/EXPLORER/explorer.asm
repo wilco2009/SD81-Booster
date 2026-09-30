@@ -22,6 +22,7 @@
 ;         S=panel de configuracion (lateral)
 ;         E=editar el archivo (sale al BASIC con USR = longitud + 256;
 ;           el stub carga el editor, EDIT.BIN, con el nombre en F$)
+;         SHIFT+E=fichero de texto nuevo: pide el nombre y abre el editor
 ;         K=pantalla de ayuda con todas las teclas
 ;         L=ver cualquier archivo en el visor de texto (no solo los .TXT)
 ;
@@ -767,6 +768,8 @@ vt_loop:
         jp z,vt_help
         cp 32
         jp z,vt_view_any
+        cp 33
+        jp z,vt_newfile
         jp vt_loop
 
 ; -------------------------------------------------------------
@@ -1398,8 +1401,32 @@ vt_edit:
         ld a,(namebuf)
         cp '<'
         jp z,vt_loop
+vte_go:
         ld a,1
         jp vt_act_ret
+
+; -------------------------------------------------------------
+; vt_newfile: SHIFT+E -- pide el nombre de un fichero NUEVO y sale igual
+; que vt_edit: el editor, al no encontrarlo, empieza uno con ese nombre y
+; lo crea al guardar.
+; -------------------------------------------------------------
+vt_newfile:
+        xor a
+        ld (namelen),a
+        ld (rn_oldlen),a          ; SHIFT+1 no tiene nada que recuperar
+        ld hl,prompt_newfile
+        ld b,prompt_newfile_len
+        ld de,hint_edit
+        call show_prompt
+        call text_input
+        ld a,(namelen)
+        or a
+        jr nz,vte_go
+        jp vt_refresh_and_loop    ; cancelado
+
+prompt_newfile:
+        defb "NEW TEXT FILE"
+prompt_newfile_len equ $-prompt_newfile
 
 VGM_NAME_MAXLEN equ 15   ; ancho de texto util del panel (PANEL_TXTCOL..41)
 
@@ -3785,14 +3812,18 @@ rk_wait:
         ld (clock_counter),hl
         call vt_update_clock
 rk_noclock:
-        ld a,0FEh                ; SHIFT+1 = reset del filtro de listado
-        in a,(0FEh)               ; (comprobacion aparte porque SHIFT no
-        bit 0,a                   ; se rastrea como tecla propia en el
-        jr nz,rk_normal1           ; resto de la matriz)
+        ld a,0FEh                ; SHIFT+1 = reset del filtro de listado,
+        in a,(0FEh)               ; SHIFT+E = fichero nuevo (comprobacion
+        bit 0,a                   ; aparte porque SHIFT no se rastrea como
+        jr nz,rk_normal1           ; tecla propia en el resto de la matriz)
         ld a,0F7h
         in a,(0FEh)
         bit 0,a
         jp z,rk_resetfilter
+        ld a,0FBh
+        in a,(0FEh)
+        bit 2,a
+        jp z,rk_newfile
 rk_normal1:
         ld a,0F7h
         in a,(0FEh)
@@ -3929,6 +3960,9 @@ rk_i:
         jr rk_deb
 rk_resetfilter:
         ld a,28
+        jr rk_deb
+rk_newfile:
+        ld a,33
         jr rk_deb
 rk_dot:
         ld a,29
@@ -4738,7 +4772,7 @@ help_text:
         defb 5,4,"{.}       filter (wildcards)",0
         defb 5,38,"{SHIFT+1}  remove the filter",0
         defb 6,4,"{H}       hex viewer",0
-        defb 6,38,"{E}        text editor",0
+        defb 6,38,"{E}  edit    {SHIFT+E}  new file",0
         defb 7,4,"{I}       network (IP address)",0
         defb 7,38,"{SPACE}    exit to BASIC",0
         defb 8,4,"{L}       view any file as text",0

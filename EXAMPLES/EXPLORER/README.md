@@ -46,6 +46,7 @@ La tecla **K** enseña esta misma lista en pantalla.
 | H | visor hexadecimal |
 | L | ver cualquier archivo como texto (no solo los `.TXT`) |
 | E | editar el archivo con el editor de textos (`EDIT.BIN`) |
+| SHIFT+E | fichero de texto nuevo: pide el nombre y abre el editor, que lo crea al guardar |
 | I | ver la dirección IP (`/MAN/IP.TXT`) |
 | N | carpeta nueva |
 | D | borrar (pide confirmación; las carpetas solo si están vacías) |

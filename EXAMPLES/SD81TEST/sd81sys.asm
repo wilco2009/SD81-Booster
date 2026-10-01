@@ -771,24 +771,28 @@ rps3:   call m_send
         jp c,rp_to
         or a
         jr nz,rp_err
-        call pline
-        db 23
-        dw s_rp_saved
+        ld hl,s_rp_saved
+        call rp_stat
         jr rp_end
 rp_err: push af
-        call pline
-        db 23
-        dw s_rp_err
+        ld hl,s_rp_err
+        call rp_stat
         pop af
         call rp_num
         jr rp_end
-rp_to:  call pline
-        db 23
-        dw s_sd_to
+rp_to:  ld hl,s_rp_to
+        call rp_stat
 rp_end: ld a,(rp_bad)
         ld c,a
         ld b,0
         ret
+
+; El estado del SAVE va en la fila 0, detras del titulo (7 columnas como
+; mucho): la 21 es la del BASIC y la 23 la de los totales. HL = texto.
+rp_stat:
+        ld bc,25                ; fila 0, columna 25
+        call set_at
+        jp out_str
 
 ; Una linea por prueba de rp_list y la de totales. Cuenta OK, FAIL y no
 ; ejecutadas. Cada linea empieza con rp_nl.
@@ -818,7 +822,9 @@ rb1:    ld a,(hl)
         call rp_result
         pop hl
         jr rb1
-rb2:    call rp_nl          ; (en pantalla se salta la fila 21, la del BASIC)
+rb2:    ld a,(rp_txt)       ; linea en blanco antes de los totales, solo en
+        or a                ; el texto: en pantalla no cabe
+        call nz,rp_nl
         call rp_nl
         ld hl,s_rp_ok
         call out_str
@@ -874,7 +880,10 @@ rp_nl:
         jr nz,rpn1
         ld a,(rp_row)
         inc a
-        ld (rp_row),a
+        cp 21                   ; la fila 21 es la del BASIC
+        jr nz,rpn0
+        inc a
+rpn0:   ld (rp_row),a
         push bc
         ld b,a
         ld c,0
@@ -1499,8 +1508,9 @@ s_rp_fail: db "  FAIL:",' '+80h
 s_rp_nr:   db "  NOT RUN:",' '+80h
 s_rp_notrun: db "NOT RU",'N'+80h
 s_rp_failn: db "FAIL",' '+80h
-s_rp_saved: db "SAVED TO SD81TEST.TX",'T'+80h
-s_rp_err:  db "SD ERROR",' '+80h
+s_rp_saved: db "SAVE",'D'+80h
+s_rp_err:  db "ERR",' '+80h
+s_rp_to:   db "TIMEOU",'T'+80h
 s_rp_file: db "SD81TEST.TXT",0
 ; Pruebas automaticas del resumen: N y nombre (17 columnas)
 rp_list:
@@ -1508,6 +1518,7 @@ rp_list:
         db 2, "MC45 BLOCKS 6-7 ",' '+80h
         db 3, "MAPPER STRESS   ",' '+80h
         db 4, "POKE 2045       ",' '+80h
+        db 5, "SIM. INTERRUPTS ",' '+80h
         db 6, "ROMLOCK         ",' '+80h
         db 7, "MCU PROTOCOL    ",' '+80h
         db 9, "UNPAGED MEMORY  ",' '+80h

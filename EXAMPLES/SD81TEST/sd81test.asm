@@ -8,7 +8,7 @@
 ;   USR 22534 -> test de la extension de MC45 a los bloques 6 y 7
 ;   USR 22537 -> estres del mapper (OUT $E7 aleatorios + relectura)
 ;   USR 22540 -> captura de POKE 2045 (Superfast), medida con FRAMES
-;   USR 22543 -> (reservada: interrupciones simuladas, quitada de momento)
+;   USR 22543 -> interrupciones simuladas (detector, inyeccion y HALT)
 ;   USR 22546 -> ROMLOCK (con el bloqueo POKE 2045 no hace nada)
 ;   USR 22549 -> estres del protocolo con el MCU (SETBYTE/GETBYTE)
 ;   USR 22552 -> informacion de la maquina
@@ -103,7 +103,7 @@ usr_tab:
         call run_t             ; USR 22534 mc67_test (MEM)
         call run_t             ; USR 22537 ms_test (MEM)
         call run_t             ; USR 22540 pk_test (MEM)
-        jp ia_noslow           ; USR 22543 (reservada, devuelve 9999)
+        call run_t             ; USR 22543 si_test (MEM)
         call run_t             ; USR 22546 rl_test (MEM)
         call run_t             ; USR 22549 mu_test (SYS)
         call run_t             ; USR 22552 info_test (SYS)
@@ -224,7 +224,7 @@ mt_tab:
         db MOD_MEM*32+2
         db MOD_MEM*32+3
         db MOD_MEM*32+4
-        db 0                 ; 5
+        db MOD_MEM*32+10     ; 5
         db MOD_MEM*32+5
         db MOD_SYS*32+0
         db MOD_SYS*32+1

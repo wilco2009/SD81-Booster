@@ -3,7 +3,7 @@ rem Ensambla SD81TEST (nucleo y modulos) y copia los binarios (y el VGM
 rem de la prueba de sonido) al emulador.
 rem El nucleo va primero: genera sd81test.sym, que incluyen los modulos.
 cd /d "%~dp0"
-set DEST=\ClaudeCode\Eightyone2\EightyOne\SD81\SD81\TOOLS\TEST
+set DEST=C:\ClaudeCode\Eightyone2\EightyOne\SD81\SD81\TOOLS\SD81TEST
 
 pasmo sd81test.asm sd81test.bin sd81test.sym || goto error
 pasmo sd81mem.asm sd81mem.bin sd81mem.sym || goto error

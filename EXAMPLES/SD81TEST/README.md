@@ -84,7 +84,7 @@ teclado del menú; las pruebas nuevas irán a partir de la 26.
 | 2 | `USR 22534` | MEM | MC45 bloques 6–7 | comprobaciones fallidas (0–8; 255 = no se ejecutó) |
 | 3 | `USR 22537` | MEM | Estrés del mapper | errores de relectura + enrutado |
 | 4 | `USR 22540` | MEM | Captura de `POKE 2045` | fallos (de 200) |
-| 5 | `USR 22543` | — | *(reservada: interrupciones simuladas, quitada de momento)* | siempre 9999 |
+| 5 | `USR 22543` | MEM | Interrupciones simuladas (detector, inyección y HALT) | comprobaciones fallidas (0–14; 9999 = la FPGA no tiene el detector) |
 | 6 | `USR 22546` | MEM | ROMLOCK | fallos (de 30) |
 | 7 | `USR 22549` | SYS | Protocolo con el MCU | valores erróneos (9999 = el MCU dejó de contestar) |
 | 8 | `USR 22552` | SYS | Información de la máquina | 0 |
@@ -303,11 +303,58 @@ Cada comprobación escribe 1000 en `FRAMES`, espera 1,5 cuadros y mira si
 ha bajado de 1 a 3. Al terminar se restaura `FRAMES` y se deja el vídeo
 nativo.
 
-## Interrupciones simuladas (quitada de momento)
+## Interrupciones simuladas
 
-La prueba se ha quitado: la FPGA solo sustituye el `RST 38h` en Superfast
-y no genera `/INT` (en el ZX81 sale de A6), así que de momento no sirven
-como interrupción por cuadro. `USR 22543` sigue reservada y devuelve 9999.
+Las tres pruebas de `EXAMPLES/SIMINT` en una (ver su README y
+`FPGA/SD81V2.1000/sim_int.v`). En el menú, **3 MEMORY-MAPPED PORTS → 4
+SIMULATED INTERRUPTS**. Corre en FAST, con DI y en Superfast texto, que es
+donde funcionan las interrupciones; la pantalla se ve en directo mientras
+tanto y la rutina de interrupción hace girar un carácter al final de la
+fila 19. Tarda unos 4 s.
+
+1. **Detector de límites de instrucción** (puerto `$3FEF`): mide un cuerpo
+   con todas las familias de prefijos contra uno vacío. La diferencia tiene
+   que ser exactamente **35 M1, 18 instrucciones y 2 DD/FD CB**.
+2. **Inyección:** una carga de trabajo determinista con todas las familias
+   de prefijos (CB, ED, LDIR, DD CB, prefijos repetidos, DD ED), sin y con
+   interrupciones; la rutina solo cuenta. El checksum tiene que salir
+   igual, las interrupciones de la rutina tienen que ser las mismas que
+   cuenta la FPGA, y las tramas que han pasado, esas mismas ±1.
+3. **HALT:** 50 `HALT` y 50 `DD HALT` tienen que esperar una trama cada uno
+   y volver detrás: 100 vueltas, 100 interrupciones (rutina y FPGA) y 100
+   tramas ±1. Después, 20000 vueltas de `CB 76`, `ED 76` y `DD CB d 76`,
+   que no son HALT: menos de 60 tramas, y tantas interrupciones como
+   tramas.
+
+```
+SD81 TEST - SIM. INTERRUPTS V0.9
+
+M1 CYCLES (35): 35
+INSTRUCTIONS (18): 18
+DD/FD CB (2): 2
+
+CHECKSUM WITHOUT INTS: nnnnn
+CHECKSUM WITH INTS: nnnnn
+INTS ISR/FPGA: n/n
+FRAMES: n
+
+HALT RETURNS (100): 100
+HALT INTS ISR/FPGA: 100/100
+HALT FRAMES (100): 100
+
+CB 76, ED 76, DD CB D 76 (20000)
+INTS ISR/FPGA: 20/20
+FRAMES: 20
+
+RESULT: OK
+```
+
+(Los checksums y las tramas de la carga dependen de la velocidad; lo que
+cuenta es que cuadren entre sí.) Devuelve las comprobaciones que fallan,
+de 0 a 14, o 9999 si la FPGA no tiene el detector: entonces solo escribe
+`FPGA WITHOUT M1 TRACKER`. Con una FPGA que tenga el detector pero sea
+anterior a la rev 0.05 de `sim_int`, sin los HALT, la prueba 3 se cuelga.
+Deja las interrupciones desactivadas y el vídeo nativo.
 
 ## ROMLOCK
 
@@ -429,10 +476,10 @@ cada prueba que se ejecuta. `USR 22639` borra esos resultados; el stub lo
 hace al arrancar. En el menú **9 INFO AND SUMMARY**:
 
 - **2 RUN ALL AUTOMATIC TESTS:** borra los resultados y ejecuta, una tras
-  otra, las 20 pruebas automáticas, cargando el módulo que toque. Son
+  otra, las 21 pruebas automáticas, cargando el módulo que toque. Son
   todas menos la de memoria, que es destructiva, las interactivas y la
   ficha de la máquina: MC45 4–5 y 6–7, estrés del mapper, `POKE 2045`,
-  ROMLOCK, protocolo MCU, memoria no paginada, registros del mapper,
+  interrupciones simuladas, ROMLOCK, protocolo MCU, memoria no paginada, registros del mapper,
   bloque 0, frecuencia de cuadro, RTC, AY, lectura y escritura de SD,
   páginas de sistema, AY del MCU, reloj de la CPU, WiFi, conexión TCP y
   hora de Internet. Al acabar muestra el resumen. Sin módulo WiFi, las tres
@@ -447,6 +494,11 @@ la fecha del RTC y las versiones de MCU, ROM y FPGA en la cabecera, para
 comparar máquinas. El texto se monta con las mismas rutinas de pantalla,
 en códigos ZX81 en `$8000`, y se pasa a ASCII al mandarlo. Devuelve el
 número de pruebas con `FAIL`.
+
+En pantalla, las 21 líneas van en las filas 1–20 y 22 (la 21 es la del
+mensaje del BASIC) y los totales en la 23. El resultado del guardado va
+detrás del título, en la fila 0: `SAVED`, `ERR n` (el estado que devolvió
+el MCU) o `TIMEOUT`.
 
 ## Reloj de la CPU
 
@@ -770,7 +822,7 @@ Estado: **hecha**, *pendiente*.
 | 2.2 | Ejecución | MC45 bloques 6–7 | Auto | **hecha** |
 | 2.3 | Ejecución | Espejo de vídeo en 48K | Auto | cubierta por la 2.2 (extensión apagada) |
 | 3.1 | Puertos en memoria | Captura de `POKE 2045` | Auto | **hecha** |
-| 3.2 | Puertos en memoria | Interrupciones simuladas | Auto | *quitada de momento*: sin `/INT` no sirven como interrupción por cuadro |
+| 3.2 | Puertos en memoria | Interrupciones simuladas (detector, inyección y HALT) | Auto | **hecha** |
 | 3.3 | Puertos en memoria | ROMLOCK | Auto | **hecha** |
 | 3.4 | Puertos en memoria | Ráfagas de POKEs con `LDIR` | Auto/visual | *descartada*: no hay un efecto legible para comprobarla (la captura ya es síncrona) |
 | 3.5 | Puertos en memoria | Sprites (rejilla de 32) | Visual | **hecha** |

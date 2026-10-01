@@ -1,9 +1,13 @@
 # Depurador por hardware: prueba de la fase 1
 
 Prueba del motor de ruptura de la FPGA (`FPGA/SD81V2.1000/sim_int.v`, rev
-0.06) y de la carga del monitor desde el MCU, sin el protocolo con el MCU
-(eso es la fase 2). El plan completo está en
-`claude/planning/hw_debugger_plan.md`.
+0.06) y de la carga del monitor desde el MCU, sin el protocolo con el MCU.
+El plan completo está en `claude/planning/hw_debugger_plan.md`.
+
+**Usa su propio monitor de juguete** como `/SYS/DEBUG.BIN`, no el de
+verdad (`z80rom/debugmon.asm`, que habla con el MCU). Para pasar esta
+prueba hay que poner el de juguete, apagar y encender, y después volver a
+poner el de verdad.
 
 ## Ficheros
 

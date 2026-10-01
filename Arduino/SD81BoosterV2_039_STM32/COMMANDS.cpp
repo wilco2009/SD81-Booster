@@ -19,6 +19,7 @@
 #include "RTC.h"
 #include "WIFI_HANDLER.h"
 #include "B81.h"
+#include "DEBUGGER.h"
 
 #define GET_NEXT_CHAR 13
 
@@ -2923,5 +2924,7 @@ command_handler commands[] = {
   cmd_loadZ81,          //70 (0x46) LOAD *Z81 "fichero"
   cmd_f_create,         //71 (0x47) fcreate: crea/vacia y abre, nombre ASCII
   cmd_f_create_zx81,    //72 (0x48) fcreate con nombre en codigo ZX81
+  cmd_dbg_break,        //73 (0x49) depurador: el programa se ha parado (DEBUGGER.cpp)
+  cmd_dbg_poll,         //74 (0x4A) depurador: resultado y siguiente peticion
   cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

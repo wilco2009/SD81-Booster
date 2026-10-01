@@ -307,7 +307,8 @@ Cada fase se prueba en el hardware antes de pasar a la siguiente.
   prueba en la FPGA;
 - adaptar las pruebas existentes (ver §8).
 
-**Fase 2. Monitor y MCU:**
+**Fase 2. Monitor y MCU** (hecha y probada en hardware; también en el PC
+con `claude/dbgharness`):
 - el monitor de verdad como `DEBUG.BIN`, y `dbg reload`;
 - `DBG_BREAK` y `DBG_POLL`;
 - consola USB, botón QuickSilva, LED;

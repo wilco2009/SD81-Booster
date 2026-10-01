@@ -30,6 +30,7 @@
 #include "z80-disassembler.h"
 #include "TEMP.h"
 #include "WIFI_HANDLER.h"
+#include "DEBUGGER.h"
 
 extern "C" uint32_t SystemCoreClock;
 
@@ -389,15 +390,12 @@ void process_serial_commands(void){
               //     send_debug_params(0, 0);
               //     Serial.println("DEBUG");
               //  } else 
-               // Depurador por hardware (fase 1): pausa y recarga del monitor
+               // Depurador por hardware: las ordenes en minusculas son suyas
+               // (DEBUGGER.cpp); DBG_PAUSE y DBG_RELOAD siguen aqui
+               if (dbg_console(serial_command_buffer)) {
+               } else
                if (strcmp(serial_command_buffer, "DBG_PAUSE") == 0) {
-                  static uint8_t dbg_pause_state = 0;
-                  if (!debug_monitor_loaded) Serial.println("No debug monitor loaded");
-                  else {
-                    dbg_pause_state ^= 1;
-                    send_bit_config(cfgcmd_DBGPAUSE, dbg_pause_state);
-                    Serial.println("DBG_PAUSE sent");
-                  }
+                  dbg_pause();
                } else
                if (strcmp(serial_command_buffer, "DBG_RELOAD") == 0) {
                   // Como un reset: el MCU solo puede escribir la SRAM con el Z80
@@ -416,6 +414,7 @@ void process_serial_commands(void){
                   delay(10);
                   digitalWrite(Z80_RESET, HIGH);
                   reset_commands();
+                  dbg_reset();
                   Serial.println(st == 1 ? "Debug monitor reloaded" : "No debug monitor loaded");
                } else
                if (strncmp(serial_command_buffer, "DBG_PURGE", 9) == 0) {
@@ -618,6 +617,7 @@ void loop() { // Loop for test PLAY command
   if (reseted){
 //    configure_interrupts();
     reseted = false;
+    dbg_reset();                // depurador: el programa ya no esta parado
     //AY_stop();
     Sfile.close();
     Dfile.close();
@@ -631,13 +631,10 @@ void loop() { // Loop for test PLAY command
     }
     delay(100);
   }
-  QS_pressed = !digitalRead(QSPIN);
-  if (QS_pressed) {// && ((millis()-QS_pressed_time) > QS_debounce_time) ) {
-    nQS_en = !nQS_en;
-    send_bit_config(cfgcmd_QSEN,nQS_en?1:0);
-    set_status_led_ok();
-    while (!digitalRead(QSPIN)) delay(100); // wait no button
-  }
+  // Boton QuickSilva (DEBUGGER.cpp): menos de 1 s cambia QuickSilva; con el
+  // monitor del depurador cargado, 1 s pausa o continua y 3 s es el
+  // snapshot (fase 2b). Ya no bloquea el bucle mientras se mantiene.
+  dbg_qs_button();
   // if (debug_data_rdy){
   //   Serial.print("DEBUG DATA: "); Serial.println(debug_data);
   //   if (debug_cmd < 14) {
@@ -654,9 +651,13 @@ void loop() { // Loop for test PLAY command
   read_data();
   // call to active command handler
   if (command_active<=LAST_COMMAND) {
-    log_1("ℹ️ COMMAND=%d",command_active);
+    // DBG_POLL (depurador) se queda activo mientras el monitor espera una
+    // orden y se le llama en cada vuelta: no se registra, o el log se
+    // llenaria y taparia la consola
+    bool log_cmd = (command_active != CMD_DBG_POLL);
+    if (log_cmd) log_1("ℹ️ COMMAND=%d",command_active);
     (*commands[command_active])();
-    log_1("ℹ️ AFTER COMMAND=%d",command_active);
+    if (log_cmd) log_1("ℹ️ AFTER COMMAND=%d",command_active);
   } else {
     if (command_active != CMD_IDLE){
       log_1("⚠️ Unknown command: %d",command_active);

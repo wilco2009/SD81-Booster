@@ -1,5 +1,6 @@
 #include "SD_handle.h"
 #include "MEM.h"
+#include "COMMS.h"
 #include "RTC.h"
 
 #define SD_CONFIG SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(8))
@@ -205,6 +206,45 @@ void complete_fname(char* dest,char* source){
   split_fname(dest,dir,fname);
   complete_dir(dest,dir);
   sprintf_P(dest,PSTR("%s%s"),dest,fname);
+}
+
+// Depurador por hardware (claude/planning/hw_debugger_plan.md). El monitor
+// vive en la pagina 63 y el Z80 lo ve en $2000-$3FFF. El MCU solo tiene 16
+// lineas de direccion: con la orden 9 ("monitor cargado") la FPGA pone a 1
+// las lineas A16-A18 de la SRAM cuando el MCU escribe en $E000-$FFFF, asi
+// que escribiendo ahi se llega a la pagina 63 (y no se copia a la BRAM). La
+// misma orden arma el depurador; los registros de configuracion no se
+// borran con el reset, asi que basta con mandarla una vez.
+bool debug_monitor_loaded = false;
+
+int load_debug_monitor(void){
+  FsFile f;
+  // En el arranque esta es la primera orden del canal de configuracion, y
+  // CFG_RESET sigue bajo desde el pinMode: con el reset sujeto la FPGA no
+  // desplaza los bits y la orden se perderia. rst_config() lo deja alto
+  // (como hace send_config() al empezar).
+  rst_config();
+  if (!f.open(DEBUG_MONITOR_FILE)) {
+    send_bit_config(cfgcmd_DBGLOADED, 0);
+    debug_monitor_loaded = false;
+    log_2("ℹ️ No debug monitor (%s)", DEBUG_MONITOR_FILE);
+    return 0;
+  }
+  uint32_t size = f.fileSize();
+  if (size > 8192) {
+    f.close();
+    send_bit_config(cfgcmd_DBGLOADED, 0);
+    debug_monitor_loaded = false;
+    log_0("❌ %s is larger than 8K", DEBUG_MONITOR_FILE);
+    return -1;
+  }
+  send_bit_config(cfgcmd_DBGLOADED, 1);
+  for (uint32_t i = 0; i < size; i++)
+    write_sram(0xE000 + i, f.read());
+  f.close();
+  debug_monitor_loaded = true;
+  log_1("✅ Debug monitor loaded (%d bytes, page 63)", (int)size);
+  return 1;
 }
 
 int load_ROM(char* rom_file){

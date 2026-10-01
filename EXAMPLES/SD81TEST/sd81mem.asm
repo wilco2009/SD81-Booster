@@ -763,27 +763,25 @@ rl4:    pop bc
 ; =============================================================
 ; Test 5: interrupciones simuladas (USR 22543)
 ;
-; Las tres pruebas de EXAMPLES/SIMINT en una (ver sim_int.v):
-;   1. Detector de limites de instruccion (m1_tracker, puerto $3FEF): se
-;      mide un cuerpo con todas las familias de prefijos contra uno vacio;
-;      la diferencia tiene que ser 35 M1, 18 instrucciones y 2 DD/FD CB.
-;   2. Inyeccion: una carga de trabajo determinista con todas las familias
+; Las pruebas de EXAMPLES/SIMINT en una (ver sim_int.v). La FPGA no tiene
+; contadores de prueba: todo se comprueba con lo que se ve desde el Z80.
+;   1. Inyeccion: una carga de trabajo determinista con todas las familias
 ;      de prefijos, sin y con interrupciones (la rutina solo cuenta). Mismo
-;      checksum, y las interrupciones de la rutina = las de la FPGA = las
-;      tramas (+-1).
-;   3. HALT: 50 HALT y 50 DD HALT tienen que esperar una trama cada uno y
+;      checksum (un RST que partiera una instruccion lo cambiaria), alguna
+;      interrupcion y tantas como tramas (+-1).
+;   2. HALT: 50 HALT y 50 DD HALT tienen que esperar una trama cada uno y
 ;      volver detras (100 vueltas, 100 interrupciones, 100 tramas +-1); y
-;      20000 vueltas de CB 76, ED 76 y DD CB d 76, que no son HALT, pocas
+;      20000 vueltas de CB 76, ED 76 y DD CB d 76, que no son HALT: pocas
 ;      tramas y tantas interrupciones como tramas.
 ; En FAST, con DI y en Superfast texto (las interrupciones solo van en
 ; Superfast): la pantalla se ve en directo mientras corre, y la rutina de
 ; interrupcion hace girar un caracter al final de la fila 19. Unos 4 s.
-; Devuelve las comprobaciones que fallan (0-14), o 9999 si la FPGA no
-; tiene el detector.
+; Devuelve las comprobaciones que fallan (0-8), o 9999 si la FPGA no
+; tiene las interrupciones simuladas (firma 51h, o 52h con el depurador).
 ; =============================================================
-SI_DBG   equ 3FEFh      ; puerto del detector
+SI_DBG   equ 3FEFh      ; puerto de la FPGA (firma)
 SI_PASS  equ 50         ; vueltas de 256 de la carga de trabajo
-SI_NHALT equ 100        ; HALT de la prueba 3 (par)
+SI_NHALT equ 100        ; HALT de la prueba 2 (par)
 SI_NPFX  equ 20000      ; vueltas de CB/ED/DD CB 76
 
 si_test:
@@ -796,11 +794,13 @@ si_test:
         push ix                 ; las pruebas cambian IX
         ld hl,(FRAMES)
         ld (frames_save),hl
-        ld bc,SI_DBG            ; hay detector?
+        ld bc,SI_DBG            ; hay interrupciones simuladas?
         ld a,15
         out (c),a
         in a,(c)
         cp 51h
+        jr z,si_go
+        cp 52h
         jr z,si_go
         call pline
         db 2
@@ -821,44 +821,7 @@ si_go:  call pline
         xor a
         ld (2040),a
 
-        ld hl,si_empty          ; --- 1. detector ---
-        ld de,si_cnt0
-        call si_measure
-        ld hl,si_body
-        ld de,si_cnt1
-        call si_measure
-        ld hl,(si_cnt1)
-        ld de,(si_cnt0)
-        or a
-        sbc hl,de
-        ld (si_v1),hl
-        ld de,35
-        call si_eq
-        ld hl,(si_cnt1+2)
-        ld de,(si_cnt0+2)
-        or a
-        sbc hl,de
-        ld (si_v2),hl
-        ld de,18
-        call si_eq
-        ld hl,(si_cnt1+4)
-        ld de,(si_cnt0+4)
-        or a
-        sbc hl,de
-        ld (si_v3),hl
-        ld de,2
-        call si_eq
-        call plnum
-        db 2
-        dw s_si_m1,si_v1
-        call plnum
-        db 3
-        dw s_si_in,si_v2
-        call plnum
-        db 4
-        dw s_si_ix,si_v3
-
-        call si_work            ; --- 2. inyeccion ---
+        call si_work            ; --- 1. inyeccion ---
         ld hl,(si_chk)          ; sin interrupciones: referencia
         ld (si_ref),hl
         call si_begin
@@ -867,26 +830,27 @@ si_go:  call pline
         ld hl,(si_chk)          ; mismo checksum
         ld de,(si_ref)
         call si_eq
-        call si_same            ; FPGA = rutina, tramas = rutina +-1
+        ld de,(si_ri)           ; tramas = interrupciones +-1
+        ld hl,(si_rfr)
+        call si_near
         ld hl,(si_ri)           ; y alguna ha habido
         ld a,h
         or l
         call z,si_bad
         call plnum
-        db 6
+        db 2
         dw s_si_c0,si_ref
         call plnum
-        db 7
+        db 3
         dw s_si_c1,si_chk
         call plnum
-        db 8
+        db 4
         dw s_si_ii,si_ri
-        call si_slash
         call plnum
-        db 9
+        db 5
         dw s_si_fr,si_rfr
 
-        call si_begin           ; --- 3. HALT y DD HALT ---
+        call si_begin           ; --- 2. HALT y DD HALT ---
         ld de,0
         ld b,SI_NHALT/2
 si_h1:  halt
@@ -901,19 +865,16 @@ si_h1:  halt
         call si_eq
         ld hl,(si_ri)
         call si_eq
-        ld hl,(si_rf)
-        call si_eq
         ld hl,(si_rfr)
         call si_near
         call plnum
-        db 11
+        db 7
         dw s_si_hr,si_v1
         call plnum
-        db 12
+        db 8
         dw s_si_hi,si_ri
-        call si_slash
         call plnum
-        db 13
+        db 9
         dw s_si_hf,si_rfr
 
         call si_begin           ; --- CB 76, ED 76 y DD CB d 76 ---
@@ -928,21 +889,22 @@ si_p1:  bit 6,(hl)              ; CB 76
         or c
         jr nz,si_p1
         call si_end
-        call si_same
+        ld de,(si_ri)           ; tramas = interrupciones +-1
+        ld hl,(si_rfr)
+        call si_near
         ld hl,(si_rfr)          ; pocas tramas: ninguno ha esperado
         ld de,60
         or a
         sbc hl,de
         call nc,si_bad
         call pline
-        db 15
+        db 11
         dw s_si_76
         call plnum
-        db 16
+        db 12
         dw s_si_ii,si_ri
-        call si_slash
         call plnum
-        db 17
+        db 13
         dw s_si_fr,si_rfr
         ld hl,(si_tick)
         ld (hl),Z_SP
@@ -985,36 +947,19 @@ si_near:
         ret c
         jr si_bad
 
-; La FPGA cuenta las mismas que la rutina, y las tramas coinciden (+-1)
-si_same:
-        ld de,(si_ri)
-        ld hl,(si_rf)
-        call si_eq
-        ld hl,(si_rfr)
-        jr si_near
-
-; Detras de plnum (rutina): "/" y las de la FPGA
-si_slash:
-        ld a,18h                ; '/'
-        call out_char
-        ld hl,(si_rf)
-        jp out_dec16
-
-; Empieza una medida: interrupciones a 0, contador de la FPGA y FRAMES de
-; partida, y las interrupciones activas
+; Empieza una medida: interrupciones a 0, FRAMES de partida, y las
+; interrupciones activas
 si_begin:
         ld hl,0
         ld (si_ints),hl
-        call si_rdcnt
-        ld (si_fpga0),hl
         ld hl,(FRAMES)
         ld (si_frm0),hl
         ld a,1
         ld (2040),a
         ret
 
-; Acaba una medida: las desactiva y deja las de la rutina (si_ri), las de
-; la FPGA (si_rf) y las tramas que han pasado (si_rfr)
+; Acaba una medida: las desactiva y deja las de la rutina (si_ri) y las
+; tramas que han pasado (si_rfr)
 si_end:
         xor a
         ld (2040),a
@@ -1027,24 +972,8 @@ si_end:
         and 7Fh
         ld h,a
         ld (si_rfr),hl
-        call si_rdcnt
-        ld de,(si_fpga0)
-        or a
-        sbc hl,de
-        ld (si_rf),hl
         ld hl,(si_ints)
         ld (si_ri),hl
-        ret
-
-; HL = interrupciones que lleva contadas la FPGA ($3FEF, indices 9/10)
-si_rdcnt:
-        ld bc,SI_DBG
-        ld a,9
-        out (c),a
-        in l,(c)
-        ld a,10
-        out (c),a
-        in h,(c)
         ret
 
 ; La rutina de interrupcion: cuenta, gira el caracter y vuelve con un RET
@@ -1058,55 +987,6 @@ si_isr: push af
         inc (hl)
         pop hl
         pop af
-        ret
-
-; HL = cuerpo, DE = donde dejar M1, instrucciones y DD/FD CB (3 palabras).
-; Mismo camino para los dos cuerpos: lo que no es el cuerpo se anula al
-; restar.
-si_measure:
-        ld (sim_call+1),hl
-        push de
-        ld bc,SI_DBG
-        ld a,80h
-        out (c),a               ; borrar
-sim_call:
-        call 0                  ; el cuerpo
-        ld bc,SI_DBG            ; (el cuerpo cambia BC)
-        ld a,40h
-        out (c),a               ; congelar
-        pop hl
-        ld d,0                  ; indices 0-5
-sim1:   ld a,d
-        out (c),a
-        in a,(c)
-        ld (hl),a
-        inc hl
-        inc d
-        ld a,d
-        cp 6
-        jr nz,sim1
-si_empty:
-        ret
-
-; 35 M1, 18 instrucciones, 2 DD/FD CB (sin contar el RET, que tambien
-; tiene el cuerpo vacio)
-si_body:
-        nop                             ;  1 M1  1 instr
-        ld a,5                          ;  1     1
-        rlc b                           ;  2     1   CB 00
-        neg                             ;  2     1   ED 44
-        ld hl,si_src                    ;  1     1
-        ld de,si_dst                    ;  1     1
-        ld bc,4                         ;  1     1
-        ldir                            ;  8     4   ED B0, una vez por byte
-        ld ix,si_dst                    ;  2     1   DD 21
-        ld a,(ix+1)                     ;  2     1   DD 7E d
-        rlc (ix+2)                      ;  2     1   DD CB d 06: d y 06 no son M1
-        bit 0,(iy+1)                    ;  2     1   FD CB d 46
-        defb 0DDh,0DDh,0DDh,07Eh,000h   ;  4     1   DD DD LD A,(IX+0)
-        defb 0FDh,0DDh,021h             ;  3     1   FD DD LD IX,si_dst
-        defw si_dst
-        defb 0DDh,0EDh,044h             ;  3     1   DD NEG
         ret
 
 ; Carga de trabajo: todo lo que hace entra en el checksum (si_chk), asi
@@ -1706,6 +1586,20 @@ is2:    ld a,(de)
         ld (hl),Z_S
         inc de
         djnz is2
+        ld bc,3FEFh             ; con el monitor del depurador cargado (firma
+        ld a,15                 ; 52h y armado), la pagina 63 es suya: la
+        out (c),a               ; FPGA no deja escribirla
+        in a,(c)
+        cp 52h
+        ret nz
+        xor a
+        out (c),a
+        in a,(c)
+        rla                     ; bit 7: armado
+        ret nc
+        ld a,63
+        call status_ptr
+        ld (hl),Z_S
         ret
 
 ; C = numero de paginas marcadas X o R (B = 0)
@@ -2145,17 +2039,14 @@ s_pk_d2:   db "FRAMES MUST RUN ONLY WHEN O",'N'+80h
 s_pk_on:   db "170 (SUPERFAST ON) FAILS:",' '+80h
 s_pk_off:  db "85 (NATIVE) FAILS:",' '+80h
 s_si_title: db "SIM. INTERRUPT",'S'+80h
-s_si_none: db "FPGA WITHOUT M1 TRACKE",'R'+80h
+s_si_none: db "FPGA WITHOUT SIMULATED INT",'S'+80h
 s_si_run:  db "RUNNING..",'.'+80h
-s_si_m1:   db "M1 CYCLES (35):",' '+80h
-s_si_in:   db "INSTRUCTIONS (18):",' '+80h
-s_si_ix:   db "DD/FD CB (2):",' '+80h
 s_si_c0:   db "CHECKSUM WITHOUT INTS:",' '+80h
 s_si_c1:   db "CHECKSUM WITH INTS:",' '+80h
-s_si_ii:   db "INTS ISR/FPGA:",' '+80h
+s_si_ii:   db "INTERRUPTIONS:",' '+80h
 s_si_fr:   db "FRAMES:",' '+80h
 s_si_hr:   db "HALT RETURNS (100):",' '+80h
-s_si_hi:   db "HALT INTS ISR/FPGA:",' '+80h
+s_si_hi:   db "HALT INTERRUPTIONS (100):",' '+80h
 s_si_hf:   db "HALT FRAMES (100):",' '+80h
 s_si_76:   db "CB 76, ED 76, DD CB D 76 (20000",')'+80h
 s_rl_title equ s_rl_d2+6    ; comparte texto
@@ -2229,16 +2120,12 @@ sp_page:    db 0        ; paginas de sistema: pagina en curso
 sp_err:     dw 0        ; errores de esa pagina
 si_tick:    dw 0        ; interrupciones simuladas: el caracter que gira
 si_ints:    dw 0        ; las que cuenta la rutina
-si_fpga0:   dw 0        ; contador de la FPGA al empezar la medida
 si_frm0:    dw 0        ; FRAMES al empezar la medida
-si_ri:      dw 0        ; resultado de la medida: rutina, FPGA, tramas
-si_rf:      dw 0
+si_ri:      dw 0        ; resultado de la medida: interrupciones y tramas
 si_rfr:     dw 0
 si_chk:     dw 0        ; checksum de la carga de trabajo
 si_ref:     dw 0        ; el de la pasada sin interrupciones
-si_v1:      dw 0        ; resultados del detector (y vueltas tras HALT)
-si_v2:      dw 0
-si_v3:      dw 0
+si_v1:      dw 0        ; vueltas detras del HALT
 
 ; -------------------------------------------------------------
 ; Buffers del modulo sin valor inicial (no van en el .bin).
@@ -2251,8 +2138,5 @@ sig_save     equ burst_pages+4   ; 2 bytes originales por pagina
 up_cnt       equ sig_save+128   ; PAGED, FIXED, CONFL del bloque en curso
 rg_exp       equ up_cnt+3   ; registros del mapper: paginas esperadas 4-7
 sp_save      equ rg_exp+4   ; copia del buffer de impresora
-si_cnt0      equ sp_save+33   ; interrupciones simuladas: contadores
-si_cnt1      equ si_cnt0+6    ; del detector (cuerpo vacio y de prueba)
-si_dst       equ si_cnt1+6    ; datos del cuerpo del detector
-si_wbuf      equ si_dst+4     ; buffer de la carga de trabajo
+si_wbuf      equ sp_save+33   ; interrupciones simuladas: buffer de la carga
 mbss_end     equ si_wbuf+8

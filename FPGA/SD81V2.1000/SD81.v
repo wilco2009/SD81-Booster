@@ -324,6 +324,16 @@ module SD81(
 	reg nQS_en = 1'b1; // initially QS interface disabled // test_NMI;
 	
 	reg block0Writable = 1'b0;
+
+	// Depurador por hardware (ver sim_int.v y claude/planning/hw_debugger_plan.md)
+	reg dbg_loaded = 1'b0;		// orden 9 del MCU: monitor cargado en la pagina 63 (y depurador armado)
+	reg dbg_pause_tgl = 1'b0;	// orden 8 del MCU: pausa (la FPGA reacciona al cambio)
+	wire dbg_win;				// el bloque 1 lleva la pagina 63 (ventana del monitor)
+	wire dbg_mon;				// el monitor esta activo
+	// Mientras el monitor esta activo el bloque 0 se comporta como RAM, igual
+	// que con POKE 2056 en CP/M: se puede escribir (breakpoints por software
+	// en la ROM) y sus escrituras no disparan los registros de POKE.
+	wire blk0_ram = block0Writable | dbg_mon;
 	
 		 
 // ***************************************************
@@ -477,7 +487,7 @@ Port $7FEF (01111111 11101111) - IN:
 	reg bpattern_en = 1'b0;
 	reg [2:0] border_pixel_cnt = 3'b000;
 
-	wire poke_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2041) && (Addr < 16'd2059);
+	wire poke_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2041) && (Addr < 16'd2059);
 
 	always@(negedge nMREQ)
 		if (~nRFSH) ROMTABLE[15:8] = Addr[15:8];
@@ -583,7 +593,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// del DFILE en modo texto, que la FPGA no trata como especial). Sin
 	// efecto en modo nativo (no Superfast); ver sfast_mode_en en col_cnt_b.
 	reg [2:0] sf_hscroll = 3'd0;
-	wire sf_hscroll_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2090);
+	wire sf_hscroll_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2090);
 	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf_hscroll <= 3'd0;
 		else if (sf_hscroll_wr) sf_hscroll <= data[2:0];
@@ -594,7 +604,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// no romper la congruencia modulo 8 con SCR_START_X que necesita
 	// col_cnt_b. Por defecto 0 (valor de partida, 138).
 	reg [3:0] sf80_x_shift = 4'd0;
-	wire sf80_x_shift_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2094);
+	wire sf80_x_shift_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2094);
 	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf80_x_shift <= 4'd0;
 		else if (sf80_x_shift_wr) sf80_x_shift <= data[3:0];
@@ -605,7 +615,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// aunque se desplace el inicio -- permite separar "donde empieza" de
 	// "cuanto mide" para saber cuantas columnas caben de verdad.
 	reg [3:0] sf80_width_trim = 4'd0;
-	wire sf80_width_trim_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2095);
+	wire sf80_width_trim_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2095);
 	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf80_width_trim <= 4'd0;
 		else if (sf80_width_trim_wr) sf80_width_trim <= data[3:0];
@@ -620,9 +630,9 @@ Port $7FEF (01111111 11101111) - IN:
 	reg [7:0] sf_hscroll_rows_l = 8'hFF;
 	reg [7:0] sf_hscroll_rows_m = 8'hFF;
 	reg [7:0] sf_hscroll_rows_h = 8'hFF;
-	wire sf_hscroll_rows_l_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2091);
-	wire sf_hscroll_rows_m_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2092);
-	wire sf_hscroll_rows_h_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2093);
+	wire sf_hscroll_rows_l_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2091);
+	wire sf_hscroll_rows_m_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2092);
+	wire sf_hscroll_rows_h_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2093);
 	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf_hscroll_rows_l <= 8'hFF;
 		else if (sf_hscroll_rows_l_wr) sf_hscroll_rows_l <= data;
@@ -655,9 +665,9 @@ Port $7FEF (01111111 11101111) - IN:
 	// cada frame.
 	reg [15:0] DFILE_OVERRIDE = 16'd0;
 	reg dfile_ovr_en = 1'b0;
-	wire dfile_ovr_lo_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2096);
-	wire dfile_ovr_hi_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2097);
-	wire dfile_ovr_en_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2098);
+	wire dfile_ovr_lo_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2096);
+	wire dfile_ovr_hi_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2097);
+	wire dfile_ovr_en_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2098);
 	// Al volver a video NATIVO (POKE 2045,85) se apaga el override tambien:
 	// "modo estandar" tiene que significar el comportamiento de siempre
 	// (D_FILE), sin depender de si alguien activo el override antes y se
@@ -702,9 +712,9 @@ Port $7FEF (01111111 11101111) - IN:
 	// con POKE 2045,85) el modo 1 funciona exactamente igual que siempre.
 	reg [15:0] ATTR_BASE_OVERRIDE = 16'd0;
 	reg attr_ovr_en = 1'b0;
-	wire attr_ovr_lo_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2059);
-	wire attr_ovr_hi_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2060);
-	wire attr_ovr_en_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2061);
+	wire attr_ovr_lo_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2059);
+	wire attr_ovr_hi_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2060);
+	wire attr_ovr_en_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2061);
 	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) ATTR_BASE_OVERRIDE[7:0] <= 8'd0;
 		else if (attr_ovr_lo_wr) ATTR_BASE_OVERRIDE[7:0] <= data;
@@ -762,7 +772,7 @@ Port $7FEF (01111111 11101111) - IN:
 	localparam SPR_SEL_ADDR  = 16'd2100;
 	localparam SPR_BASE_ADDR = 16'd2101;
 
-	wire sprite_poke_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) &&
+	wire sprite_poke_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) &&
 								 (Addr >= SPR_SEL_ADDR) && (Addr < SPR_BASE_ADDR+28);
 
 	// Todo se captura en el flanco de subida de T3 (ver "CAPTURA DE
@@ -901,7 +911,10 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [15:0] blit_waddr = {front_blk, blit_cnt};				// destino: bloque front (BRAM privada)
 	wire dbuf_wr_mask = dbuf_en & (Addr[15:13]==front_blk);	// front: enmascarar escrituras CPU en BRAM
 
-	wire shadowram_we = ~nRESET?~nWRx: blit_we?1'b1: (isAttrMem & ~dbuf_wr_mask)? ~nWR:1'b0;
+	// Depurador: no se copia a la BRAM lo que escribe el monitor ni la carga
+	// de DEBUG.BIN que hace el MCU en $E000-$FFFF (pagina 63)
+	wire dbg_load_blk = dbg_loaded & A15x & A14x & A13x;
+	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): blit_we?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon)? ~nWR:1'b0;
 	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]: blit_we?blit_waddr: nRFSH?Addr[15:0]:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
 	wire [7:0] shadowram_din = blit_we? v_dout: data;
 	wire [8:0] SCR_START_Y = 62;
@@ -1713,8 +1726,8 @@ assign DEBUG_RDY = 1'b0;
 			enable_int <= 1'b0;
 			disable_int <= 1'b0;
 		end else begin
-			enable_int <= ~nMREQ && ~nWR && (Addr==16'd2040) && D0;
-			disable_int <= ~nMREQ && ~nWR && (Addr==16'd2040) && ~D0;
+			enable_int <= !blk0_ram && ~nMREQ && ~nWR && (Addr==16'd2040) && D0;
+			disable_int <= !blk0_ram && ~nMREQ && ~nWR && (Addr==16'd2040) && ~D0;
 		end
 	end
 	reg [15:0] int_addr = 16514;
@@ -1728,7 +1741,7 @@ assign DEBUG_RDY = 1'b0;
 
 	assign int_signal = (int_mode==1'b0)? vsync:vborder;
 
-	wire poke_wr_int = (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2038) && (Addr <= 16'd2039);
+	wire poke_wr_int = !blk0_ram && (nMREQ==1'b0) && (nWR==1'b0) && (Addr >= 16'd2038) && (Addr <= 16'd2039);
 
 	// POKE 2038,int_addr_low	-> set low part of la rutina de interrupciones simuladas
 	// POKE 2039,int_addr_high	-> set high part de la rutina de interrupciones simuladas
@@ -1747,28 +1760,20 @@ assign DEBUG_RDY = 1'b0;
 	
 	// Detector de limites de instruccion: sigue las M1 y sabe si la
 	// siguiente empieza una instruccion, que es donde sim_int puede inyectar
-	// su RST 38h. Puerto de depuracion $3FEF (ver m1_tracker en sim_int.v).
+	// su RST 38h. Puerto del depurador $3FEF (ver sim_int.v).
 	wire [7:0] m1t_data;
 	wire m1t_boundary;
 	wire m1t_index;
 	wire m1t_rd = ~nIORD & (Addr == 16'h3FEF);
-	wire [7:0] si_status;
-	wire [15:0] si_count;
 	m1_tracker m1_tracker_inst (
 		.iclock(iclock),
 		.nreset(nRESET),
 		.nM1(nM1),
 		.nMREQ(nMREQ),
 		.nRFSH(nRFSH),
-		.nIORQ(nIORQ),
-		.nWR(nWR),
-		.addr(Addr),
 		.data(data),
-		.si_status(si_status),
-		.si_count(si_count),
 		.boundary(m1t_boundary),
-		.index_prefix(m1t_index),
-		.dbg_out(m1t_data)
+		.index_prefix(m1t_index)
 	);
 
 	sim_int sim_int_inst (
@@ -1784,15 +1789,22 @@ assign DEBUG_RDY = 1'b0;
 		.addr(Addr),
 		.data(data),
 		.nRD(nRD),
+		.nWR(nWR),
 		.nM1(nM1),
 		.nMREQ(nMREQ),
+		.nIORQ(nIORQ),
 		.nRFSH(nRFSH),
+		.dbg_loaded(dbg_loaded),
+		.dbg_pause_tgl(dbg_pause_tgl),
+		.joy_up_n(UP),
+		.joy_down_n(DOWN),
 		.data_out(int_data_out),
 		.enable_out(int_out_en),
 		.enabled(int_enabled),
 		.state(int_state),
-		.status(si_status),
-		.count(si_count)
+		.dbg_win(dbg_win),
+		.dbg_mon(dbg_mon),
+		.port_out(m1t_data)
 	);
 
 
@@ -1939,7 +1951,7 @@ assign DEBUG_RDY = 1'b0;
 		// programador sepa con certeza que va a ejecutar codigo propio en
 		// 6/7 y que nada mas del sistema va a tocar esa zona mientras tanto.
 		reg mc45_ext67 = 1'b0;
-		wire mc45_ext67_wr = !block0Writable && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2062);
+		wire mc45_ext67_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2062);
 		always @(negedge iclock or negedge nRESET) begin
 			if (nRESET==1'b0) mc45_ext67 <= 1'b0;
 			else if (mc45_ext67_wr && data==8'd170) mc45_ext67 <= 1'b1;
@@ -2003,13 +2015,26 @@ assign DEBUG_RDY = 1'b0;
 		(nQS_en & (nRFSH | A14 | A15 | (wrx_en & A13)) || (~nQS_en & nRFSH))? {A9,A8,A7,A6,A5,A4,A3,A2,A1,A0}:  // normal access (wrx_en: WRX con I en $20-$3F, POKE 2058)
 		(~nQS_en & ~nRFSH)||SEL_128CHARS?{ram_Dlatch[7],ram_Dlatch[5:0],line_cnt[2:0]}:			// access  to char table on 128CHAR or QS mode
 		{A9,ram_Dlatch[5:0],line_cnt[2:0]};																		// access to char table on 64CHAR mode
-	assign {A18x,A17x,A16x,A15x,A14x,A13x} = ~nRESET?6'bzzzzzz: // access to RAM from micro on boot
+	wire [5:0] sram_page =
 		(~nQS_en & ~nRFSH)?block[3'b100]:								// access to char table on QS mode
+		(dbg_win & nRFSH & ~A15 & ~A14 & A13)? 6'd63:						// depurador: ventana del monitor en el bloque 1
 		(~nMODE48K &~nM1 & A15 & A14 & ~mc45_exec67)? block[{1'b0,A14,A13}]:		// access to execute at C000-FFFF in 48K mode (mc45_exec67 lo quita: ver MC45/M1NOT)
 		block[{ A15,A14,A13}];												// normal access
+	// Con el Z80 en reset las escribe el MCU, que solo tiene 16 lineas de
+	// direccion. Con el monitor cargado (orden 9), la FPGA pone A16-A18 a 1
+	// en el bloque 7: asi el MCU escribe DEBUG.BIN en la pagina 63
+	// escribiendo en $E000-$FFFF, y el resto de bloques no cambia.
+	assign {A18x,A17x,A16x} = ~nRESET?(dbg_loaded?{3{A15x&A14x&A13x}}:3'bzzz): sram_page[5:3];
+	assign {A15x,A14x,A13x} = ~nRESET?3'bzzz: sram_page[2:0];		// access to RAM from micro on boot
 
-		// LOW ROM is write protected
-		assign nWRx =~nRESET?1'bz:(nWR | nMREQ | ((~A13&~A14&~A15)&~block0Writable) );
+		// Con el monitor del depurador cargado, la pagina 63 es suya: solo la
+		// escribe el propio monitor (y el MCU al cargarlo, con el Z80 en
+		// reset). Un programa con FULLPAG que la mapee la puede leer, pero
+		// sus escrituras no llegan a la SRAM.
+		wire p63_lock = dbg_loaded & ~dbg_mon & (sram_page == 6'd63);
+
+		// LOW ROM is write protected (salvo como RAM: CP/M o el monitor del depurador)
+		assign nWRx =~nRESET?1'bz:(nWR | nMREQ | ((~A13&~A14&~A15)&~blk0_ram) | p63_lock );
 		
 		//external MEM active for RAM and ROM
 		// La SRAM se apaga cuando es la FPGA la que sirve el dato: el JP de las
@@ -2245,6 +2270,8 @@ assign DEBUG_RDY = 1'b0;
 				else if 	(comm_cmd==5) SEL_128CHARS <= cfg_reg[CMD_BITS];		// 1=HIGHER HALF RAM, 0=LOWER HALF RAM			end else begin
 				else if 	(comm_cmd==6) SEL_256CHARS <= cfg_reg[CMD_BITS];		// 1=256 caracteres (solo Superfast texto), 0=normal
 				else if 	(comm_cmd==7) PORTS_LOCKED <= cfg_reg[CMD_BITS];		// 1=ROMLOCK (puertos POKE de bloque 0 apagados), 0=normal
+				else if 	(comm_cmd==8) dbg_pause_tgl <= cfg_reg[CMD_BITS];		// depurador: pausa (al conmutar)
+				else if 	(comm_cmd==9) dbg_loaded <= cfg_reg[CMD_BITS];			// depurador: monitor cargado en la pagina 63 (y armado)
 			end else begin
 				cfg_reg[cfg_cnt]<=CFG_DATA;
 				if (cfg_cnt < MAX_CFG) cfg_cnt <= cfg_cnt+1'b1;

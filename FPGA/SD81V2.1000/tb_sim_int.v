@@ -1,8 +1,9 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
 // tb_sim_int -- banco de pruebas de las interrupciones simuladas (sim_int +
-// m1_tracker, conectados como en SD81.v). No forma parte del proyecto de
-// ISE: se simula aparte.
+// m1_tracker, conectados como en SD81.v), con el depurador desarmado (el
+// depurador tiene su propio banco, tb_dbg.v). No forma parte del proyecto
+// de ISE: se simula aparte.
 //
 //   iverilog -o tb tb_sim_int.v sim_int.v && vvp tb
 //
@@ -29,24 +30,24 @@ module tb_sim_int;
 	wire fpga_en;
 	wire [7:0] bus = fpga_en ? fpga_data : mem_data;	// lo que ve la CPU
 	wire boundary, index_prefix;
-	wire [7:0] dbg_out, si_status;
-	wire [15:0] si_count;
+	wire [7:0] port_out;
 	wire [1:0] si_state;
-	wire si_enabled;
+	wire si_enabled, dbg_win, dbg_mon;
+	integer ints = 0;		// RST 38h inyectados (los cuenta el banco)
 	integer errors = 0;
 
 	m1_tracker trk (
 		.iclock(iclock), .nreset(nreset), .nM1(nM1), .nMREQ(nMREQ), .nRFSH(nRFSH),
-		.nIORQ(nIORQ), .nWR(nWR), .addr(addr), .data(bus),
-		.si_status(si_status), .si_count(si_count),
-		.boundary(boundary), .index_prefix(index_prefix), .dbg_out(dbg_out));
+		.data(bus), .boundary(boundary), .index_prefix(index_prefix));
 
 	sim_int si (
 		.iclock(iclock), .nreset(nreset), .enable_int(en_pulse), .disable_int(dis_pulse),
 		.superfast_mode(superfast), .vsync(vsync), .boundary(boundary),
-		.index_prefix(index_prefix), .int_addr(16'h7000), .addr(addr), .data(bus), .nM1(nM1), .nRD(nRD), .nMREQ(nMREQ), .nRFSH(nRFSH),
+		.index_prefix(index_prefix), .int_addr(16'h7000), .addr(addr), .data(bus), .nM1(nM1),
+		.nRD(nRD), .nWR(nWR), .nMREQ(nMREQ), .nIORQ(nIORQ), .nRFSH(nRFSH),
+		.dbg_loaded(1'b0), .dbg_pause_tgl(1'b0), .joy_up_n(1'b1), .joy_down_n(1'b1),
 		.data_out(fpga_data), .enable_out(fpga_en), .state(si_state),
-		.enabled(si_enabled), .status(si_status), .count(si_count));
+		.enabled(si_enabled), .dbg_win(dbg_win), .dbg_mon(dbg_mon), .port_out(port_out));
 
 	reg [7:0] got;			// el byte que ha leido la CPU en la ultima lectura
 	reg got_fpga;			// si lo servia la FPGA
@@ -115,7 +116,7 @@ module tb_sim_int;
 	task run_halt(input [15:0] h, input integer vueltas);
 		integer i;
 	begin
-		expect_fpga(8'hFF, "HALT -> RST 38h");
+		expect_fpga(8'hFF, "HALT -> RST 38h"); ints = ints + 1;
 		mem_wr(16'h7FFF); mem_wr(16'h7FFE);				// RST: guarda h+1
 		for (i = 0; i < vueltas; i = i + 1) begin
 			m1(16'h0038, 8'hF5);  expect_fpga(8'h18, "HALT: JR $");
@@ -147,7 +148,7 @@ module tb_sim_int;
 	// (como si fuera LD A,($0039): ya no se sirve) y un RET.
 	task run_interrupt(input [15:0] x);
 	begin
-		expect_fpga(8'hFF, "RST 38h inyectado");
+		expect_fpga(8'hFF, "RST 38h inyectado"); ints = ints + 1;
 		mem_wr(16'h7FFF); mem_wr(16'h7FFE);				// RST: guarda X+1
 		m1(16'h0038, 8'hF5);  expect_fpga(8'hCD, "CALL en $0038");
 		mem_rd(16'h0039, 8'h00); expect_fpga(8'h00, "CALL lo");
@@ -200,7 +201,7 @@ module tb_sim_int;
 		// --- sin anidar: un VSYNC durante la rutina espera a que acabe ---
 		pulse_vsync;
 		m1(16'h6009, 8'h00);
-		expect_fpga(8'hFF, "RST 38h inyectado");
+		expect_fpga(8'hFF, "RST 38h inyectado"); ints = ints + 1;
 		mem_wr(16'h7FFF); mem_wr(16'h7FFE);
 		m1(16'h0038, 8'hF5); mem_rd(16'h0039, 0); mem_rd(16'h003A, 0);
 		mem_wr(16'h7FFD); mem_wr(16'h7FFC);
@@ -250,11 +251,11 @@ module tb_sim_int;
 		m1(16'h600C, 8'h00); expect_mem(8'h00, "desactivadas: sin RST");
 		m1(16'h600D, 8'h76); expect_mem(8'h76, "desactivadas: HALT normal");
 
-		if (si_count !== 16'd8) begin
-			$display("ERROR interrupciones contadas: %0d, esperaba 8", si_count);
+		if (ints !== 8) begin
+			$display("ERROR RST inyectados: %0d, esperaba 8", ints);
 			errors = errors + 1;
 		end else
-			$display("ok    interrupciones contadas: 8");
+			$display("ok    RST inyectados: 8");
 
 		if (errors == 0) $display("TODO OK");
 		else $display("%0d ERRORES", errors);

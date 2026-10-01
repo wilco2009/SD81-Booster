@@ -67,7 +67,7 @@ Con las interrupciones activas (la rutina solo cuenta):
 
 1. 100 HALT (50 `HALT` y 50 `DD HALT`): cada uno tiene que esperar una trama
    y volver una sola vez detrás. Tienen que salir 100 vueltas, 100
-   interrupciones (rutina y FPGA) y 100 tramas (±1). Si volviera al propio
+   interrupciones y 100 tramas (±1). Si volviera al propio
    HALT saldrían 200 tramas; si no esperara, casi ninguna.
 2. `CB 76`, `ED 76` y `DD CB d 76` no son HALT: 20000 vueltas tienen que
    tardar pocas tramas, con tantas interrupciones como tramas (±1).
@@ -80,9 +80,9 @@ y el carácter que incrementa la rutina (columna 2).
 En Superfast y con DI ejecuta una carga de trabajo determinista con todas
 las familias de prefijos, primero sin interrupciones (checksum de
 referencia) y después con ellas (la rutina solo cuenta). Tiene que salir el
-mismo checksum, y las interrupciones tienen que coincidir con las que
-cuenta la FPGA y con las tramas que han pasado (FRAMES, ±1). Unos 3
-segundos por pasada. Stub `INTTEST.B81`.
+mismo checksum, y las interrupciones tienen que coincidir con las tramas
+que han pasado (FRAMES, ±1). Unos 3 segundos por pasada. Stub
+`INTTEST.B81`.
 
 Mientras corre deja señales en la primera fila (en Superfast se ve el DFILE
 en directo), para saber dónde se para si se cuelga: columna 0, la pasada
@@ -90,38 +90,21 @@ en directo), para saber dónde se para si se cuelga: columna 0, la pasada
 incrementa la rutina de interrupción (si cambia, entran); columna 4, el
 progreso de la carga.
 
-### Paso 1: `m1test`
+### Paso 1: el detector
 
-El detector se lee por el puerto `$3FEF` (dirección completa de 16 bits):
+La prueba `m1test` leía unos contadores del detector por el puerto `$3FEF`.
+Se quitaron al hacer el depurador por hardware: la FPGA no lleva lógica
+solo para probar. El detector queda cubierto por `inttest` y `halttest`
+(si se equivocara con un límite, la inyección partiría una instrucción y el
+checksum o las vueltas saldrían mal) y por el banco de pruebas
+`tb_m1_tracker.v`, que cuenta en el propio banco las instrucciones del
+mismo cuerpo de prueba (35 M1, 18 instrucciones).
 
-| Escritura | Qué hace |
-|---|---|
-| `80h` | borra los contadores |
-| `40h` | los congela en una copia, que es lo que se lee |
-| `0`-`15` | elige qué devuelve la lectura |
+Las pruebas comprueban la firma en el puerto `$3FEF` (índice 15): `51h`
+con las interrupciones simuladas, `52h` si además está el depurador (ver
+`EXAMPLES/DBGTEST`).
 
-| Índice | Lectura |
-|---|---|
-| 0 / 1 | M1 (bajo / alto) |
-| 2 / 3 | instrucciones: M1 que empiezan instrucción |
-| 4 / 5 | instrucciones `DD CB` / `FD CB` |
-| 6 | último opcode leído en una M1 |
-| 7 | estado (0 normal, 1 segundo byte de CB/ED, 2 tras DD/FD) |
-| 8 | interrupciones simuladas: activas, pendiente, arm, Superfast, -, -, fase (en vivo) |
-| 9 / 10 | interrupciones inyectadas, bajo / alto (en vivo) |
-| 15 | firma `51h`: el detector está presente |
-
-`m1test.asm` mide dos veces con el mismo camino de código, con un cuerpo
-vacío y con uno que tiene todas las familias de instrucciones, y compara la
-diferencia con lo esperado: **35 M1, 18 instrucciones y 2 DD/FD CB**. Se
-carga con el stub `M1TEST.B81` y dice OK o WRONG; si la FPGA no tiene el
-detector, lo dice también.
-
-```
-pasmo m1test.asm m1test.bin
-```
-
-Los módulos están en `FPGA/SD81V2.1000/sim_int.v` (`sim_int` y
-`m1_tracker`), y sus bancos de pruebas en `tb_sim_int.v` y
-`tb_m1_tracker.v` (se simulan aparte, con ISim o iverilog; no forman parte
-del proyecto de ISE).
+Los módulos están en `FPGA/SD81V2.1000/sim_int.v` (`sim_int`, que también
+lleva el depurador, y `m1_tracker`), y sus bancos de pruebas en
+`tb_sim_int.v`, `tb_m1_tracker.v` y `tb_dbg.v` (se simulan aparte, con
+ModelSim, ISim o iverilog; no forman parte del proyecto de ISE).

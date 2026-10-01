@@ -269,6 +269,7 @@ void setup() {
 
   enableMem();
   int status = load_ROM("/SYS/SDBOOST.ROM");
+  if (status == 0) load_debug_monitor();   // depurador: /SYS/DEBUG.BIN en la pagina 63
   disableMem();
   if (status == -1) LED_error(clORANGE);      // memory error
   else if (status == -2) LED_error(clBLUE);   // error openning ROM file
@@ -388,6 +389,35 @@ void process_serial_commands(void){
               //     send_debug_params(0, 0);
               //     Serial.println("DEBUG");
               //  } else 
+               // Depurador por hardware (fase 1): pausa y recarga del monitor
+               if (strcmp(serial_command_buffer, "DBG_PAUSE") == 0) {
+                  static uint8_t dbg_pause_state = 0;
+                  if (!debug_monitor_loaded) Serial.println("No debug monitor loaded");
+                  else {
+                    dbg_pause_state ^= 1;
+                    send_bit_config(cfgcmd_DBGPAUSE, dbg_pause_state);
+                    Serial.println("DBG_PAUSE sent");
+                  }
+               } else
+               if (strcmp(serial_command_buffer, "DBG_RELOAD") == 0) {
+                  // Como un reset: el MCU solo puede escribir la SRAM con el Z80
+                  // y la FPGA en reset
+                  digitalWrite(Z80_RESET, LOW);
+                  digitalWrite(FPGA_RESET, LOW);
+                  delay(1);
+                  enableMem();
+                  int st = load_debug_monitor();
+                  disableMem();
+                  _rst_ctrl_reg(HIGH);
+                  _rst_data_reg(HIGH);
+                  reseted = true;
+                  delay(1);
+                  digitalWrite(FPGA_RESET, HIGH);
+                  delay(10);
+                  digitalWrite(Z80_RESET, HIGH);
+                  reset_commands();
+                  Serial.println(st == 1 ? "Debug monitor reloaded" : "No debug monitor loaded");
+               } else
                if (strncmp(serial_command_buffer, "DBG_PURGE", 9) == 0) {
                   debug_index = 0;
                } else

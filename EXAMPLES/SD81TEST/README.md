@@ -84,7 +84,7 @@ teclado del menú; las pruebas nuevas irán a partir de la 26.
 | 2 | `USR 22534` | MEM | MC45 bloques 6–7 | comprobaciones fallidas (0–8; 255 = no se ejecutó) |
 | 3 | `USR 22537` | MEM | Estrés del mapper | errores de relectura + enrutado |
 | 4 | `USR 22540` | MEM | Captura de `POKE 2045` | fallos (de 200) |
-| 5 | `USR 22543` | MEM | Interrupciones simuladas (detector, inyección y HALT) | comprobaciones fallidas (0–14; 9999 = la FPGA no tiene el detector) |
+| 5 | `USR 22543` | MEM | Interrupciones simuladas (inyección y HALT) | comprobaciones fallidas (0–8; 9999 = la FPGA no las tiene) |
 | 6 | `USR 22546` | MEM | ROMLOCK | fallos (de 30) |
 | 7 | `USR 22549` | SYS | Protocolo con el MCU | valores erróneos (9999 = el MCU dejó de contestar) |
 | 8 | `USR 22552` | SYS | Información de la máquina | 0 |
@@ -151,7 +151,9 @@ restaura los bytes que usa como firma).
 1. Guarda el mapeo de los 8 bloques (puerto `$E7`) y detecta paginación
    simple (32 páginas) o completa (64).
 2. Las páginas mapeadas en los bloques 0–3 (ROM, ROM de expansión, BASIC,
-   el propio programa y su pila) son de **sistema** y no se tocan.
+   el propio programa y su pila) son de **sistema** y no se tocan. También
+   la página 63 si está cargado el monitor del depurador (firma `52h` y
+   armado en el puerto `$3FEF`): es suya y la FPGA no deja escribirla.
 3. **Pasada A:** rellena todas las demás páginas, vistas una a una por el
    bloque 6 (`$C000`), con `(H AND 1Fh) XOR L XOR página`, y después las
    verifica todas. Como el patrón depende de la dirección y de la página,
@@ -305,45 +307,41 @@ nativo.
 
 ## Interrupciones simuladas
 
-Las tres pruebas de `EXAMPLES/SIMINT` en una (ver su README y
+Las pruebas de `EXAMPLES/SIMINT` en una (ver su README y
 `FPGA/SD81V2.1000/sim_int.v`). En el menú, **3 MEMORY-MAPPED PORTS → 4
 SIMULATED INTERRUPTS**. Corre en FAST, con DI y en Superfast texto, que es
 donde funcionan las interrupciones; la pantalla se ve en directo mientras
 tanto y la rutina de interrupción hace girar un carácter al final de la
 fila 19. Tarda unos 4 s.
 
-1. **Detector de límites de instrucción** (puerto `$3FEF`): mide un cuerpo
-   con todas las familias de prefijos contra uno vacío. La diferencia tiene
-   que ser exactamente **35 M1, 18 instrucciones y 2 DD/FD CB**.
-2. **Inyección:** una carga de trabajo determinista con todas las familias
+La FPGA no tiene contadores de prueba: todo se comprueba con lo que se ve
+desde el Z80. Si el detector de límites de instrucción se equivocara, la
+inyección partiría una instrucción y el checksum o las vueltas saldrían
+mal.
+
+1. **Inyección:** una carga de trabajo determinista con todas las familias
    de prefijos (CB, ED, LDIR, DD CB, prefijos repetidos, DD ED), sin y con
    interrupciones; la rutina solo cuenta. El checksum tiene que salir
-   igual, las interrupciones de la rutina tienen que ser las mismas que
-   cuenta la FPGA, y las tramas que han pasado, esas mismas ±1.
-3. **HALT:** 50 `HALT` y 50 `DD HALT` tienen que esperar una trama cada uno
-   y volver detrás: 100 vueltas, 100 interrupciones (rutina y FPGA) y 100
-   tramas ±1. Después, 20000 vueltas de `CB 76`, `ED 76` y `DD CB d 76`,
-   que no son HALT: menos de 60 tramas, y tantas interrupciones como
-   tramas.
+   igual, tiene que haber alguna interrupción, y tantas como tramas ±1.
+2. **HALT:** 50 `HALT` y 50 `DD HALT` tienen que esperar una trama cada uno
+   y volver detrás: 100 vueltas, 100 interrupciones y 100 tramas ±1.
+   Después, 20000 vueltas de `CB 76`, `ED 76` y `DD CB d 76`, que no son
+   HALT: menos de 60 tramas, y tantas interrupciones como tramas.
 
 ```
 SD81 TEST - SIM. INTERRUPTS V0.9
 
-M1 CYCLES (35): 35
-INSTRUCTIONS (18): 18
-DD/FD CB (2): 2
-
 CHECKSUM WITHOUT INTS: nnnnn
 CHECKSUM WITH INTS: nnnnn
-INTS ISR/FPGA: n/n
+INTERRUPTIONS: n
 FRAMES: n
 
 HALT RETURNS (100): 100
-HALT INTS ISR/FPGA: 100/100
+HALT INTERRUPTIONS (100): 100
 HALT FRAMES (100): 100
 
 CB 76, ED 76, DD CB D 76 (20000)
-INTS ISR/FPGA: 20/20
+INTERRUPTIONS: 20
 FRAMES: 20
 
 RESULT: OK
@@ -351,10 +349,11 @@ RESULT: OK
 
 (Los checksums y las tramas de la carga dependen de la velocidad; lo que
 cuenta es que cuadren entre sí.) Devuelve las comprobaciones que fallan,
-de 0 a 14, o 9999 si la FPGA no tiene el detector: entonces solo escribe
-`FPGA WITHOUT M1 TRACKER`. Con una FPGA que tenga el detector pero sea
-anterior a la rev 0.05 de `sim_int`, sin los HALT, la prueba 3 se cuelga.
-Deja las interrupciones desactivadas y el vídeo nativo.
+de 0 a 8, o 9999 si la FPGA no tiene las interrupciones simuladas (firma
+`51h`, o `52h` con el depurador): entonces solo escribe `FPGA WITHOUT
+SIMULATED INTS`. Con una FPGA anterior a la rev 0.05 de `sim_int`, sin los
+HALT, la prueba 2 se cuelga. Deja las interrupciones desactivadas y el
+vídeo nativo.
 
 ## ROMLOCK
 
@@ -822,7 +821,7 @@ Estado: **hecha**, *pendiente*.
 | 2.2 | Ejecución | MC45 bloques 6–7 | Auto | **hecha** |
 | 2.3 | Ejecución | Espejo de vídeo en 48K | Auto | cubierta por la 2.2 (extensión apagada) |
 | 3.1 | Puertos en memoria | Captura de `POKE 2045` | Auto | **hecha** |
-| 3.2 | Puertos en memoria | Interrupciones simuladas (detector, inyección y HALT) | Auto | **hecha** |
+| 3.2 | Puertos en memoria | Interrupciones simuladas (inyección y HALT) | Auto | **hecha** |
 | 3.3 | Puertos en memoria | ROMLOCK | Auto | **hecha** |
 | 3.4 | Puertos en memoria | Ráfagas de POKEs con `LDIR` | Auto/visual | *descartada*: no hay un efecto legible para comprobarla (la captura ya es síncrona) |
 | 3.5 | Puertos en memoria | Sprites (rejilla de 32) | Visual | **hecha** |

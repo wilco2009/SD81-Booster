@@ -37,5 +37,11 @@ void split_fname(char* source, char* dir, char* fname);
 char *get_filename_ext(const char *filename);
 void complete_fname(char* dest,char* source);
 int load_ROM(char* rom_file); // returns 0 ok, -1 mem error, -2 file error 
+// Depurador por hardware: escribe /SYS/DEBUG.BIN en la pagina 63. Hay que
+// llamarla con el Z80 y la FPGA en reset y enableMem(). 1 = cargado,
+// 0 = no hay fichero (depurador desarmado), -1 = demasiado grande.
+#define DEBUG_MONITOR_FILE "/SYS/DEBUG.BIN"
+int load_debug_monitor(void);
+extern bool debug_monitor_loaded;
 
 #endif

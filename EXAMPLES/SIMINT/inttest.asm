@@ -12,8 +12,7 @@
 ;   3. El checksum tiene que salir igual (si un RST partiera una
 ;      instruccion o se saltara un byte, cambiaria o se colgaria), y las
 ;      interrupciones tienen que coincidir con las tramas que han pasado
-;      (FRAMES, que en Superfast lleva la FPGA) y con las que cuenta la
-;      propia FPGA (puerto $3FEF, indices 9/10).
+;      (FRAMES, que en Superfast lleva la FPGA).
 ;
 ;  USR devuelve 0 si todo cuadra, 1 si no y 2 si la FPGA no tiene
 ;  detector. Los resultados quedan en 24579 (tabla r_*), para el stub.
@@ -42,7 +41,6 @@ r_ref:      defw 0              ; 24579: checksum sin interrupciones
 r_chk:      defw 0              ; 24581: checksum con interrupciones
 r_ints:     defw 0              ; 24583: interrupciones (las cuenta la rutina)
 r_frames:   defw 0              ; 24585: tramas que han pasado (FRAMES)
-r_fpga:     defw 0              ; 24587: interrupciones que cuenta la FPGA
 
 start:      call SET_FAST
             di
@@ -52,8 +50,10 @@ start:      call SET_FAST
             ld   a,15
             out  (c),a
             in   a,(c)
-            cp   51h
-            ld   hl,2
+            cp   51h            ; 51h: interrupciones simuladas;
+            jr   z,sig_ok       ; 52h: tambien el depurador
+            cp   52h
+sig_ok:     ld   hl,2
             jp   nz,done
 
             ld   hl,(SV_DFILE)  ; primera fila de la pantalla, para las
@@ -76,9 +76,6 @@ start:      call SET_FAST
             ld   (hl),30        ; '2'
             ld   hl,0           ; 2. con interrupciones
             ld   (ints),hl
-            ld   bc,DBG         ; contador de la FPGA al empezar
-            call rd_fpga
-            ld   (fpga0),hl
             ld   hl,(FRAMES)
             ld   (frames0),hl
             ld   a,1
@@ -99,12 +96,6 @@ start:      call SET_FAST
             ld   (r_chk),hl
             ld   hl,(ints)
             ld   (r_ints),hl
-            ld   bc,DBG
-            call rd_fpga
-            ld   de,(fpga0)
-            or   a
-            sbc  hl,de
-            ld   (r_fpga),hl
 
             ld   hl,1           ; 3. comprobaciones (HL = resultado)
             ld   de,(r_ref)     ; mismo checksum
@@ -114,13 +105,7 @@ start:      call SET_FAST
             ld   a,(r_chk+1)
             cp   d
             jr   nz,done
-            ld   de,(r_ints)    ; la FPGA cuenta las mismas que la rutina
-            ld   a,(r_fpga)
-            cp   e
-            jr   nz,done
-            ld   a,(r_fpga+1)
-            cp   d
-            jr   nz,done
+            ld   de,(r_ints)
             ld   a,d            ; tiene que haber habido interrupciones
             or   e
             jr   z,done
@@ -148,15 +133,6 @@ done:       xor  a
             push hl
             call SLOW_FAST
             pop  bc             ; USR devuelve BC
-            ret
-
-; HL = interrupciones que lleva contadas la FPGA (puerto $3FEF, 9/10)
-rd_fpga:    ld   a,9
-            out  (c),a
-            in   l,(c)
-            ld   a,10
-            out  (c),a
-            in   h,(c)
             ret
 
 ; la rutina de interrupcion: cuenta y vuelve (RET normal: el epilogo que
@@ -229,7 +205,6 @@ src:        defb 11h,22h,33h,44h,55h,66h,77h,88h
 buf:        defs 8
 chk:        defw 0
 ints:       defw 0
-fpga0:      defw 0
 scr:        defw 0
 frames0:    defw 0
 

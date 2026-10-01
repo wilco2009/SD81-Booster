@@ -1,4 +1,20 @@
-# Especificación para el emulador: interrupciones simuladas y puerto `$3FEF`
+# Especificación para el emulador: interrupciones simuladas
+
+> **Actualizada para `sim_int.v` rev 0.06** (1 de octubre de 2026). Cambios
+> respecto a la versión anterior:
+> - **Fuera los contadores de prueba del detector** (M1, instrucciones,
+>   `DD`/`FD CB`, copias congeladas, último opcode, estado) y el contador
+>   de interrupciones entregadas (`count`). La FPGA ya no lleva lógica
+>   solo para probar.
+> - **El puerto `$3FEF` ha cambiado:** ahora es el del depurador por
+>   hardware. Ver `hw_debugger_emulator.md`. Lo que queda de las
+>   interrupciones simuladas en él es el estado (índice 1) y la firma
+>   (índice 15, ahora `52h`).
+> - **`M1TEST` ya no existe**, e `INTTEST` y `HALTTEST` ya no comparan con
+>   el contador de la FPGA (sección 7).
+> - **El depurador tiene prioridad** sobre todo lo de aquí: mientras está
+>   activo, la máquina de estados de este documento se queda congelada
+>   (`hw_debugger_emulator.md`, sección 4).
 
 La FPGA del SD81 Booster da interrupciones a 50 Hz a los programas en código
 máquina que trabajan en los modos **Superfast** (`POKE 2045,170..174`) con
@@ -7,10 +23,10 @@ las hace **sirviendo bytes en el bus**: cambia el opcode de una M1 por `FF`
 (RST 38h) y después sirve un `CALL` en `$0038` y un epílogo en `$003B`. También
 cambia los `HALT` por una espera al siguiente VSYNC.
 
-Todo está probado en el hardware, con las tres pruebas de `EXAMPLES/SIMINT`
+Todo está probado en el hardware, con las pruebas de `EXAMPLES/SIMINT`
 (sección 7). El emulador tiene que dar los mismos resultados.
 
-Referencia: `FPGA/SD81V2.1000/sim_int.v` (módulos `sim_int` rev 0.05 y
+Referencia: `FPGA/SD81V2.1000/sim_int.v` (módulos `sim_int` rev 0.06 y
 `m1_tracker`), su instancia en `SD81.v` y el banco de pruebas
 `tb_sim_int.v`, que recorre todos los casos ciclo a ciclo.
 
@@ -25,7 +41,9 @@ solos.
 
 Se capturan de las **escrituras de memoria** a estas direcciones, que están
 en la zona de la ROM. La FPGA las saca del bus, igual que el resto de POKEs
-de control de 2041-2047.
+de control de 2041-2047. Igual que el resto, **no se capturan** con el
+bloque 0 como RAM: con `POKE 2056` (CP/M) o mientras el monitor del
+depurador está activo.
 
 | Dirección | Qué hace |
 |---|---|
@@ -52,15 +70,13 @@ estado SECOND  (1): la proxima M1 es el 2o byte de CB xx / ED xx
 estado INDEX   (2): la proxima M1 va detras de DD/FD    -> index_prefix
 
 al acabar cada M1, con su opcode op:
-  NORMAL: instrucciones++
-          CB, ED -> SECOND
+  NORMAL: CB, ED -> SECOND
           DD, FD -> INDEX
   SECOND: -> NORMAL
-  INDEX:  CB     -> NORMAL, ddcb++    (DD CB d op: d y op NO son M1)
+  INDEX:  CB     -> NORMAL            (DD CB d op: d y op NO son M1)
           ED     -> SECOND            (DD ED xx)
           DD, FD -> INDEX             (prefijos repetidos)
           otro   -> NORMAL
-  siempre: m1++, ultimo_op = op
 ```
 
 Ojo con `DD CB d op` y `FD CB d op`: la d y el op son **lecturas normales,
@@ -78,7 +94,6 @@ pending:   VSYNC sin atender
 halted:    la interrupcion en curso viene de un HALT
 call_now:  = pending | !halted   (se evalua ANTES de cada M1)
 took_call: lo que se sirvio en la ultima M1 en $0038 (CALL o JR)
-count:     interrupciones entregadas (16 bits)
 ```
 
 **VSYNC.** Es el VSYNC del modo Superfast, el mismo evento que decrementa
@@ -90,9 +105,10 @@ FRAMES:
 
 ```
 arm     = enabled && superfast && pending && fase==IDLE && boundary
-halt_ok = enabled && superfast && fase==IDLE && (boundary || index_prefix)
-          && op == 0x76
-inj     = arm || halt_ok
+          && depurador en reposo
+halt_ok = enabled && superfast && fase==IDLE && depurador en reposo
+          && (boundary || index_prefix) && op == 0x76
+inj     = (arm || halt_ok) && !(el depurador rompe en esta M1)
 ```
 
 **Bytes que se sirven.** Solo en estas lecturas; todas las demás van a la
@@ -118,7 +134,7 @@ siempre.
 ```
 IDLE:  si inj -> ENTRY; halted = halt_ok
 ENTRY: M1 en $0038:  took_call = call_now
-                     si call_now: count++, pending = 0   (interrupcion entregada)
+                     si call_now: pending = 0   (interrupcion entregada)
        M1 en otra:   -> ISR                  (primera M1 de la rutina)
 ISR:   M1 en $003B:  -> halted ? IDLE : EPI
 EPI:   M1 en $003E:  -> IDLE
@@ -126,6 +142,12 @@ EPI:   M1 en $003E:  -> IDLE
 
 Un VSYNC que llegue en el mismo instante en que se entrega una interrupción
 deja `pending` a 1: gana la puesta a 1.
+
+**El depurador manda.** Las M1 de una ruptura del depurador (la del `FF`
+que inyecta y todas hasta que vuelve) no cuentan aquí: estas transiciones
+no se hacen y esta máquina no sirve ningún byte. Como el depurador puede
+romper dentro de la rutina de interrupción, la fase se queda congelada
+donde estuviera y sigue al volver.
 
 ### Lo que pasa en la CPU
 
@@ -160,39 +182,23 @@ ROM). `CB 76`, `ED 76` y `DD CB d 76` no son HALT y no se tocan.
 inyecta ninguna otra. Si llega un VSYNC durante la rutina, queda pendiente
 y se sirve en cuanto acaba. La rutina no puede tener HALT.
 
-## 4. Puerto de depuración `$3FEF`
+## 4. Puerto `$3FEF`
 
-Decodifica los **16 bits** de la dirección, así que se usa con `OUT (C)` e
-`IN (C)` y BC = `$3FEF`.
+Ahora es el puerto del depurador por hardware: ver `hw_debugger_emulator.md`,
+sección 6. Para las interrupciones simuladas solo quedan:
 
-| OUT | Qué hace |
+| OUT / IN | Qué es |
 |---|---|
-| bit 6 (`40h`) | copia m1, instrucciones, ddcb, último op y estado a la copia congelada, que es la que se lee |
-| bit 7 (`80h`) | pone a 0 m1, instrucciones y ddcb (los contadores vivos) |
-| bits 7 y 6 a 0 (`0`-`15`) | elige el índice de lectura (bits 3-0) |
+| OUT `1`, IN | estado: `enabled, pending, arm, superfast, halted, call_now, fase(2 bits)`, del bit 7 al 0 |
+| OUT `15`, IN | firma `52h` (antes `51h`) |
 
-Con `C0h` hace las dos cosas: primero congela y después borra.
-
-| Índice | IN devuelve |
-|---|---|
-| 0 / 1 | M1, bajo / alto (copia congelada) |
-| 2 / 3 | instrucciones (M1 en estado NORMAL), bajo / alto (congelada) |
-| 4 / 5 | `DD CB` / `FD CB`, bajo / alto (congelada) |
-| 6 | último opcode de M1 (congelado) |
-| 7 | estado del detector: 0, 1 o 2 (congelado) |
-| 8 | **en vivo**: `enabled, pending, arm, superfast, halted, call_now, fase(2 bits)`, del bit 7 al 0 |
-| 9 / 10 | **en vivo**: `count` bajo / alto |
-| 15 | `51h`: firma de que el detector existe |
-| otros | 0 |
-
-Con el reset se ponen a 0 los contadores, el índice, `count` y todo el
-estado de `sim_int`.
+Ya no hay contadores ni contador de interrupciones entregadas. Con el reset
+se pone a 0 todo el estado de `sim_int`.
 
 ## 5. Detalles que cuentan
 
 - El detector ve el byte **servido**, no el de la memoria: tras el `FF`
-  sigue en NORMAL, y el `CD` de `$0038` también cuenta como instrucción.
-  Así lo cuenta el hardware en los índices 0-3.
+  sigue en NORMAL, y el `CD` de `$0038` también empieza instrucción.
 - La decisión de inyectar se toma en cada M1 con el estado de antes de esa
   M1. Un VSYNC que llegue a mitad de una instrucción se atiende en la M1
   siguiente que sea límite. En el hardware hay 2 o 3 ciclos de reloj de
@@ -218,17 +224,21 @@ lee `X.BIN` en 24576.
 
 | Prueba | Qué comprueba | Resultado en el hardware |
 |---|---|---|
-| `M1TEST.B81` / `m1test.asm` | Detector: la diferencia entre dos cuerpos | **35 M1, 18 instrucciones, 2 DD/FD CB** → OK |
-| `INTTEST.B81` / `inttest.asm` | Carga de trabajo con todas las familias de prefijos, sin y con interrupciones | checksum **igual** en las dos pasadas (56048); interrupciones de la rutina = de la FPGA = tramas (155) → OK |
-| `HALTTEST.B81` / `halttest.asm` | 50 `HALT` + 50 `DD HALT`, y 20000 vueltas de `CB 76` / `ED 76` / `DD CB d 76` | **100 / 100 / 100 / 100**, y **20 / 20 / 20** → OK |
+| `INTTEST.B81` / `inttest.asm` | Carga de trabajo con todas las familias de prefijos, sin y con interrupciones | checksum **igual** en las dos pasadas (56048); interrupciones = tramas (155) → OK |
+| `HALTTEST.B81` / `halttest.asm` | 50 `HALT` + 50 `DD HALT`, y 20000 vueltas de `CB 76` / `ED 76` / `DD CB d 76` | **100 / 100 / 100** (vueltas, interrupciones, tramas), y **20 / 20** → OK |
+
+Las dos comprueban la firma (`51h` o `52h`); sin ella devuelven 2. `M1TEST`
+ya no existe: el detector queda cubierto porque, si se equivocara con un
+límite, la inyección partiría una instrucción y el checksum o las vueltas
+saldrían mal. La prueba 5 de `EXAMPLES/SD81TEST` hace lo mismo que estas
+dos.
 
 En el emulador los números de `INTTEST` y la segunda parte de `HALTTEST`
 dependen de la velocidad efectiva. Lo que tiene que cuadrar:
 - los dos checksums iguales;
-- las interrupciones de la rutina iguales a las de la FPGA;
 - las tramas iguales a las interrupciones ±1.
 
-Lo de `M1TEST` y la primera parte de `HALTTEST` tiene que salir **exacto**.
+La primera parte de `HALTTEST` tiene que salir **exacta**.
 
 Mientras corren, `INTTEST` y `HALTTEST` dejan señales en la primera fila de
 la pantalla, que en Superfast se ve en directo:

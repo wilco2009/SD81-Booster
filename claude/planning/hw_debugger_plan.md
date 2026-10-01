@@ -360,8 +360,9 @@ Cada fase se prueba en el hardware antes de pasar a la siguiente.
 
 **Fase 5. Interfaz web en el ESP32 y símbolos de pasmo.**
 
-**Emulador:** una especificación como `sim_int_emulator.md` cuando la fase
-1 esté probada, más la actualización de su sección 4 (el puerto `$3FEF`).
+**Emulador:** hecho para la fase 1: `hw_debugger_emulator.md` (nuevo) y
+`sim_int_emulator.md` actualizado a la rev 0.06 (sin contadores, puerto
+`$3FEF` nuevo). Cada fase siguiente ampliará `hw_debugger_emulator.md`.
 
 ## 8. Cambios fuera del depurador
 

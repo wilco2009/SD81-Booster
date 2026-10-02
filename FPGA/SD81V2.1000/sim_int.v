@@ -98,8 +98,15 @@
 //         leer por su puerto)
 //       4/5 el registro seleccionado del AY A / B (el latch de direccion, que
 //         no se puede leer por sus puertos)
+//       6 las paginas escritas por la CPU, de una en una: bit 0 = la pagina
+//         del puntero, que vuelve a 0 al elegir el indice 6 y avanza al acabar
+//         cada IN (64 IN seguidos: las 64 paginas). Para que los snapshots
+//         guarden solo las que usa el programa
 //       15 firma 52h
 //
+// Revision 0.09 - Indice 6: las paginas escritas, en RAM distribuida de
+//                 64x1 (orden 11 de SD81.v para borrarlas). Con 64 registros
+//                 no cabia
 // Revision 0.08 - Escritura de la BRAM de sombra por el puerto (registro 7,
 //                 carga de snapshots). Indices 4/5: el registro elegido de
 //                 cada AY
@@ -150,7 +157,10 @@ module sim_int(
 	input wire [7:0] bram_data,			// el byte leido (douta del puerto A)
 	input wire [7:0] chroma_reg,		// registro de Chroma81 ($7FEF)
 	input wire [7:0] ay_sel_a,			// registro elegido del AY A (A3=1) y del B
-	input wire [7:0] ay_sel_b
+	input wire [7:0] ay_sel_b,
+	input wire sram_wr,					// la CPU escribe en la SRAM (SD81.v: ~nWRx)
+	input wire [5:0] sram_page,			// en esta pagina
+	input wire dirty_clr				// orden 11: borrar las paginas escritas (al subir)
     );
 
 	// ---------------------------------------------------------------
@@ -207,6 +217,16 @@ module sim_int(
 	reg nmi_on = 1'b0;			// generador de NMI encendido (SLOW): no se rompe
 	reg io_prev = 1'b0;
 	reg [1:0] armed_s = 2'b00;	// dbg_loaded viene del dominio de CFG_CLK
+	// paginas escritas: RAM distribuida de 64x1 con dos puertos (2 LUTs);
+	// se borra recorriendola con un contador (64 ciclos)
+	reg dmem [0:63];
+	integer di;
+	initial for (di = 0; di < 64; di = di + 1) dmem[di] = 1'b0;
+	reg [2:0] dclr_s = 3'b000;	// la orden 11 viene del dominio de CFG_CLK
+	reg dclr_run = 1'b0;
+	reg [5:0] dclr_cnt = 6'd0;
+	reg [5:0] dptr = 6'd0;		// la pagina que devuelve el indice 6
+	reg dirty_rd_prev = 1'b0;
 	reg [2:0] tgl_s = 3'b000;
 	reg [2:0] joy_s = 3'b000;
 	reg [7:0] bptr_lo = 8'd0;
@@ -276,6 +296,11 @@ module sim_int(
 	// IN del indice 2 de $3FEF: mientras dura, el puerto A de la BRAM lee en
 	// bram_ptr (lo hace SD81.v; el blit del doble buffer espera)
 	assign bram_rd = ~nIORQ & ~nRD & nM1 & (addr == 16'h3FEF) & (ridx == 4'd2);
+	wire dirty_rd = ~nIORQ & ~nRD & nM1 & (addr == 16'h3FEF) & (ridx == 4'd6);
+	wire dirty_bit = dmem[dptr];
+	always @(negedge iclock)
+		if (dclr_run | sram_wr)
+			dmem[dclr_run ? dclr_cnt : sram_page] <= ~dclr_run;
 	// OUT del dato del registro 7: desde la muestra que lo reconoce hasta que
 	// acaba el ciclo, el puerto A de la BRAM escribe el bus en bram_ptr
 	assign bram_wr = bram_wr_go & io_wr;
@@ -349,6 +374,7 @@ module sim_int(
 			4'd3:  port_out = chroma_reg;
 			4'd4:  port_out = ay_sel_a;
 			4'd5:  port_out = ay_sel_b;
+			4'd6:  port_out = {7'd0, dirty_bit};
 			4'd15: port_out = 8'h52;
 			default: port_out = 8'h00;
 		endcase
@@ -389,6 +415,11 @@ module sim_int(
 			bram_rd_prev <= 1'b0;
 			bram_wr_go <= 1'b0;
 			bram_wr_prev <= 1'b0;
+			dclr_s <= 3'b000;
+			dclr_run <= 1'b0;
+			dclr_cnt <= 6'd0;
+			dptr <= 6'd0;
+			dirty_rd_prev <= 1'b0;
 		end else begin
 			armed_s <= {armed_s[0], dbg_loaded};
 			tgl_s <= {tgl_s[1:0], dbg_pause_tgl};
@@ -398,6 +429,20 @@ module sim_int(
 			// el puntero de la BRAM avanza al acabar cada IN del indice 2
 			bram_rd_prev <= bram_rd;
 			bram_wr_prev <= bram_wr;
+
+			// las paginas escritas: borrarlas al subir la orden 11, y el
+			// puntero de lectura avanza al acabar cada IN del indice 6
+			dclr_s <= {dclr_s[1:0], dirty_clr};
+			if (dclr_s[1] & ~dclr_s[2]) begin
+				dclr_run <= 1'b1;
+				dclr_cnt <= 6'd0;
+			end else if (dclr_run) begin
+				dclr_cnt <= dclr_cnt + 1'b1;
+				if (dclr_cnt == 6'd63) dclr_run <= 1'b0;
+			end
+			dirty_rd_prev <= dirty_rd;
+			if (dirty_rd_prev & ~dirty_rd)
+				dptr <= dptr + 1'b1;
 			if ((bram_rd_prev & ~bram_rd) | (bram_wr_prev & ~bram_wr))
 				bram_ptr <= bram_ptr + 1'b1;
 			if (~io_wr)
@@ -450,8 +495,10 @@ module sim_int(
 							pause_pend <= 1'b1;
 							pause_src <= 2'd3;
 						end
-					end else if (data[7:4] == 4'd0)
+					end else if (data[7:4] == 4'd0) begin
 						ridx <= data[3:0];
+						if (data[3:0] == 4'd6) dptr <= 6'd0;	// las paginas, desde la 0
+					end
 				end
 			end
 

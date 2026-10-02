@@ -63,3 +63,9 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
   estaba (registros con R, paginas, la sombra entera, los POKEs y su orden,
   los AY, los sprites); lo mismo con `NMI 01`; y un `.Z81` estilo EightyOne
   sin `MAPPER` ni `HW_POKES`.
+- las páginas escritas: una página no mapeada que escribe el programa (la
+  20) entra en el snapshot normal y vuelve con la carga.
+- el botón QS (pulsado 1,5 s de verdad: `millis` es el reloj del PC) y el
+  teclado del ZX81 en la pausa: `Z` graba y se queda parado, `L` vuelve a
+  cargarlo (tras cambiar HL y la memoria con la consola), `S` graba y sigue,
+  espacio sigue.

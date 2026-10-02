@@ -75,7 +75,9 @@ enum {
   TAG_SNAP_SHCMP,   // snapshot: la sombra de un trozo de [MEMORY], para comparar
   TAG_SNAP_SHADOW,  // snapshot: un trozo de un bloque de la sombra
   TAG_LD_MAP,       // carga: pagina de un bloque (sin MAPPER; arg = bloque)
-  TAG_LD_SYNC       // carga: ya se han escrito los POKEs
+  TAG_LD_SYNC,      // carga: ya se han escrito los POKEs
+  TAG_SNAP_DIRTY,   // snapshot: las paginas escritas (arg = byte 0-7)
+  TAG_KBD           // teclado en la pausa del boton QS (arg = fila 0-3)
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -96,7 +98,7 @@ struct DbgReq {
   uint8_t data[32];
 };
 
-#define QSIZE 48
+#define QSIZE 64
 static DbgReq q[QSIZE];
 static uint8_t q_head = 0, q_count = 0;
 
@@ -266,8 +268,14 @@ static void queue_steps(uint16_t n){
   q_out(DBG_PORT, 0x84); q_out(DBG_PORT, n >> 8);
 }
 
+static bool kbd_on = false;         // teclado en la pausa del boton QS (mas abajo)
+static bool kbd_arm = false;        // la proxima parada es la del boton QS
+static uint8_t kbd_prev = 0x0F;     // teclas pulsadas en la vuelta anterior
+static uint8_t kbd_armed = 0;       // pulsadas durante la pausa (cuentan al soltarlas)
+
 static void resumed(){
   stopped = false;
+  kbd_on = false;
   set_status_led_ok();
 }
 
@@ -291,6 +299,11 @@ static void dbg_step(uint16_t n){
 }
 
 // Snapshots (mas abajo)
+static char last_snap[96] = "";     // el ultimo snapshot grabado (L en la pausa del boton QS)
+static void dirty_clear();
+static void kbd_feed();
+static void kbd_result(uint8_t row, uint8_t v);
+static uint8_t ld_prepare(const char* path, uint8_t* im);
 static bool snap_pending = false;
 static bool snap_busy();
 static void snap_begin();
@@ -328,6 +341,7 @@ static void on_break(){
     return;
   }
   set_status_LED(clMAGENTA);
+  if (kbd_arm) { kbd_arm = false; kbd_on = true; kbd_prev = 0x0F; kbd_armed = 0; }   // pausa del boton QS: S, Z, L o espacio
   char b[80];
   snprintf(b, sizeof(b), "\r\n*** STOP at %04X: %s%s", reg16(R_PC), reason_name(regs[R_DBGST]),
     (regs[R_DBGST] & 0x20) ? " (inside the simulated interrupt)" : "");
@@ -373,6 +387,12 @@ static void on_result(uint8_t* data, uint16_t n){
     case TAG_LD_MAP: case TAG_LD_SYNC:
       ld_result(last.tag, data, n);
       break;
+    case TAG_SNAP_DIRTY:
+      snap_result(last.tag, data, n);
+      break;
+    case TAG_KBD:
+      kbd_result(last.arg, n ? data[0] : 0xFF);
+      break;
   }
 }
 
@@ -411,6 +431,7 @@ void cmd_dbg_poll(void){
     poll_state = 1;
   }
   snap_feed();                                // un snapshot en curso pide lo siguiente
+  kbd_feed();                                 // el teclado, en la pausa del boton QS
   ld_feed();                                  // y una carga
   if (q_count == 0) return;                   // sin peticion: otra vuelta del loop
   poll_state = 0;                             // (antes de sacarla: ver dbg_waiting)
@@ -501,7 +522,7 @@ bool dbg_console(const char* line){
     while (*p == ' ') p++;
     bool all = false;
     if (p[0] == '-' && p[1] == 'a') { all = true; p += 2; while (*p == ' ') p++; }
-    dbg_snapshot(all, p, !stopped);           // en marcha: para, graba y sigue
+    dbg_snapshot(all, p, false);              // desde la consola se queda parado
     return true;
   }
   if (!stopped) { Serial.println("Running: p to pause"); return true; }
@@ -581,6 +602,8 @@ static void ld_cancel();
 
 void dbg_reset(void){
   ld_cancel();                                // una carga a medias no sigue
+  kbd_on = kbd_arm = false;
+  dirty_clear();                              // las paginas escritas, desde aqui
   stopped = false;
   poll_state = 0;
   q_count = 0;
@@ -626,7 +649,7 @@ void dbg_qs_button(void){
   if (snap_busy() || ld_busy()) return;
   if (qs_stage == 1) {
     if (stopped) { Serial.println("QS button: continue"); dbg_continue(); }
-    else { dbg_pause(); led_state(); }        // magenta cuando llegue la parada
+    else { kbd_arm = true; dbg_pause(); led_state(); }   // magenta cuando llegue; despues, el teclado
   } else {
     Serial.println("QS button: snapshot");
     dbg_snapshot(false, "", !stopped);        // en marcha: para, graba y sigue
@@ -660,6 +683,7 @@ static struct {
   uint8_t cmp[256]; uint16_t cmp_n; uint8_t cmp_blk;   // trozo de [MEMORY] para comparar con la sombra
   uint8_t shdiff;                             // bloques cuya sombra no es [MEMORY]
   uint8_t shblk;                              // SN_SHADOW: bloque en curso
+  uint8_t dirty[8];                           // paginas escritas por la CPU ($3FEF, indice 6)
   char wbuf[512]; uint16_t wlen;
   uint32_t bytes;
   bool err;
@@ -676,6 +700,7 @@ void dbg_note_opendir(const char* arg, bool ok){
 }
 
 void dbg_note_loaded(const char* name){
+  dirty_clear();                              // programa nuevo: sus paginas, desde cero
   const char* b = strrchr(name, '/');
   b = b ? b + 1 : name;
   int i = 0;
@@ -737,7 +762,11 @@ void dbg_snapshot(bool all, const char* name, bool resume){
   strncpy(sn.user_name, name ? name : "", sizeof(sn.user_name) - 1);
   sn.user_name[sizeof(sn.user_name) - 1] = 0;
   if (stopped) snap_begin();
-  else { snap_pending = true; dbg_pause(); }   // al parar empieza (on_break)
+  else {                                      // al parar empieza (on_break)
+    snap_pending = true;
+    set_blinking(clYELLOW, 4);                // ya se ve que va a grabar
+    dbg_pause();
+  }
 }
 
 static void snap_make_path(){
@@ -789,6 +818,10 @@ static void snap_begin(){
   q_out(DBG_PORT, 0x05); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_AYSEL, 1);
   q_push(OP_AYREAD, AY_PORT_A, 16, TAG_SNAP_AYREGS, 0);
   q_push(OP_AYREAD, AY_PORT_B, 16, TAG_SNAP_AYREGS, 1);
+  // las paginas que ha escrito el programa (una FPGA anterior devuelve 0)
+  // (indice 6: un bit por IN, de la pagina 0 a la 63)
+  q_out(DBG_PORT, 6);
+  q_push(OP_INSEQ, DBG_PORT, 64, TAG_SNAP_DIRTY);
   // la BRAM de sombra (indice 2): los POKEs, los sprites y el elegido
   q_out(DBG_PORT, 0x85); q_out(DBG_PORT, POKE_FIRST & 0xFF);
   q_out(DBG_PORT, 0x86); q_out(DBG_PORT, POKE_FIRST >> 8);
@@ -942,7 +975,10 @@ static void snap_finish(){
   set_blinking_off();
   sn.stage = SN_OFF;
   if (sn.err) Serial.printf("Snapshot: SD write error in %s\r\n", sn.path);
-  else Serial.printf("Snapshot saved: %s (%lu bytes)\r\n", sn.path, (unsigned long)sn.bytes);
+  else {
+    Serial.printf("Snapshot saved: %s (%lu bytes)\r\n", sn.path, (unsigned long)sn.bytes);
+    strcpy(last_snap, sn.path);               // para la L en la pausa del boton QS
+  }
   if (sn.resume) dbg_continue();
   else { led_state(); Serial.println("Stopped. Type h for help."); }
 }
@@ -989,6 +1025,10 @@ static void snap_result(uint8_t tag, uint8_t* data, uint16_t n){
       break;
     case TAG_SNAP_SPR:    memcpy(sn.spr + (last.arg & 3) * 256, data, n < 256 ? n : 256); break;
     case TAG_SNAP_SPRSEL: sn.spr_sel = n ? data[0] : 0; break;
+    case TAG_SNAP_DIRTY:
+      memset(sn.dirty, 0, sizeof(sn.dirty));
+      for (uint16_t p = 0; p < n && p < 64; p++) if (data[p] & 1) sn.dirty[p >> 3] |= 1 << (p & 7);
+      break;
     case TAG_SNAP_SHCMP:
       if (n != sn.cmp_n || memcmp(data, sn.cmp, n)) sn.shdiff |= 1 << sn.cmp_blk;
       break;
@@ -1035,10 +1075,10 @@ static void snap_result(uint8_t tag, uint8_t* data, uint16_t n){
       } else {
         swf("CHROMA_MODE %02X\nCOLOUR_ENABLED 01\n", sn.chroma);
         snap_write_sd81();
-        sn.npages = 0;                         // paginas: las mapeadas o todas
+        sn.npages = 0;                         // paginas: las mapeadas y las escritas, o todas
         int last_p = cfg_value(cfgcmd_FULLPAG) ? 63 : 32;   // sin FULL_PAGING el mapper solo llega a la 31
         for (int p = 0; p < 63; p++) {
-          bool want = sn.all && p < last_p;
+          bool want = (sn.all && p < last_p) || (sn.dirty[p >> 3] & (1 << (p & 7)));
           for (int b = 0; b < 8 && !want; b++) want = (sn.mapper[b] == p);
           if (want) sn.pages[sn.npages++] = p;
         }
@@ -1116,6 +1156,7 @@ static struct {
   uint8_t romlock_old;
   bool has_dir; char dir[MAX_FILENAME_LEN];
   bool dir_open; char dir_arg[48];
+  bool set_im;                  // cargado desde la parada (L): el IM va con SETREGS
   bool has_ay[2]; uint8_t ay[2][16], ay_sel[2];   // los AY de la FPGA (A, B)
   uint8_t spr[32][28], spr_sel;                   // los sprites (los 28 campos de 2101-2128)
   uint32_t shadow_pos[8];                         // SHADOW de cada bloque (0 = no viene)
@@ -1218,8 +1259,13 @@ static void ld_cpu_key(const char* k, uint32_t v){
 // cargar (la ROM lanza la trampa), 0xFF si no hay monitor (la ROM usa el
 // cargador de siempre), 1 sin fichero, 2 sin [MEMORY], 3 fichero mal hecho.
 uint8_t dbg_z81_prepare(const char* path, uint8_t* im){
+  if (stopped) { *im = 1; return 0xFF; }
+  return ld_prepare(path, im);
+}
+
+static uint8_t ld_prepare(const char* path, uint8_t* im){
   *im = 1;
-  if (!debug_monitor_loaded || stopped || snap_busy() || ld_busy()) return 0xFF;
+  if (!debug_monitor_loaded || snap_busy() || ld_busy()) return 0xFF;
   if (!z81in_open(path)) return 1;
   memset(&ld, 0, sizeof(ld));
   mcustate_clear();
@@ -1424,6 +1470,7 @@ static void ld_bram_ptr(uint16_t a){
 // Empieza al parar en la trampa de la ROM
 static void ld_begin(){
   ld.pending = false;
+  dirty_clear();                              // las paginas escritas seran las de la carga
   set_blinking(clCYAN, 4);
   Serial.println("\r\nLoading snapshot ...");
   if (ld.has_dir) { strncpy(current_dir, ld.dir, MAX_FILENAME_LEN - 1); current_dir[MAX_FILENAME_LEN - 1] = 0; }
@@ -1517,7 +1564,11 @@ static void ld_finish(){
   set_blinking_off();
   stop_foreign = false;
   Serial.printf("Snapshot loaded: PC=%04X\r\n", reg16(R_PC));
-  q_setregs();
+  DbgReq* r = q_push(OP_SETREGS, 0, ld.set_im ? REGS_LEN + 1 : REGS_LEN);
+  if (r) {                                    // sin la ROM (L), el IM va detras de los registros
+    memcpy(r->data, regs, REGS_LEN);
+    r->data[REGS_LEN] = ld.im;
+  }
   dbg_continue();
 }
 
@@ -1651,4 +1702,64 @@ static void ld_cancel(){
   if (ld.pending || ld_busy()) z81in_close();
   ld.pending = false;
   ld.stage = LD_OFF;
+}
+
+// Las paginas escritas por la CPU (FPGA, orden 11): se borran al cargar un
+// programa o un snapshot y en el reset; el snapshot guarda las mapeadas y
+// las escritas desde entonces
+static void dirty_clear(){
+  send_bit_config(cfgcmd_DBGDIRTY, 1);
+  send_bit_config(cfgcmd_DBGDIRTY, 0);
+}
+
+// ---------------------------------------------------------------------
+// Teclado del ZX81 en la pausa del boton QS (sin menu en pantalla). El MCU
+// lee cuatro filas por el monitor (IN $xxFE) cada 40 ms, sin tocar nada del
+// programa. Cuenta al soltar una tecla que se ha pulsado durante la pausa
+// (las que ya estaban pulsadas al parar no): asi el programa no la ve al
+// seguir
+//   S  snapshot y sigue          Z  snapshot y se queda parado
+//   L  carga el ultimo snapshot grabado en esta sesion
+//   ESPACIO  sigue
+// ---------------------------------------------------------------------
+static const struct { uint16_t port; uint8_t bit; } kbd_keys[4] = {
+  {0xFDFE, 0x02},   // S  (A S D F G)
+  {0xFEFE, 0x02},   // Z  (SHIFT Z X C V)
+  {0xBFFE, 0x02},   // L  (ENTER L K J H)
+  {0x7FFE, 0x01}    // ESPACIO (SPACE . M N B)
+};
+static uint8_t kbd_now = 0;                     // pulsadas: bit 0 S, 1 Z, 2 L, 3 espacio
+static uint32_t kbd_t = 0;
+
+static void kbd_feed(){
+  if (!kbd_on || !stopped || snap_busy() || ld_busy() || q_count) return;
+  if (millis() - kbd_t < 40) return;
+  kbd_t = millis();
+  for (int k = 0; k < 4; k++) q_push(OP_IN, kbd_keys[k].port, 0, TAG_KBD, k);
+}
+
+static void kbd_result(uint8_t k, uint8_t v){
+  if (k == 0) kbd_now = 0;
+  if (!(v & kbd_keys[k].bit)) kbd_now |= 1 << k;
+  if (k != 3) return;
+  uint8_t press = kbd_now & ~kbd_prev;
+  uint8_t release = kbd_prev & ~kbd_now;
+  kbd_prev = kbd_now;
+  kbd_armed |= press;
+  uint8_t go = release & kbd_armed;           // pulsada en la pausa y ya soltada
+  kbd_armed &= ~release;
+  if (!kbd_on || !go) return;
+  press = go;
+  if (press & 1) { Serial.println("QS pause: S, snapshot and continue"); dbg_snapshot(false, "", true); }
+  else if (press & 2) { Serial.println("QS pause: Z, snapshot"); dbg_snapshot(false, "", false); }
+  else if (press & 4) {
+    if (!last_snap[0]) { Serial.println("QS pause: L, no snapshot saved yet"); return; }
+    uint8_t im;
+    uint8_t st = ld_prepare(last_snap, &im);
+    if (st) { Serial.printf("QS pause: L, can't load %s (error %d)\r\n", last_snap, st); return; }
+    Serial.printf("QS pause: L, %s\r\n", last_snap);
+    ld.set_im = true;                         // sin la ROM: el IM va con SETREGS
+    ld_begin();
+  }
+  else if (press & 8) { Serial.println("QS pause: continue"); dbg_continue(); }
 }

@@ -62,7 +62,7 @@ module tb_dbg;
 		.dbg_loaded(loaded), .dbg_pause_tgl(tgl), .joy_up_n(up_n), .joy_down_n(down_n),
 		.data_out(fpga_data), .enable_out(fpga_en), .state(si_state),
 		.enabled(si_enabled), .dbg_win(dbg_win), .dbg_mon(dbg_mon), .port_out(port_out),
-		.bram_rd(bram_rd), .bram_wr(bram_wr), .bram_ptr(bram_ptr), .bram_data(bram_data), .chroma_reg(8'h3C), .ay_sel_a(8'h0D), .ay_sel_b(8'h07));
+		.bram_rd(bram_rd), .bram_wr(bram_wr), .bram_ptr(bram_ptr), .bram_data(bram_data), .chroma_reg(8'h3C), .ay_sel_a(8'h0D), .ay_sel_b(8'h07), .sram_wr(1'b0), .sram_page(6'd0), .dirty_clr(1'b0));
 
 	reg [7:0] got;			// el byte que ha leido la CPU en la ultima lectura
 	reg got_fpga;			// si lo servia la FPGA

@@ -258,6 +258,7 @@ Z80 no hace falta estar en el monitor.
 | 2 | (2b) el byte de la BRAM de sombra en el puntero; el puntero avanza 1 al acabar cada `IN` |
 | 3 | (2b) el registro de Chroma81 (lo último escrito con `OUT $7FEF`) |
 | 4 / 5 | (rev 0.08) el registro elegido del AY A (A3=1, ZonX) / del AY B: el latch de dirección, que sus puertos no dejan leer |
+| 6 | (rev 0.09) las páginas escritas por la CPU, una por `IN` (bit 0), de la 0 a la 63: el puntero vuelve a 0 al elegir el índice 6 y avanza al acabar cada `IN` (sección 11.6) |
 | 15 | firma `52h` |
 | otros | 0 |
 
@@ -522,9 +523,12 @@ Ya no bloquea el bucle del MCU mientras se mantiene. **Todo pasa al
 soltarlo** (cambiado en la fase 2b); el LED avisa de lo que hará:
 - **menos de 1 s:** cambia QuickSilva;
 - **de 1 a 3 s** (LED magenta al llegar a 1 s): si el programa corre,
-  pausa; si está parado, continúa;
+  pausa y se puede usar el teclado (`S`, `Z`, `L`, espacio: sección
+  11.7); si está parado, continúa;
 - **3 s o más** (LED amarillo al llegar a 3 s): snapshot con el nombre
-  automático (sección 11). Si el programa corría, sigue al acabar.
+  automático (sección 11). Si el programa corría, sigue al acabar. Desde
+  que se suelta, el LED parpadea en amarillo hasta que acaba (si el
+  programa está en SLOW, la pausa espera a que pase a FAST).
 
 Sin el monitor cargado, cualquier pulsación cambia QuickSilva. En el
 emulador conviene una tecla o un botón para el QuickSilva "mantenido".
@@ -546,13 +550,14 @@ emulador conviene una tecla o un botón para el QuickSilva "mantenido".
 
 ### 11.1 Qué lo lanza
 
-- La consola: `snap [-a] [nombre]`. Sin `-a`, solo las páginas mapeadas en
-  los 8 bloques; con `-a`, todas las páginas 0-62 (sin FULL_PAGING, solo
-  hasta la 31: el mapper no llega más allá).
-- El botón QuickSilva mantenido 3 s (sección 10.6).
-
-Si el programa corre, el MCU lo pausa, graba y lo deja seguir. Si ya estaba
-parado, se queda parado. Mientras graba, el LED parpadea en amarillo y la
+- La consola: `snap [-a] [nombre]`. Sin `-a`, las páginas mapeadas en los 8
+  bloques y las que ha escrito el programa (sección 11.6); con `-a`, todas
+  las páginas 0-62 (sin FULL_PAGING, solo hasta la 31: el mapper no llega
+  más allá). Desde la consola el programa **se queda parado** (si corría,
+  se pausa antes).
+- El botón QuickSilva mantenido 3 s (sección 10.6): si el programa corría,
+  sigue al acabar.
+- Las teclas `S` y `Z` en la pausa del botón (sección 11.7). Mientras graba, el LED parpadea en amarillo y la
 consola contesta `Snapshot in progress`.
 
 **Nombre:** el que se dé (con `.Z81` si no lleva extensión), en el
@@ -647,6 +652,52 @@ suyo: `VV ` o `*NNNN VV `, 16 tokens por línea.
   ni la copia de los sprites, que ya van en sus claves (en la práctica,
   solo con CP/M).
 
+### 11.6 Las páginas escritas (FPGA rev 0.09)
+
+Para que un snapshot normal (sin `-a`) guarde lo que usa el programa sin
+tener que elegir, la FPGA lleva un bit por página (64): se pone a 1 cuando
+una escritura de la CPU llega a la SRAM en esa página (la de `sram_page`,
+con la ventana del monitor incluida). Las escrituras del MCU con el Z80 en
+reset no cuentan. Es una RAM distribuida de 64×1 (con 64 registros no
+cabía en la FPGA). Se lee por `$3FEF`, índice 6: `OUT $06` y 64 `IN`
+seguidos (el MCU usa INSEQ), uno por página, en el bit 0.
+
+La **orden 11** del canal de configuración las borra: al pasar a 1, un
+contador recorre las 64 posiciones (64 ciclos del Z80). El MCU manda 1 y
+después 0. El MCU las borra:
+- al cargar un programa (`LOAD`, en `dbg_note_loaded`);
+- al empezar a cargar un snapshot (las escritas pasan a ser las de la
+  carga);
+- en el reset del Z80.
+
+El snapshot guarda las mapeadas más las escritas (menos la 63). Con una FPGA
+anterior los índices dan 0 y quedan solo las mapeadas.
+
+En el emulador: un bit por página que se pone al escribir la CPU en ella,
+el índice 6 con su puntero y la orden 11.
+
+### 11.7 La pausa del botón QS: teclado del ZX81
+
+Sin menú en pantalla. Cuando la pausa la pide el botón QS (soltarlo entre 1
+y 3 s con el programa en marcha), al parar el MCU lee el teclado por el
+monitor cada 40 ms: `IN` de las filas `$FDFE`, `$FEFE`, `$BFFE` y `$7FFE`
+(nada se escribe en la memoria del programa). Cada tecla cuenta **al
+soltarla**, y solo si se ha pulsado durante la pausa (las que ya estaban
+pulsadas al parar no valen): así el programa no la ve al seguir.
+
+| Tecla | Qué hace |
+|---|---|
+| `S` | snapshot (nombre automático) y el programa sigue |
+| `Z` | snapshot y se queda parado (el teclado sigue activo) |
+| `L` | carga el último snapshot grabado en esta sesión (desde el encendido) |
+| `ESPACIO` | sigue |
+
+`L` carga sin pasar por la ROM: el programa ya está parado en el monitor.
+Como la ROM no pone el modo de interrupción, el MCU lo manda con los
+registros: `SETREGS` de **31 bytes**, con el IM (0-2) en el byte 30. El
+monitor lo pone al salir (`im_req`, `$FF` = no tocar). El resto de la carga
+es la de la sección 12.
+
 ### 11.5 Los sprites en la sombra (FPGA rev 0.08)
 
 Los POKEs 2101-2128 son los mismos para los 32 sprites (el 2100 elige
@@ -705,7 +756,10 @@ usa el cargador de siempre (comando 70, `z81_snapshot_loading.md`).
 
   Fuera del monitor no hace nada. La pone y la quita el MCU.
 
-### 12.2 El monitor (versión 3: `"SD81DBG",3` en `$2003`; 1222 bytes)
+### 12.2 El monitor (versión 3: `"SD81DBG",3` en `$2003`; 1254 bytes)
+
+`SETREGS` acepta 30 bytes o 31, con el modo de interrupción en el último
+(sección 11.7).
 
 | op | Nombre | Dirección | n | Después | Qué hace |
 |---|---|---|---|---|---|
@@ -739,6 +793,8 @@ empieza cada sección. El Z80 espera mientras tanto.
 En este orden:
 
 1. **Estado del MCU.**
+   - Se borran las páginas escritas (orden 11): las de la carga serán las
+     nuevas.
    - `CUR_DIR` pasa a ser el directorio actual.
    - El AY del MCU, el VGM, el PEG y los ficheros abiertos
      (`mcustate_apply`). Sin claves de VGM o PEG se paran los que hubiera;

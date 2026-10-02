@@ -31,7 +31,8 @@
 ;  datos:
 ;    1 READ     n bytes desde la direccion (1-256)   -> resultado: n bytes
 ;    2 WRITE    n bytes en la direccion (1-256)       -> nada
-;    3 SETREGS  el bloque de registros (n = 30)       -> nada
+;    3 SETREGS  el bloque de registros (n = 30), o 31 con el modo de
+;               interrupcion detras (0-2), que se pone al salir -> nada
 ;    4 OUT      direccion = puerto, n bajo = valor    -> nada
 ;    5 IN       direccion = puerto                     -> 1 byte
 ;    6 CONT     continuar                              -> (vuelve al programa)
@@ -346,10 +347,10 @@ qw1:        ld   a,b
             dec  bc
             jr   qw1
 
-q_regs:     call recv_n
+q_regs:     call recv_n         ; 30 bytes, o 31 con el IM (im_req)
             ld   hl,buf
             ld   de,regs
-            ld   bc,30
+            ld   bc,(rn)
             ldir
             jp   poll
 
@@ -393,7 +394,23 @@ rn1:        ld   a,b
 ;  ha podido cambiar): [SP-2] = PC+1 y SP-2, y JP $003B. El epilogo de la
 ;  FPGA (EX (SP),HL / DEC HL / EX (SP),HL / RET) vuelve a PC con SP.
 ; ---------------------------------------------------------------------
-q_cont:     ld   hl,(regs+20)
+q_cont:     ld   a,(im_req)     ; IM pedido con SETREGS (carga de snapshots
+            cp   0FFh           ; sin pasar por la ROM)
+            jr   z,qc0
+            ld   b,a
+            ld   a,0FFh
+            ld   (im_req),a
+            ld   a,b
+            or   a
+            jr   nz,qc2
+            im   0
+            jr   qc0
+qc2:        dec  a
+            jr   nz,qc3
+            im   1
+            jr   qc0
+qc3:        im   2
+qc0:        ld   hl,(regs+20)
             dec  hl
             dec  hl
             ld   (sp_ret),hl
@@ -547,6 +564,7 @@ mrw:        in   a,(CLKP)
 ;  Variables (en la pagina 63: solo las ve el monitor)
 ; ---------------------------------------------------------------------
 regs:       defs 30
+im_req:     defb 0FFh           ; byte 31 de SETREGS: IM al salir (FF = no tocar)
 save_sp:    defw 0
 sp_ret:     defw 0
 r_raw:      defb 0

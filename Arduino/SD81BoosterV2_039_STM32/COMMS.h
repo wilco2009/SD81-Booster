@@ -32,6 +32,7 @@ void jmpfar();
 #define cfgcmd_DBGPAUSE   8   // depurador: pausa (la FPGA reacciona al cambio)
 #define cfgcmd_DBGLOADED  9   // depurador: monitor cargado en la pagina 63 (y armado)
 #define cfgcmd_DBGPOKE    10  // depurador: el monitor escribe como el programa (POKEs y BRAM)
+#define cfgcmd_DBGDIRTY   11  // depurador: borrar las paginas escritas (1 y despues 0)
 
 
 void send_debug_params(uint16_t pixel_cnt, uint16_t line_cnt);

@@ -13,6 +13,8 @@
 #include <vector>
 #include <cstdarg>
 #include <cstdio>
+#include <chrono>
+#include <functional>
 
 extern "C" {
 #include "z80.h"
@@ -32,8 +34,13 @@ void SerialC::println(const char* s){ logs(s); logs("\n"); }
 void SerialC::print(const char* s){ logs(s); }
 int SerialC::printf(const char* f, ...){ char b[512]; va_list a; va_start(a, f); int r = vsnprintf(b, sizeof b, f, a); va_end(a); logs(b); return r; }
 
-unsigned long millis(){ return 0; }
-int digitalRead(int){ return 1; }
+static long now_ms(){
+  using namespace std::chrono;
+  return (long)duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+unsigned long millis(){ return (unsigned long)now_ms(); }
+static std::atomic<int> qs_level{1};          // el boton QuickSilva (0 = pulsado)
+int digitalRead(int){ return qs_level; }
 uint8_t nQS_en = 1;
 bool debug_monitor_loaded = true;
 void set_status_LED(uint32_t){}
@@ -42,8 +49,10 @@ static std::atomic<bool> pause_pend{false};
 static bool skip = false;
 static uint16_t stop_pc = 0;
 static uint8_t cfgs[16];
+static std::atomic<uint64_t> dirty{0};          // las paginas escritas (FPGA)
 void send_bit_config(uint8_t c, uint8_t v){
   if ((c & 15) == 8 && v != cfgs[8]) pause_pend = true;   // orden 8: pausa (al conmutar)
+  if ((c & 15) == 11 && v) dirty = 0;                      // orden 11: borrarlas
   cfgs[c & 15] = v;
 }
 uint8_t cfg_value(uint8_t c){ return cfgs[c & 15]; }
@@ -114,6 +123,7 @@ static void mcu_thread(){
     std::string line;
     { std::lock_guard<std::mutex> l(con_mx); if (!con_lines.empty()) { line = con_lines.front(); con_lines.pop_front(); } }
     if (!line.empty()) { logs("> "); logs(line.c_str()); logs("\n"); dbg_console(line.c_str()); processed++; }
+    dbg_qs_button();
     std::this_thread::yield();
   }
 }
@@ -155,10 +165,18 @@ void z80_writebyte_wrapper(int a, int d){
   }
   if (cur_page(a) == 63 && !mon) return;        // pagina 63 protegida
   *ptr(a) = d;
+  dirty = dirty | (1ull << cur_page(a));        // la FPGA apunta la pagina escrita
+}
+// el teclado del ZX81: filas (A8-A15 a 0 la elegida), bits 0-4 a 0 pulsada
+static std::atomic<uint8_t> keyrow[8];
+static void key(int row, int bit, bool down){
+  uint8_t v = keyrow[row];
+  keyrow[row] = down ? (v | (1 << bit)) : (v & ~(1 << bit));
 }
 // FPGA: puerto del depurador
 static uint8_t ridx = 0, wexp = 0, wreg = 0, step_lo = 0, reason = 0, lvl = 0, bptr_lo = 0;
 static uint16_t bptr = 0;
+static uint8_t dptr = 0;                        // indice 6: la pagina escrita que se lee
 static bool step_on = false; static uint16_t step_cnt = 0;
 void z80_writeport_wrapper(int port, int d, int*){
   int lo = port & 0xFF;
@@ -180,7 +198,7 @@ void z80_writeport_wrapper(int port, int d, int*){
       if (wreg == 6) bptr = bptr_lo | (d << 8);
       if (wreg == 7) bram[bptr++] = d;
     } else if (d & 0x80) { wexp = 1; wreg = d & 7; }
-    else if (d < 16) ridx = d;
+    else if (d < 16) { ridx = d; if (d == 6) dptr = 0; }
   }
 }
 BYTE z80_readport_wrapper(int port, int*){
@@ -188,12 +206,18 @@ BYTE z80_readport_wrapper(int port, int*){
   if (lo == 0xAF) return clk ? 0x80 : 0x00;
   if (lo == 0xA7) { int v = latch; dreg = true; return v; }
   if (lo == 0xE7) return blk[(port >> 8) & 7];
+  if (lo == 0xFE) {                             // teclado
+    uint8_t v = 0x1F;
+    for (int r = 0; r < 8; r++) if (!(port & (0x100 << r))) v &= ~keyrow[r];
+    return v | 0xE0;
+  }
   if ((lo & 0x26) == 0x06 && (lo & 0x80)) { int c = (lo & 8) ? 0 : 1; return ay_sel[c] < 16 ? ay_reg[c][ay_sel[c]] : 0xFF; }
   if ((port & 0xFFFF) == 0x3FEF) {
     if (ridx == 2) return bram[bptr++];
     if (ridx == 3) return 0x2C;                 // registro de Chroma
     if (ridx == 4) return ay_sel[0];
     if (ridx == 5) return ay_sel[1];
+    if (ridx == 6) return (uint8_t)((dirty >> (dptr++ & 63)) & 1);
     return ridx == 0 ? (0x80 | (lvl << 5) | reason) : ridx == 15 ? 0x52 : 0;
   }
   return 0xFF;
@@ -311,7 +335,7 @@ static void check_snapshot(const char* fn, bool all){
   tp = 0;
   CHECK(seek_tok("ROM_PROTECTED") && toks[tp] == "00", "ROM_PROTECTED 00");
   // paginas
-  int pages = 0; bool pages_ok = true; bool p0 = false, p1 = false, p63 = false;
+  int pages = 0; bool pages_ok = true; bool p0 = false, p1 = false, p63 = false, p20 = false;
   tp = 0;
   while (seek_tok("RAM_PAGE")) {
     int pg = hexv(toks[tp++]);
@@ -319,17 +343,18 @@ static void check_snapshot(const char* fn, bool all){
     if (!decode(d, 8192)) { pages_ok = false; break; }
     for (int i = 0; i < 8192; i++) if (d[i] != ram[pg][i]) { pages_ok = false; printf("  pagina %d difiere en %04X\n", pg, i); break; }
     if (toks[tp] != "RAM_PAGE_END") pages_ok = false;
-    pages++; if (pg == 0) p0 = true; if (pg == 1) p1 = true; if (pg == 63) p63 = true;
+    pages++; if (pg == 0) p0 = true; if (pg == 1) p1 = true; if (pg == 63) p63 = true; if (pg == 20) p20 = true;
   }
   CHECK(pages_ok, "RAM_PAGE = las paginas");
   CHECK(!p0 && !p63, "sin la pagina 0 (ROM intacta) ni la 63 (monitor)");
   CHECK(p1, "la pagina 1 si (se escribio en $2000)");
-  CHECK(all ? pages == 62 : pages == 7, all ? "con -a: 62 paginas" : "mapeadas: 7 paginas (1-7)");
+  CHECK(all ? pages == 62 : (pages == 8 && p20), all ? "con -a: 62 paginas" : "mapeadas y escritas: 8 paginas (1-7 y la 20)");
   tp = 0; CHECK(seek_tok("[EOF]"), "[EOF] al final");
 }
 
 int main(int argc, char** argv){
-  remove("sd_prueba1.Z81"); remove("sd_prueba2.Z81"); remove("sd_NONAME001.Z81");
+  remove("sd_prueba1.Z81"); remove("sd_prueba2.Z81");
+  remove("sd_NONAME001.Z81"); remove("sd_NONAME002.Z81"); remove("sd_NONAME003.Z81"); remove("sd_NONAME004.Z81");
   FILE* f = fopen(argv[1], "rb"); size_t n = fread(&ram[63][0], 1, 8192, f); fclose(f);    // DEBUG.BIN
   f = fopen(argv[2], "rb"); n = fread(&ram[3][0], 1, 8192, f); fclose(f);                 // programa en $6000
   (void)n;
@@ -403,6 +428,7 @@ int main(int argc, char** argv){
   sprreg[5][2] = 1; bram[0x0C00 + 5 * 32 + 2] = 1;
   spr_sel = 5; bram[2100] = 5;
   bram[0x4100] ^= 0xFF;                                       // la sombra del bloque 2 no es la memoria
+  { uint8_t b7 = blk[7]; blk[7] = 20; z80_writebyte_wrapper(0xE123, 0x5A); blk[7] = b7; }   // el programa escribe en la pagina 20
   pause_pend = true;
   CHECK(run_until_waiting(5000000), "pausa para el snapshot");
   con("snap prueba1");
@@ -438,13 +464,15 @@ int main(int argc, char** argv){
   con("snap -a prueba2");
   CHECK(run_until_waiting(80000000), "snap -a prueba2 acaba");
   check_snapshot("sd_prueba2.Z81", true);
-  // 7. con el programa en marcha y nombre automatico: para, graba y sigue
+  // 7. con el programa en marcha y nombre automatico: para, graba y se queda parado
   con("c");
   run_program(1000);
-  con("snap");
-  for (long k = 0; k < 80000000 && !mon; k++) step_cpu();        // hasta que pare
-  for (long k = 0; k < 80000000 && mon; k++) step_cpu();         // hasta que vuelva
-  CHECK(!mon && !dbg_is_stopped(), "snap en marcha: el programa sigue");
+  con("snap");                                // desde la consola: para, graba y se queda parado
+  CHECK(run_until_waiting(80000000), "snap en marcha: para y graba");
+  CHECK(mon && dbg_is_stopped(), "snap desde la consola: se queda parado");
+  con("c");
+  run_program(1000);
+  CHECK(!mon && !dbg_is_stopped(), "c: el programa sigue");
   FILE* f3 = fopen("sd_NONAME001.Z81", "rb");
   CHECK(f3 != nullptr, "nombre automatico NONAME001.Z81");
   if (f3) fclose(f3);
@@ -485,10 +513,11 @@ int main(int argc, char** argv){
   CHECK(memcmp(blk, blk_s, 8) == 0, "carga: el mapper");
   {
     bool ok = true;
-    for (int p = 0; p < 8 && ok; p++)
-      for (int i = 0; i < 8192; i++)
+    for (int p = 0; p < 21 && ok; p++)
+      for (int i = 0; i < 8192 && (p < 8 || p == 20); i++)
         if (ram[p][i] != ram_s[p][i]) { printf("  pagina %d difiere en %04X: %02X / %02X\n", p, i, ram[p][i], ram_s[p][i]); ok = false; break; }
-    CHECK(ok, "carga: paginas 0-7 como al hacer prueba1");
+    CHECK(ok, "carga: paginas 0-7 y 20 como al hacer prueba1");
+    CHECK(dirty & (1ull << 20), "carga: la pagina 20 queda como escrita");
     ok = true;
     for (int a = 0; a < 0x10000 && ok; a++)
       if (bram[a] != bram_s[a]) { printf("  sombra difiere en %04X: %02X / %02X\n", a, bram[a], bram_s[a]); ok = false; }
@@ -540,6 +569,54 @@ int main(int argc, char** argv){
   step_cpu(); step_cpu();
   CHECK(nmi_on, "NMI: encendida");
   same_regs(z_s, r_s);
+
+  // 11. sin consola: el boton QS (1-3 s, pausa) y el teclado del ZX81
+  {
+    auto run_ms = [&](long ms){ long t = now_ms(); while (now_ms() - t < ms) step_cpu(); };
+    auto run_until = [&](std::function<bool()> c, long ms){ long t = now_ms(); while (!c() && now_ms() - t < ms) step_cpu(); return c(); };
+    auto qs_pause = [&](){
+      qs_level = 0; run_ms(1500); qs_level = 1;
+      bool ok = run_until([]{ return mon && dbg_is_stopped(); }, 3000);
+      run_ms(150);                              // que el MCU lea el teclado sin nada pulsado
+      return ok;
+    };
+    size_t from = 0;                            // solo lo escrito desde la ultima accion
+    auto mark = [&](){ std::lock_guard<std::mutex> l(out_mx); from = out_log.size(); };
+    auto logged = [&](const char* t){ std::lock_guard<std::mutex> l(out_mx); return out_log.find(t, from) != std::string::npos; };
+    CHECK(qs_pause(), "QS 1,5 s: pausa");
+    processor zq = z_entry; int rq = r_entry;
+    uint8_t m6100 = *pptr(0x6100);
+    auto tap = [&](int row, int bit){ mark(); key(row, bit, true); run_ms(150); key(row, bit, false); };
+    tap(0, 1);                                  // Z: snapshot y se queda parado
+    CHECK(run_until([&]{ return logged("Snapshot saved: /NONAME002.Z81"); }, 20000), "Z: snapshot NONAME002");
+    run_ms(200);
+    CHECK(mon && dbg_is_stopped(), "Z: sigue parado");
+    con("x hl=1234"); con("e 6100 99");         // se cambia algo
+    run_until([]{ return processed == posted; }, 2000);
+    run_ms(100);
+    CHECK(*pptr(0x6100) == 0x99 && zq.hl.w != 0x1234, "cambiados HL y $6100");
+    tap(6, 1);                                  // L: carga el ultimo grabado
+    CHECK(run_until([&]{ return logged("Snapshot loaded"); }, 20000), "L: carga NONAME002");
+    CHECK(run_until([]{ return !mon; }, 5000), "L: el programa sigue");
+    CHECK(z80.hl.w == zq.hl.w && z80.pc.w == zq.pc.w && R() == rq && *pptr(0x6100) == m6100, "L: como al hacer el snapshot");
+    run_ms(100);
+    CHECK(qs_pause(), "QS: pausa otra vez");
+    tap(1, 1);                                  // S: snapshot y sigue
+    CHECK(run_until([&]{ return logged("Snapshot saved: /NONAME003.Z81"); }, 20000), "S: snapshot NONAME003");
+    CHECK(run_until([]{ return !mon && !dbg_is_stopped(); }, 5000), "S: el programa sigue");
+    run_ms(100);
+    CHECK(qs_pause(), "QS: pausa otra vez");
+    key(7, 0, true);                            // espacio: sigue, pero al soltarlo
+    run_ms(400);
+    CHECK(mon && dbg_is_stopped(), "espacio pulsado: todavia parado");
+    key(7, 0, false);
+    CHECK(run_until([]{ return !mon && !dbg_is_stopped(); }, 5000), "espacio soltado: el programa sigue");
+    // el boton 3,5 s con el programa en marcha: snapshot y sigue
+    run_ms(100);
+    mark(); qs_level = 0; run_ms(3500); qs_level = 1;
+    CHECK(run_until([&]{ return logged("Snapshot saved: /NONAME004.Z81"); }, 20000), "QS 3,5 s: snapshot NONAME004");
+    CHECK(run_until([]{ return !mon && !dbg_is_stopped(); }, 5000), "QS 3,5 s: el programa sigue");
+  }
 
   // 10. un .Z81 de EightyOne sin MAPPER ni HW_POKES (claves de EightyOne)
   {

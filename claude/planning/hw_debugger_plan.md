@@ -327,6 +327,15 @@ con `claude/dbgharness`):
 > siguen siendo la ROM, ni la 63, ni (con `-a`) las que están todas a `FF`.
 > Detalle en `hw_debugger_emulator.md`, sección 11. Falta la carga
 > (`LOAD *Z81` ampliado).
+>
+> **Actualización (2 de octubre de 2026, tarde):** hecho y probado en el
+> hardware: la carga por el monitor (sección 12), los AY, sprites, `SHADOW`
+> y el estado del MCU (commit 75edeb3). Después, para el usuario sin
+> consola: la FPGA (rev 0.09) apunta las páginas escritas y el snapshot
+> normal guarda las mapeadas más las escritas, sin tener que elegir; y en la
+> pausa del botón QS, el teclado: `S` snapshot y sigue, `Z` snapshot y
+> parado, `L` carga el último, espacio sigue (sin menú en pantalla, por
+> ahora). `snap` desde la consola deja el programa parado.
 - Es "parar, leer todo y continuar" con el mismo mecanismo del depurador. El
   monitor Z80 solo lee; el **MCU monta el `.Z81`** (ya lo sabe leer en
   `cmd_loadZ81`) y lo escribe en la SD.

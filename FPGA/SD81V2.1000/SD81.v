@@ -335,6 +335,8 @@ module SD81(
 	wire [15:0] dbg_bram_ptr;
 	wire [7:0] ay_sel_o[0:1];	// registro elegido de cada AY (indices 4/5 de $3FEF; ver los AY mas abajo)
 	reg dbg_poke = 1'b0;		// orden 10 del MCU: el monitor escribe como el programa (carga de snapshots)
+	reg dbg_dirty_clr = 1'b0;	// orden 11 del MCU: borrar las paginas escritas (mientras este a 1)
+	wire [5:0] sram_page;		// la pagina de la SRAM del acceso de ahora (ver mas abajo)
 	// Mientras el monitor esta activo el bloque 0 se comporta como RAM, igual
 	// que con POKE 2056 en CP/M: se puede escribir (breakpoints por software
 	// en la ROM) y sus escrituras no disparan los registros de POKE. Con la
@@ -1828,7 +1830,10 @@ assign DEBUG_RDY = 1'b0;
 		.bram_data(shadowram_dout),
 		.chroma_reg(chroma_mode_reg),
 		.ay_sel_a(ay_sel_o[1]),
-		.ay_sel_b(ay_sel_o[0])
+		.ay_sel_b(ay_sel_o[0]),
+		.sram_wr(nRESET & ~nWRx),		// paginas escritas: una escritura de la CPU en la SRAM
+		.sram_page(sram_page),
+		.dirty_clr(dbg_dirty_clr)
 	);
 
 
@@ -2039,7 +2044,7 @@ assign DEBUG_RDY = 1'b0;
 		(nQS_en & (nRFSH | A14 | A15 | (wrx_en & A13)) || (~nQS_en & nRFSH))? {A9,A8,A7,A6,A5,A4,A3,A2,A1,A0}:  // normal access (wrx_en: WRX con I en $20-$3F, POKE 2058)
 		(~nQS_en & ~nRFSH)||SEL_128CHARS?{ram_Dlatch[7],ram_Dlatch[5:0],line_cnt[2:0]}:			// access  to char table on 128CHAR or QS mode
 		{A9,ram_Dlatch[5:0],line_cnt[2:0]};																		// access to char table on 64CHAR mode
-	wire [5:0] sram_page =
+	assign sram_page =
 		(~nQS_en & ~nRFSH)?block[3'b100]:								// access to char table on QS mode
 		(dbg_win & nRFSH & ~A15 & ~A14 & A13)? 6'd63:						// depurador: ventana del monitor en el bloque 1
 		(~nMODE48K &~nM1 & A15 & A14 & ~mc45_exec67)? block[{1'b0,A14,A13}]:		// access to execute at C000-FFFF in 48K mode (mc45_exec67 lo quita: ver MC45/M1NOT)
@@ -2059,6 +2064,12 @@ assign DEBUG_RDY = 1'b0;
 
 		// LOW ROM is write protected (salvo como RAM: CP/M o el monitor del depurador)
 		assign nWRx =~nRESET?1'bz:(nWR | nMREQ | ((~A13&~A14&~A15)&~blk0_ram) | p63_lock );
+
+		// Paginas escritas (snapshots del depurador): sim_int.v lleva un bit
+		// por pagina, a 1 cuando una escritura de la CPU llega de verdad a la
+		// SRAM (nWRx). Las del MCU con el Z80 en reset no cuentan. El MCU las
+		// borra con la orden 11 al cargar un programa o un snapshot y en el
+		// reset.
 		
 		//external MEM active for RAM and ROM
 		// La SRAM se apaga cuando es la FPGA la que sirve el dato: el JP de las
@@ -2298,6 +2309,7 @@ assign DEBUG_RDY = 1'b0;
 				else if 	(comm_cmd==8) dbg_pause_tgl <= cfg_reg[CMD_BITS];		// depurador: pausa (al conmutar)
 				else if 	(comm_cmd==9) dbg_loaded <= cfg_reg[CMD_BITS];			// depurador: monitor cargado en la pagina 63 (y armado)
 				else if 	(comm_cmd==10) dbg_poke <= cfg_reg[CMD_BITS];			// depurador: el monitor escribe como el programa (POKEs y BRAM)
+				else if 	(comm_cmd==11) dbg_dirty_clr <= cfg_reg[CMD_BITS];		// depurador: borrar las paginas escritas
 			end else begin
 				cfg_reg[cfg_cnt]<=CFG_DATA;
 				if (cfg_cnt < MAX_CFG) cfg_cnt <= cfg_cnt+1'b1;

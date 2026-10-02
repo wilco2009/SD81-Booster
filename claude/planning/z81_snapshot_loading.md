@@ -172,6 +172,14 @@ describen configuración del emulador y se ignoran.
 | `cmd_loadZ81` en el STM32 (`COMMANDS.cpp`) | implementado, incluye NMI/WRX/generador de caracteres; **sin compilar/probar en hardware real** (sí contra el emulador) |
 | Comando 0x46 en el emulador (`SD81Booster.cpp`) | manda cabecera+registros+memoria+NMI/WRX/generador; **pendiente** de mandar `longitud_color`/`color[]` y `chroma_presente`/`chroma_modo` — sin eso la ROM nueva se queda esperando bytes |
 
+> **Actualización (2 de octubre de 2026):** con el monitor del depurador
+> cargado, `LOAD *Z81` ya no usa este cargador. La ROM manda antes el
+> comando 75 y el MCU carga el snapshot entero por el monitor: páginas,
+> mapper, POKEs de control, la BRAM de sombra y los registros. Ver
+> `hw_debugger_emulator.md`, sección 12. Este comando 70 queda para cuando
+> no hay monitor (contesta `0xFF` al 75), y la limitación de abajo solo
+> vale en ese caso.
+
 **Limitación actual (documentada en el manual, 7.7):** solo funcionan los
 snapshots de un ZX81 sin las funciones de paginación del interface. Se
 restaura `[MEMORY]`/`MEMRANGE` (lo que ve el Z80 en `$2000-$FFFF`), no la

@@ -122,6 +122,7 @@ CMD_chars256	equ	0x41	; LOAD *256C (siguiente slot libre en la tabla MCU)
 CMD_romlock_on	equ	0x44	; LOAD *ROMLOCK
 CMD_romlock_off	equ	0x45	; LOAD *ROMLOCK STOP
 CMD_loadZ81	equ	0x46	; LOAD *Z81 "fichero" -- snapshot EightyOne
+CMD_loadZ81dbg	equ	0x4B	; LOAD *Z81 con el monitor del depurador
 
 ; ROM restart routines
 ERROR_1		equ	08H
@@ -1268,7 +1269,59 @@ CmdZ81:		call	GetStrExpr	; leer expresion de cadena (fichero)
 		call	STK_FETCH	; DE=puntero, BC=longitud del nombre
 		call	BC_1_255	; validar nombre de fichero
 
+		; Primero con el monitor del depurador (comando 75): el MCU lee
+		; el fichero y, si hay monitor, contesta 0 y lo carga todo al
+		; parar en la trampa -- paginas, mapper, POKEs de control, la
+		; BRAM de sombra y los registros -- y vuelve directamente al
+		; snapshot (ver dbg_z81_prepare en DEBUGGER.cpp). Sin monitor
+		; contesta 0xFF y se usa el cargador de siempre, mas abajo.
+		; Respuesta: estado, IM.
+		push	de
+		push	bc
 		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_loadZ81dbg
+		call	OutWaitDiff	; enviar comando
+		call	SendString	; enviar nombre; bit7 de C = reloj actual
+		in	a,(DataPort)	; estado (ya estaba en el puerto)
+		ld	l,a
+		call	WaitClkDiff	; el IM
+		in	a,(DataPort)
+		ld	h,a
+		ld	a,c
+		cpl
+		ld	c,a
+		call	WaitClkDiff	; el toggle final
+		pop	bc
+		pop	de
+		ld	a,l
+		inc	a
+		jr	z,Z81Classic	; 0xFF: sin monitor
+		dec	a
+		jr	z,Z81Monitor
+		add	a,.F-.1		; error: como ReportStatus (1 = REPORT-G...)
+		ld	l,a
+		jp	ERROR_3
+
+Z81Monitor:	di
+		out	(0FDh),a	; NMI apagada: con ella el depurador no para
+		ld	a,h		; el IM del snapshot
+		cp	2
+		jr	z,Z81MonIM2
+		or	a
+		jr	nz,Z81MonIM1
+		im	0
+		jr	Z81MonTrap
+Z81MonIM2:	im	2
+		jr	Z81MonTrap
+Z81MonIM1:	im	1
+Z81MonTrap:	ld	bc,3FEFh	; puerto del depurador
+		ld	a,10h
+		out	(c),a		; trampa: para en la instruccion siguiente
+Z81MonWait:	jr	Z81MonWait	; y ya no vuelve aqui: el MCU salta al
+					; snapshot
+
+Z81Classic:	in	a,(ClkPort)
 		ld	c,a
 		ld	a,CMD_loadZ81
 		call	OutWaitDiff	; enviar comando
@@ -2955,6 +3008,24 @@ SD_RESET:	ld	a,$F7		; Check keyboard row 1-5
 		ld	b,$02
 		ld	h,$1E
 		ldir			; copy 4: $3E00-$3FFF
+
+		; Los 32 sprites a cero (el reset de la FPGA solo los apaga): asi
+		; su copia en la BRAM de sombra ($0C00-$0FFF, la que leen los
+		; snapshots del depurador) empieza limpia, igual que los sprites.
+		ld	b,32
+SprClear:	ld	a,b
+		dec	a
+		ld	(2100),a	; elegir el sprite
+		ld	hl,2101
+		ld	c,28		; sus 28 campos
+		xor	a
+SprClear1:	ld	(hl),a
+		inc	hl
+		dec	c
+		jr	nz,SprClear1
+		djnz	SprClear
+		ld	(2100),a	; A = 0: el sprite 0 elegido, como tras el reset
+
 		ld	hl,RAM_CHECK	; load continuation address
 
 SD81_RESET:	; Start by waiting for a possible pending change. There should

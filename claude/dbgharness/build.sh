@@ -15,7 +15,7 @@ cd "$OUT"
 # firmware (y un mismo Arduino.h para todos)
 cp "$HERE/Arduino.h" "$HERE/GLOBALS.h" "$HERE/PINS.h" "$HERE/SD_handle.h" .
 cp "$HERE/logic.cpp" "$HERE/cosim.cpp" .
-cp "$FW/DEBUGGER.cpp" "$FW/DEBUGGER.h" "$FW/COMMS.h" "$FW/COMMANDS.h" .
+cp "$FW/DEBUGGER.cpp" "$FW/DEBUGGER.h" "$FW/COMMS.h" "$FW/COMMANDS.h" "$FW/MCUSTATE.h" .
 cp "$FW/z80-disassembler.h" "$FW/z80-disassembler.cpp" .
 
 echo "== logica del MCU (logic.cpp)"

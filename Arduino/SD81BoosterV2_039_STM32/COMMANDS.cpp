@@ -582,6 +582,7 @@ uint32_t fsize2;
   } else {
     file_counter = 0;
   }
+  dbg_note_loaded(params);                  // nombre de los snapshots
 
   if (T81_dir){   // T81 dir
     uint32_t fpos;
@@ -1199,30 +1200,18 @@ uint32_t sdfree;
   reset_commands();
 }
 
-// COMMAND =16  
-void cmd_opendir2(){
+// Abre el listado de un directorio para GETROWLEN / GETROW. Lo usan OPENDIR
+// y la carga de snapshots (DIR_OPEN: el explorador necesita su listado).
+// Devuelve el codigo de error (0 = bien).
+uint8_t opendir_list(const char* arg){
 char s[MAX_FILENAME_LEN];
 char file_name[MAX_FILENAME_LEN];
 char wildcards[MAX_FILENAME_LEN];
 int pos;
 uint8_t error_code;
-uint8_t c;
 bool isdir = false;
-  check_SD();
   error_code = 0;
-  ToggleClock();
-  
-  //GET PARAMS
-  uint8_t param_len = GetByteFromZ80_IT();
-  byte ch;
-  for (uint8_t i=0; i<param_len; i++){
-    ToggleClock();
-    ch = GetByteFromZ80_IT();
-    params[i] = (char) asc81_to_ascii[ch];
-  }
-  params[param_len] = 0;
-
-  complete_dir(s, params);
+  complete_dir(s, (char*)arg);        // (no lo modifica)
   if (dir.open(s))
     isdir = dir.isDir();
   else isdir = false;
@@ -1232,7 +1221,7 @@ bool isdir = false;
      strcpy(wildcards,"*");
   }
   else {
-     sprintf_P(s, PSTR("%s%s"), current_dir, params);
+     sprintf_P(s, PSTR("%s%s"), current_dir, arg);
      int len = strlen(s);
      // SPLIT INTO DIR AND FILENAME
     pos = 0;
@@ -1275,6 +1264,26 @@ bool isdir = false;
     }
   }
     if (dir.isOpen()) dir.close();
+  dbg_note_opendir(arg, error_code == 0);   // para los snapshots (DIR_OPEN)
+  return error_code;
+}
+
+// COMMAND =16
+void cmd_opendir2(){
+  check_SD();
+  ToggleClock();
+
+  //GET PARAMS
+  uint8_t param_len = GetByteFromZ80_IT();
+  byte ch;
+  for (uint8_t i=0; i<param_len; i++){
+    ToggleClock();
+    ch = GetByteFromZ80_IT();
+    params[i] = (char) asc81_to_ascii[ch];
+  }
+  params[param_len] = 0;
+
+  uint8_t error_code = opendir_list(params);
   SendByteToZ80(error_code);                // ... and Status
   // reset_commands() ANTES del ToggleClock() final (no despues, como en
   // el resto de comandos): reset_commands() es lo que pone
@@ -2236,6 +2245,7 @@ static void do_f_open(bool convert, bool create = false){
     if (h>=0 && (create ? f_handle[h].open(tmp, O_RDWR|O_CREAT|O_TRUNC)
                         : f_handle[h].open(tmp, O_RDWR))){
       f_opened[h] = true;
+      strcpy(f_path[h], tmp);              // para los snapshots (FILE_HANDLE)
       handle = (uint8_t) h;
     }
   } else {
@@ -2834,6 +2844,41 @@ void cmd_loadZ81(){
   ToggleClock();
 }
 
+// COMMAND = 75 (0x4B) LOAD *Z81 "fichero.Z81" con el monitor del depurador
+// Z80 -> MCU: 75, longitud, nombre (como CMD_load). MCU -> Z80: estado
+// (0 = lanzar la trampa: el MCU lo carga al parar; 0xFF = sin monitor, usar
+// el comando 70; 1-3 errores, como el 70) y el modo de interrupcion (IM).
+// Lee el fichero entero antes de contestar (ver dbg_z81_prepare).
+void cmd_loadZ81dbg(){
+  char file_name[MAX_FILENAME_LEN];
+
+  set_SDLed(LED_ON);
+  check_SD();
+  ToggleClock();
+  param_len = GetByteFromZ80();
+  for (uint8_t i=0; i<param_len; i++){
+    ToggleClock();
+    char ch = GetByteFromZ80() & 0b01111111;
+    params[i] = (char) asc81_to_ascii[ch];
+  }
+  params[param_len] = 0;
+  if (params[0]!='/'){
+    strcpy(file_name,current_dir);
+    strcat(file_name,params);
+  } else {
+    strcpy(file_name,params);
+  }
+
+  uint8_t im = 1;
+  uint8_t st = dbg_z81_prepare(file_name, &im);
+  if (st && st != 0xFF) log_0("LOAD *Z81 (monitor): %s, error %d", file_name, st);
+  set_SDLed(LED_OFF);
+  SendByteToZ80(st);
+  SendByteToZ80(im);
+  reset_commands();
+  ToggleClock();
+}
+
 // reserved codes for future
 void cmd_spare(){
   log_0("Command not recognized: %s",command_active);
@@ -2926,5 +2971,6 @@ command_handler commands[] = {
   cmd_f_create_zx81,    //72 (0x48) fcreate con nombre en codigo ZX81
   cmd_dbg_break,        //73 (0x49) depurador: el programa se ha parado (DEBUGGER.cpp)
   cmd_dbg_poll,         //74 (0x4A) depurador: resultado y siguiente peticion
+  cmd_loadZ81dbg,       //75 (0x4B) LOAD *Z81 con el monitor del depurador
   cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

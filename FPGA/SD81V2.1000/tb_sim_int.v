@@ -47,7 +47,8 @@ module tb_sim_int;
 		.nRD(nRD), .nWR(nWR), .nMREQ(nMREQ), .nIORQ(nIORQ), .nRFSH(nRFSH),
 		.dbg_loaded(1'b0), .dbg_pause_tgl(1'b0), .joy_up_n(1'b1), .joy_down_n(1'b1),
 		.data_out(fpga_data), .enable_out(fpga_en), .state(si_state),
-		.enabled(si_enabled), .dbg_win(dbg_win), .dbg_mon(dbg_mon), .port_out(port_out));
+		.enabled(si_enabled), .dbg_win(dbg_win), .dbg_mon(dbg_mon), .port_out(port_out),
+		.bram_rd(), .bram_wr(), .bram_ptr(), .bram_data(8'h00), .chroma_reg(8'h00), .ay_sel_a(8'h00), .ay_sel_b(8'h00));
 
 	reg [7:0] got;			// el byte que ha leido la CPU en la ultima lectura
 	reg got_fpga;			// si lo servia la FPGA

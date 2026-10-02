@@ -10,6 +10,7 @@ uint8_t VGM_mode = 0;
 SdFile VGMFile;
 uint8_t retries = 0;
 uint32_t vgm_data_start = 0x100;  // fallback if the header field can't be read
+char vgm_path[MAX_FILENAME_LEN] = "";   // el VGM abierto (para los snapshots)
 
 
 uint8_t openVGM(char* s){
@@ -23,8 +24,11 @@ uint8_t openVGM(char* s){
   log_3("OPEN VGM %s", s);
   if (VGMFile.isOpen()) VGMFile.close();
 
+  vgm_path[0] = 0;
   if (!VGMFile.open(s))
     return 1;
+  strncpy(vgm_path, s, MAX_FILENAME_LEN - 1);
+  vgm_path[MAX_FILENAME_LEN - 1] = 0;
   log_3("succesfull,0");
 
   result = VGMFile.read(id, 4);

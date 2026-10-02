@@ -31,6 +31,7 @@ void jmpfar();
 #define cfgcmd_ROMLOCK    7
 #define cfgcmd_DBGPAUSE   8   // depurador: pausa (la FPGA reacciona al cambio)
 #define cfgcmd_DBGLOADED  9   // depurador: monitor cargado en la pagina 63 (y armado)
+#define cfgcmd_DBGPOKE    10  // depurador: el monitor escribe como el programa (POKEs y BRAM)
 
 
 void send_debug_params(uint16_t pixel_cnt, uint16_t line_cnt);
@@ -38,6 +39,7 @@ void send_config(void);
 bool send_joycfg(char* config);// UP DOWN LEFT RIGHT FIRE
 void send_bit_config(uint8_t command, uint8_t value);
 void rst_config(void);
+uint8_t cfg_value(uint8_t command);   // ultimo valor mandado con send_bit_config
 
 const int OUTPUT_LATCH[] = {PD0, PD1, PD2, PD3, PD4, PD5, PD6, PD7}; 
 const int INPUT_LATCH[] = {PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15}; 

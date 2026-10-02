@@ -20,7 +20,7 @@ inyección en límites de instrucción, el `CALL` en `$0038` y el epílogo en
 | 9 | Sin PC conectado | El programa queda **parado** con el LED en magenta; al conectar el USB, la consola enseña dónde está; otra pulsación larga del botón **continúa** | Permite congelar un juego y conectar el PC después |
 | 10 | Monitor y MCU | **Monitor Z80 mínimo** con dos comandos nuevos, `DBG_BREAK` y `DBG_POLL` (bloqueante). Toda la lógica, en el MCU | El monitor se queda en 1–2 KB; las mejoras van en el firmware, que es C y se actualiza desde la SD |
 | 11 | Traza e interfaz en la pantalla del ZX81 | **Se deciden en la fase 3**, con la síntesis de la v1 delante | Compiten por los 7 KB libres de la BRAM (`$0000`-`$1BFF`); la traza cuesta lógica en la FPGA |
-| 12 | Snapshots | **Fase 2b**, sobre el mismo mecanismo: el monitor lee y el MCU escribe el `.Z81`; lectura de la BRAM de sombra para el estado de los POKEs; `LOAD *Z81` ampliado. **Disparo:** mantener el botón QuickSilva 3 s, o `snap [fichero]` en la consola. **Nombre automático:** el del último fichero cargado con un número (`MAZOGS_001.Z81`), o `NONAME001.Z81` si no se ha cargado nada. Qué páginas se guardan, por decidir en la fase 2b | El depurador ya para el programa y lee registros y memoria |
+| 12 | Snapshots | **Fase 2b**, sobre el mismo mecanismo: el monitor lee y el MCU escribe el `.Z81`; lectura de la BRAM de sombra para el estado de los POKEs; `LOAD *Z81` ampliado. **Disparo:** mantener el botón QuickSilva 3 s, o `snap [fichero]` en la consola. **Nombre automático:** el del último fichero cargado con un número (`MAZOGS001.Z81`), o `NONAME001.Z81` si no se ha cargado nada. Qué páginas se guardan, por decidir en la fase 2b | El depurador ya para el programa y lee registros y memoria |
 
 ## 2. Arquitectura
 
@@ -317,6 +317,16 @@ con `claude/dbgharness`):
   el explorador.
 
 **Fase 2b. Snapshots** (después de que la consola funcione):
+
+> **Estado (1 de octubre de 2026):** el guardado está hecho y pasa los
+> bancos del PC (`tb_dbg.v` y `claude/dbgharness`); falta probarlo en el
+> hardware. FPGA rev 0.07: índices 2 (BRAM, con puntero en los registros 5/6)
+> y 3 (Chroma81) del puerto `$3FEF`. Monitor: peticiones 7 (`INSEQ`) y 8
+> (`READP`). MCU: `snap [-a] [f]` y el botón QS. Páginas: las mapeadas, o
+> todas con `-a` (hasta la 31 sin FULL_PAGING); no se guardan las 0-1 si
+> siguen siendo la ROM, ni la 63, ni (con `-a`) las que están todas a `FF`.
+> Detalle en `hw_debugger_emulator.md`, sección 11. Falta la carga
+> (`LOAD *Z81` ampliado).
 - Es "parar, leer todo y continuar" con el mismo mecanismo del depurador. El
   monitor Z80 solo lee; el **MCU monta el `.Z81`** (ya lo sabe leer en
   `cmd_loadZ81`) y lo escribe en la SD.
@@ -342,7 +352,7 @@ con `claude/dbgharness`):
   guardar partida) y el joystick se pueden añadir sin decidir nada más.
 - **Nombre:** sin PC no se puede escribir. El MCU usa el nombre del último
   fichero cargado más un número, en la carpeta actual y sin pisar nunca uno
-  anterior: `MAZOGS.P` → `MAZOGS_001.Z81`. Si todavía no se ha cargado nada,
+  anterior: `MAZOGS.P` → `MAZOGS001.Z81` (sin separador: el ZX81 no tiene `_`). Si todavía no se ha cargado nada,
   `NONAME001.Z81`.
 - Siempre disponible: el monitor se carga al encender (§6).
 - **Por decidir en esta fase:** qué páginas se guardan (todas, 512 KB y

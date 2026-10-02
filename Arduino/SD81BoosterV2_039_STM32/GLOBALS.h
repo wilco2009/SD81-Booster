@@ -109,6 +109,7 @@ extern FsFile Dfile;
 extern FsFile TmpFile;
 extern FsFile f_handle[4];
 extern bool f_opened[4];
+extern char f_path[4][MAX_FILENAME_LEN];   // la ruta de cada uno (para los snapshots)
 
 extern const char asc_to_asc81 [];
 

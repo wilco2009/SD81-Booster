@@ -43,5 +43,18 @@ int load_ROM(char* rom_file); // returns 0 ok, -1 mem error, -2 file error
 #define DEBUG_MONITOR_FILE "/SYS/DEBUG.BIN"
 int load_debug_monitor(void);
 extern bool debug_monitor_loaded;
+// Snapshots del depurador (DEBUGGER.cpp): el fichero que se esta escribiendo
+// y la ROM en la SD, para saber si las paginas 0-1 siguen siendo la ROM
+bool snapfile_open(const char* path);
+bool snapfile_write(const void* data, uint16_t n);
+void snapfile_close(void);
+bool snapfile_exists(const char* path);
+int32_t rom_file_read(uint32_t offset, uint8_t* buf, uint16_t n);  // bytes leidos; -1 sin fichero; con n = 0, el tamano
+// El .Z81 que carga el depurador (LOAD *Z81 con el monitor)
+bool z81in_open(const char* path);
+int z81in_read(void);                       // un byte; -1 al final
+bool z81in_seek(uint32_t pos);
+uint32_t z81in_pos(void);
+void z81in_close(void);
 
 #endif

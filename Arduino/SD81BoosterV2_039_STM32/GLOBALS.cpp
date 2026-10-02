@@ -94,6 +94,7 @@ FsFile TmpFile;
 FsFile f_handle[4];
 
 bool f_opened[4] = {false, false, false, false};
+char f_path[4][MAX_FILENAME_LEN];
 
 char current_dir[MAX_FILENAME_LEN] = "/";
 char S[100];

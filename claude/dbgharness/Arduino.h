@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <stdlib.h>
 typedef uint8_t byte;
 struct SerialC { void println(const char* s); void print(const char* s); int printf(const char* f, ...); };
 extern SerialC Serial;

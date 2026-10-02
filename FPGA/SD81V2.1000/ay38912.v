@@ -33,6 +33,7 @@ module ay_3_8192 (
   input wire bc2,
   input wire [7:0] din,
   output reg [7:0] dout,
+  output wire [7:0] regaddr_o,		// el registro elegido (para los snapshots del depurador)
   output reg oe_n,
   output reg signed [12:0] channel_a,
   output reg signed [12:0] channel_b,
@@ -65,6 +66,7 @@ module ay_3_8192 (
   reg [7:0] reg_port_a, reg_port_b;
   assign port_a_dout = reg_port_a;
   reg [7:0] regaddr;
+  assign regaddr_o = regaddr;
 
   initial begin
     regaddr         = 4'h0;

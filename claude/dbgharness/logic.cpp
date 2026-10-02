@@ -23,6 +23,25 @@ bool debug_monitor_loaded = true;
 void set_status_LED(uint32_t){}
 void set_status_led_ok(){}
 void send_bit_config(uint8_t, uint8_t){}
+uint8_t cfg_value(uint8_t){ return 0; }
+void set_blinking(uint32_t, float){}
+void set_blinking_off(){}
+char current_dir[100] = "/";
+bool z81in_open(const char*){ return false; }
+int z81in_read(void){ return -1; }
+bool z81in_seek(uint32_t){ return false; }
+uint32_t z81in_pos(void){ return 0; }
+void z81in_close(void){}
+uint8_t opendir_list(const char*){ return 0; }
+void mcustate_save(void (*)(const char*)){}
+void mcustate_clear(void){}
+bool mcustate_key(const char*, uint8_t (*)(char*, uint8_t)){ return false; }
+void mcustate_apply(void){}
+bool snapfile_open(const char*){ return false; }
+bool snapfile_write(const void*, uint16_t){ return false; }
+void snapfile_close(void){}
+bool snapfile_exists(const char*){ return false; }
+int32_t rom_file_read(uint32_t, uint8_t*, uint16_t){ return -1; }
 uint8_t Z80Disassembler::disassemble(char* buf, byte* op, int){ sprintf(buf, "db %02X", op[0]); return 1; }
 
 static std::deque<uint8_t> inbox;     // lo que manda el Z80

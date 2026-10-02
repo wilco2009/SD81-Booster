@@ -81,13 +81,29 @@
 //                    3 escritura, 4 E/S (byte bajo del puerto)
 //                3/4 N (bajo/alto): romper tras N instrucciones (0 = no);
 //                    se carga al escribir el alto
+//                5/6 puntero de la BRAM de sombra (bajo/alto): se carga
+//                    al escribir el alto
+//                7   escribe el dato en la BRAM de sombra, en el puntero, y
+//                    el puntero avanza (para cargar snapshots: la sombra
+//                    tiene que quedar como la memoria que ve el programa)
 //  IN:  0 estado: armado, NMI encendida, nivel (1 = dentro de la rutina de
 //         interrupcion), -, -, motivo (1 MCU, 2 joystick, 3 trampa, 4 paso,
 //         5 comparador de ejecucion, 6 punto de vigilancia, 7 FF de memoria)
 //       1 interrupciones simuladas: activas, pendiente, arm, Superfast,
 //         halted, call_now, fase
+//       2 el byte de la BRAM de sombra en el puntero; el puntero avanza al
+//         acabar cada IN (para los snapshots: ahi estan los ultimos valores
+//         de los POKEs de control, que en la FPGA son de solo escritura)
+//       3 el registro de Chroma81 (lo escrito con OUT $7FEF, que no se puede
+//         leer por su puerto)
+//       4/5 el registro seleccionado del AY A / B (el latch de direccion, que
+//         no se puede leer por sus puertos)
 //       15 firma 52h
 //
+// Revision 0.08 - Escritura de la BRAM de sombra por el puerto (registro 7,
+//                 carga de snapshots). Indices 4/5: el registro elegido de
+//                 cada AY
+// Revision 0.07 - Lectura de la BRAM de sombra por el puerto (snapshots)
 // Revision 0.06 - Depurador por hardware (fase 1). Sin contadores de prueba
 // Revision 0.05 - HALT (paso 3): un 76 se sirve como FF y en $0038 JR $
 //                 hasta el VSYNC. El FF se decide en T2 con el opcode real
@@ -127,7 +143,14 @@ module sim_int(
 	output reg enabled,
 	output wire dbg_win,				// bloque 1 -> pagina 63
 	output wire dbg_mon,				// el monitor esta activo
-	output reg [7:0] port_out			// lo que devuelve IN de $3FEF
+	output reg [7:0] port_out,			// lo que devuelve IN de $3FEF
+	output wire bram_rd,				// IN del indice 2: SD81.v lee la BRAM en bram_ptr
+	output wire bram_wr,				// OUT del registro 7: SD81.v escribe el bus en bram_ptr
+	output reg [15:0] bram_ptr = 16'd0,
+	input wire [7:0] bram_data,			// el byte leido (douta del puerto A)
+	input wire [7:0] chroma_reg,		// registro de Chroma81 ($7FEF)
+	input wire [7:0] ay_sel_a,			// registro elegido del AY A (A3=1) y del B
+	input wire [7:0] ay_sel_b
     );
 
 	// ---------------------------------------------------------------
@@ -186,6 +209,10 @@ module sim_int(
 	reg [1:0] armed_s = 2'b00;	// dbg_loaded viene del dominio de CFG_CLK
 	reg [2:0] tgl_s = 3'b000;
 	reg [2:0] joy_s = 3'b000;
+	reg [7:0] bptr_lo = 8'd0;
+	reg bram_rd_prev = 1'b0;
+	reg bram_wr_go = 1'b0;		// este OUT es el dato del registro 7
+	reg bram_wr_prev = 1'b0;
 
 	wire armed = armed_s[1];
 	wire dbg_idle = (dphase == dIDLE);
@@ -246,6 +273,12 @@ module sim_int(
 	                 ((cmp_mode == 3'd4) & io_any & (addr[7:0] == cmp_addr[7:0]));
 
 	assign dbg_win = (dphase == dMON) | ((dphase == dCALLED) & ~nM1);
+	// IN del indice 2 de $3FEF: mientras dura, el puerto A de la BRAM lee en
+	// bram_ptr (lo hace SD81.v; el blit del doble buffer espera)
+	assign bram_rd = ~nIORQ & ~nRD & nM1 & (addr == 16'h3FEF) & (ridx == 4'd2);
+	// OUT del dato del registro 7: desde la muestra que lo reconoce hasta que
+	// acaba el ciclo, el puerto A de la BRAM escribe el bus en bram_ptr
+	assign bram_wr = bram_wr_go & io_wr;
 	assign dbg_mon = (dphase == dMON);
 
 	// Lo que se sirve en ESTA lectura: combinacional, estable mientras dure
@@ -312,6 +345,10 @@ module sim_int(
 		case (ridx)
 			4'd0:  port_out = {armed, nmi_on, lvl, 2'b00, reason};
 			4'd1:  port_out = sim_status;
+			4'd2:  port_out = bram_data;
+			4'd3:  port_out = chroma_reg;
+			4'd4:  port_out = ay_sel_a;
+			4'd5:  port_out = ay_sel_b;
 			4'd15: port_out = 8'h52;
 			default: port_out = 8'h00;
 		endcase
@@ -347,11 +384,24 @@ module sim_int(
 			armed_s <= 2'b00;
 			tgl_s <= 3'b000;
 			joy_s <= 3'b000;
+			bptr_lo <= 8'd0;
+			bram_ptr <= 16'd0;
+			bram_rd_prev <= 1'b0;
+			bram_wr_go <= 1'b0;
+			bram_wr_prev <= 1'b0;
 		end else begin
 			armed_s <= {armed_s[0], dbg_loaded};
 			tgl_s <= {tgl_s[1:0], dbg_pause_tgl};
 			joy_s <= {joy_s[1:0], ~joy_up_n & ~joy_down_n};
 			dphase_n <= dphase;
+
+			// el puntero de la BRAM avanza al acabar cada IN del indice 2
+			bram_rd_prev <= bram_rd;
+			bram_wr_prev <= bram_wr;
+			if ((bram_rd_prev & ~bram_rd) | (bram_wr_prev & ~bram_wr))
+				bram_ptr <= bram_ptr + 1'b1;
+			if (~io_wr)
+				bram_wr_go <= 1'b0;
 
 			// al volver del monitor, la primera instruccion no rompe
 			if (dbg_idle && dphase_n == dEPI)
@@ -388,7 +438,9 @@ module sim_int(
 								step_cnt <= {data, step_lo};
 								step_on <= ({data, step_lo} != 16'd0);
 							end
-							default: ;
+							3'd5: bptr_lo <= data;
+							3'd6: bram_ptr <= {data, bptr_lo};
+							3'd7: bram_wr_go <= 1'b1;
 						endcase
 					end else if (data[7]) begin
 						wexp <= 1'b1;

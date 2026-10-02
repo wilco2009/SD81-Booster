@@ -330,10 +330,18 @@ module SD81(
 	reg dbg_pause_tgl = 1'b0;	// orden 8 del MCU: pausa (la FPGA reacciona al cambio)
 	wire dbg_win;				// el bloque 1 lleva la pagina 63 (ventana del monitor)
 	wire dbg_mon;				// el monitor esta activo
+	wire dbg_bram_rd;			// IN del indice 2 de $3FEF: el puerto A de la BRAM lee en dbg_bram_ptr
+	wire dbg_bram_wr;			// OUT del registro 7 de $3FEF: el puerto A de la BRAM escribe en dbg_bram_ptr
+	wire [15:0] dbg_bram_ptr;
+	wire [7:0] ay_sel_o[0:1];	// registro elegido de cada AY (indices 4/5 de $3FEF; ver los AY mas abajo)
+	reg dbg_poke = 1'b0;		// orden 10 del MCU: el monitor escribe como el programa (carga de snapshots)
 	// Mientras el monitor esta activo el bloque 0 se comporta como RAM, igual
 	// que con POKE 2056 en CP/M: se puede escribir (breakpoints por software
-	// en la ROM) y sus escrituras no disparan los registros de POKE.
-	wire blk0_ram = block0Writable | dbg_mon;
+	// en la ROM) y sus escrituras no disparan los registros de POKE. Con la
+	// orden 10 (dbg_poke) el monitor escribe como el programa: el bloque 0
+	// protegido, los POKEs disparan sus registros y se copia a la BRAM.
+	wire dbg_mon_ram = dbg_mon & ~dbg_poke;
+	wire blk0_ram = block0Writable | dbg_mon_ram;
 	
 		 
 // ***************************************************
@@ -906,16 +914,25 @@ Port $7FEF (01111111 11101111) - IN:
 
 	// --- double buffer: blit shadow->front por el puerto A (arbitrado con la CPU) ---
 	wire cpu_sh_wr = isAttrMem & ~nWR & nRESET;					// escritura CPU en curso (puerto A ocupado)
-	wire blit_we = blit_run & blit_phase & ~cpu_sh_wr;
+	wire sh_busy = cpu_sh_wr | dbg_bram_rd | dbg_bram_wr;		// puerto A ocupado (CPU o el depurador)
+	wire blit_we = blit_run & blit_phase & ~sh_busy;
 	wire [15:0] blit_raddr = {HFILE[15:13], blit_cnt};			// origen: bloque shadow (HFILE)
 	wire [15:0] blit_waddr = {front_blk, blit_cnt};				// destino: bloque front (BRAM privada)
 	wire dbuf_wr_mask = dbuf_en & (Addr[15:13]==front_blk);	// front: enmascarar escrituras CPU en BRAM
 
-	// Depurador: no se copia a la BRAM lo que escribe el monitor ni la carga
-	// de DEBUG.BIN que hace el MCU en $E000-$FFFF (pagina 63)
+	// Depurador: no se copia a la BRAM lo que escribe el monitor (salvo con
+	// dbg_poke) ni la carga de DEBUG.BIN que hace el MCU en $E000-$FFFF
+	// (pagina 63); el registro 7 de $3FEF escribe la BRAM directamente
 	wire dbg_load_blk = dbg_loaded & A15x & A14x & A13x;
-	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): blit_we?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon)? ~nWR:1'b0;
-	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]: blit_we?blit_waddr: nRFSH?Addr[15:0]:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
+	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): blit_we?1'b1: dbg_bram_wr?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon_ram)? ~nWR:1'b0;
+	// Sprites: los POKEs 2101-2128 son los mismos para los 32 (2100 elige
+	// cual), asi que en la sombra no se guardan en su direccion sino en
+	// $0C00 + sprite*32 + campo: la copia de los 32 sprites, que la FPGA no
+	// deja leer, para los snapshots del depurador. 2100 si va a su direccion.
+	wire spr_mirror_wr = sprite_poke_wr && (Addr >= SPR_BASE_ADDR);
+	wire [4:0] spr_mirror_field = Addr[4:0] - SPR_BASE_ADDR[4:0];
+	wire [15:0] cpu_sh_addr = spr_mirror_wr ? {6'b000011, spr_sel[4:0], spr_mirror_field} : Addr[15:0];
+	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]: blit_we?blit_waddr: (dbg_bram_rd|dbg_bram_wr)?dbg_bram_ptr: nRFSH?cpu_sh_addr:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
 	wire [7:0] shadowram_din = blit_we? v_dout: data;
 	wire [8:0] SCR_START_Y = 62;
 	wire [8:0] SCR_START_X = 122;
@@ -1022,7 +1039,7 @@ Port $7FEF (01111111 11101111) - IN:
 			blit_phase <= 1'b0;
 		end else if (blit_run) begin
 			if (~blit_phase) blit_phase <= 1'b1;		// ciclo de direccion: doutb valido el siguiente
-			else if (~cpu_sh_wr) begin						// puerto A libre: escribir y avanzar
+			else if (~sh_busy) begin						// puerto A libre: escribir y avanzar
 				blit_phase <= 1'b0;
 				blit_cnt <= blit_cnt + 1'b1;
 				if (blit_cnt == 13'h1FFF) blit_run <= 1'b0;
@@ -1804,7 +1821,14 @@ assign DEBUG_RDY = 1'b0;
 		.state(int_state),
 		.dbg_win(dbg_win),
 		.dbg_mon(dbg_mon),
-		.port_out(m1t_data)
+		.port_out(m1t_data),
+		.bram_rd(dbg_bram_rd),
+		.bram_wr(dbg_bram_wr),
+		.bram_ptr(dbg_bram_ptr),
+		.bram_data(shadowram_dout),
+		.chroma_reg(chroma_mode_reg),
+		.ay_sel_a(ay_sel_o[1]),
+		.ay_sel_b(ay_sel_o[0])
 	);
 
 
@@ -2098,6 +2122,7 @@ assign DEBUG_RDY = 1'b0;
 			  .bc2(1'b1),
 			  .din(data),
 			  .dout(ay_data_o[j]),
+			  .regaddr_o(ay_sel_o[j]),
 			  .oe_n(ay_oe_n[j]),
 			  .channel_a(cha_s[j]),
 			  .channel_b(chb_s[j]),
@@ -2272,6 +2297,7 @@ assign DEBUG_RDY = 1'b0;
 				else if 	(comm_cmd==7) PORTS_LOCKED <= cfg_reg[CMD_BITS];		// 1=ROMLOCK (puertos POKE de bloque 0 apagados), 0=normal
 				else if 	(comm_cmd==8) dbg_pause_tgl <= cfg_reg[CMD_BITS];		// depurador: pausa (al conmutar)
 				else if 	(comm_cmd==9) dbg_loaded <= cfg_reg[CMD_BITS];			// depurador: monitor cargado en la pagina 63 (y armado)
+				else if 	(comm_cmd==10) dbg_poke <= cfg_reg[CMD_BITS];			// depurador: el monitor escribe como el programa (POKEs y BRAM)
 			end else begin
 				cfg_reg[cfg_cnt]<=CFG_DATA;
 				if (cfg_cnt < MAX_CFG) cfg_cnt <= cfg_cnt+1'b1;

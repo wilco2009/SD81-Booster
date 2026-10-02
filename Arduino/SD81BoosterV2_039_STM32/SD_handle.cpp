@@ -247,6 +247,46 @@ int load_debug_monitor(void){
   return 1;
 }
 
+// --- Snapshots del depurador (DEBUGGER.cpp) ---
+static FsFile snapf;
+bool snapfile_open(const char* path){ return snapf.open(path, O_WRONLY | O_CREAT | O_TRUNC); }
+bool snapfile_write(const void* data, uint16_t n){ return snapf.write(data, n) == n; }
+void snapfile_close(void){ snapf.close(); }
+bool snapfile_exists(const char* path){ return sd.exists(path); }
+int32_t rom_file_read(uint32_t offset, uint8_t* buf, uint16_t n){
+  FsFile f;
+  if (!f.open("/SYS/SDBOOST.ROM")) return -1;
+  int32_t r;
+  if (n == 0) r = f.fileSize();
+  else { f.seekSet(offset); r = f.read(buf, n); }
+  f.close();
+  return r;
+}
+
+// --- El .Z81 que carga el depurador (se lee byte a byte: con buffer) ---
+static FsFile z81in;
+static uint8_t z81buf[512];
+static uint16_t z81len = 0, z81idx = 0;
+static uint32_t z81base = 0;                  // posicion en el fichero de z81buf[0]
+bool z81in_open(const char* path){
+  if (z81in.isOpen()) z81in.close();
+  z81len = z81idx = 0; z81base = 0;
+  return z81in.open(path, O_RDONLY);
+}
+int z81in_read(void){
+  if (z81idx >= z81len) {
+    z81base += z81len;
+    z81len = z81idx = 0;
+    int n = z81in.read(z81buf, sizeof(z81buf));
+    if (n <= 0) return -1;
+    z81len = n;
+  }
+  return z81buf[z81idx++];
+}
+bool z81in_seek(uint32_t pos){ z81len = z81idx = 0; z81base = pos; return z81in.seekSet(pos); }
+uint32_t z81in_pos(void){ return z81base + z81idx; }
+void z81in_close(void){ if (z81in.isOpen()) z81in.close(); }
+
 int load_ROM(char* rom_file){
 //  SdFile f;
 FsFile f;

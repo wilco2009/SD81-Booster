@@ -26,14 +26,32 @@
 ;  SP y PC son los del programa en el punto de ruptura (la instruccion en
 ;  PC todavia no se ha ejecutado). 27-29 son solo informacion.
 ;
-;  Peticiones del MCU: op(1), direccion(2), n(2) y, en WRITE y SETREGS, n
-;  bytes de datos:
+;  Peticiones del MCU: op(1), direccion(2), n(2), en READP y WRITEP un byte
+;  mas (la pagina) y, en WRITE, SETREGS, WRITEP, BRAMW y AYWRITE, n bytes de
+;  datos:
 ;    1 READ     n bytes desde la direccion (1-256)   -> resultado: n bytes
 ;    2 WRITE    n bytes en la direccion (1-256)       -> nada
 ;    3 SETREGS  el bloque de registros (n = 30)       -> nada
 ;    4 OUT      direccion = puerto, n bajo = valor    -> nada
 ;    5 IN       direccion = puerto                     -> 1 byte
 ;    6 CONT     continuar                              -> (vuelve al programa)
+;    7 INSEQ    direccion = puerto: n IN seguidos (1-256)  -> n bytes
+;    8 READP    n bytes (1-256) de la pagina dada, desde el desplazamiento
+;               "direccion" (0-$1FFF), mapeandola un momento en el bloque 7
+;                                                     -> n bytes
+;    9 WRITEP   n bytes (1-256) en la pagina dada, desde el desplazamiento
+;               "direccion", igual que READP          -> nada
+;   10 BRAMW    n bytes (1-256) a la BRAM de sombra, en su puntero (OUT $87
+;               y el dato al puerto $3FEF por cada uno)  -> nada
+;   11 AYREAD   direccion = puerto de seleccion de un AY: OUT (puerto),i e
+;               IN (puerto) para i = 0..n-1           -> n bytes
+;   12 AYWRITE  direccion = puerto de seleccion: OUT (puerto),i y el dato i
+;               al puerto de datos (el mismo con A7 = 0), i = 0..n-1 -> nada
+;  INSEQ y READP son para los snapshots: los POKEs de control, en la BRAM de
+;  sombra ($3FEF, indice 2), y las paginas que no estan mapeadas. WRITEP y
+;  BRAMW, para cargarlos.
+;  Un OUT al mapper ($E7) vuelve a leer las paginas de los bloques 1 y 7:
+;  las lecturas y escrituras de $2000-$3FFF y la salida usan las nuevas.
 ;  Las lecturas y escrituras de $2000-$3FFF van a la pagina del programa
 ;  (no a la del monitor), mapeandola un momento en el bloque 7. El bloque 0
 ;  (ROM) se puede escribir mientras corre el monitor.
@@ -59,7 +77,7 @@ R_OUT       equ 22              ; M1 desde el LD R,A hasta volver a PC
             org  2000h
 
             jp   entry
-            defb "SD81DBG",2    ; $2003: firma y version (2: fase 2)
+            defb "SD81DBG",3    ; $2003: firma y version (3: carga de snapshots)
 
 ; ---------------------------------------------------------------------
 ;  Entrada. La pila del programa: [SP] = $003B (del CALL), [SP+2] = PC+1
@@ -174,18 +192,130 @@ pr2:        ld   hl,0
             call mcu_recv
             ld   (rn+1),a
             ld   a,(op)
+            cp   8
+            jr   z,pr4
+            cp   9
+            jr   nz,pr3
+pr4:        call mcu_recv       ; READP y WRITEP: la pagina
+            ld   (rpage),a
+pr3:        ld   a,(op)
             cp   1
-            jr   z,q_read
+            jp   z,q_read
             cp   2
-            jr   z,q_write
+            jp   z,q_write
             cp   3
-            jr   z,q_regs
+            jp   z,q_regs
             cp   4
-            jr   z,q_out
+            jp   z,q_out
             cp   5
-            jr   z,q_in
+            jp   z,q_in
             cp   6
             jp   z,q_cont
+            cp   7
+            jp   z,q_inseq
+            cp   8
+            jp   z,q_readp
+            cp   9
+            jp   z,q_writep
+            cp   10
+            jp   z,q_bramw
+            cp   11
+            jp   z,q_ayread
+            cp   12
+            jp   z,q_aywrite
+            jp   poll
+
+q_inseq:    ld   de,(rn)        ; n IN seguidos del mismo puerto
+            ld   (rlen),de
+            ld   hl,buf
+            ld   bc,(raddr)
+qi1:        ld   a,d
+            or   e
+            jp   z,poll
+            in   a,(c)
+            ld   (hl),a
+            inc  hl
+            dec  de
+            jr   qi1
+
+q_readp:    ld   a,(rpage)      ; la pagina, un momento en el bloque 7
+            call map_tmp
+            ld   hl,(raddr)
+            ld   a,h
+            and  1Fh
+            or   0E0h
+            ld   h,a
+            ld   bc,(rn)
+            ld   (rlen),bc
+            ld   de,buf
+            ldir
+            ld   a,(pg_tmp)
+            call map_tmp
+            jp   poll
+
+q_writep:   call recv_n         ; los datos a buf
+            ld   a,(rpage)      ; la pagina, un momento en el bloque 7
+            call map_tmp
+            ld   hl,(raddr)
+            ld   a,h
+            and  1Fh
+            or   0E0h
+            ld   d,a
+            ld   e,l
+            ld   hl,buf
+            ld   bc,(rn)
+            ldir
+            ld   a,(pg_tmp)
+            call map_tmp
+            jp   poll
+
+q_bramw:    call recv_n         ; los datos a buf
+            ld   hl,buf
+            ld   de,(rn)
+            ld   bc,DBG
+qb1:        ld   a,d
+            or   e
+            jp   z,poll
+            ld   a,87h          ; registro 7: escribir en la BRAM
+            out  (c),a
+            ld   a,(hl)
+            out  (c),a
+            inc  hl
+            dec  de
+            jr   qb1
+
+q_ayread:   ld   de,(rn)        ; n registros de un AY
+            ld   (rlen),de
+            ld   hl,buf
+            ld   bc,(raddr)
+            xor  a
+qa1:        ld   d,a            ; D = registro (E = cuantos quedan)
+            out  (c),a          ; elegirlo
+            in   a,(c)          ; y leerlo
+            ld   (hl),a
+            inc  hl
+            ld   a,d
+            inc  a
+            dec  e
+            jr   nz,qa1
+            jp   poll
+
+q_aywrite:  call recv_n         ; los valores a buf
+            ld   hl,buf
+            ld   de,(rn)
+            ld   bc,(raddr)
+            xor  a
+qw2:        out  (c),a          ; elegir el registro
+            res  7,c            ; puerto de datos
+            ld   d,a
+            ld   a,(hl)
+            out  (c),a
+            set  7,c
+            inc  hl
+            ld   a,d
+            inc  a
+            dec  e
+            jr   nz,qw2
             jp   poll
 
 q_read:     ld   hl,(raddr)
@@ -226,6 +356,17 @@ q_regs:     call recv_n
 q_out:      ld   bc,(raddr)
             ld   a,(rn)
             out  (c),a
+            ld   a,c            ; el mapper: volver a leer los bloques 1 y 7
+            cp   MAPP
+            jp   nz,poll
+            ld   bc,1*256+MAPP
+            in   a,(c)
+            and  3Fh
+            ld   (regs+29),a
+            ld   bc,TMPBLK*256+MAPP
+            in   a,(c)
+            and  3Fh
+            ld   (pg_tmp),a
             jp   poll
 
 q_in:       ld   bc,(raddr)
@@ -414,6 +555,7 @@ pg_tmp:     defb 0
 op:         defb 0
 raddr:      defw 0
 rn:         defw 0
+rpage:      defb 0
 rlen:       defw 0
 buf:        defs 256
             defs 64

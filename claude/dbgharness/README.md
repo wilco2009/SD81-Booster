@@ -47,3 +47,19 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
 - un breakpoint y su vuelta;
 - que, al sacarlo de un bucle con `x pc=…` y `x hl=…`, todos los registros,
   los alternativos y SP llegan intactos (y HL cambiado).
+- los snapshots (`snap`): con el programa parado, solo las páginas mapeadas;
+  con `-a` (y FULL_PAGING), todas; y con el programa en marcha y el nombre
+  automático (`NONAME001.Z81`), que para, graba y sigue. Lee cada `.Z81` y
+  lo compara con la memoria emulada: `[CPU]`, `[MEMORY]`, `MAPPER`,
+  `HW_POKES`, `DISPLAY_MODE` y cada `RAM_PAGE` (sin la página 0 si sigue
+  siendo la ROM, ni la 63). La "SD" son ficheros `sd_*.Z81` en `build/`, y
+  la BRAM de sombra del puerto `$3FEF` (índice 2) copia lo que escribe la
+  CPU fuera del monitor.
+  También los AY (las claves `AY1`/`AY3` y su registro elegido), los
+  sprites (`SPRITE`, de su copia en la sombra), `SHADOW` y el estado del MCU
+  (un `FILE_HANDLE` de mentira).
+- la carga (`LOAD *Z81` con el monitor): desordena memoria, mapper, sombra,
+  POKEs, AY y sprites, carga `prueba1` y comprueba que todo vuelve a como
+  estaba (registros con R, paginas, la sombra entera, los POKEs y su orden,
+  los AY, los sprites); lo mismo con `NMI 01`; y un `.Z81` estilo EightyOne
+  sin `MAPPER` ni `HW_POKES`.

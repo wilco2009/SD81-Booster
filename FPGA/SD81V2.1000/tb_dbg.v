@@ -36,6 +36,18 @@ module tb_dbg;
 	wire [7:0] port_out;
 	wire [1:0] si_state;
 	wire si_enabled, dbg_win, dbg_mon;
+	wire bram_rd;
+	wire bram_wr;
+	wire [15:0] bram_ptr;
+	// escrituras en la "BRAM" por el registro 7: cuantas, y la ultima
+	integer bram_wr_n = 0;
+	reg [15:0] bram_wr_addr = 0;
+	reg [7:0] bram_wr_data = 0;
+	always @(posedge bram_wr) begin
+		bram_wr_n = bram_wr_n + 1;
+		#5 bram_wr_addr = bram_ptr; bram_wr_data = mem_data;
+	end
+	wire [7:0] bram_data = bram_ptr[7:0] ^ 8'h5A;	// la "BRAM": un patron por direccion
 	integer errors = 0;
 
 	m1_tracker trk (
@@ -49,7 +61,8 @@ module tb_dbg;
 		.nRD(nRD), .nWR(nWR), .nMREQ(nMREQ), .nIORQ(nIORQ), .nRFSH(nRFSH),
 		.dbg_loaded(loaded), .dbg_pause_tgl(tgl), .joy_up_n(up_n), .joy_down_n(down_n),
 		.data_out(fpga_data), .enable_out(fpga_en), .state(si_state),
-		.enabled(si_enabled), .dbg_win(dbg_win), .dbg_mon(dbg_mon), .port_out(port_out));
+		.enabled(si_enabled), .dbg_win(dbg_win), .dbg_mon(dbg_mon), .port_out(port_out),
+		.bram_rd(bram_rd), .bram_wr(bram_wr), .bram_ptr(bram_ptr), .bram_data(bram_data), .chroma_reg(8'h3C), .ay_sel_a(8'h0D), .ay_sel_b(8'h07));
 
 	reg [7:0] got;			// el byte que ha leido la CPU en la ultima lectura
 	reg got_fpga;			// si lo servia la FPGA
@@ -104,14 +117,16 @@ module tb_dbg;
 	end
 	endtask
 
-	// IN A,(C): deja en got lo que devuelve el puerto $3FEF
+	// IN A,(C): deja en got lo que devuelve el puerto $3FEF (y en got_bram si
+	// la FPGA estaba leyendo la BRAM)
+	reg got_bram;
 	task io_in(input [15:0] a);
 	begin
 		@(posedge clk); #10 addr = a;
 		@(posedge clk); #10 nIORQ = 0; nRD = 0;
 		@(posedge clk);
 		@(posedge clk);
-		@(negedge clk); got = port_out;
+		@(negedge clk); got = port_out; got_bram = bram_rd;
 		#10 nIORQ = 1; nRD = 1;
 	end
 	endtask
@@ -239,6 +254,54 @@ module tb_dbg;
 		m1(16'h0038, 8'hF5); expect_mem(8'hF5, "desarmado: $0038 de la ROM");
 		io_out(16'h3FEF, 8'h0F); io_in(16'h3FEF);
 		expect_val(got, 8'h52, "firma");
+
+		// --- lectura de la BRAM de sombra (indice 2), no depende de armar ---
+		dreg(3'd5, 8'hF6); dreg(3'd6, 8'h07);					// puntero = $07F6
+		io_out(16'h3FEF, 8'h02);
+		io_in(16'h3FEF);
+		expect_val(got_bram, 1, "BRAM: lectura en curso durante el IN");
+		expect_val(got, 8'hF6 ^ 8'h5A, "BRAM: byte en $07F6");
+		io_in(16'h3FEF);
+		expect_val(got, 8'hF7 ^ 8'h5A, "BRAM: el puntero avanza ($07F7)");
+		io_in(16'h3FEF);
+		repeat (2) @(posedge clk);								// avanza al acabar el IN
+		expect_val(bram_ptr, 16'h07F9, "BRAM: puntero tras tres IN");
+		io_out(16'h3FEF, 8'h03);
+		io_in(16'h3FEF);
+		expect_val(got, 8'h3C, "registro de Chroma (indice 3)");
+		io_out(16'h3FEF, 8'h04);
+		io_in(16'h3FEF);
+		expect_val(got, 8'h0D, "registro elegido del AY A (indice 4)");
+		io_out(16'h3FEF, 8'h05);
+		io_in(16'h3FEF);
+		expect_val(got, 8'h07, "registro elegido del AY B (indice 5)");
+		io_out(16'h3FEF, 8'h0F);
+		io_in(16'h3FEF);
+		expect_val(got_bram, 0, "BRAM: otro indice no lee la BRAM");
+		expect_val(bram_ptr, 16'h07F9, "BRAM: otro indice, mismo puntero");
+
+		// --- escritura de la BRAM de sombra (registro 7) ---
+		dreg(3'd5, 8'h00); dreg(3'd6, 8'h20);					// puntero = $2000
+		expect_val(bram_wr_n, 0, "BRAM: cargar el puntero no escribe");
+		io_out(16'h3FEF, 8'h87);
+		expect_val(bram_wr_n, 0, "BRAM: el OUT $87 no escribe");
+		io_out(16'h3FEF, 8'h11);
+		expect_val(bram_wr_n, 1, "BRAM: el dato escribe una vez");
+		expect_val(bram_wr_addr, 16'h2000, "BRAM: en el puntero");
+		expect_val(bram_wr_data, 8'h11, "BRAM: el dato del bus");
+		repeat (2) @(posedge clk);
+		expect_val(bram_ptr, 16'h2001, "BRAM: el puntero avanza al escribir");
+		dreg(3'd7, 8'h22);
+		expect_val(bram_wr_n, 2, "BRAM: segunda escritura");
+		expect_val(bram_wr_addr, 16'h2001, "BRAM: en el puntero siguiente");
+		expect_val(bram_wr_data, 8'h22, "BRAM: segundo dato");
+		io_out(16'h3FEF, 8'h02);
+		io_out(16'h1FEF, 8'h87); io_out(16'h1FEF, 8'h33);		// otro puerto
+		repeat (2) @(posedge clk);
+		expect_val(bram_wr_n, 2, "BRAM: otro puerto no escribe");
+		expect_val(bram_ptr, 16'h2002, "BRAM: puntero tras dos escrituras");
+		dreg(3'd2, 8'h00);
+		expect_val(bram_wr_n, 2, "BRAM: otro registro no escribe");
 
 		loaded = 1;
 		repeat (4) @(posedge clk);

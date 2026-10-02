@@ -46,7 +46,13 @@ void send_joycfg(){
   }
   rst_config();
 }
+// Ultimo valor mandado con cada orden de un bit (la FPGA no deja leerlos): lo
+// usan los snapshots del depurador (128/256 caracteres, ROMLOCK, FULLPAG...)
+static uint8_t cfg_state[16];
+uint8_t cfg_value(uint8_t command){ return cfg_state[command & 15]; }
+
 void send_bit_config(uint8_t command, uint8_t value){
+  cfg_state[command & 15] = value;
   send_cmd_code(command);
   sendBit(value);
   rst_config();

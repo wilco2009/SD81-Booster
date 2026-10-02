@@ -15,7 +15,15 @@
 // al parar se quitan todos (asi la memoria y el desensamblado se ven
 // limpios) y al continuar se vuelven a poner, leyendo cada vez el byte
 // original. Si hay uno en el PC, se da antes un paso sin el.
+//
+// Snapshots (fase 2b): con el programa parado, el MCU lee todo por el monitor
+// y escribe un .Z81 como los de EightyOne ([CPU], [ZX81], [MEMORY],
+// [COLOUR], [SD81BOOSTER] con el mapper, el estado de la FPGA y las paginas,
+// [EOF]). Los POKEs de control salen de la BRAM de sombra ($3FEF, indice 2).
 #include <Arduino.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <ctype.h>
 #include "DEBUGGER.h"
 #include "COMMS.h"
 #include "COMMANDS.h"
@@ -23,6 +31,7 @@
 #include "PINS.h"
 #include "SD_handle.h"
 #include "z80-disassembler.h"
+#include "MCUSTATE.h"
 
 #define DBG_PORT 0x3FEF
 
@@ -33,6 +42,16 @@
 #define OP_OUT     4
 #define OP_IN      5
 #define OP_CONT    6
+#define OP_INSEQ   7      // n IN seguidos del mismo puerto
+#define OP_READP   8      // n bytes de una pagina (mapeada un momento en el bloque 7)
+#define OP_WRITEP  9      // n bytes en una pagina (igual que READP)
+#define OP_BRAMW   10     // n bytes a la BRAM de sombra, en su puntero
+#define OP_AYREAD  11     // n registros de un AY (puerto de seleccion)
+#define OP_AYWRITE 12     // n registros de un AY
+
+#define AY_PORT_A  0x00CF // seleccion / lectura del AY A (ZonX) y del B
+#define AY_PORT_B  0x00C7
+#define SPR_MIRROR 0x0C00 // copia de los 32 sprites en la BRAM de sombra (32 x 32)
 
 // Que hacer con el resultado
 enum {
@@ -42,7 +61,21 @@ enum {
   TAG_DISASM,       // desensamblado (arg = instrucciones)
   TAG_BP_ORIG,      // byte original de un breakpoint (arg = indice)
   TAG_BP_CHECK,     // tras un reset: hay un FF puesto? (arg = indice)
-  TAG_IN            // lectura de un puerto
+  TAG_IN,           // lectura de un puerto
+  TAG_SNAP_MAP,     // snapshot: pagina de un bloque (arg = bloque)
+  TAG_SNAP_CHROMA,  // snapshot: registro de Chroma81
+  TAG_SNAP_POKES,   // snapshot: los POKEs de control (BRAM)
+  TAG_SNAP_MEM,     // snapshot: [MEMORY]
+  TAG_SNAP_COLOUR,  // snapshot: [COLOUR]
+  TAG_SNAP_PAGE,    // snapshot: un trozo de pagina
+  TAG_SNAP_AYSEL,   // snapshot: registro elegido de un AY (arg = 0 A, 1 B)
+  TAG_SNAP_AYREGS,  // snapshot: los 16 registros de un AY (arg = 0 A, 1 B)
+  TAG_SNAP_SPR,     // snapshot: un trozo de la copia de los sprites (arg = trozo)
+  TAG_SNAP_SPRSEL,  // snapshot: el sprite elegido (2100)
+  TAG_SNAP_SHCMP,   // snapshot: la sombra de un trozo de [MEMORY], para comparar
+  TAG_SNAP_SHADOW,  // snapshot: un trozo de un bloque de la sombra
+  TAG_LD_MAP,       // carga: pagina de un bloque (sin MAPPER; arg = bloque)
+  TAG_LD_SYNC       // carga: ya se han escrito los POKEs
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -59,6 +92,7 @@ struct DbgReq {
   uint16_t n;
   uint8_t tag;
   uint8_t arg;
+  uint8_t page;       // OP_READP
   uint8_t data[32];
 };
 
@@ -96,7 +130,7 @@ static DbgReq* q_push(uint8_t op, uint16_t addr, uint16_t n, uint8_t tag = TAG_N
   } else idx = (q_head + q_count) % QSIZE;
   q_count++;
   DbgReq* r = &q[idx];
-  r->op = op; r->addr = addr; r->n = n; r->tag = tag; r->arg = arg;
+  r->op = op; r->addr = addr; r->n = n; r->tag = tag; r->arg = arg; r->page = 0;
   return r;
 }
 
@@ -256,6 +290,20 @@ static void dbg_step(uint16_t n){
   resumed();
 }
 
+// Snapshots (mas abajo)
+static bool snap_pending = false;
+static bool snap_busy();
+static void snap_begin();
+static void snap_result(uint8_t tag, uint8_t* data, uint16_t n);
+static void snap_feed();
+// Carga de snapshots (mas abajo)
+static bool ld_busy();
+static bool ld_pending();
+static void ld_begin();
+static void ld_result(uint8_t tag, uint8_t* data, uint16_t n);
+static void ld_feed();
+static uint8_t* ld_data(uint8_t k);
+
 // Ha llegado DBG_BREAK con los registros
 static void on_break(){
   q_count = 0;
@@ -273,6 +321,12 @@ static void on_break(){
     }
   }
   stop_foreign = (regs[R_DBGST] & 7) == 7 && bp_find(reg16(R_PC)) < 0;
+  if (ld_pending()) {                         // la trampa de LOAD *Z81: cargar
+    stop_foreign = false;
+    queue_remove_bps();
+    ld_begin();
+    return;
+  }
   set_status_LED(clMAGENTA);
   char b[80];
   snprintf(b, sizeof(b), "\r\n*** STOP at %04X: %s%s", reg16(R_PC), reason_name(regs[R_DBGST]),
@@ -280,6 +334,7 @@ static void on_break(){
   Serial.println(b);
   queue_remove_bps();
   queue_show();
+  if (snap_pending) { snap_pending = false; snap_begin(); }
 }
 
 // Ha llegado el resultado de la peticion last
@@ -308,6 +363,15 @@ static void on_result(uint8_t* data, uint16_t n){
     case TAG_IN:
       snprintf(b, sizeof(b), "IN (%04X) = %02X", last.addr, n ? data[0] : 0);
       Serial.println(b);
+      break;
+    case TAG_SNAP_MAP: case TAG_SNAP_CHROMA: case TAG_SNAP_POKES:
+    case TAG_SNAP_MEM: case TAG_SNAP_COLOUR: case TAG_SNAP_PAGE:
+    case TAG_SNAP_AYSEL: case TAG_SNAP_AYREGS: case TAG_SNAP_SPR: case TAG_SNAP_SPRSEL:
+    case TAG_SNAP_SHCMP: case TAG_SNAP_SHADOW:
+      snap_result(last.tag, data, n);
+      break;
+    case TAG_LD_MAP: case TAG_LD_SYNC:
+      ld_result(last.tag, data, n);
       break;
   }
 }
@@ -346,6 +410,8 @@ void cmd_dbg_poll(void){
     last.tag = TAG_NONE;
     poll_state = 1;
   }
+  snap_feed();                                // un snapshot en curso pide lo siguiente
+  ld_feed();                                  // y una carga
   if (q_count == 0) return;                   // sin peticion: otra vuelta del loop
   poll_state = 0;                             // (antes de sacarla: ver dbg_waiting)
   DbgReq r = q[q_head];
@@ -356,8 +422,13 @@ void cmd_dbg_poll(void){
   SendByteToZ80(r.addr >> 8);
   SendByteToZ80(r.n & 0xFF);
   SendByteToZ80(r.n >> 8);
-  if (r.op == OP_WRITE || r.op == OP_SETREGS)
+  if (r.op == OP_READP || r.op == OP_WRITEP) SendByteToZ80(r.page);
+  if (r.op == OP_WRITE || r.op == OP_SETREGS || r.op == OP_AYWRITE)
     for (uint16_t i = 0; i < r.n; i++) SendByteToZ80(r.data[i]);
+  if (r.op == OP_WRITEP || r.op == OP_BRAMW) {  // los datos de la carga, en su buffer
+    uint8_t* d = ld_data(r.arg);
+    for (uint16_t i = 0; i < r.n; i++) SendByteToZ80(d[i]);
+  }
   last = r;
   reset_commands();
   ToggleClock();                              // toggle final
@@ -387,6 +458,7 @@ static void help(){
   Serial.println("  e addr b1 b2.. write bytes");
   Serial.println("  x reg=val      set a register (af bc de hl ix iy af' bc' de' hl' sp pc i r)");
   Serial.println("  io port [val]  read (or write) an I/O port");
+  Serial.println("  snap [-a] [f]  snapshot (.Z81): mapped pages, -a all pages; name: last LOADed file");
   Serial.println("  DBG_RELOAD     reload /SYS/DEBUG.BIN (like a reset)");
 }
 
@@ -416,13 +488,22 @@ bool dbg_console(const char* line){
   if (!(line[0] >= 'a' && line[0] <= 'z') && line[0] != '?') return false;
   if (!debug_monitor_loaded) { Serial.println("No debug monitor loaded (/SYS/DEBUG.BIN)"); return true; }
   const char* p = line;
-  char cmd[4] = {0};
-  for (int i = 0; i < 3 && *p && *p != ' '; i++) cmd[i] = *p++;
+  char cmd[6] = {0};
+  for (int i = 0; i < 5 && *p && *p != ' '; i++) cmd[i] = *p++;
   if (*p && *p != ' ') { Serial.println("? (h for help)"); return true; }
   uint32_t a, n;
 
   if (!strcmp(cmd, "h") || !strcmp(cmd, "?")) { help(); return true; }
+  if (snap_busy()) { Serial.println("Snapshot in progress"); return true; }
+  if (ld_busy()) { Serial.println("Loading a snapshot"); return true; }
   if (!strcmp(cmd, "p")) { if (stopped) Serial.println("Already stopped"); else dbg_pause(); return true; }
+  if (!strcmp(cmd, "snap")) {
+    while (*p == ' ') p++;
+    bool all = false;
+    if (p[0] == '-' && p[1] == 'a') { all = true; p += 2; while (*p == ' ') p++; }
+    dbg_snapshot(all, p, !stopped);           // en marcha: para, graba y sigue
+    return true;
+  }
   if (!stopped) { Serial.println("Running: p to pause"); return true; }
 
   if (!strcmp(cmd, "r")) queue_show();
@@ -494,9 +575,12 @@ void dbg_pause(void){
 }
 
 bool dbg_is_stopped(void){ return stopped; }
-bool dbg_waiting(void){ return stopped && poll_state == 1 && q_count == 0; }
+bool dbg_waiting(void){ return stopped && poll_state == 1 && q_count == 0 && !snap_busy() && !ld_busy(); }
+
+static void ld_cancel();
 
 void dbg_reset(void){
+  ld_cancel();                                // una carga a medias no sigue
   stopped = false;
   poll_state = 0;
   q_count = 0;
@@ -509,39 +593,1062 @@ void dbg_reset(void){
 
 static bool qs_down = false;
 static uint32_t qs_t0 = 0;
-static uint8_t qs_stage = 0;       // 0 nada, 1 ya se hizo lo de 1 s, 2 ya se paso de 3 s
+static uint8_t qs_stage = 0;       // 0 menos de 1 s, 1 de 1 a 3 s, 2 mas de 3 s
+
+static void led_state(){
+  if (snap_busy() || ld_busy()) return;       // el snapshot y la carga llevan su propio aviso
+  if (stopped) set_status_LED(clMAGENTA); else set_status_led_ok();
+}
 
 static void toggle_qs(){
   nQS_en = !nQS_en;
   send_bit_config(cfgcmd_QSEN, nQS_en ? 1 : 0);
-  if (stopped) set_status_LED(clMAGENTA); else set_status_led_ok();
+  led_state();
 }
 
+// Todo se decide al soltar; mientras se mantiene, el LED avisa de lo que va a
+// pasar: magenta al llegar a 1 s (pausa o continuar), amarillo a los 3 s
+// (snapshot)
 void dbg_qs_button(void){
   bool down = !digitalRead(QSPIN);
   uint32_t now = millis();
   if (down && !qs_down) { qs_down = true; qs_t0 = now; qs_stage = 0; return; }
   if (down) {
-    if (!debug_monitor_loaded) return;
-    if (qs_stage == 0 && now - qs_t0 >= 1000) {
-      qs_stage = 1;
-      if (stopped) { Serial.println("QS button: continue"); dbg_continue(); }
-      else dbg_pause();
-    }
-    if (qs_stage == 1 && now - qs_t0 >= 3000) {
-      qs_stage = 2;
-      set_status_LED(clYELLOW);               // snapshot: fase 2b
-    }
+    if (!debug_monitor_loaded || snap_busy() || ld_busy()) return;
+    if (qs_stage == 0 && now - qs_t0 >= 1000) { qs_stage = 1; set_status_LED(clMAGENTA); }
+    if (qs_stage == 1 && now - qs_t0 >= 3000) { qs_stage = 2; set_status_LED(clYELLOW); }
     return;
   }
-  if (qs_down) {                               // al soltar
-    qs_down = false;
-    uint32_t t = now - qs_t0;
-    if (t < 30) return;                        // rebote
-    if (!debug_monitor_loaded || qs_stage == 0) toggle_qs();
-    else if (qs_stage == 2) {
-      Serial.println("Snapshot: not implemented yet (phase 2b)");
-      if (stopped) set_status_LED(clMAGENTA); else set_status_led_ok();
+  if (!qs_down) return;
+  qs_down = false;                            // al soltar
+  if (now - qs_t0 < 30) return;               // rebote
+  if (!debug_monitor_loaded || qs_stage == 0) { toggle_qs(); return; }
+  if (snap_busy() || ld_busy()) return;
+  if (qs_stage == 1) {
+    if (stopped) { Serial.println("QS button: continue"); dbg_continue(); }
+    else { dbg_pause(); led_state(); }        // magenta cuando llegue la parada
+  } else {
+    Serial.println("QS button: snapshot");
+    dbg_snapshot(false, "", !stopped);        // en marcha: para, graba y sigue
+  }
+}
+
+// ---------------------------------------------------------------------
+// Snapshots (fase 2b)
+// ---------------------------------------------------------------------
+#define POKE_FIRST 2038                       // POKEs de control que se guardan
+#define POKE_LAST  2098                       // (2038-2040 interrupciones, 2041-2062,
+#define POKE_N     (POKE_LAST - POKE_FIRST + 1)   // 2090-2098)
+#define SNAP_INFLIGHT 12                      // peticiones en la cola a la vez
+
+enum { SN_OFF, SN_INFO, SN_MEM, SN_COLOUR, SN_PAGES, SN_SHADOW };
+
+static struct {
+  uint8_t stage;
+  bool all, resume;
+  char user_name[40];
+  char path[96];
+  uint8_t mapper[8], chroma, pokes[POKE_N], rom[POKE_N];
+  bool rom_ok;
+  uint32_t req, got, end;                     // [MEMORY] / [COLOUR]
+  uint8_t pages[64], npages, pidx;
+  uint16_t preq, pgot;
+  uint8_t page[8192];
+  uint8_t rle_val; uint32_t rle_cnt; uint8_t toks;
+  uint8_t ay_sel[2], ay[2][16];               // los AY de la FPGA (A, B)
+  uint8_t spr[1024], spr_sel;                 // la copia de los sprites
+  uint8_t cmp[256]; uint16_t cmp_n; uint8_t cmp_blk;   // trozo de [MEMORY] para comparar con la sombra
+  uint8_t shdiff;                             // bloques cuya sombra no es [MEMORY]
+  uint8_t shblk;                              // SN_SHADOW: bloque en curso
+  char wbuf[512]; uint16_t wlen;
+  uint32_t bytes;
+  bool err;
+} sn;
+
+static char last_name[24] = "";
+static char opendir_arg[48] = "";
+static bool opendir_ok = false;
+
+void dbg_note_opendir(const char* arg, bool ok){
+  strncpy(opendir_arg, arg, sizeof(opendir_arg) - 1);
+  opendir_arg[sizeof(opendir_arg) - 1] = 0;
+  opendir_ok = ok;
+}
+
+void dbg_note_loaded(const char* name){
+  const char* b = strrchr(name, '/');
+  b = b ? b + 1 : name;
+  int i = 0;
+  while (b[i] && b[i] != '.' && i < (int)sizeof(last_name) - 1) { last_name[i] = b[i]; i++; }
+  last_name[i] = 0;
+}
+
+static bool snap_busy(){ return sn.stage != SN_OFF; }
+
+// --- escritura con buffer ---
+static void sflush(){
+  if (sn.wlen) {
+    if (!snapfile_write(sn.wbuf, sn.wlen)) sn.err = true;
+    sn.bytes += sn.wlen;
+    sn.wlen = 0;
+  }
+}
+static void sw(const char* t){
+  while (*t) {
+    sn.wbuf[sn.wlen++] = *t++;
+    if (sn.wlen == sizeof(sn.wbuf)) sflush();
+  }
+}
+static void swf(const char* fmt, ...){
+  char b[160];
+  va_list a; va_start(a, fmt); vsnprintf(b, sizeof(b), fmt, a); va_end(a);
+  sw(b);
+}
+
+// --- RLE como el de EightyOne: "VV " o "*NNNN VV " ---
+static void rle_tok(){
+  if (!sn.rle_cnt) return;
+  if (sn.rle_cnt > 1) swf("*%04X %02X ", (unsigned)sn.rle_cnt, sn.rle_val);
+  else swf("%02X ", sn.rle_val);
+  sn.rle_cnt = 0;
+  if (++sn.toks == 16) { sw("\n"); sn.toks = 0; }
+}
+static void rle_byte(uint8_t v){
+  if (sn.rle_cnt && v == sn.rle_val && sn.rle_cnt < 0xFFFF) { sn.rle_cnt++; return; }
+  rle_tok();
+  sn.rle_val = v; sn.rle_cnt = 1;
+}
+static void rle_end(){ rle_tok(); sw("\n"); sn.toks = 0; }
+
+// El valor del POKE a (o -1 si no se ha escrito nunca: en la BRAM sigue el
+// byte de la ROM, que es lo que se cargo ahi al arrancar)
+static int pk(int a){
+  int i = a - POKE_FIRST;
+  if (sn.rom_ok && sn.pokes[i] == sn.rom[i]) return -1;
+  return sn.pokes[i];
+}
+static int pkd(int a, int def){ int v = pk(a); return v < 0 ? def : v; }
+
+void dbg_snapshot(bool all, const char* name, bool resume){
+  if (!debug_monitor_loaded) { Serial.println("No debug monitor loaded"); return; }
+  if (snap_busy()) { Serial.println("Snapshot in progress"); return; }
+  sn.all = all;
+  sn.resume = resume;
+  strncpy(sn.user_name, name ? name : "", sizeof(sn.user_name) - 1);
+  sn.user_name[sizeof(sn.user_name) - 1] = 0;
+  if (stopped) snap_begin();
+  else { snap_pending = true; dbg_pause(); }   // al parar empieza (on_break)
+}
+
+static void snap_make_path(){
+  if (sn.user_name[0]) {
+    bool ext = strchr(sn.user_name, '.') != nullptr;
+    snprintf(sn.path, sizeof(sn.path), "%s%s%s", current_dir, sn.user_name, ext ? "" : ".Z81");
+    return;
+  }
+  const char* base = last_name[0] ? last_name : "NONAME";
+  for (int k = 1; k < 1000; k++) {
+    // sin separador: el ZX81 no tiene "_" (EXPLORER001.Z81, NONAME001.Z81)
+    snprintf(sn.path, sizeof(sn.path), "%s%s%03d.Z81", current_dir, base, k);
+    if (!snapfile_exists(sn.path)) return;
+  }
+}
+
+static void snap_begin(){
+  snap_make_path();
+  if (!snapfile_open(sn.path)) {
+    Serial.printf("Snapshot: can't create %s\r\n", sn.path);
+    if (sn.resume) dbg_continue();
+    return;
+  }
+  sn.stage = SN_INFO;
+  sn.err = false; sn.bytes = 0; sn.wlen = 0; sn.rle_cnt = 0; sn.toks = 0;
+  set_blinking(clYELLOW, 4);
+  Serial.printf("Snapshot: writing %s ...\r\n", sn.path);
+  sn.rom_ok = rom_file_read(POKE_FIRST, sn.rom, POKE_N) == POKE_N;
+
+  // [CPU] y [ZX81], como los escribe EightyOne
+  sw("[MACHINE]\nMODEL ZX81\n\n[CPU]\n");
+  swf("PC %04X    SP  %04X\n", reg16(R_PC), reg16(R_SP));
+  swf("HL %04X    HL_ %04X\n", reg16(R_HL), reg16(R_HL_));
+  swf("DE %04X    DE_ %04X\n", reg16(R_DE), reg16(R_DE_));
+  swf("BC %04X    BC_ %04X\n", reg16(R_BC), reg16(R_BC_));
+  swf("AF %04X    AF_ %04X\n", reg16(R_AF), reg16(R_AF_));
+  swf("IX %04X    IY  %04X\n", reg16(R_IX), reg16(R_IY));
+  swf("IR %04X\n", (regs[R_I] << 8) | regs[R_R]);
+  swf("IM 01      IF1 %02X\n", regs[R_IFF]);   // IM no se puede leer: la ROM pone IM 1
+  swf("HT 00      IF2 %02X\n", regs[R_IFF]);
+  sw("\n[ZX81]\nNMI 00     SYNC 00\nLINE 000\n"); // parado en FAST: sin NMI
+
+  // el mapper, el registro de Chroma y los POKEs de control (BRAM de sombra)
+  for (int b = 0; b < 8; b++) q_push(OP_IN, (b << 8) | 0xE7, 0, TAG_SNAP_MAP, b);
+  q_out(DBG_PORT, 0x03);
+  q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_CHROMA);
+  // los AY de la FPGA: el registro elegido (indices 4 y 5) y los 16
+  q_out(DBG_PORT, 0x04); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_AYSEL, 0);
+  q_out(DBG_PORT, 0x05); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_AYSEL, 1);
+  q_push(OP_AYREAD, AY_PORT_A, 16, TAG_SNAP_AYREGS, 0);
+  q_push(OP_AYREAD, AY_PORT_B, 16, TAG_SNAP_AYREGS, 1);
+  // la BRAM de sombra (indice 2): los POKEs, los sprites y el elegido
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, POKE_FIRST & 0xFF);
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, POKE_FIRST >> 8);
+  q_out(DBG_PORT, 0x02);
+  q_push(OP_INSEQ, DBG_PORT, POKE_N, TAG_SNAP_POKES);
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, SPR_MIRROR & 0xFF);
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, SPR_MIRROR >> 8);
+  for (int k = 0; k < 4; k++) q_push(OP_INSEQ, DBG_PORT, 256, TAG_SNAP_SPR, k);
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, 2100 & 0xFF);
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, 2100 >> 8);
+  q_push(OP_INSEQ, DBG_PORT, 1, TAG_SNAP_SPRSEL);
+}
+
+static void snap_feed(){
+  if (sn.stage == SN_MEM || sn.stage == SN_COLOUR) {
+    while (q_count < SNAP_INFLIGHT && sn.req < sn.end) {
+      uint16_t n = (sn.end - sn.req > 256) ? 256 : (uint16_t)(sn.end - sn.req);
+      if (sn.stage == SN_MEM) {
+        q_push(OP_READ, (uint16_t)sn.req, n, TAG_SNAP_MEM);
+        // la sombra del mismo trozo ($2000-$BFFF, seguida en el puntero),
+        // para saber que bloques hay que guardar aparte (SHADOW)
+        if (sn.req < 0xC000) q_push(OP_INSEQ, DBG_PORT, n, TAG_SNAP_SHCMP);
+      } else
+        q_push(OP_INSEQ, DBG_PORT, n, TAG_SNAP_COLOUR);   // [COLOUR] es la sombra de $C000-$FFFF
+      sn.req += n;
+    }
+  } else if (sn.stage == SN_SHADOW) {
+    while (q_count < SNAP_INFLIGHT && sn.preq < 8192) {
+      q_push(OP_INSEQ, DBG_PORT, 256, TAG_SNAP_SHADOW);
+      sn.preq += 256;
+    }
+  } else if (sn.stage == SN_PAGES) {
+    while (q_count < SNAP_INFLIGHT && sn.preq < 8192) {
+      DbgReq* r = q_push(OP_READP, sn.preq, 256, TAG_SNAP_PAGE);
+      if (!r) break;
+      r->page = sn.pages[sn.pidx];
+      sn.preq += 256;
     }
   }
+}
+
+// La pagina 0 o 1 sigue siendo la ROM tal como la cargo el MCU (load_ROM
+// escribe el fichero en 0 y otra vez en 8192: la pagina 1 es el final del
+// fichero y, detras, el principio otra vez)
+static bool page_is_rom(uint8_t p){
+  int32_t size = rom_file_read(0, nullptr, 0);
+  if (size <= 0 || size > 16384) return false;
+  uint8_t* rom = (uint8_t*)malloc(size);       // ~13 KB, solo un momento
+  if (!rom) return false;
+  bool same = rom_file_read(0, rom, size) == size;
+  for (uint32_t k = 0; k < 8192 && same; k++) {
+    uint32_t off = (p == 0) ? k : ((8192 + k < (uint32_t)size) ? 8192 + k : k);
+    if (off < (uint32_t)size && rom[off] != sn.page[k]) same = false;   // donde la ROM no llega, no se compara
+  }
+  free(rom);
+  return same;
+}
+
+static void snap_write_sd81(){
+  sw("\n[SD81BOOSTER]\n");
+  swf("CUR_DIR %s\n", current_dir);
+  sw("MAPPER");
+  for (int b = 0; b < 8; b++) swf(" %02X", sn.mapper[b]);
+  sw("\n");
+  int m = pk(2045), dm = 0;
+  if (m == 170 || m == 173 || m == 174) dm = 1;
+  else if (m == 171) dm = 3;
+  else if (m == 172) dm = 5;
+  swf("DISPLAY_MODE %02X\n", dm);
+  if (m == 173) sw("WIDE_COLS 46\n");        // texto ancho: 70 columnas
+  else if (m == 174) sw("WIDE_COLS 50\n");   // 80 columnas
+  swf("BORDER_INK %02X\n", pkd(2046, 0x0F));
+  swf("BORDER_PATTERN %02X\n", pk(2047) == 170 ? 1 : 0);
+  sw("BORDER_CHARS");
+  for (int i = 0; i < 8; i++) swf(" %02X", pkd(2048 + i, 0));
+  sw("\n");
+  swf("HFILE %04X\n", (pkd(2044, 0) << 8) | pkd(2043, 0));
+  swf("CHROMA_MODE %02X\n", sn.chroma);
+  int d = pk(2057), dbuf = 0;
+  if (d >= 0 && (d & 0xF8) == 0xA8) dbuf = 0xC0 | (d & 7);       // AUTO
+  else if (d >= 0 && (d & 0xF8) == 0xC8) dbuf = 0x80 | (d & 7);  // MANUAL
+  swf("DBUF %02X\n", dbuf);
+  swf("SEL128 %02X\nSEL256 %02X\n", cfg_value(cfgcmd_128CHARS), cfg_value(cfgcmd_256CHARS));
+  swf("WRX %02X\n", pk(2058) == 170 ? 1 : 0);
+  swf("ROMLOCK %02X\n", cfg_value(cfgcmd_ROMLOCK));
+  swf("SCROLL %02X %02X %02X %02X\n", pkd(2090, 0), pkd(2091, 0xFF), pkd(2092, 0xFF), pkd(2093, 0xFF));
+  // El listado que abrio el ultimo OPENDIR (el argumento en hexadecimal,
+  // "-" si estaba vacio): sin el, el explorador no puede pedir sus filas
+  if (opendir_ok) {
+    sw("DIR_OPEN ");
+    if (!opendir_arg[0]) sw("-");
+    for (int i = 0; opendir_arg[i]; i++) swf("%02X", (uint8_t)opendir_arg[i]);
+    sw("\n");
+  }
+  // D_FILE y base de atributos alternativos (2096-2098, 2059-2061): activos
+  // si lo ultimo en 2098 / 2061 fue 170; POKE 2045,85 los apaga
+  if (m != 85) {
+    if (pk(2098) == 170) swf("DISP_ADDR %04X 01\n", (pkd(2097, 0) << 8) | pkd(2096, 0));
+    if (pk(2061) == 170) swf("ATTR_ADDR %04X 01\n", (pkd(2060, 0) << 8) | pkd(2059, 0));
+  }
+  // Propias del hardware (EightyOne las ignora): los POKEs de control tal
+  // cual ("--" = nunca escrito) y la configuracion del MCU, para LOAD *Z81
+  sw("HW_POKES");
+  for (int i = 0; i < POKE_N; i++) {
+    int v = pk(POKE_FIRST + i);
+    if (v < 0) sw(" --"); else swf(" %02X", v);
+  }
+  sw("\n");
+  swf("HW_CFG %02X %02X %02X %02X %02X %02X %02X\n",
+    cfg_value(cfgcmd_MC45), cfg_value(cfgcmd_MODE48K), nQS_en, cfg_value(cfgcmd_FULLPAG),
+    cfg_value(cfgcmd_128CHARS), cfg_value(cfgcmd_256CHARS), cfg_value(cfgcmd_ROMLOCK));
+  // Los AY de la FPGA: AY1 el A (ZonX, como en EightyOne), AY3 el B. El
+  // AY2 es el del MCU (lo escribe mcustate_save, con el VGM, el PEG y los
+  // ficheros abiertos)
+  static const char* const ayk[2] = {"AY1", "AY3"};
+  for (int c = 0; c < 2; c++) {
+    swf("%s_REGS", ayk[c]);
+    for (int r = 0; r < 16; r++) swf(" %02X", sn.ay[c][r]);
+    swf("\n%s_REG_SEL %02X\n", ayk[c], sn.ay_sel[c]);
+  }
+  mcustate_save(sw);
+  // Sprites (de la copia en la sombra: 32 bytes por sprite, los 28 campos
+  // de los POKEs 2101-2128); solo los que no estan a cero. La ROM los pone
+  // a cero en cada reset; si un sprite sigue teniendo los bytes de la ROM
+  // (una ROM sin esa limpieza), no se ha escrito nunca: no se guarda
+  uint8_t* rom = sn.page;                     // (libre hasta las paginas)
+  bool rom_ok = rom_file_read(SPR_MIRROR, rom, 0x400) == 0x400;
+  uint8_t sel_rom;
+  bool sel_never = rom_file_read(2100, &sel_rom, 1) == 1 && sel_rom == sn.spr_sel;
+  swf("SPRITE_SEL %02X\n", sel_never ? 0 : sn.spr_sel);
+  for (int i = 0; i < 32; i++) {
+    const uint8_t* f = sn.spr + i * 32;
+    bool zero = true, never = rom_ok;
+    for (int j = 0; j < 28; j++) {
+      if (f[j]) zero = false;
+      if (rom_ok && f[j] != rom[i * 32 + j]) never = false;
+    }
+    if (zero || never) continue;
+    swf("SPRITE %02X %02X %04X %02X", i, f[0] & 1, f[1] | ((f[2] & 1) << 8), f[3]);
+    for (int j = 4; j < 28; j++) swf(" %02X", f[j]);
+    sw("\n");
+  }
+}
+
+static void snap_next_page();
+
+static void snap_finish(){
+  sw("\n[EOF]\n");
+  sflush();
+  snapfile_close();
+  set_blinking_off();
+  sn.stage = SN_OFF;
+  if (sn.err) Serial.printf("Snapshot: SD write error in %s\r\n", sn.path);
+  else Serial.printf("Snapshot saved: %s (%lu bytes)\r\n", sn.path, (unsigned long)sn.bytes);
+  if (sn.resume) dbg_continue();
+  else { led_state(); Serial.println("Stopped. Type h for help."); }
+}
+
+// La sombra de los bloques que no son [MEMORY] (SHADOW, como EightyOne): el
+// 0 si no es la ROM (sin contar los POKEs y los sprites, que van en sus
+// claves) y los que se vio al leer [MEMORY] ($2000-$BFFF; $C000-$FFFF ya
+// es [COLOUR])
+static void snap_shadow_next(){
+  while (sn.shblk < 6 && sn.shblk && !(sn.shdiff & (1 << sn.shblk))) sn.shblk++;
+  if (sn.shblk >= 6) { snap_finish(); return; }
+  sn.stage = SN_SHADOW;
+  sn.preq = sn.pgot = 0;
+  uint16_t a = sn.shblk * 0x2000;
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, a & 0xFF);
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, a >> 8);
+}
+
+static bool shadow0_is_rom(){
+  uint8_t r[256];
+  for (uint16_t a = 0; a < 0x2000; a += 256) {
+    if (rom_file_read(a, r, 256) != 256) return false;
+    for (int i = 0; i < 256; i++) {
+      uint16_t x = a + i;
+      if ((x >= POKE_FIRST && x <= 2128) || (x >= SPR_MIRROR && x < SPR_MIRROR + 0x400)) continue;
+      if (r[i] != sn.page[x]) return false;
+    }
+  }
+  return true;
+}
+
+static void snap_next_page(){
+  sn.preq = sn.pgot = 0;
+  if (sn.pidx >= sn.npages) { sn.shblk = 0; snap_shadow_next(); }
+}
+
+static void snap_result(uint8_t tag, uint8_t* data, uint16_t n){
+  switch (tag) {
+    case TAG_SNAP_MAP:    sn.mapper[last.arg] = n ? data[0] & 0x3F : 0; break;
+    case TAG_SNAP_AYSEL:  sn.ay_sel[last.arg & 1] = n ? data[0] : 0; break;
+    case TAG_SNAP_AYREGS:
+      memcpy(sn.ay[last.arg & 1], data, n < 16 ? n : 16);
+      q_out(last.arg ? AY_PORT_B : AY_PORT_A, sn.ay_sel[last.arg & 1]);   // el elegido, como estaba
+      break;
+    case TAG_SNAP_SPR:    memcpy(sn.spr + (last.arg & 3) * 256, data, n < 256 ? n : 256); break;
+    case TAG_SNAP_SPRSEL: sn.spr_sel = n ? data[0] : 0; break;
+    case TAG_SNAP_SHCMP:
+      if (n != sn.cmp_n || memcmp(data, sn.cmp, n)) sn.shdiff |= 1 << sn.cmp_blk;
+      break;
+    case TAG_SNAP_SHADOW:
+      if (sn.pgot + n <= 8192) memcpy(sn.page + sn.pgot, data, n);
+      sn.pgot += n;
+      if (sn.pgot < 8192) break;
+      if (sn.shblk || !shadow0_is_rom()) {
+        swf("SHADOW %02X\n", sn.shblk);
+        sn.toks = 0;
+        for (int i = 0; i < 8192; i++) rle_byte(sn.page[i]);
+        rle_tok();
+        sw("\nSHADOW_END\n");
+        sn.toks = 0;
+      }
+      sn.shblk++;
+      snap_shadow_next();
+      break;
+    case TAG_SNAP_CHROMA: sn.chroma = n ? data[0] : 0; break;
+    case TAG_SNAP_POKES:
+      memcpy(sn.pokes, data, n < POKE_N ? n : POKE_N);
+      sw("\n[MEMORY]\nRAM_PACK 48K\n8K_RAM_ENABLED 01\nROM_PROTECTED 00\nMEMRANGE 2000 FFFF\n");
+      sn.stage = SN_MEM; sn.req = sn.got = 0x2000; sn.end = 0x10000;
+      sn.shdiff = 0;
+      q_out(DBG_PORT, 0x85); q_out(DBG_PORT, 0x00);   // la sombra desde $2000, para comparar
+      q_out(DBG_PORT, 0x86); q_out(DBG_PORT, 0x20);
+      break;
+    case TAG_SNAP_MEM:
+    case TAG_SNAP_COLOUR:
+      if (tag == TAG_SNAP_MEM) {                // para compararlo con su sombra
+        memcpy(sn.cmp, data, n);
+        sn.cmp_n = n;
+        sn.cmp_blk = sn.got >> 13;
+      }
+      for (uint16_t i = 0; i < n; i++) rle_byte(data[i]);
+      sn.got += n;
+      if (sn.got < sn.end) break;
+      rle_end();
+      if (tag == TAG_SNAP_MEM) {
+        sw("\n[COLOUR]\nTYPE Chroma\n");
+        sn.stage = SN_COLOUR; sn.req = sn.got = 0xC000; sn.end = 0x10000;
+        q_out(DBG_PORT, 0x85); q_out(DBG_PORT, 0x00);   // el color es la sombra de $C000
+        q_out(DBG_PORT, 0x86); q_out(DBG_PORT, 0xC0);
+      } else {
+        swf("CHROMA_MODE %02X\nCOLOUR_ENABLED 01\n", sn.chroma);
+        snap_write_sd81();
+        sn.npages = 0;                         // paginas: las mapeadas o todas
+        int last_p = cfg_value(cfgcmd_FULLPAG) ? 63 : 32;   // sin FULL_PAGING el mapper solo llega a la 31
+        for (int p = 0; p < 63; p++) {
+          bool want = sn.all && p < last_p;
+          for (int b = 0; b < 8 && !want; b++) want = (sn.mapper[b] == p);
+          if (want) sn.pages[sn.npages++] = p;
+        }
+        sn.pidx = 0;
+        sn.stage = SN_PAGES;
+        snap_next_page();
+      }
+      break;
+    case TAG_SNAP_PAGE:
+      if (sn.pgot + n <= 8192) memcpy(sn.page + sn.pgot, data, n);
+      sn.pgot += n;
+      if (sn.pgot < 8192) break;
+      {
+        uint8_t pg = sn.pages[sn.pidx];
+        bool skip;
+        if (pg < 2) skip = page_is_rom(pg);  // la ROM sin tocar no se guarda
+        else if (sn.all) {                    // con -a, las paginas a FF tampoco
+          skip = true;
+          for (int i = 0; i < 8192 && skip; i++) skip = (sn.page[i] == 0xFF);
+        } else skip = false;
+        if (!skip) {
+          swf("RAM_PAGE %02X\n", pg);
+          sn.toks = 0;
+          for (int i = 0; i < 8192; i++) rle_byte(sn.page[i]);
+          rle_tok();
+          sw("\nRAM_PAGE_END\n");
+          sn.toks = 0;
+        }
+        sn.pidx++;
+        snap_next_page();
+      }
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------
+// Carga de snapshots con el monitor (LOAD *Z81, comando 75)
+//
+// La ROM manda el nombre; dbg_z81_prepare lee el .Z81 entero una vez (lo
+// valida y apunta donde empieza cada seccion) y, si esta bien, la ROM apaga
+// la NMI y lanza la trampa. Al parar (on_break) el MCU lo carga todo por el
+// monitor, que corre en la pagina 63 y puede escribir cualquier pagina:
+//   1. estado del MCU: directorio, listado abierto, bits de configuracion;
+//   2. los POKEs de control, con la orden 10 (el monitor escribe como el
+//      programa): primero el modo de video, el 2040 y el 2056 al final;
+//   3. las paginas (RAM_PAGE) con WRITEP;
+//   4. [MEMORY]: en la pagina de cada bloque que no venga en RAM_PAGE, y en
+//      la BRAM de sombra (BRAMW), que tiene que ser la vista del programa;
+//      [COLOUR] en la sombra de $C000-$FFFF, la pagina del bloque 0 en la de
+//      $0000-$1FFF y en 2038-2098 los POKEs (o el byte de la ROM si nunca se
+//      escribieron, como al arrancar);
+//   5. el mapper, Chroma81, los AY, ROMLOCK, los registros y CONT. Si el snapshot
+//      lleva la NMI encendida, se vuelve por OUT ($FE),A / RET puestos
+//      debajo de la pila (sin la NMI no se puede parar en SLOW).
+// ---------------------------------------------------------------------
+enum { LD_OFF, LD_POKES, LD_SPRITES, LD_POKES_LATE, LD_POKES_WAIT, LD_PAGES, LD_MEM, LD_COLOUR, LD_BLOCK0,
+       LD_SHADOW, LD_FINISH };
+
+#define LD_NBUF 4
+static uint8_t ld_buf[LD_NBUF][256];
+
+static struct {
+  bool pending;                 // la ROM va a lanzar la trampa
+  uint8_t stage;
+  uint8_t cpu[REGS_LEN];        // registros, en el orden del monitor
+  uint8_t im, nmi;              // nmi: 0, 1 o 0xFF (no viene)
+  uint16_t mem_start;
+  uint32_t mem_len, mem_pos;
+  bool has_col; uint32_t col_pos;
+  bool has_chroma; uint8_t chroma;
+  bool has_mapper; uint8_t mapper[8];
+  uint32_t page_pos[64];        // donde empieza cada RAM_PAGE (0 = no viene)
+  uint8_t pk[POKE_N], pk_mode[POKE_N];   // 0 no tocar, 1 valor del snapshot, 2 valor de reset
+  int16_t cfg[8];               // ordenes de configuracion (-1 = no tocar)
+  uint8_t romlock_old;
+  bool has_dir; char dir[MAX_FILENAME_LEN];
+  bool dir_open; char dir_arg[48];
+  bool has_ay[2]; uint8_t ay[2][16], ay_sel[2];   // los AY de la FPGA (A, B)
+  uint8_t spr[32][28], spr_sel;                   // los sprites (los 28 campos de 2101-2128)
+  uint32_t shadow_pos[8];                         // SHADOW de cada bloque (0 = no viene)
+  uint8_t page;                 // LD_PAGES: pagina en curso; LD_SPRITES y LD_SHADOW: el siguiente
+  uint32_t done;                // bytes ya pedidos de la fuente en curso
+  uint32_t rle_cnt; uint8_t rle_val;
+} ld;
+
+static bool ld_busy(){ return ld.stage != LD_OFF; }
+
+// --- lectura del fichero: tokens y el RLE de EightyOne ---
+static bool ld_space(int c){ return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+static uint8_t ld_tok(char* b, uint8_t max){
+  int c;
+  do c = z81in_read(); while (c >= 0 && ld_space(c));
+  uint8_t n = 0;
+  while (c >= 0 && !ld_space(c)) {
+    if (n < max - 1) b[n++] = (char)c;
+    c = z81in_read();
+  }
+  b[n] = 0;
+  return n;
+}
+static uint32_t ld_hex(const char* t){ return strtoul(t, nullptr, 16); }
+static bool ld_is_hex(const char* t){
+  if (!*t) return false;
+  for (; *t; t++) if (!isxdigit((unsigned char)*t)) return false;
+  return true;
+}
+static void dec_reset(){ ld.rle_cnt = 0; }
+static int dec_next(){                        // siguiente byte, -1 si no hay
+  if (ld.rle_cnt) { ld.rle_cnt--; return ld.rle_val; }
+  char t[16];
+  if (!ld_tok(t, sizeof(t))) return -1;
+  if (t[0] == '*') {
+    char v[8];
+    uint32_t c = ld_hex(t + 1);
+    if (!c || !ld_tok(v, sizeof(v)) || !ld_is_hex(v)) return -1;
+    ld.rle_val = ld_hex(v);
+    ld.rle_cnt = c - 1;
+    return ld.rle_val;
+  }
+  if (!ld_is_hex(t)) return -1;
+  return ld_hex(t) & 0xFF;
+}
+static bool dec_skip(uint32_t n){             // n bytes, que acaben justo ahi
+  while (n) {
+    if (ld.rle_cnt) {
+      uint32_t k = n < ld.rle_cnt ? n : ld.rle_cnt;
+      ld.rle_cnt -= k; n -= k;
+      continue;
+    }
+    if (dec_next() < 0) return false;
+    n--;
+  }
+  return ld.rle_cnt == 0;
+}
+static bool dec_read(uint8_t* b, uint16_t n){
+  for (uint16_t i = 0; i < n; i++) {
+    int v = dec_next();
+    if (v < 0) return false;
+    b[i] = v;
+  }
+  return true;
+}
+
+// Valor de reset de cada POKE de control (-1: no es un registro que se
+// pueda devolver a su valor de reset con un POKE)
+static int16_t pk_default(uint16_t a){
+  static const uint8_t bchr[8] = {0x00, 0x3C, 0x42, 0x42, 0x7E, 0x42, 0x42, 0x00};
+  if (a >= 2048 && a <= 2055) return bchr[a - 2048];
+  switch (a) {
+    case 2038: case 2039: case 2040: case 2043: case 2044: return 0;
+    case 2045: case 2047: case 2057: case 2058: case 2061: case 2062: case 2098: return 85;
+    case 2046: return 0x0F;
+    case 2059: case 2060: case 2090: case 2094: case 2095: case 2096: case 2097: return 0;
+    case 2091: case 2092: case 2093: return 0xFF;
+  }
+  return -1;
+}
+static void pk_set(uint16_t a, uint8_t v){    // valor sacado de las claves de EightyOne
+  int i = a - POKE_FIRST;
+  ld.pk[i] = v;
+  ld.pk_mode[i] = (pk_default(a) == v) ? 2 : 1;
+}
+
+static void ld_cpu_key(const char* k, uint32_t v){
+  static const struct { const char* k; uint8_t r; } map[] = {
+    {"PC", R_PC}, {"SP", R_SP}, {"HL", R_HL}, {"DE", R_DE}, {"BC", R_BC}, {"AF", R_AF},
+    {"HL_", R_HL_}, {"DE_", R_DE_}, {"BC_", R_BC_}, {"AF_", R_AF_}, {"IX", R_IX}, {"IY", R_IY}
+  };
+  for (auto& m : map)
+    if (!strcmp(k, m.k)) { ld.cpu[m.r] = v & 0xFF; ld.cpu[m.r + 1] = (v >> 8) & 0xFF; return; }
+  if (!strcmp(k, "IR")) { ld.cpu[R_I] = v >> 8; ld.cpu[R_R] = v & 0xFF; }
+  else if (!strcmp(k, "IM")) ld.im = v;
+  else if (!strcmp(k, "IF1")) ld.cpu[R_IFF] = v ? 1 : 0;
+}
+
+// Primera pasada (comando 75, con el Z80 esperando). Devuelve 0 si se puede
+// cargar (la ROM lanza la trampa), 0xFF si no hay monitor (la ROM usa el
+// cargador de siempre), 1 sin fichero, 2 sin [MEMORY], 3 fichero mal hecho.
+uint8_t dbg_z81_prepare(const char* path, uint8_t* im){
+  *im = 1;
+  if (!debug_monitor_loaded || stopped || snap_busy() || ld_busy()) return 0xFF;
+  if (!z81in_open(path)) return 1;
+  memset(&ld, 0, sizeof(ld));
+  mcustate_clear();
+  ld.nmi = 0xFF; ld.im = 1;
+  for (int i = 0; i < 8; i++) ld.cfg[i] = -1;
+  for (int i = 0; i < POKE_N; i++) {
+    int16_t d = pk_default(POKE_FIRST + i);
+    ld.pk[i] = d < 0 ? 0 : d;
+    ld.pk_mode[i] = d < 0 ? 0 : 2;
+  }
+
+  enum { S_NONE, S_CPU, S_ZX81, S_MEM, S_COL, S_SD81, S_HIRES, S_CHRGEN } sec = S_NONE;
+  char t[MAX_FILENAME_LEN], k[24];
+  bool bad = false, have_mem = false, hw_pokes = false, hw_cfg = false, chroma_sd81 = false;
+  int dm = -1, wide = 0;
+  while (!bad && ld_tok(t, sizeof(t))) {
+    if (t[0] == '[') {
+      if (!strcmp(t, "[EOF]")) break;
+      sec = !strcmp(t, "[CPU]") ? S_CPU : !strcmp(t, "[ZX81]") ? S_ZX81 : !strcmp(t, "[MEMORY]") ? S_MEM :
+            !strcmp(t, "[COLOUR]") ? S_COL : !strcmp(t, "[SD81BOOSTER]") ? S_SD81 :
+            !strcmp(t, "[HIGH_RESOLUTION]") ? S_HIRES : !strcmp(t, "[CHR$_GENERATOR]") ? S_CHRGEN : S_NONE;
+      continue;
+    }
+    strncpy(k, t, sizeof(k) - 1); k[sizeof(k) - 1] = 0;
+    switch (sec) {
+      case S_CPU:
+        if (!ld_tok(t, sizeof(t))) bad = true; else ld_cpu_key(k, ld_hex(t));
+        break;
+      case S_ZX81:
+        if (!strcmp(k, "NMI") && ld_tok(t, sizeof(t))) ld.nmi = ld_hex(t) ? 1 : 0;
+        break;
+      case S_MEM:
+        if (!strcmp(k, "MEMRANGE")) {
+          uint32_t a = 0, b = 0;
+          if (ld_tok(t, sizeof(t))) a = ld_hex(t); else bad = true;
+          if (ld_tok(t, sizeof(t))) b = ld_hex(t); else bad = true;
+          if (bad || b < a || a < 0x2000 || b > 0xFFFF) { bad = true; break; }
+          ld.mem_start = a; ld.mem_len = b - a + 1;
+          ld.mem_pos = z81in_pos();
+          dec_reset();
+          if (!dec_skip(ld.mem_len)) bad = true;
+          have_mem = true;
+        } else if (!strcmp(k, "RAM_PACK") || !strcmp(k, "8K_RAM_ENABLED") || !strcmp(k, "ROM_PROTECTED") ||
+                   !strcmp(k, "8K_RAM_PROTECTED"))
+          ld_tok(t, sizeof(t));
+        break;
+      case S_COL:
+        if (!strcmp(k, "TYPE")) {
+          if (ld_tok(t, sizeof(t)) && !strcmp(t, "Chroma")) {
+            ld.col_pos = z81in_pos();
+            dec_reset();
+            if (!dec_skip(16384)) bad = true;
+            ld.has_col = true;
+          }
+        } else if (!strcmp(k, "CHROMA_MODE")) {
+          if (ld_tok(t, sizeof(t)) && !chroma_sd81) { ld.has_chroma = true; ld.chroma = ld_hex(t); }
+        }
+        break;
+      case S_HIRES:                           // .Z81 sin [SD81BOOSTER]
+        if (!strcmp(k, "TYPE") && ld_tok(t, sizeof(t)) && strcmp(t, "None") && !hw_pokes)
+          pk_set(2058, !strcmp(t, "WRX") ? 170 : 85);
+        break;
+      case S_CHRGEN:
+        if (!strcmp(k, "TYPE") && ld_tok(t, sizeof(t)) && strcmp(t, "None") && !hw_cfg) {
+          ld.cfg[cfgcmd_128CHARS] = !strcmp(t, "CHR$128");
+          ld.cfg[cfgcmd_256CHARS] = !strcmp(t, "CHR$256");
+        }
+        break;
+      case S_SD81: {
+        uint32_t v[8];
+        auto vals = [&](int n){ for (int i = 0; i < n; i++) { if (!ld_tok(t, sizeof(t))) { bad = true; return; } v[i] = ld_hex(t); } };
+        if (!strcmp(k, "CUR_DIR")) {
+          if (ld_tok(t, sizeof(t))) { ld.has_dir = true; strncpy(ld.dir, t, sizeof(ld.dir) - 1); }
+        } else if (!strcmp(k, "MAPPER")) {
+          vals(8);
+          for (int i = 0; i < 8; i++) ld.mapper[i] = v[i] & 0x3F;
+          ld.has_mapper = !bad;
+        } else if (!strcmp(k, "DISPLAY_MODE")) { vals(1); dm = v[0]; }
+        else if (!strcmp(k, "WIDE_COLS")) { vals(1); wide = v[0]; }
+        else if (!strcmp(k, "BORDER_INK")) { vals(1); if (!hw_pokes) pk_set(2046, v[0]); }
+        else if (!strcmp(k, "BORDER_PATTERN")) { vals(1); if (!hw_pokes) pk_set(2047, v[0] ? 170 : 85); }
+        else if (!strcmp(k, "BORDER_CHARS")) { vals(8); if (!hw_pokes) for (int i = 0; i < 8; i++) pk_set(2048 + i, v[i]); }
+        else if (!strcmp(k, "HFILE")) { vals(1); if (!hw_pokes) { pk_set(2043, v[0] & 0xFF); pk_set(2044, v[0] >> 8); } }
+        else if (!strcmp(k, "CHROMA_MODE")) { vals(1); ld.has_chroma = true; ld.chroma = v[0]; chroma_sd81 = true; }
+        else if (!strcmp(k, "DBUF")) {
+          vals(1);
+          if (!hw_pokes) pk_set(2057, (v[0] & 0x80) ? (((v[0] & 0x40) ? 168 : 200) + (v[0] & 7)) : 85);
+        }
+        else if (!strcmp(k, "SEL128")) { vals(1); if (!hw_cfg) ld.cfg[cfgcmd_128CHARS] = v[0] ? 1 : 0; }
+        else if (!strcmp(k, "SEL256")) { vals(1); if (!hw_cfg) ld.cfg[cfgcmd_256CHARS] = v[0] ? 1 : 0; }
+        else if (!strcmp(k, "WRX")) { vals(1); if (!hw_pokes) pk_set(2058, v[0] ? 170 : 85); }
+        else if (!strcmp(k, "ROMLOCK")) { vals(1); if (!hw_cfg) ld.cfg[cfgcmd_ROMLOCK] = v[0] ? 1 : 0; }
+        else if (!strcmp(k, "SCROLL")) { vals(4); if (!hw_pokes) for (int i = 0; i < 4; i++) pk_set(2090 + i, v[i]); }
+        else if (!strcmp(k, "DISP_ADDR")) {
+          vals(2);
+          if (!hw_pokes && v[1]) { pk_set(2096, v[0] & 0xFF); pk_set(2097, v[0] >> 8); pk_set(2098, 170); }
+        }
+        else if (!strcmp(k, "ATTR_ADDR")) {
+          vals(2);
+          if (!hw_pokes && v[1]) { pk_set(2059, v[0] & 0xFF); pk_set(2060, v[0] >> 8); pk_set(2061, 170); }
+        }
+        else if (!strcmp(k, "DIR_OPEN")) {
+          if (ld_tok(t, sizeof(t))) {
+            ld.dir_open = true;
+            int n = 0;
+            if (strcmp(t, "-"))
+              for (int i = 0; t[i] && t[i + 1] && n < (int)sizeof(ld.dir_arg) - 1; i += 2) {
+                char h[3] = {t[i], t[i + 1], 0};
+                ld.dir_arg[n++] = ld_hex(h);
+              }
+            ld.dir_arg[n] = 0;
+          }
+        }
+        else if (!strcmp(k, "HW_POKES")) {   // los POKEs tal cual: mandan sobre lo de arriba
+          hw_pokes = true;
+          for (int i = 0; i < POKE_N && !bad; i++) {
+            if (!ld_tok(t, sizeof(t))) { bad = true; break; }
+            int16_t d = pk_default(POKE_FIRST + i);
+            if (strcmp(t, "--")) { ld.pk[i] = ld_hex(t); ld.pk_mode[i] = 1; }
+            else { ld.pk[i] = d < 0 ? 0 : d; ld.pk_mode[i] = d < 0 ? 0 : 2; }
+          }
+        }
+        else if (!strcmp(k, "HW_CFG")) {
+          vals(7);
+          static const uint8_t order[7] = {cfgcmd_MC45, cfgcmd_MODE48K, cfgcmd_QSEN, cfgcmd_FULLPAG,
+                                           cfgcmd_128CHARS, cfgcmd_256CHARS, cfgcmd_ROMLOCK};
+          for (int i = 0; i < 7; i++) ld.cfg[order[i]] = v[i] ? 1 : 0;
+          hw_cfg = true;
+        }
+        else if (!strcmp(k, "RAM_PAGE") || !strcmp(k, "SHADOW")) {
+          bool shadow = k[0] == 'S';
+          vals(1);
+          if (bad) break;
+          if (shadow) ld.shadow_pos[v[0] & 7] = z81in_pos();
+          else ld.page_pos[v[0] & 63] = z81in_pos();
+          dec_reset();
+          if (!dec_skip(8192) || !ld_tok(t, sizeof(t)) || strcmp(t, shadow ? "SHADOW_END" : "RAM_PAGE_END")) bad = true;
+        }
+        else if (!strcmp(k, "AY1_REGS") || !strcmp(k, "AY3_REGS")) {
+          int c = k[2] == '3';
+          for (int i = 0; i < 16 && !bad; i++) {
+            if (!ld_tok(t, sizeof(t))) bad = true; else ld.ay[c][i] = ld_hex(t);
+          }
+          ld.has_ay[c] = !bad;
+        }
+        else if (!strcmp(k, "AY1_REG_SEL") || !strcmp(k, "AY3_REG_SEL")) { vals(1); ld.ay_sel[k[2] == '3'] = v[0]; }
+        else if (!strcmp(k, "SPRITE_SEL")) { vals(1); ld.spr_sel = v[0]; }
+        else if (!strcmp(k, "SPRITE")) {      // n en x y, 8 colores, 8 filas, 8 mascaras
+          uint32_t h[4];
+          for (int i = 0; i < 4 && !bad; i++) { if (!ld_tok(t, sizeof(t))) bad = true; else h[i] = ld_hex(t); }
+          if (bad) break;
+          uint8_t* f = ld.spr[h[0] & 31];
+          f[0] = h[1]; f[1] = h[2] & 0xFF; f[2] = (h[2] >> 8) & 1; f[3] = h[3];
+          for (int i = 4; i < 28 && !bad; i++) { if (!ld_tok(t, sizeof(t))) bad = true; else f[i] = ld_hex(t); }
+        }
+        else mcustate_key(k, ld_tok);         // AY2, VGM, PEG, FILE_HANDLE
+        break;
+      }
+      default: break;
+    }
+  }
+  if (!hw_pokes && dm >= 0) {                 // el modo de video de EightyOne
+    uint8_t m = 85;
+    if (wide == 0x46) m = 173;
+    else if (wide == 0x50) m = 174;
+    else if (dm & 1) m = (dm & 2) ? 171 : (dm & 4) ? 172 : 170;
+    pk_set(2045, m);
+  }
+  if (bad || !have_mem) {
+    z81in_close();
+    return bad ? 3 : 2;
+  }
+  ld.pending = true;
+  *im = ld.im;
+  return 0;
+}
+
+// Pide un trozo de la fuente en curso (ya colocada) en un buffer libre
+static int ld_chunk(uint16_t n){
+  static uint8_t next = 0;
+  uint8_t k = next;
+  next = (next + 1) % LD_NBUF;
+  if (!dec_read(ld_buf[k], n)) return -1;
+  return k;
+}
+
+static void ld_abort(const char* why){
+  z81in_close();
+  ld.stage = LD_OFF;
+  set_blinking_off();
+  send_bit_config(cfgcmd_DBGPOKE, 0);
+  Serial.printf("Snapshot load failed: %s. The program is half loaded: reset.\r\n", why);
+  set_status_LED(clMAGENTA);
+}
+
+// La BRAM de sombra: el puntero
+static void ld_bram_ptr(uint16_t a){
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, a & 0xFF);
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, a >> 8);
+}
+
+// Empieza al parar en la trampa de la ROM
+static void ld_begin(){
+  ld.pending = false;
+  set_blinking(clCYAN, 4);
+  Serial.println("\r\nLoading snapshot ...");
+  if (ld.has_dir) { strncpy(current_dir, ld.dir, MAX_FILENAME_LEN - 1); current_dir[MAX_FILENAME_LEN - 1] = 0; }
+  static const uint8_t first[] = {cfgcmd_FULLPAG, cfgcmd_MC45, cfgcmd_MODE48K, cfgcmd_128CHARS, cfgcmd_256CHARS};
+  for (uint8_t c : first) if (ld.cfg[c] >= 0) send_bit_config(c, ld.cfg[c]);
+  if (ld.cfg[cfgcmd_QSEN] >= 0) { nQS_en = ld.cfg[cfgcmd_QSEN]; send_bit_config(cfgcmd_QSEN, nQS_en ? 1 : 0); }
+  ld.romlock_old = cfg_value(cfgcmd_ROMLOCK);
+  if (ld.romlock_old) send_bit_config(cfgcmd_ROMLOCK, 0);   // si no, los POKEs no hacen nada
+  if (ld.dir_open) opendir_list(ld.dir_arg);
+  mcustate_apply();                           // AY del MCU, VGM, PEG, ficheros
+  if (!ld.has_mapper)                         // sin MAPPER: las paginas de ahora
+    for (int b = 0; b < 8; b++) q_push(OP_IN, (b << 8) | 0xE7, 0, TAG_LD_MAP, b);
+  ld.stage = LD_POKES;
+}
+
+// Los POKEs de control: el modo de video primero (85 apaga los D_FILE y
+// atributos alternativos), despues el resto en orden, los 32 sprites (los
+// que no vienen, a cero), y al final las interrupciones simuladas
+// (2038-2040) y el 2056 (bloque 0 escribible). En tres tandas: la cola no
+// da para todo de una vez
+static void ld_wr(uint16_t a, uint8_t n){
+  DbgReq* r = q_push(OP_WRITE, a, n);
+  if (r) for (int i = 0; i < n; i++) r->data[i] = ld.pk[a - POKE_FIRST + i];
+}
+static void ld_pokes(){
+  send_bit_config(cfgcmd_DBGPOKE, 1);         // el monitor escribe como el programa
+  auto wr = ld_wr;
+  auto run = [&](uint16_t from, uint16_t to){   // los tramos seguidos que hay que escribir
+    for (uint16_t a = from; a <= to; ) {
+      if (!ld.pk_mode[a - POKE_FIRST] || a == 2045 || a == 2056 || (a >= 2038 && a <= 2040)) { a++; continue; }
+      uint16_t b = a;
+      while (b < to && b - a < 31 && ld.pk_mode[b + 1 - POKE_FIRST] && b + 1 != 2045 && b + 1 != 2056) b++;
+      wr(a, b - a + 1);
+      a = b + 1;
+    }
+  };
+  if (ld.pk_mode[2045 - POKE_FIRST]) wr(2045, 1);
+  run(2041, POKE_LAST);
+}
+static void ld_sprites(){                     // 8 sprites cada vez
+  for (int k = 0; k < 8 && ld.page < 32; k++, ld.page++) {
+    DbgReq* r = q_push(OP_WRITE, 2100, 1);
+    if (r) r->data[0] = ld.page;
+    r = q_push(OP_WRITE, 2101, 28);
+    if (r) memcpy(r->data, ld.spr[ld.page], 28);
+  }
+}
+static void ld_pokes_late(){
+  DbgReq* r = q_push(OP_WRITE, 2100, 1);
+  if (r) r->data[0] = ld.spr_sel;
+  if (ld.pk_mode[2038 - POKE_FIRST]) ld_wr(2038, 2);
+  if (ld.pk_mode[2040 - POKE_FIRST]) ld_wr(2040, 1);
+  if (ld.pk_mode[2056 - POKE_FIRST] == 1) ld_wr(2056, 1);
+  q_push(OP_IN, 0x00E7, 0, TAG_LD_SYNC);      // cuando llegue, ya estan todos (IN inocuo)
+}
+
+static void ld_finish(){
+  // el mapper (WRITEP ya no usa el bloque 7) y Chroma81
+  if (ld.has_mapper) {
+    bool full = cfg_value(cfgcmd_FULLPAG);
+    for (int b = 0; b < 8; b++) {
+      uint8_t p = ld.mapper[b];
+      q_out((p << 8) | 0xE7, full ? b : (((p & 31) << 3) | b));
+    }
+  }
+  if (ld.has_chroma) q_out(0x7FEF, ld.chroma);
+  for (int c = 0; c < 2; c++) {               // los AY de la FPGA y su registro elegido
+    if (!ld.has_ay[c]) continue;
+    DbgReq* r = q_push(OP_AYWRITE, c ? AY_PORT_B : AY_PORT_A, 16);
+    if (r) memcpy(r->data, ld.ay[c], 16);
+    q_out(c ? AY_PORT_B : AY_PORT_A, ld.ay_sel[c]);
+  }
+  send_bit_config(cfgcmd_ROMLOCK, ld.cfg[cfgcmd_ROMLOCK] >= 0 ? ld.cfg[cfgcmd_ROMLOCK] : ld.romlock_old);
+
+  memcpy(regs, ld.cpu, REGS_LEN);
+  regs[R_PAGE1] = ld.mapper[1];
+  if (ld.nmi == 1) {                          // vuelta por OUT ($FE),A / RET debajo de la pila
+    uint16_t s = reg16(R_SP), pc = reg16(R_PC);
+    DbgReq* r = q_push(OP_WRITE, s - 8, 8);
+    if (r) {
+      static const uint8_t stub[8] = {0xD3, 0xFE, 0xC9, 0, 0, 0, 0, 0};
+      memcpy(r->data, stub, 8);
+      r->data[6] = pc & 0xFF; r->data[7] = pc >> 8;
+    }
+    set_reg16(R_SP, s - 2);
+    set_reg16(R_PC, s - 8);
+    regs[R_R] = (regs[R_R] & 0x80) | ((regs[R_R] - 2) & 0x7F);   // las dos M1 del OUT y el RET
+  }
+  z81in_close();
+  ld.stage = LD_OFF;
+  set_blinking_off();
+  stop_foreign = false;
+  Serial.printf("Snapshot loaded: PC=%04X\r\n", reg16(R_PC));
+  q_setregs();
+  dbg_continue();
+}
+
+// Desde cmd_dbg_poll: pide lo siguiente cuando la cola esta vacia (la
+// fuente del RLE se coloca al empezar cada tramo, sin peticiones a medias)
+static void ld_feed(){
+  if (!ld_busy() || q_count) return;
+  switch (ld.stage) {
+    case LD_POKES:
+      ld_pokes();
+      ld.stage = LD_SPRITES; ld.page = 0;
+      return;
+    case LD_SPRITES:
+      ld_sprites();
+      if (ld.page >= 32) ld.stage = LD_POKES_LATE;
+      return;
+    case LD_POKES_LATE:
+      ld_pokes_late();
+      ld.stage = LD_POKES_WAIT;
+      return;
+    case LD_POKES_WAIT:                       // sigue en ld_result (TAG_LD_SYNC)
+      return;
+    case LD_PAGES:
+      while (ld.page < 63 && !ld.page_pos[ld.page]) ld.page++;
+      if (ld.page >= 63) {                    // la 63 es la del monitor
+        ld.stage = LD_MEM; ld.done = 0;
+        z81in_seek(ld.mem_pos); dec_reset();
+        ld_bram_ptr(ld.mem_start);
+        return;
+      }
+      if (ld.done == 0) { z81in_seek(ld.page_pos[ld.page]); dec_reset(); }
+      for (int i = 0; i < LD_NBUF && ld.done < 8192; i++) {
+        int k = ld_chunk(256);
+        if (k < 0) { ld_abort("bad RAM_PAGE"); return; }
+        DbgReq* r = q_push(OP_WRITEP, ld.done, 256, TAG_NONE, k);
+        r->page = ld.page;
+        ld.done += 256;
+      }
+      if (ld.done >= 8192) { ld.page++; ld.done = 0; }
+      return;
+    case LD_MEM:
+      for (int i = 0; i < LD_NBUF && ld.done < ld.mem_len; i++) {
+        uint32_t a = ld.mem_start + ld.done;
+        uint16_t n = 256 - (a & 0xFF);
+        if (n > ld.mem_len - ld.done) n = ld.mem_len - ld.done;
+        int k = ld_chunk(n);
+        if (k < 0) { ld_abort("bad [MEMORY]"); return; }
+        uint8_t p = ld.mapper[a >> 13];
+        if ((a >> 13) && p != 63 && !ld.page_pos[p]) {   // pagina sin RAM_PAGE: de [MEMORY]
+          DbgReq* r = q_push(OP_WRITEP, a & 0x1FFF, n, TAG_NONE, k);
+          r->page = p;
+        }
+        if (!(ld.has_col && a >= 0xC000)) q_push(OP_BRAMW, 0, n, TAG_NONE, k);
+        ld.done += n;
+      }
+      if (ld.done >= ld.mem_len) {
+        ld.done = 0;
+        ld.stage = LD_COLOUR;
+        if (ld.has_col) { z81in_seek(ld.col_pos); dec_reset(); ld_bram_ptr(0xC000); }
+      }
+      return;
+    case LD_COLOUR:
+      if (ld.has_col)
+        for (int i = 0; i < LD_NBUF && ld.done < 16384; i++) {
+          int k = ld_chunk(256);
+          if (k < 0) { ld_abort("bad [COLOUR]"); return; }
+          q_push(OP_BRAMW, 0, 256, TAG_NONE, k);
+          ld.done += 256;
+        }
+      if (!ld.has_col || ld.done >= 16384) {
+        ld.done = 0;
+        ld.stage = LD_BLOCK0;
+        uint32_t p0 = ld.page_pos[ld.mapper[0]];
+        if (p0) { z81in_seek(p0); dec_reset(); ld_bram_ptr(0x0000); }
+      }
+      return;
+    case LD_BLOCK0:
+      if (ld.page_pos[ld.mapper[0]])        // el bloque 0 es RAM (CP/M): su sombra,
+        for (int i = 0; i < LD_NBUF && ld.done < 8192; i++) {   // menos la copia de los sprites
+          int k = ld_chunk(256);
+          if (k < 0) { ld_abort("bad RAM_PAGE"); return; }
+          if (ld.done < SPR_MIRROR || ld.done >= SPR_MIRROR + 0x400) q_push(OP_BRAMW, 0, 256, TAG_NONE, k);
+          ld.done += 256;
+          if (ld.done == SPR_MIRROR) { ld_bram_ptr(SPR_MIRROR + 0x400); break; }
+        }
+      if (!ld.page_pos[ld.mapper[0]] || ld.done >= 8192) {
+        // 2038-2098 en la sombra: el valor de los POKEs escritos y el byte de
+        // la ROM en los demas (como al arrancar: asi los ve el proximo snap).
+        // Con SHADOW 00 no hace falta: trae el bloque 0 tal cual
+        uint8_t* b = ld_buf[0];
+        if (!ld.shadow_pos[0] && rom_file_read(POKE_FIRST, b, POKE_N) == POKE_N) {
+          for (int i = 0; i < POKE_N; i++) if (ld.pk_mode[i] == 1) b[i] = ld.pk[i];
+          ld_bram_ptr(POKE_FIRST);
+          q_push(OP_BRAMW, 0, POKE_N, TAG_NONE, 0);
+        }
+        ld.stage = LD_SHADOW; ld.page = 0; ld.done = 0;
+      }
+      return;
+    case LD_SHADOW:                           // los bloques de la sombra que trae el fichero
+      while (ld.page < 8 && !ld.shadow_pos[ld.page]) ld.page++;
+      if (ld.page >= 8) { ld.stage = LD_FINISH; return; }
+      if (ld.done == 0) {
+        z81in_seek(ld.shadow_pos[ld.page]); dec_reset();
+        ld_bram_ptr(ld.page * 0x2000);
+      }
+      for (int i = 0; i < LD_NBUF && ld.done < 8192; i++) {
+        int k = ld_chunk(256);
+        if (k < 0) { ld_abort("bad SHADOW"); return; }
+        q_push(OP_BRAMW, 0, 256, TAG_NONE, k);
+        ld.done += 256;
+      }
+      if (ld.done >= 8192) { ld.page++; ld.done = 0; }
+      return;
+    case LD_FINISH:
+      ld_finish();
+      return;
+  }
+}
+
+static void ld_result(uint8_t tag, uint8_t* data, uint16_t n){
+  if (tag == TAG_LD_MAP) ld.mapper[last.arg] = n ? data[0] & 0x3F : 0;
+  else if (tag == TAG_LD_SYNC) {
+    send_bit_config(cfgcmd_DBGPOKE, 0);
+    ld.stage = LD_PAGES; ld.page = 0; ld.done = 0;
+  }
+}
+
+static bool ld_pending(){ return ld.pending; }
+static uint8_t* ld_data(uint8_t k){ return ld_buf[k % LD_NBUF]; }
+static void ld_cancel(){
+  if (ld.pending || ld_busy()) z81in_close();
+  ld.pending = false;
+  ld.stage = LD_OFF;
 }

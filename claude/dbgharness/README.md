@@ -77,3 +77,7 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
 - `v`: el 2045 a 170 con la orden 10, los pasos la mantienen, al quitarla
   (con `v` o al seguir) el 2045 y su sombra como estaban y el D_FILE
   alternativo otra vez; con un programa ya Superfast no hace nada.
+- `v dir`: alineada (HFILE = dir, 2045 a 171, sin tocar la sombra) y sin
+  alinear (el mapa de bits copiado al bloque y, al quitarla con `v` o al
+  seguir, la sombra exactamente como estaba, HFILE y 2045 a 0 / 85); `v 1234`
+  y `v F000` no se aceptan.

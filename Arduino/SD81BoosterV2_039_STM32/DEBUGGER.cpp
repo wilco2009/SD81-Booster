@@ -82,7 +82,9 @@ enum {
   TAG_STEPOVER,     // o: la instruccion en el PC
   TAG_STEPOUT,      // u: la direccion de vuelta en [SP]
   TAG_VIEW,         // v: los POKEs de control en la sombra (2038-2098)
-  TAG_VIEW_SYNC     // v: ya se ha escrito el 2045 (orden 10 fuera)
+  TAG_VIEW_SYNC,    // v: ya se ha escrito el 2045 (orden 10 fuera)
+  TAG_VIEW_SAVE,    // v dir: un trozo de la sombra que se va a pisar (arg = trozo)
+  TAG_VIEW_COPY     // v dir: un trozo del mapa de bits (arg = trozo)
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -103,7 +105,7 @@ struct DbgReq {
   uint8_t data[32];
 };
 
-#define QSIZE 64
+#define QSIZE 96
 static DbgReq q[QSIZE];
 static uint8_t q_head = 0, q_count = 0;
 
@@ -422,8 +424,12 @@ static uint8_t* ld_data(uint8_t k);
 static void tmp_stop();
 static void free_temp_bps();
 static void view_result(uint8_t* d, uint16_t n);
+static void view_part(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n);
 static bool view_is_on();
+static bool view_busy();
 static void view_drop();
+static void view_request(bool hr, uint16_t dir);
+static uint8_t* view_data(uint8_t which, uint16_t off);
 static void run_to(uint16_t addr, const char* what);
 static void step_over(uint8_t* b, uint16_t n);
 
@@ -528,6 +534,7 @@ static void on_result(uint8_t* data, uint16_t n){
     case TAG_STEPOVER: step_over(data, n); break;
     case TAG_STEPOUT:  if (n == 2) run_to(data[0] | (data[1] << 8), "Step out"); break;
     case TAG_VIEW:      view_result(data, n); break;
+    case TAG_VIEW_SAVE: case TAG_VIEW_COPY: view_part(last.tag, last.arg, data, n); break;
     case TAG_VIEW_SYNC: send_bit_config(cfgcmd_DBGPOKE, 0); break;
     case TAG_UNWIND:                          // SLOW: deshacer la NMI
       if (n == 2) {
@@ -592,7 +599,9 @@ void cmd_dbg_poll(void){
   if (r.op == OP_WRITE || r.op == OP_SETREGS || r.op == OP_AYWRITE)
     for (uint16_t i = 0; i < r.n; i++) SendByteToZ80(r.data[i]);
   if (r.op == OP_WRITEP || r.op == OP_BRAMW) {  // los datos de la carga, en su buffer
-    uint8_t* d = (r.arg == 0xFF) ? r.data : ld_data(r.arg);   // (0xFF: en la propia peticion)
+    uint8_t* d = (r.arg == 0xFF) ? r.data :                   // (0xFF: en la propia peticion;
+                 (r.arg == 0xFE) ? view_data(r.page, r.addr) :    //  0xFE: los buffers de v dir)
+                 ld_data(r.arg);
     for (uint16_t i = 0; i < r.n; i++) SendByteToZ80(d[i]);
   }
   last = r;
@@ -624,6 +633,7 @@ static void help(){
   Serial.println("  b addr         set a breakpoint      bc [addr]  clear one / all      bl  list");
   Serial.println("  w r|w|io addr  watchpoint (read, write, I/O port)    w  clear it");
   Serial.println("  v              video while stopped: Superfast text on / off (SLOW and FAST programs)");
+  Serial.println("  v addr         video while stopped: Superfast HiRes, bitmap (32 x 192) at addr (WRX)");
   Serial.println("  d [addr] [n]   disassemble n instructions (10) from addr (PC)");
   Serial.println("  m addr [n]     dump n bytes (64)");
   Serial.println("  e addr b1 b2.. write bytes");
@@ -667,6 +677,7 @@ bool dbg_console(const char* line){
   if (!strcmp(cmd, "h") || !strcmp(cmd, "?")) { help(); return true; }
   if (snap_busy()) { Serial.println("Snapshot in progress"); return true; }
   if (ld_busy()) { Serial.println("Loading a snapshot"); return true; }
+  if (view_busy()) { Serial.println("Video: copying the bitmap"); return true; }
   if (!strcmp(cmd, "p")) { if (stopped) Serial.println("Already stopped"); else dbg_pause(); return true; }
   if (!strcmp(cmd, "snap")) {
     while (*p == ' ') p++;
@@ -703,12 +714,10 @@ bool dbg_console(const char* line){
   }
   else if (!strcmp(cmd, "v")) {
     if (view_is_on()) { view_off(); Serial.println("Video: back to the program's own"); }
-    else {                                    // primero, los POKEs en la sombra
-      q_out(DBG_PORT, 0x85); q_out(DBG_PORT, 2038 & 0xFF);   // 2038-2098 (POKE_FIRST/POKE_N)
-      q_out(DBG_PORT, 0x86); q_out(DBG_PORT, 2038 >> 8);
-      q_out(DBG_PORT, 0x02);
-      q_push(OP_INSEQ, DBG_PORT, 61, TAG_VIEW);
-    }
+    else if (parse_hex(p, a)) {
+      if (a + 6144 > 0x10000) { Serial.println("v addr: the bitmap (6144 bytes) does not fit"); return true; }
+      view_request(true, a);
+    } else view_request(false, 0);
   }
   else if (!strcmp(cmd, "g")) {
     if (!parse_hex(p, a)) { Serial.println("g addr"); return true; }
@@ -780,7 +789,7 @@ void dbg_pause(void){
 }
 
 bool dbg_is_stopped(void){ return stopped; }
-bool dbg_waiting(void){ return stopped && poll_state == 1 && q_count == 0 && !snap_busy() && !ld_busy(); }
+bool dbg_waiting(void){ return stopped && poll_state == 1 && q_count == 0 && !snap_busy() && !ld_busy() && !view_busy(); }
 
 static void ld_cancel();
 
@@ -825,7 +834,7 @@ void dbg_qs_button(void){
   uint32_t now = millis();
   if (down && !qs_down) { qs_down = true; qs_t0 = now; qs_stage = 0; return; }
   if (down) {
-    if (!debug_monitor_loaded || snap_busy() || ld_busy()) return;
+    if (!debug_monitor_loaded || snap_busy() || ld_busy() || view_busy()) return;
     if (qs_stage == 0 && now - qs_t0 >= 1000) { qs_stage = 1; set_status_LED(clMAGENTA); }
     if (qs_stage == 1 && now - qs_t0 >= 3000) { qs_stage = 2; set_status_LED(clYELLOW); }
     return;
@@ -834,7 +843,7 @@ void dbg_qs_button(void){
   qs_down = false;                            // al soltar
   if (now - qs_t0 < 30) return;               // rebote
   if (!debug_monitor_loaded || qs_stage == 0) { toggle_qs(); return; }
-  if (snap_busy() || ld_busy()) return;
+  if (snap_busy() || ld_busy() || view_busy()) return;
   if (qs_stage == 1) {
     if (stopped) { Serial.println("QS button: continue"); dbg_continue(); }
     else { kbd_arm = true; dbg_pause(); led_state(); }   // magenta cuando llegue; despues, el teclado
@@ -1958,47 +1967,122 @@ static void kbd_result(uint8_t k, uint8_t v){
 
 // ---------------------------------------------------------------------
 // v: video mientras esta parado. Un programa en SLOW o en FAST no tiene
-// imagen parado (la NMI esta apagada); la FPGA si puede pintar su D_FILE en
-// Superfast texto desde la BRAM de sombra, donde esta todo lo que ha escrito
-// la CPU. v pone POKE 2045,170 (con la orden 10, desde el monitor) y lo
-// quita al seguir de verdad (c, g, o sobre un CALL, u, S), antes de un
-// snapshot o con otra v: el 2045 vuelve a su valor (85 si nunca se escribio)
-// y su byte de la sombra al de antes. 85 apaga el D_FILE y los atributos
+// imagen parado (la NMI esta apagada); la FPGA si puede pintar desde la BRAM
+// de sombra, donde esta todo lo que ha escrito la CPU:
+//   v       Superfast texto (POKE 2045,170): su D_FILE
+//   v dir   Superfast HiRes (POKE 2045,171) con el mapa de bits en dir: 32
+//           bytes x 192 lineas seguidas, como WRX. La FPGA lo pinta desde el
+//           principio de un bloque de 8K (solo usa HFILE[15:13]): si dir no
+//           lo es, el MCU guarda 6K de la sombra del bloque de dir, copia ahi
+//           el mapa de bits (leido de la memoria) y al quitarla repone la
+//           sombra como estaba
+// Se pone con la orden 10, desde el monitor. Se quita al seguir de verdad
+// (c, g, o sobre un CALL, u, S), antes de un snapshot o con otra v: 2045 y
+// HFILE vuelven a su valor (85 / 0 si nunca se escribieron) y sus bytes de
+// la sombra a los de antes. 85 apaga el D_FILE y los atributos
 // alternativos: si estaban, se vuelven a poner. Los pasos la mantienen
 // ---------------------------------------------------------------------
+#define VIEW_HR_LEN 6144
+#define VIEW_CHUNKS (VIEW_HR_LEN / 256)
 static bool view_on = false;
+static bool view_hr = false;                // HiRes (v dir)
+static bool view_copied = false;            // mapa de bits copiado en la sombra (dir no alineada)
+static bool view_copying = false;           // copiandolo: la consola y el boton QS esperan
+static uint16_t view_dir = 0, view_blk = 0;  // donde esta y desde donde lo pinta la FPGA
 static uint8_t view_pk[POKE_N];             // 2038-2098 en la sombra al activarla
+static uint8_t view_buf[2][VIEW_HR_LEN];    // [0] el mapa de bits, [1] la sombra que se pisa
 
 static bool view_is_on(){ return view_on; }
-static void view_drop(){ view_on = false; }
+static bool view_busy(){ return view_copying; }
+static void view_drop(){ view_on = false; view_copying = false; }
+static uint8_t* view_data(uint8_t which, uint16_t off){ return view_buf[which & 1] + off; }
+
+static void view_bram_ptr(uint16_t a){
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, a & 0xFF);
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, a >> 8);
+}
+
+// Primero, los POKEs de control en la sombra (indice 2)
+static void view_request(bool hr, uint16_t dir){
+  view_hr = hr;
+  view_dir = dir;
+  view_bram_ptr(POKE_FIRST);
+  q_out(DBG_PORT, 0x02);
+  q_push(OP_INSEQ, DBG_PORT, POKE_N, TAG_VIEW);
+}
+
+static void view_apply(){
+  send_bit_config(cfgcmd_DBGPOKE, 1);         // el monitor escribe como el programa
+  if (view_hr) {
+    DbgReq* r = q_push(OP_WRITE, 2043, 3);    // HFILE y el modo
+    if (r) { r->data[0] = view_blk & 0xFF; r->data[1] = view_blk >> 8; r->data[2] = 171; }
+  } else q_write1(2045, 170);
+  q_push(OP_IN, 0x00E7, 0, TAG_VIEW_SYNC);    // cuando llegue, la orden 10 fuera
+  view_on = true;
+  if (view_hr) Serial.printf("Video: Superfast HiRes, bitmap at %04X%s (v again, or continue, to go back)\r\n",
+                             view_dir, view_copied ? " (copied to the shadow)" : "");
+  else Serial.println("Video: Superfast text while stopped (v again, or continue, to go back)");
+}
 
 static void view_result(uint8_t* d, uint16_t n){
   if (n < POKE_N) return;
   uint8_t m = d[2045 - POKE_FIRST];
-  if (m >= 170 && m <= 174) { Serial.printf("Video: the program is already Superfast (POKE 2045,%d)\r\n", m); return; }
+  if (!view_hr && m >= 170 && m <= 174) { Serial.printf("Video: the program is already Superfast (POKE 2045,%d)\r\n", m); return; }
   memcpy(view_pk, d, POKE_N);
-  send_bit_config(cfgcmd_DBGPOKE, 1);         // el monitor escribe como el programa
-  q_write1(2045, 170);
-  q_push(OP_IN, 0x00E7, 0, TAG_VIEW_SYNC);    // cuando llegue, la orden 10 fuera
-  view_on = true;
-  Serial.println("Video: Superfast text while stopped (v again, or continue, to go back)");
+  view_copied = view_hr && (view_dir & 0x1FFF);
+  view_blk = view_dir & 0xE000;
+  if (!view_copied) { view_apply(); return; }
+  // no alineado: guardar la sombra que se va a pisar y leer el mapa de bits
+  if (!view_blk) { Serial.println("v addr: below 2000 only 0000 (the copy would hide the ROM)"); return; }
+  Serial.println("Video: copying the bitmap ...");
+  view_copying = true;
+  view_bram_ptr(view_blk);
+  q_out(DBG_PORT, 0x02);
+  for (int k = 0; k < VIEW_CHUNKS; k++) q_push(OP_INSEQ, DBG_PORT, 256, TAG_VIEW_SAVE, k);
+  for (int k = 0; k < VIEW_CHUNKS; k++) q_push(OP_READ, view_dir + k * 256, 256, TAG_VIEW_COPY, k);
+}
+
+static void view_part(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n){
+  if (k >= VIEW_CHUNKS) return;
+  memcpy(view_buf[tag == TAG_VIEW_SAVE ? 1 : 0] + k * 256, d, n < 256 ? n : 256);
+  if (tag != TAG_VIEW_COPY || k != VIEW_CHUNKS - 1) return;
+  view_copying = false;                       // lo que queda va en la cola, antes que lo siguiente
+  view_bram_ptr(view_blk);                    // el mapa de bits, al principio del bloque
+  for (int j = 0; j < VIEW_CHUNKS; j++) {
+    DbgReq* r = q_push(OP_BRAMW, j * 256, 256, TAG_NONE, 0xFE);
+    if (r) r->page = 0;
+  }
+  view_apply();
 }
 
 static void view_off(){
   if (!view_on) return;
   view_on = false;
-  uint8_t sh = view_pk[2045 - POKE_FIRST], rom = 0;
-  bool never = rom_file_read(2045, &rom, 1) == 1 && rom == sh;
-  uint8_t m = never ? 85 : sh;
+  uint8_t rom[3] = {0, 0, 0};
+  bool rom_ok = rom_file_read(2043, rom, 3) == 3;
+  const uint8_t* sh = view_pk + (2043 - POKE_FIRST);       // 2043, 2044, 2045 en la sombra
+  auto never = [&](int i){ return rom_ok && rom[i] == sh[i]; };
+  uint8_t m = never(2) ? 85 : sh[2];
   send_bit_config(cfgcmd_DBGPOKE, 1);
+  if (view_hr) {                              // HFILE como estaba (0 si nunca se escribio)
+    DbgReq* r = q_push(OP_WRITE, 2043, 2);
+    if (r) { r->data[0] = never(0) ? 0 : sh[0]; r->data[1] = never(1) ? 0 : sh[1]; }
+  }
   q_write1(2045, m);
   if (m == 85) {                              // 85 apaga el D_FILE y los atributos alternativos
     if (view_pk[2098 - POKE_FIRST] == 170) q_write1(2098, 170);
     if (view_pk[2061 - POKE_FIRST] == 170) q_write1(2061, 170);
   }
   q_push(OP_IN, 0x00E7, 0, TAG_VIEW_SYNC);
-  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, 2045 & 0xFF);   // la sombra del 2045, como estaba
-  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, 2045 >> 8);
-  DbgReq* r = q_push(OP_BRAMW, 0, 1, TAG_NONE, 0xFF);
-  if (r) r->data[0] = sh;
+  view_bram_ptr(2043);                        // la sombra de 2043-2045, como estaba
+  DbgReq* r = q_push(OP_BRAMW, 0, 3, TAG_NONE, 0xFF);
+  if (r) memcpy(r->data, sh, 3);
+  if (view_copied) {                          // y la del bloque donde se copio el mapa de bits
+    view_bram_ptr(view_blk);
+    for (int j = 0; j < VIEW_CHUNKS; j++) {
+      DbgReq* q = q_push(OP_BRAMW, j * 256, 256, TAG_NONE, 0xFE);
+      if (q) q->page = 1;
+    }
+    view_copied = false;
+  }
 }

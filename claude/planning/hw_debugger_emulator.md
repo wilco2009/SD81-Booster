@@ -29,6 +29,7 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
+| (siguiente) | Orden `v dir`: vídeo Superfast HiRes mientras está parado, con el mapa de bits (WRX) en `dir`; copia a la sombra si no está alineado. Solo el MCU. Probado en el arnés; en hardware sin confirmar con un WRX real (no se encontró la dirección del mapa de bits) | 13.4 |
 | cc3f2f9 | Orden `v`: vídeo Superfast texto mientras está parado (programas en SLOW y FAST). Solo el MCU | 10.5, 13.4 |
 | 26c37a9 | Fase 3: `o` (paso por encima), `u` (salir de la rutina), `g` (ejecutar hasta) y `w` (puntos de vigilancia) en la consola. Solo el MCU: la FPGA y el monitor no cambian | 10.5, 10.8 |
 
@@ -537,6 +538,7 @@ solo valen `p`, `snap` y `h`.
 | `b dir` / `bc [dir]` / `bl` | poner, quitar (uno o todos) y listar breakpoints (y el punto de vigilancia) |
 | `w r\|w\|io dir` / `w` | punto de vigilancia de lectura, escritura o E/S (el byte bajo del puerto) / quitarlo |
 | `v` | vídeo mientras está parado: Superfast texto sí / no (sección 13.4) |
+| `v dir` | vídeo mientras está parado: Superfast HiRes con el mapa de bits en `dir` (sección 13.4) |
 | `d [dir] [n]` | desensamblar n instrucciones (10, como mucho 60) desde dir (PC) |
 | `m dir [n]` | volcado de n bytes (64, como mucho 256) |
 | `e dir b1 b2 …` | escribir bytes (hasta 32) |
@@ -1066,13 +1068,72 @@ que valga para todos los programas.
 
 Limitaciones: un D_FILE comprimido (1 K) sale desordenado; un programa con
 su propia rutina de vídeo (pseudo hi-res, WRX…) enseña su D_FILE, no lo que
-pinta su rutina.
+pinta su rutina: para esos, `v dir`.
+
+**`v dir`: Superfast HiRes.** Para los programas WRX: el mapa de bits
+(32 bytes × 192 líneas seguidas, 6144 bytes) en `dir`, que se da a mano
+(el depurador no lo deduce del registro I). La FPGA pinta el HiRes desde el
+principio de un bloque de 8 K (`scan_addr = {vpage, hr_addr}`, con
+`vpage = HFILE[15:13]`):
+
+- **`dir` alineada a 8 K** (`$2000`, `$4000`, …): `POKE 2043/2044` (HFILE) =
+  `dir` y `POKE 2045,171`, con la orden 10 y la barrera. La sombra no cambia.
+- **`dir` sin alinear**: el bloque es `B = dir AND $E000`. El MCU
+  1. guarda los 6144 bytes de la sombra desde `B` (24 `INSEQ` de 256, índice 2);
+  2. lee el mapa de bits de la memoria desde `dir` (24 `READ` de 256);
+  3. lo escribe en la sombra desde `B` (24 `BRAMW`);
+  4. HFILE = `B` y `POKE 2045,171`.
+
+  Mientras copia, la consola y el botón QS esperan (`Video: copying the
+  bitmap`). Con `dir` por debajo de `$2000` solo vale `0000` (la copia
+  taparía la sombra de la ROM y los POKEs).
+- `dir + 6144` tiene que caber en 64 K.
+- Al ser HiRes siempre se permite, aunque el programa ya sea Superfast.
+- **Al quitarla**, además de lo de `v`: HFILE con su valor de antes (0 si
+  nunca se escribió: el byte de la sombra es el de la ROM), la sombra de
+  2043-2045 como estaba y, si hubo copia, los 6144 bytes guardados de vuelta
+  a la sombra desde `B` (24 `BRAMW`).
+- Con el doble búfer (`dbuf_en`) la FPGA pinta su bloque, no el de HFILE.
+- El mapa de bits es el de cuando se pidió: si un paso lo cambia y estaba
+  copiado, no se ve hasta otra `v dir`. Alineado sí se ve (se pinta la
+  sombra).
+
+**Encontrar `dir`.** El registro I no sirve: en WRX la rutina de vídeo
+carga I (y R) en cada línea, y fuera de ella (donde para el depurador) I
+vale cualquier cosa. La pista es **IX**: el vídeo del ZX81 vuelve con
+`JP (IX)`, y un programa WRX apunta IX a su rutina HiRes. Desensamblando
+desde IX suele aparecer un `LD HL,nnnn` (o `LD HL,(var)`) seguido de
+`LD A,H` / `LD I,A`: `nnnn` es el principio del mapa de bits.
+
+**Límites conocidos.** `v dir` supone el formato WRX básico: 32 bytes por
+línea, 192 líneas seguidas. No sirve (la imagen sale inclinada, incompleta
+o mezclada) con:
+
+- líneas de otro ancho (33 o 34 bytes);
+- menos líneas (los WRX de 1 K);
+- varias zonas de pantalla, o rutinas que cambian I y R a valores que no
+  siguen un único mapa de bits (pseudo hi-res con tablas de caracteres,
+  mezcla de texto y HiRes).
+
+Al probarlo en hardware con programas WRX reales no se encontró la
+dirección (todo apunta a estas variantes): la orden se da por buena tal
+como está, sin ampliarla.
 
 ### 13.5 En el emulador
 
 - `nmi_age` (16 bits), romper solo en la M1 de `$0066` en SLOW, `JR $` para
   un `FF` y `spin_pend`, el bit 6.
 - El monitor nuevo (1256 bytes) ya hace el `OUT ($FD),A`.
+- `v` y `v dir` son solo del MCU: el emulador no tiene que hacer nada nuevo
+  si ya pinta el Superfast desde la sombra (`2045` = 170 / 171, HFILE en
+  2043/2044 con `vpage = HFILE[15:13]`), si la orden 10 hace que las
+  escrituras del monitor cuenten como del programa (POKEs y sombra) y si
+  `BRAMW` escribe en la sombra en su puntero. Si la consola del depurador
+  está en el emulador, `v dir` es: leer 2038-2098 de la sombra; alineada,
+  HFILE = `dir` y 171; sin alinear, guardar 6144 bytes de la sombra desde
+  `dir AND $E000`, copiar ahí el mapa de bits desde la memoria y HFILE =
+  ese bloque; al quitarla, reponer 2043-2045 (valor y sombra) y los 6144
+  bytes.
 - Referencia: `claude/dbgharness/cosim.cpp`, prueba 12: con una NMI cada 40
   instrucciones (una rutina en `$0066` que cuenta en A'), la pausa y un
   breakpoint en SLOW.

@@ -779,6 +779,47 @@ int main(int argc, char** argv){
     con("v");
     CHECK(run_until_waiting(5000000) && out_log.find("already Superfast") != std::string::npos, "v: si ya es Superfast, nada");
     bram[2045] = romfile[2045];
+    // v dir: Superfast HiRes con el mapa de bits en dir
+    for (int k = 2043; k <= 2045; k++) bram[k] = romfile[k];
+    pokereg[2043] = pokereg[2044] = 0; pokereg[2045] = 0x55;
+    con("v 8000");                                      // alineada: sin copia
+    CHECK(run_until_waiting(5000000) && pokereg[2045] == 171 && pokereg[2043] == 0x00 && pokereg[2044] == 0x80 &&
+          cfgs[cfgcmd_DBGPOKE] == 0, "v 8000: HiRes, HFILE 8000");
+    con("v");
+    CHECK(run_until_waiting(5000000) && pokereg[2045] == 85 && pokereg[2043] == 0 && pokereg[2044] == 0 &&
+          bram[2043] == romfile[2043] && bram[2044] == romfile[2044] && bram[2045] == romfile[2045],
+          "v 8000 otra vez: HFILE y 2045 como estaban, y su sombra");
+    {
+      static uint8_t sh_s[8192];
+      memcpy(sh_s, bram + 0x6000, 8192);
+      int differ = 0;
+      for (int k = 0; k < 6144; k++) differ += bram[0x6000 + k] != rd(0x6800 + k);
+      CHECK(differ > 0, "v 6800: la sombra del bloque no es el mapa de bits");
+      con("v 6800");                                    // no alineada: copia al bloque 6000
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 171 && pokereg[2043] == 0x00 && pokereg[2044] == 0x60,
+            "v 6800: HiRes, HFILE 6000");
+      bool same = true;
+      for (int k = 0; k < 6144; k++) if (bram[0x6000 + k] != rd(0x6800 + k)) { same = false; break; }
+      CHECK(same && !memcmp(bram + 0x7800, sh_s + 0x1800, 0x800), "v 6800: el mapa de bits copiado en la sombra de 6000");
+      con("v");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 85 && pokereg[2044] == 0 && !memcmp(bram + 0x6000, sh_s, 8192),
+            "v 6800 otra vez: la sombra del bloque, exactamente como estaba");
+      con("v 6800");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 171, "v 6800: otra vez");
+      con("s");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 171 && pokereg[2044] == 0x60, "v 6800: los pasos la mantienen");
+      con("c");
+      run_program(100);
+      CHECK(!mon && pokereg[2045] == 85 && pokereg[2043] == 0 && pokereg[2044] == 0 &&
+            bram[2043] == romfile[2043] && bram[2044] == romfile[2044] && bram[2045] == romfile[2045],
+            "v 6800: al seguir, el video del programa");
+      pause_pend = true;
+      CHECK(run_until_waiting(5000000), "v 6800: pausa");
+    }
+    { std::lock_guard<std::mutex> l(out_mx); out_log.clear(); }
+    con("v 1234"); con("v F000");
+    CHECK(run_until_waiting(5000000) && out_log.find("only 0000") != std::string::npos &&
+          out_log.find("does not fit") != std::string::npos && pokereg[2045] == 85, "v 1234 y v F000: no");
     con("c");
     run_program(100);
   }

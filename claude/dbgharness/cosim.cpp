@@ -147,10 +147,15 @@ static int cur_page(int a){ int b = (a & 0xFFFF) >> 13; return (mon && b == 1) ?
 extern "C" {
 int  z80_contend_wrapper(int, int, int){ return 0; }
 int  z80_contend_io_wrapper(int, int, int){ return 0; }
-BYTE z80_readbyte_wrapper(int a){ return *ptr(a); }
-BYTE z80_readoperandbyte_wrapper(int a){ return *ptr(a); }
+// el comparador de la FPGA: direccion, modo (1 ejecucion, 2 lectura, 3
+// escritura, 4 E/S) y el punto de vigilancia pendiente
+static uint16_t cmp_addr = 0; static uint8_t cmp_mode = 0, cmp_lo = 0; static bool watch_pend = false;
+static void watch(int mode, int a){ if (!mon && cmp_mode == mode && (mode == 4 ? (a & 0xFF) == (cmp_addr & 0xFF) : (a & 0xFFFF) == cmp_addr)) watch_pend = true; }
+BYTE z80_readbyte_wrapper(int a){ watch(2, a); return *ptr(a); }
+BYTE z80_readoperandbyte_wrapper(int a){ watch(2, a); return *ptr(a); }
 BYTE z80_opcode_fetch_wrapper(int a){ z80_fetch_is_m1 = 0; return *ptr(a); }
 void z80_writebyte_wrapper(int a, int d){
+  watch(3, a);
   bool mon_ram = mon && !cfgs[cfgcmd_DBGPOKE];  // el monitor, sin la orden 10
   if (!mon_ram) bram[a & 0xFFFF] = d;           // la sombra copia lo que escribe la CPU
   int b = (a & 0xFFFF) >> 13;
@@ -180,6 +185,7 @@ static uint16_t bptr = 0;
 static uint8_t dptr = 0;                        // indice 6: la pagina escrita que se lee
 static bool step_on = false; static uint16_t step_cnt = 0;
 void z80_writeport_wrapper(int port, int d, int*){
+  if ((port & 0xFF) != 0xA7 && (port & 0xFFFF) != 0x3FEF) watch(4, port);
   int lo = port & 0xFF;
   if (lo == 0xA7) { zdata = d; dreg = true; return; }
   if (lo == 0xE7) { blk[d & 7] = cfgs[cfgcmd_FULLPAG] ? (port >> 8) & 63 : d >> 3; return; }   // como la FPGA
@@ -193,6 +199,9 @@ void z80_writeport_wrapper(int port, int d, int*){
   if ((port & 0xFFFF) == 0x7FEF) { chroma_reg = d; return; }
   if ((port & 0xFFFF) == 0x3FEF) {
     if (wexp) { wexp = 0;
+      if (wreg == 0) cmp_lo = d;
+      if (wreg == 1) cmp_addr = cmp_lo | (d << 8);
+      if (wreg == 2) cmp_mode = d & 7;
       if (wreg == 3) step_lo = d;
       if (wreg == 4) { step_cnt = step_lo | (d << 8); step_on = step_cnt != 0; }
       if (wreg == 5) bptr_lo = d;
@@ -203,6 +212,7 @@ void z80_writeport_wrapper(int port, int d, int*){
   }
 }
 BYTE z80_readport_wrapper(int port, int*){
+  if ((port & 0xFF) != 0xAF && (port & 0xFF) != 0xA7 && (port & 0xFFFF) != 0x3FEF) watch(4, port);
   int lo = port & 0xFF;
   if (lo == 0xAF) return clk ? 0x80 : 0x00;
   if (lo == 0xA7) { int v = latch; dreg = true; return v; }
@@ -272,7 +282,10 @@ static void step_cpu(){
   uint16_t pc = z80.pc.w;
   bool brk_ok = !nmi_on || pc == 0x0066;
   bool ff = rd(pc) == 0xFF;
+  bool cmp_exec = cmp_mode == 1 && pc == cmp_addr;
   if ((ff || spin_pend) && brk_ok) { spin_pend = false; do_entry(7); return; }
+  if (brk_ok && !skip && cmp_exec) { do_entry(5); return; }
+  if (brk_ok && !skip && watch_pend) { watch_pend = false; do_entry(6); return; }
   if (brk_ok && step_on && step_cnt == 0) { do_entry(4); return; }
   if (brk_ok && pause_pend && !skip) { do_entry(1); return; }
   if (ff) spin_pend = true;                     // JR $: no avanza
@@ -672,7 +685,76 @@ int main(int argc, char** argv){
     CHECK(out_log.find(want) != std::string::npos, "SLOW: en el breakpoint, motivo 7, deshecha la NMI");
     con("bc"); con("c");
     run_program(100);
+    // pasos en SLOW: con la NMI apagada, exactos; o sobre un CALL, con un FF
+    // temporal y la NMI encendida al seguir
+    pause_pend = true;
+    CHECK(run_until_waiting(5000000), "SLOW: pausa para los pasos");
+    {                                           // un paso justo tras parar en la NMI:
+      processor zp = z_entry;                   // el programa, no la rutina de la NMI
+      uint16_t ppc = rd16(zp.sp.w);
+      con("s");
+      CHECK(run_until_waiting(5000000), "SLOW: s tras parar en la NMI");
+      CHECK(z80.af_.w == zp.af_.w && z_entry.pc.w != 0x0067 && z_entry.pc.w != 0x0066,
+            "SLOW: el paso no ejecuta la rutina de la NMI (AF' intacto)");
+      (void)ppc;
+    }
+    con("e 6200 cd 10 62 21 34 12 32 00 61 18 fe"); con("e 6210 3e 55 c9");
+    con("x pc=6200");
+    { std::lock_guard<std::mutex> l(out_mx); out_log.clear(); }
+    con("s");
+    CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6210 && !nmi_on, "SLOW: s, un paso exacto con la NMI apagada");
+    CHECK(out_log.find("STOP at 6210: step (SLOW)") != std::string::npos, "SLOW: sigue marcado SLOW");
+    con("s");
+    CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6212, "SLOW: otro paso");
+    con("x pc=6200");
+    { std::lock_guard<std::mutex> l(out_mx); out_log.clear(); }
+    con("o");
+    CHECK(run_until_waiting(5000000), "SLOW: o para");
+    CHECK(out_log.find("STOP at 6203: reached (SLOW)") != std::string::npos && rd(0x6203) == 0x21,
+          "SLOW: o pasa el CALL (FF temporal, en la NMI, deshecha)");
+    con("x pc=6209"); con("c");
+    run_program(200);
+    CHECK(nmi_on, "SLOW: al seguir, la NMI encendida");
     nmi_on = false;
+  }
+
+  // 13. fase 3: paso por encima (o), salir de la rutina (u), ejecutar hasta
+  //     (g) y puntos de vigilancia (w)
+  {
+    pause_pend = true;
+    CHECK(run_until_waiting(5000000), "fase 3: pausa");
+    // 6200 CALL 6210 / 6203 LD HL,1234 / 6206 LD (6100),A / 6209 JR $
+    // 6210 LD A,55 / 6212 RET
+    con("e 6200 cd 10 62 21 34 12 32 00 61 18 fe"); con("e 6210 3e 55 c9");
+    con("x pc=6200"); con("o");
+    CHECK(run_until_waiting(5000000), "o: para");
+    CHECK(z_entry.pc.w == 0x6203 && z_entry.af.b.h == 0x55 && reason == 5, "o: el CALL entero, con el comparador");
+    CHECK(cmp_mode == 0, "o: el comparador se apaga al parar");
+    con("x pc=6200"); con("s");
+    CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6210, "s: dentro de la rutina");
+    con("u");
+    CHECK(run_until_waiting(5000000), "u: para");
+    CHECK(z_entry.pc.w == 0x6203 && reason == 5, "u: a la vuelta de la rutina");
+    con("x pc=6200"); con("g 6206");
+    CHECK(run_until_waiting(5000000), "g: para");
+    CHECK(z_entry.pc.w == 0x6206 && z_entry.hl.w == 0x1234, "g 6206");
+    con("w w 6100"); con("x pc=6200"); con("c");
+    CHECK(run_until_waiting(5000000), "w: para");
+    CHECK(z_entry.pc.w == 0x6209 && reason == 6 && rd(0x6100) == 0x55, "w w 6100: tras la escritura, motivo 6");
+    CHECK(cmp_mode == 3 && cmp_addr == 0x6100, "w: el punto de vigilancia sigue puesto");
+    // con el comparador ocupado, o usa un FF temporal
+    { std::lock_guard<std::mutex> l(out_mx); out_log.clear(); }
+    con("x pc=6200"); con("o");
+    CHECK(run_until_waiting(5000000), "o con w: para");
+    CHECK(z_entry.pc.w == 0x6203 && reason == 7, "o con w: con un FF temporal");
+    con("bl");
+    CHECK(run_until_waiting(5000000), "bl");
+    CHECK(rd(0x6203) == 0x21 && out_log.find("No breakpoints") != std::string::npos &&
+          out_log.find("Watchpoint: write 6100") != std::string::npos, "o con w: el FF se quita, el punto sigue");
+    con("w");
+    CHECK(run_until_waiting(5000000) && cmp_mode == 0, "w: quitado");
+    con("c");
+    run_program(100);
   }
 
   // 10. un .Z81 de EightyOne sin MAPPER ni HW_POKES (claves de EightyOne)

@@ -69,3 +69,8 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
   teclado del ZX81 en la pausa: `Z` graba y se queda parado, `L` vuelve a
   cargarlo (tras cambiar HL y la memoria con la consola), `S` graba y sigue,
   espacio sigue.
+- SLOW: con una NMI cada 40 instrucciones (una rutina en `$0066` que cuenta
+  en A'), la pausa para en la NMI y el MCU la deshace; al seguir vuelve por
+  `OUT ($FE)`/`RET`; un breakpoint en el PC.
+- la fase 3: `o` sobre un `CALL`, `s` + `u`, `g`, un punto de vigilancia de
+  escritura y `o` con el comparador ocupado (con un `FF` temporal).

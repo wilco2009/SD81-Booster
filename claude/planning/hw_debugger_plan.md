@@ -370,14 +370,17 @@ con `claude/dbgharness`):
   los juegos clásicos, esperan a la fase 4.
 
 **Fase 3. Extras:**
-- paso por encima, "ejecutar hasta", puntos de vigilancia en la consola;
+- paso por encima, "ejecutar hasta", puntos de vigilancia en la consola
+  (hecho el 3 de octubre de 2026: `o`, `g`, `u` y `w`, solo en el MCU;
+  `hw_debugger_emulator.md` sección 10.8);
 - **decidir la traza y la interfaz en la pantalla del ZX81** (§1, 11).
 
-**Fase 4. Vídeo nativo (SLOW):** (2 de octubre de 2026: hecha la versión
-de menor coste, `hw_debugger_emulator.md` sección 13: se para en una
-ventana tras la NMI de una línea, el monitor apaga la NMI y el MCU la
-vuelve a encender al seguir. La pantalla queda en negro mientras está
-parado; los pasos en SLOW son aproximados.)
+**Fase 4. Vídeo nativo (SLOW):** (3 de octubre de 2026: hecha la versión
+de menor coste y probada en hardware, commit 37e12d5;
+`hw_debugger_emulator.md` sección 13: en SLOW se para en la entrada de la
+NMI y el MCU la deshace, el monitor apaga la NMI y el MCU la vuelve a
+encender al seguir. La pantalla queda en negro mientras está parado; los
+pasos en SLOW son aproximados.)
 - que el monitor conviva con la NMI (o pase a FAST con Superfast texto
   mientras está parado);
 - que la FPGA no rompa en la rutina de vídeo ni ejecutando el DFILE.

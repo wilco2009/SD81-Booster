@@ -78,7 +78,9 @@ enum {
   TAG_LD_SYNC,      // carga: ya se han escrito los POKEs
   TAG_SNAP_DIRTY,   // snapshot: las paginas escritas (arg = byte 0-7)
   TAG_KBD,          // teclado en la pausa del boton QS (arg = fila 0-3)
-  TAG_UNWIND        // SLOW: parado en la entrada de la NMI, su vuelta ([SP])
+  TAG_UNWIND,       // SLOW: parado en la entrada de la NMI, su vuelta ([SP])
+  TAG_STEPOVER,     // o: la instruccion en el PC
+  TAG_STEPOUT       // u: la direccion de vuelta en [SP]
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -109,8 +111,15 @@ struct Bp {
   uint16_t addr;
   uint8_t orig;
   uint8_t state;      // 0 quitado, 1 puesto (FF en memoria), 2 desconocido (tras un reset)
+  bool temp;          // de g/o/u: se quita al parar
 };
 static Bp bps[NBP];
+
+// El comparador de la FPGA (uno solo): un punto de vigilancia (w) o, si esta
+// libre y no es SLOW, el destino de g/o/u (ejecucion, temporal)
+static uint8_t watch_mode = 0;      // 0 nada, 2 lectura, 3 escritura, 4 E/S
+static uint16_t watch_addr = 0;
+static bool cmp_tmp = false;        // el comparador lleva un g/o/u
 
 static uint8_t regs[REGS_LEN];
 static bool stopped = false;
@@ -119,7 +128,7 @@ static DbgReq last;                // la peticion cuyo resultado llega en el sig
 static int8_t internal_step = -1;  // breakpoint saltado con un paso (indice)
 static bool stop_foreign = false;  // parado en un RST 38h del programa (FF que no es nuestro)
 static bool stop_nmi = false;      // parado en SLOW: la NMI estaba encendida (el monitor la apaga)
-static uint8_t istep_r = 0;        // R al dar el paso para saltar un breakpoint
+static bool prog_slow = false;     // el programa es SLOW: su NMI esta apagada hasta que se siga (c, g...)
 static uint8_t pause_tgl = 0;
 static uint8_t res[256];
 
@@ -282,12 +291,14 @@ static void resumed(){
   set_status_led_ok();
 }
 
-// Volver al programa. Si estaba en SLOW, el monitor apago la NMI al entrar:
-// se vuelve por OUT ($FE),A / RET escritos debajo de su pila (8 bytes),
-// como en la carga de snapshots con NMI 01. Con la NMI encendida la FPGA no
-// la deja saltar mientras entra el monitor (sim_int 0.10)
-static void q_cont(){
-  if (stop_nmi) {
+// Volver al programa. Si es SLOW, el monitor apago la NMI al entrar. Al
+// seguir de verdad (run: c, g, o sobre un CALL, u) se vuelve por OUT ($FE),A
+// / RET escritos debajo de su pila (8 bytes), como en la carga de snapshots
+// con NMI 01. Los pasos se dan con la NMI apagada: son exactos (sin NMI no
+// hay pantalla ni rutina de video que se cuele) y, tras 20 ms parado, la
+// FPGA ya ve FAST y para en cualquier instruccion
+static void q_cont(bool run){
+  if (run && prog_slow) {
     uint16_t s = reg16(R_SP), pc = reg16(R_PC);
     DbgReq* r = q_push(OP_WRITE, s - 8, 8);
     if (r) {
@@ -299,33 +310,89 @@ static void q_cont(){
     set_reg16(R_PC, s - 8);
     regs[R_R] = (regs[R_R] & 0x80) | ((regs[R_R] - 2) & 0x7F);   // las dos M1 del OUT y el RET
     q_setregs();
-    stop_nmi = false;
+    prog_slow = false;
   }
   q_push(OP_CONT, 0, 0);
 }
-
-// Pasos: en SLOW cuentan tambien el OUT y el RET de la vuelta (y las
-// instrucciones de la rutina de la NMI, si salta entre medias)
-static uint16_t slow_steps(uint16_t n){ return stop_nmi ? n + 2 : n; }
 
 static void dbg_continue(){
   if (foreign_rst()) queue_emulate_rst();
   int at = bp_find(reg16(R_PC));
   queue_insert_bps(at);
   if (at >= 0) {                              // primero un paso sin ese breakpoint
-    queue_steps(slow_steps(1));
+    queue_steps(1);                           // (en SLOW, con la NMI apagada)
     internal_step = at;
-    istep_r = regs[R_R];
   }
-  q_cont();
+  q_cont(at < 0);
   resumed();
 }
 
 static void dbg_step(uint16_t n){
   if (foreign_rst()) queue_emulate_rst();
-  queue_steps(slow_steps(n));
-  q_cont();
+  queue_steps(n);
+  q_cont(false);                              // con la NMI apagada, si es SLOW
   resumed();
+}
+
+// ---------------------------------------------------------------------
+// Fase 3: ejecutar hasta (g), paso por encima (o), salir de la rutina (u)
+// y puntos de vigilancia (w). g/o/u usan el comparador de ejecucion de la
+// FPGA si esta libre (no hay punto de vigilancia) y no es SLOW: no toca la
+// memoria (vale con codigo automodificable o que aun no se ha cargado). Si
+// no, un FF temporal en la tabla de breakpoints (en SLOW el comparador solo
+// mira la M1 exacta y la FPGA solo para en la NMI: el FF espera en JR $ y
+// si). Al parar, por lo que sea, se quita
+// ---------------------------------------------------------------------
+static void queue_cmp(uint16_t addr, uint8_t mode){
+  q_out(DBG_PORT, 0x80); q_out(DBG_PORT, addr & 0xFF);
+  q_out(DBG_PORT, 0x81); q_out(DBG_PORT, addr >> 8);
+  q_out(DBG_PORT, 0x82); q_out(DBG_PORT, mode);
+}
+
+static const char* watch_name(){
+  return watch_mode == 2 ? "read" : watch_mode == 3 ? "write" : "I/O";
+}
+
+static void run_to(uint16_t addr, const char* what){
+  if (!prog_slow && !watch_mode) {
+    queue_cmp(addr, 1);                       // comparador de ejecucion
+    cmp_tmp = true;
+  } else if (bp_find(addr) < 0) {             // FF temporal
+    int i = 0;
+    while (i < NBP && bps[i].used) i++;
+    if (i == NBP) { Serial.println("No room for a temporary breakpoint"); return; }
+    bps[i].used = true; bps[i].addr = addr; bps[i].state = 0; bps[i].temp = true;
+  }
+  Serial.printf("%s %04X\r\n", what, (unsigned)addr);
+  dbg_continue();
+}
+
+// o: CALL, RST, DJNZ, HALT y los repetidos (LDIR...) se pasan enteros; lo
+// demas, un paso
+static void step_over(uint8_t* b, uint16_t n){
+  if (n < 4) { dbg_step(1); return; }
+  char text[64];
+  int len = Z80Disassembler::disassemble(text, b, 4);
+  if (len <= 0) len = 1;
+  uint8_t op = b[0];
+  bool over = op == 0xCD || (op & 0xC7) == 0xC4 || (op & 0xC7) == 0xC7 ||   // CALL, CALL cc, RST
+              op == 0x10 || op == 0x76 ||                                     // DJNZ, HALT
+              (op == 0xED && (b[1] & 0xF4) == 0xB0);                          // LDIR, CPIR, INIR, OTIR...
+  if (over) run_to(reg16(R_PC) + len, "Step over to");
+  else dbg_step(1);
+}
+
+// Al parar: el comparador vuelve al punto de vigilancia (o apagado)
+static void tmp_stop(){
+  if (!cmp_tmp) return;
+  cmp_tmp = false;
+  queue_cmp(watch_addr, watch_mode);
+}
+
+// Los FF temporales fuera de la tabla (queue_remove_bps ya los quito de la
+// memoria)
+static void free_temp_bps(){
+  for (int i = 0; i < NBP; i++) if (bps[i].temp) { bps[i].used = false; bps[i].temp = false; }
 }
 
 // Snapshots (mas abajo)
@@ -347,6 +414,11 @@ static void ld_result(uint8_t tag, uint8_t* data, uint16_t n);
 static void ld_feed();
 static uint8_t* ld_data(uint8_t k);
 
+static void tmp_stop();
+static void free_temp_bps();
+static void run_to(uint16_t addr, const char* what);
+static void step_over(uint8_t* b, uint16_t n);
+
 // Ha llegado DBG_BREAK con los registros
 static void on_break2();
 
@@ -359,6 +431,7 @@ static void on_break(){
   poll_state = 0;
   stopped = true;
   stop_nmi = (regs[R_DBGST] & 0x40) != 0;
+  if (stop_nmi) prog_slow = true;
   if (stop_nmi && reg16(R_PC) == 0x0066) {
     q_push(OP_READ, reg16(R_SP), 2, TAG_UNWIND);
     return;
@@ -371,37 +444,33 @@ static void on_break2(){
     int i = internal_step;
     internal_step = -1;
     if ((regs[R_DBGST] & 7) == 4) {           // el paso para saltar el breakpoint:
-      // En SLOW, si la NMI llego antes de la instruccion del breakpoint
-      // (seguimos en el y R no ha avanzado: deshecha la NMI, R es el de
-      // antes), el paso no la ejecuto: otra vez. Si la ejecuto, R avanza 1
-      // o 2 (sus M1), aunque vuelva a si misma (JR $)
-      if (stop_nmi && reg16(R_PC) == bps[i].addr && ((regs[R_R] - istep_r) & 0x7F) == 0) {
-        queue_steps(slow_steps(1));
-        internal_step = i;
-        istep_r = regs[R_R];
-      } else {
-        q_push(OP_READ, bps[i].addr, 1, TAG_BP_ORIG, i);   // ponerlo y seguir
-        q_write1(bps[i].addr, 0xFF);
-      }
-      q_cont();
+      q_push(OP_READ, bps[i].addr, 1, TAG_BP_ORIG, i);   // ponerlo y seguir
+      q_write1(bps[i].addr, 0xFF);
+      q_cont(true);
       resumed();
       return;
     }
   }
   stop_foreign = (regs[R_DBGST] & 7) == 7 && bp_find(reg16(R_PC)) < 0;
+  int at_bp = bp_find(reg16(R_PC));
+  bool reached = (cmp_tmp && (regs[R_DBGST] & 7) == 5) ||               // g/o/u: llegado al destino
+                 ((regs[R_DBGST] & 7) == 7 && at_bp >= 0 && bps[at_bp].temp);
+  tmp_stop();                                 // g/o/u: el comparador, como estaba
   if (ld_pending()) {                         // la trampa de LOAD *Z81: cargar
     stop_foreign = false;
     queue_remove_bps();
+    free_temp_bps();
     ld_begin();
     return;
   }
   set_status_LED(clMAGENTA);
   if (kbd_arm) { kbd_arm = false; kbd_on = true; kbd_prev = 0x0F; kbd_armed = 0; }   // pausa del boton QS: S, Z, L o espacio
   char b[96];
-  snprintf(b, sizeof(b), "\r\n*** STOP at %04X: %s%s%s", reg16(R_PC), reason_name(regs[R_DBGST]),
-    (regs[R_DBGST] & 0x20) ? " (inside the simulated interrupt)" : "", stop_nmi ? " (SLOW)" : "");
+  snprintf(b, sizeof(b), "\r\n*** STOP at %04X: %s%s%s", reg16(R_PC), reached ? "reached" : reason_name(regs[R_DBGST]),
+    (regs[R_DBGST] & 0x20) ? " (inside the simulated interrupt)" : "", prog_slow ? " (SLOW)" : "");
   Serial.println(b);
   queue_remove_bps();
+  free_temp_bps();
   queue_show();
   if (snap_pending) { snap_pending = false; snap_begin(); }
 }
@@ -448,12 +517,15 @@ static void on_result(uint8_t* data, uint16_t n){
     case TAG_KBD:
       kbd_result(last.arg, n ? data[0] : 0xFF);
       break;
+    case TAG_STEPOVER: step_over(data, n); break;
+    case TAG_STEPOUT:  if (n == 2) run_to(data[0] | (data[1] << 8), "Step out"); break;
     case TAG_UNWIND:                          // SLOW: deshacer la NMI
       if (n == 2) {
         set_reg16(R_PC, data[0] | (data[1] << 8));
         set_reg16(R_SP, reg16(R_SP) + 2);
         regs[R_R] = (regs[R_R] & 0x80) | ((regs[R_R] - 1) & 0x7F);
-      }
+        q_setregs();                          // tambien en el monitor: si no, al dar
+      }                                       // un paso volveria a $0066
       on_break2();
       break;
   }
@@ -536,7 +608,11 @@ static void help(){
   Serial.println("  r              registers and instruction at PC");
   Serial.println("  s [n]          step n instructions (1)");
   Serial.println("  c              continue");
+  Serial.println("  o              step over (CALL, RST, DJNZ, LDIR... run to the next instruction)");
+  Serial.println("  u              step out (run to the return address at [SP])");
+  Serial.println("  g addr         run to addr");
   Serial.println("  b addr         set a breakpoint      bc [addr]  clear one / all      bl  list");
+  Serial.println("  w r|w|io addr  watchpoint (read, write, I/O port)    w  clear it");
   Serial.println("  d [addr] [n]   disassemble n instructions (10) from addr (PC)");
   Serial.println("  m addr [n]     dump n bytes (64)");
   Serial.println("  e addr b1 b2.. write bytes");
@@ -612,6 +688,31 @@ bool dbg_console(const char* line){
     bool any = false;
     for (int i = 0; i < NBP; i++) if (bps[i].used) { Serial.printf("%d: %04X\r\n", i, bps[i].addr); any = true; }
     if (!any) Serial.println("No breakpoints");
+    if (watch_mode) Serial.printf("Watchpoint: %s %04X\r\n", watch_name(), watch_addr);
+  }
+  else if (!strcmp(cmd, "g")) {
+    if (!parse_hex(p, a)) { Serial.println("g addr"); return true; }
+    run_to(a, "Run to");
+  }
+  else if (!strcmp(cmd, "o")) q_push(OP_READ, reg16(R_PC), 4, TAG_STEPOVER);
+  else if (!strcmp(cmd, "u")) q_push(OP_READ, reg16(R_SP), 2, TAG_STEPOUT);
+  else if (!strcmp(cmd, "w")) {
+    while (*p == ' ') p++;
+    uint8_t m = 0;
+    if (p[0] == 'r' && p[1] == ' ') { m = 2; p += 1; }
+    else if (p[0] == 'w' && p[1] == ' ') { m = 3; p += 1; }
+    else if (p[0] == 'i' && p[1] == 'o' && p[2] == ' ') { m = 4; p += 2; }
+    if (!m) {
+      if (*p) { Serial.println("w r|w|io addr   or   w (clear)"); return true; }
+      watch_mode = 0;
+      queue_cmp(0, 0);
+      Serial.println("Watchpoint cleared");
+      return true;
+    }
+    if (!parse_hex(p, a)) { Serial.println("w r|w|io addr"); return true; }
+    watch_mode = m; watch_addr = a;
+    queue_cmp(a, m);
+    Serial.printf("Watchpoint: %s %04X\r\n", watch_name(), watch_addr);
   }
   else if (!strcmp(cmd, "d")) {
     if (!parse_hex(p, a)) a = reg16(R_PC);
@@ -667,6 +768,9 @@ void dbg_reset(void){
   ld_cancel();                                // una carga a medias no sigue
   kbd_on = kbd_arm = false;
   dirty_clear();                              // las paginas escritas, desde aqui
+  watch_mode = 0;                             // el reset de la FPGA borra el comparador
+  prog_slow = stop_nmi = false;
+  cmp_tmp = false;
   stopped = false;
   poll_state = 0;
   q_count = 0;
@@ -870,7 +974,7 @@ static void snap_begin(){
   swf("IR %04X\n", (regs[R_I] << 8) | regs[R_R]);
   swf("IM 01      IF1 %02X\n", regs[R_IFF]);   // IM no se puede leer: la ROM pone IM 1
   swf("HT 00      IF2 %02X\n", regs[R_IFF]);
-  swf("\n[ZX81]\nNMI %02X     SYNC 00\nLINE 000\n", (regs[R_DBGST] & 0x40) ? 1 : 0);   // SLOW: NMI encendida
+  swf("\n[ZX81]\nNMI %02X     SYNC 00\nLINE 000\n", prog_slow ? 1 : 0);   // SLOW: NMI encendida
 
   // el mapper, el registro de Chroma y los POKEs de control (BRAM de sombra)
   for (int b = 0; b < 8; b++) q_push(OP_IN, (b << 8) | 0xE7, 0, TAG_SNAP_MAP, b);
@@ -1627,6 +1731,7 @@ static void ld_finish(){
   set_blinking_off();
   stop_foreign = false;
   stop_nmi = false;                           // la NMI la pone la carga (ld.nmi)
+  prog_slow = false;
   Serial.printf("Snapshot loaded: PC=%04X\r\n", reg16(R_PC));
   DbgReq* r = q_push(OP_SETREGS, 0, ld.set_im ? REGS_LEN + 1 : REGS_LEN);
   if (r) {                                    // sin la ROM (L), el IM va detras de los registros

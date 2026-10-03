@@ -1,50 +1,57 @@
-# Especificación para el emulador: depurador por hardware (fases 1, 2 y 2b, y la carga de snapshots)
-
-> **Ampliada con la fase 2** (1 de octubre de 2026): el monitor de verdad
-> (`z80rom/debugmon.asm`) y la parte del MCU (`DEBUGGER.cpp`): los comandos
-> `DBG_BREAK` y `DBG_POLL`, la consola y el botón QuickSilva. Es la sección
-> 10. Las secciones 1-9 (la FPGA y la carga) no cambian.
-
-> **Ampliada con la fase 2b** (1 de octubre de 2026): snapshots `.Z81` desde
-> el depurador. La FPGA (rev 0.07) añade dos lecturas al puerto `$3FEF`
-> (índices 2 y 3) y dos registros (5 y 6); el monitor, las peticiones 7 y 8.
-> Es la sección 11, más los cambios marcados en las secciones 6 y 10.
-
-> **Ampliada con la carga de snapshots** (2 de octubre de 2026): `LOAD *Z81`
-> carga por el monitor. FPGA rev 0.08 (registro 7 del puerto `$3FEF`, orden
-> 10 del canal de configuración), monitor versión 3 (peticiones 9 y 10),
-> comando 75 del MCU y la ROM nueva. Es la sección 12. **Importante:** la
-> ROM nueva manda el comando 75 antes que el 70; el emulador tiene que
-> contestarlo (aunque sea con `0xFF`, "sin monitor") o `LOAD *Z81` se queda
-> esperando.
+# Especificación para el emulador: depurador por hardware, snapshots y SLOW
 
 El SD81 Booster tiene un depurador por hardware. La FPGA para el programa en
 un límite de instrucción y entra en un **monitor** que vive en la **página
 63** de la SRAM. Lo hace con el mismo mecanismo que las interrupciones
 simuladas (`sim_int_emulator.md`): sirve `FF` (RST 38h), un `CALL` en `$0038`
 y un epílogo en `$003B`. La diferencia es que, mientras corre el monitor, el
-bloque 1 enseña la página 63.
+bloque 1 enseña la página 63. Con él se depura desde la consola del MCU, se
+hacen snapshots `.Z81` (consola, botón QuickSilva y teclado del ZX81) y se
+cargan con `LOAD *Z81`, también de programas en SLOW.
 
-La **fase 1** es el motor de la FPGA y la carga del monitor desde el MCU,
-probada en el hardware con `EXAMPLES/DBGTEST` (sección 9). La **fase 2**
-(sección 10) es el monitor de verdad y la parte del MCU: con ella el
-depurador ya se usa desde la consola. También está probada en el hardware.
+## Estado (3 de octubre de 2026)
+
+Todo lo de este documento está hecho y probado en el hardware. Versiones:
+
+| Pieza | Versión | Dónde |
+|---|---|---|
+| FPGA | `sim_int.v` rev **0.12** | `FPGA/SD81V2.1000/sim_int.v`, `SD81.v`, `ay38912.v` |
+| Monitor | versión **3** (`"SD81DBG",3` en `$2003`), **1256 bytes** | `z80rom/debugmon.asm` → `/SYS/DEBUG.BIN` |
+| ROM | `LOAD *Z81` con el comando 75; sprites a cero en el reset | `z80rom/sdhandler.inc.asm` → `/SYS/SDBOOST.ROM` |
+| MCU | comandos 73, 74 y 75 (`LAST_COMMAND 75`) | `DEBUGGER.cpp`, `MCUSTATE.cpp`, `COMMANDS.cpp`, `SD_handle.cpp` |
+
+**Qué ha cambiado, por orden** (para encontrar lo que le falta al emulador):
+
+| Commit | Qué | Secciones |
+|---|---|---|
+| 423ea97 | Fase 1: el motor de ruptura en la FPGA, la carga del monitor | 1-9 |
+| 733933a | Fase 2: el monitor de verdad, los comandos 73/74, la consola, el botón QS | 10 |
+| 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
+| a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
+| 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
+| (siguiente) | Fase 3: `o` (paso por encima), `u` (salir de la rutina), `g` (ejecutar hasta) y `w` (puntos de vigilancia) en la consola. Solo el MCU: la FPGA y el monitor no cambian | 10.5, 10.8 |
+
+**Importante:** la ROM nueva manda el comando 75 antes que el 70. El
+emulador tiene que contestarlo, aunque sea con `0xFF` ("sin monitor"), o
+`LOAD *Z81` se queda esperando (sección 12.3).
 
 Referencias:
-- `FPGA/SD81V2.1000/sim_int.v` (rev 0.07): el depurador va dentro del módulo
-  `sim_int`.
-- `FPGA/SD81V2.1000/SD81.v`: la ventana, la carga, la protección y el bloque
-  0 (busca `dbg_`, `blk0_ram`, `p63_lock` y `sram_page`).
-- `FPGA/SD81V2.1000/tb_dbg.v`: banco de pruebas, ciclo a ciclo, de todos los
-  casos.
-- `Arduino/SD81BoosterV2_039_STM32/SD_handle.cpp`, `load_debug_monitor()`.
-- Fase 2: `z80rom/debugmon.asm` (el monitor, que va en la SD como
-  `/SYS/DEBUG.BIN`) y `Arduino/SD81BoosterV2_039_STM32/DEBUGGER.cpp` (la
-  parte del MCU).
-- Bancos de pruebas en el PC de la fase 2: `claude/dbgharness`. `cosim.cpp`
-  corre el monitor de verdad en el mismo núcleo Z80 que usa EightyOne, contra
-  el `DEBUGGER.cpp` de verdad; sirve de modelo.
-- El plan y el porqué de cada decisión: `claude/planning/hw_debugger_plan.md`.
+- `FPGA/SD81V2.1000/sim_int.v`: el depurador va dentro del módulo
+  `sim_int`. `tb_dbg.v`: banco de pruebas ciclo a ciclo de todos los casos.
+- `FPGA/SD81V2.1000/SD81.v`: la ventana, la carga, la protección, el bloque
+  0, la sombra y las páginas escritas (busca `dbg_`, `blk0_ram`, `p63_lock`,
+  `sram_page`, `spr_mirror` y `shadowram`).
+- `z80rom/debugmon.asm`: el monitor.
+- `Arduino/SD81BoosterV2_039_STM32/DEBUGGER.cpp`: toda la lógica del MCU
+  (consola, breakpoints, snapshots, carga, teclado, SLOW); `MCUSTATE.cpp`:
+  el estado del MCU en los snapshots; `SD_handle.cpp`, `load_debug_monitor()`.
+- `claude/dbgharness` (`sh build.sh`): bancos de pruebas en el PC. `cosim.cpp`
+  corre el monitor de verdad en el núcleo Z80 de EightyOne contra el
+  `DEBUGGER.cpp` de verdad, con un modelo de la FPGA (y NMIs): es la mejor
+  referencia de cómo encaja todo.
+- `claude/planning/hw_debugger_plan.md`: el plan y el porqué de cada
+  decisión. `snapshots_cambios_emulador.md`: las claves que añadió el
+  emulador para el explorador (ya están en el hardware, sección 11.3).
 
 **Recomendación:** igual que con las interrupciones simuladas, emularlo **a
 nivel de byte** en la función que sirve las lecturas y escrituras de la CPU.
@@ -87,7 +94,7 @@ cual sea la página del bloque 1.
 - No afecta a los ciclos de refresco.
 
 **El bloque 0 como RAM.** En la fase MON, el bloque 0 (`$0000`-`$1FFF`) se
-puede escribir. Normalmente está protegido: es la ROM. Así el monitor puede
+puede escribir, salvo con la orden 10 (sección 12.1). Normalmente está protegido: es la ROM. Así el monitor puede
 poner breakpoints por software en la ROM. Mientras dura:
 - **no se capturan los POKEs de control** del bloque 0: 2038-2040, 2041-2058,
   2059-2062, 2090-2098, sprites… Es lo mismo que ya pasa con `POKE 2056`
@@ -101,14 +108,20 @@ las escrituras del Z80 que vayan a la página 63 **no llegan a la memoria**.
 Solo pasa si un programa la ha mapeado con FULLPAG. Las lecturas son
 normales. Con `dbg_loaded = 0`, la página 63 es como cualquier otra.
 
+**La sombra (BRAM).** La FPGA copia en su BRAM de sombra (64 KB, por
+dirección lógica) lo que escribe la CPU; el vídeo Superfast y los atributos
+de Chroma salen de ahí. Dos excepciones del depurador:
+- los POKEs de sprites 2101-2128 van a `$0C00 + sprite*32 + campo`, no a su
+  dirección (sección 11.4);
+- el puerto `$3FEF` la lee (índice 2) y la escribe (registro 7).
+
 ## 3. Cuándo se rompe
 
-Solo con **`armado`** (= `dbg_loaded`) y con el **generador de NMI apagado**
-(FAST o Superfast). El emulador ya sabe si la NMI está encendida. En el
-hardware se sigue con los `OUT`, como la ULA:
-- `A1 = 0` (`OUT ($FD)`) la apaga;
-- si no, `A0 = 0` (`OUT ($FE)`) la enciende;
-- al reset, apagada.
+Solo con **`armado`** (= `dbg_loaded`). En **FAST o Superfast**, en
+cualquier instrucción. En **SLOW**, solo en la primera M1 de la NMI
+(`$0066`): ver la sección 13. SLOW es "ha habido una M1 en `$0066` hace
+menos de un cuadro" (un contador de 16 bits, `nmi_age`), no lo que digan
+los `OUT ($FE)`/`($FD)`.
 
 **Fuentes que dejan una ruptura pendiente.** Solo se aceptan con el
 depurador armado y en reposo (fase IDLE):
@@ -133,19 +146,25 @@ step_brk  = step_on && counted && step_cnt == 0
 cmp_exec  = modo del comparador == 1 && direccion de la M1 == cmp_addr
 swbp      = op == FF                       (un RST 38h de verdad en memoria)
 
-rompe = armado && !nmi && prog_m1 &&
-        ( swbp || step_brk || (!skip && (pausa || vigilancia || cmp_exec)) )
+slow      = nmi_age != $FFFF               (NMI hace menos de un cuadro)
+brk_ok    = !slow || direccion == $0066    (seccion 13)
+
+rompe = armado && brk_ok && prog_m1 &&
+        ( swbp || spin_pend || step_brk ||
+          (!skip && (pausa || vigilancia || cmp_exec)) )
+spin  = armado && !brk_ok && prog_m1 && swbp   (FF en SLOW: se sirve JR $)
 ```
 
 **Si rompe:**
 - se sirve `FF` (aunque ya fuera `FF` en memoria) y `sim_int` no inyecta en
   esta M1;
-- `motivo` = el primero que se cumpla de: 7 (`swbp`), 5 (`cmp_exec` sin
+- `motivo` = el primero que se cumpla de: 7 (`swbp` o `spin_pend`), 5 (`cmp_exec` sin
   `skip`), 6 (vigilancia sin `skip`), 4 (`step_brk`), o el de la pausa (1, 2
   o 3);
 - `lvl` = 1 si la fase de `sim_int` no es IDLE (se ha roto dentro de una
   interrupción simulada);
-- se borran la pausa, la vigilancia, `step_on` y `skip`.
+- se borran la pausa, la vigilancia, `step_on`, `skip` y `spin_pend`;
+- bit 6 del estado = `slow`.
 
 **Si no rompe y es `prog_m1 && !sim_inj`** (una instrucción del programa
 que se ejecuta de verdad):
@@ -248,17 +267,17 @@ Z80 no hace falta estar en el monitor.
 | 0 / 1 | comparador: dirección baja / alta |
 | 2 | modo del comparador: 0 apagado, 1 ejecución, 2 lectura, 3 escritura, 4 E/S |
 | 3 / 4 | N baja / alta: romper tras N instrucciones (0 = no). Al escribir la alta: `step_cnt = N`, `step_on = (N != 0)` |
-| 5 / 6 | (2b) puntero de la BRAM de sombra, bajo / alto. Se carga al escribir el alto |
-| 7 | (rev 0.08) escribe el dato en la BRAM de sombra, en el puntero, y el puntero avanza |
+| 5 / 6 | puntero de la BRAM de sombra, bajo / alto. Se carga al escribir el alto |
+| 7 | escribe el dato en la BRAM de sombra, en el puntero, y el puntero avanza (sección 12.1) |
 
 | IN (índice) | Qué devuelve |
 |---|---|
-| 0 | estado: bit 7 armado, bit 6 la NMI estaba encendida al parar (rev 0.10; antes, NMI encendida ahora), bit 5 `lvl`, bits 2-0 motivo de la última ruptura |
+| 0 | estado: bit 7 armado, bit 6 en SLOW al parar (sección 13), bit 5 `lvl`, bits 2-0 motivo de la última ruptura |
 | 1 | interrupciones simuladas: `enabled, pending, arm, superfast, halted, call_now, fase(2 bits)` |
-| 2 | (2b) el byte de la BRAM de sombra en el puntero; el puntero avanza 1 al acabar cada `IN` |
-| 3 | (2b) el registro de Chroma81 (lo último escrito con `OUT $7FEF`) |
-| 4 / 5 | (rev 0.08) el registro elegido del AY A (A3=1, ZonX) / del AY B: el latch de dirección, que sus puertos no dejan leer |
-| 6 | (rev 0.09) las páginas escritas por la CPU, una por `IN` (bit 0), de la 0 a la 63: el puntero vuelve a 0 al elegir el índice 6 y avanza al acabar cada `IN` (sección 11.6) |
+| 2 | el byte de la BRAM de sombra en el puntero; el puntero avanza 1 al acabar cada `IN` |
+| 3 | el registro de Chroma81 (lo último escrito con `OUT $7FEF`) |
+| 4 / 5 | el registro elegido del AY A (A3=1, ZonX) / del AY B: el latch de dirección, que sus puertos no dejan leer |
+| 6 | las páginas escritas por la CPU, una por `IN` (bit 0), de la 0 a la 63: el puntero vuelve a 0 al elegir el índice 6 y avanza al acabar cada `IN` (sección 11.5) |
 | 15 | firma `52h` |
 | otros | 0 |
 
@@ -276,12 +295,13 @@ monitor no cuentan.
 
 **Con el reset** se pone a 0 todo: fase, motivo, `lvl`, `skip`, pendientes,
 `step_on`, `step_cnt`, comparador (dirección y modo), índice de lectura y
-NMI. `dbg_loaded` no se toca.
+punteros; `nmi_age` a `$FFFF`. `dbg_loaded`, la sombra y las páginas
+escritas no se tocan.
 
 ## 7. Detalles que cuentan
 
-- Los `OUT` al puerto (y los de la NMI) se procesan **una vez por
-  instrucción**: el registro r espera exactamente el `OUT` siguiente.
+- Los `OUT` al puerto se procesan **una vez por instrucción**: el registro
+  r espera exactamente el `OUT` siguiente.
 - La decisión de romper se toma en cada M1 con el estado de antes de esa
   M1, igual que la de `sim_int`.
 - Si en la misma M1 querrían inyectar el depurador y `sim_int`, gana el
@@ -290,15 +310,13 @@ NMI. `dbg_loaded` no se toca.
 - Mientras el monitor está activo, los VSYNC siguen poniendo `pending` en
   `sim_int` (se acumulan en uno solo) y FRAMES sigue corriendo.
 - Un `RST 38h` de verdad del programa (un `FF` en un límite de instrucción),
-  con el depurador armado y en FAST o Superfast, entra en el monitor como
-  breakpoint por software (motivo 7). En SLOW es un RST normal.
+  con el depurador armado, entra en el monitor como breakpoint por software
+  (motivo 7). En SLOW espera en `JR $` a la NMI (sección 13).
 
 ## 8. Lo que queda para después
 
-- Snapshots (botón mantenido 3 s, `snap` en la consola): fase 2b.
-- Paso por encima, ejecutar hasta un punto y puntos de vigilancia desde la
-  consola: fase 3. La FPGA ya los tiene (sección 6).
-- El monitor en SLOW (con la NMI encendida): fase 4.
+- La traza y la interfaz en la pantalla del ZX81 (fase 3, por decidir).
+- La interfaz web en el ESP32: fase 5.
 
 ## 9. Prueba (`EXAMPLES/DBGTEST`)
 
@@ -374,7 +392,8 @@ El monitor solo hace operaciones elementales. **Toda la lógica es del MCU**,
 y es lo que el emulador tiene que reproducir en su emulación del STM32.
 
 Detalles del monitor que el emulador tiene que respetar sin hacer nada:
-- **R:** el monitor descuenta 9 M1 a la entrada y 22 a la salida, contando
+- **Su primera instrucción es `OUT ($FD),A`:** apaga la NMI (sección 13).
+- **R:** el monitor descuenta 10 M1 a la entrada y 22 a la salida, contando
   las de la FPGA (`FF`, `CD`, y `E3 2B E3 C9`). Si el emulador sirve esos
   bytes como M1 de verdad (sección 4), las cuentas salen solas.
 - **Los accesos a `$2000`-`$3FFF`:** el monitor mapea un momento la página
@@ -392,12 +411,13 @@ Detalles del monitor que el emulador tiene que respetar sin hacer nada:
 | 22 | PC del programa (la instrucción en PC todavía no se ha ejecutado) |
 | 24 / 25 | I / R |
 | 26 | IFF2 (0 o 1) |
-| 27 | estado del depurador (`$3FEF`, índice 0: armado, NMI, nivel, motivo) |
+| 27 | estado del depurador (`$3FEF`, índice 0: armado, SLOW, nivel, motivo) |
 | 28 | estado de las interrupciones simuladas (`$3FEF`, índice 1) |
 | 29 | página del programa en el bloque 1 |
 
 Todo en little endian. 27-29 son solo información: con `SETREGS` el monitor
-las ignora.
+las ignora. `SETREGS` puede llevar un byte 31 con el modo de interrupción
+(sección 11.6).
 
 ### 10.3 Los dos comandos
 
@@ -408,7 +428,7 @@ comandos 55/56):
   confirma lo anterior;
 - al final hay un cambio de reloj más.
 
-`LAST_COMMAND` pasa a 74.
+`LAST_COMMAND` es 75 (el 75 es `LOAD *Z81` con el monitor, sección 12.3).
 
 **`DBG_BREAK` (73)**
 ```
@@ -435,12 +455,13 @@ genere una petición.
 |---|---|---|---|---|---|
 | 1 | READ | dirección | 1-256 bytes | — | m bytes |
 | 2 | WRITE | dirección | 1-256 bytes | m bytes | — |
-| 3 | SETREGS | 0 | 30 | el bloque de registros | — |
+| 3 | SETREGS | 0 | 30 o 31 | el bloque de registros (y el IM) | — |
 | 4 | OUT | puerto (16 bits) | valor en el byte bajo | — | — |
 | 5 | IN | puerto (16 bits) | 0 | — | 1 byte |
 | 6 | CONT | 0 | 0 | — | (el monitor sale) |
 | 7 | INSEQ (2b) | puerto (16 bits) | 1-256 | — | m `IN` seguidos del mismo puerto |
 | 8 | READP (2b) | desplazamiento en la página | 1-256 bytes | — | m bytes de la página p |
+| 9-12 | WRITEP, BRAMW, AYREAD, AYWRITE | | | | sección 12.2 |
 
 Con `CONT` el monitor rehace la vuelta con el SP y el PC del bloque
 (`[SP-2] = PC+1`, `SP-2`) y sale con `JP $003B`. Por eso el MCU puede cambiar
@@ -479,6 +500,8 @@ ejecuta como `RST 38h`; la FPGA lo ve (motivo 7).
 - **Tras un reset del Z80**, los breakpoints que estaban puestos pasan a
   "desconocido": en la ROM siguen en memoria, en la RAM no se sabe. Al parar,
   se lee cada uno: si hay un `FF`, se repone el original.
+- **En SLOW**, al parar en `$0066` el MCU deshace la NMI y, al seguir, vuelve
+  por `OUT ($FE),A` / `RET` debajo de la pila (sección 13.3).
 
 **Al parar** (llega `DBG_BREAK`): LED magenta y en la consola:
 ```
@@ -491,14 +514,15 @@ block 1 page 1, sim_int 00. Type h for help.
 El motivo sale del estado (bloque, offset 27): pause (MCU), pause
 (joystick), trap, step, comparator, watchpoint, breakpoint o RST 38h (not a
 breakpoint). Si el bit 5 está a 1, se añade "(inside the simulated
-interrupt)". El `*` delante de una dirección marca un breakpoint.
+interrupt)", y si el programa estaba en SLOW, "(SLOW)". El `*` delante de
+una dirección marca un breakpoint.
 
 ### 10.5 La consola
 
 Son las órdenes en minúsculas de la consola USB del STM32. Las de
 mayúsculas (`DBG_PAUSE`, `DBG_RELOAD` y las que ya había) siguen igual. Los
 números van en hexadecimal (con `$` o sin él). Con el programa en marcha
-solo valen `p` y `h`.
+solo valen `p`, `snap` y `h`.
 
 | Orden | Qué hace |
 |---|---|
@@ -506,12 +530,17 @@ solo valen `p` y `h`.
 | `r` | registros e instrucción en el PC |
 | `s [n]` | n pasos (1) |
 | `c` | continuar |
-| `b dir` / `bc [dir]` / `bl` | poner, quitar (uno o todos) y listar breakpoints |
+| `o` | paso por encima: `CALL`, `RST`, `DJNZ`, `HALT` y los repetidos (`LDIR`…) enteros; lo demás, un paso (sección 10.8) |
+| `u` | salir de la rutina: ejecutar hasta la dirección que hay en `[SP]` |
+| `g dir` | ejecutar hasta dir |
+| `b dir` / `bc [dir]` / `bl` | poner, quitar (uno o todos) y listar breakpoints (y el punto de vigilancia) |
+| `w r\|w\|io dir` / `w` | punto de vigilancia de lectura, escritura o E/S (el byte bajo del puerto) / quitarlo |
 | `d [dir] [n]` | desensamblar n instrucciones (10, como mucho 60) desde dir (PC) |
 | `m dir [n]` | volcado de n bytes (64, como mucho 256) |
 | `e dir b1 b2 …` | escribir bytes (hasta 32) |
 | `x reg=val` | cambiar un registro: `af bc de hl ix iy af' bc' de' hl' sp pc i r` (`SETREGS`) |
 | `io puerto [val]` | leer o escribir un puerto |
+| `snap [-a] [f]` | snapshot (sección 11); vale también con el programa en marcha (lo para y lo deja parado) |
 | `h`, `?` | ayuda |
 
 En el emulador lo natural es una ventana de consola, o reutilizar el
@@ -524,11 +553,10 @@ soltarlo** (cambiado en la fase 2b); el LED avisa de lo que hará:
 - **menos de 1 s:** cambia QuickSilva;
 - **de 1 a 3 s** (LED magenta al llegar a 1 s): si el programa corre,
   pausa y se puede usar el teclado (`S`, `Z`, `L`, espacio: sección
-  11.7); si está parado, continúa;
+  11.6); si está parado, continúa;
 - **3 s o más** (LED amarillo al llegar a 3 s): snapshot con el nombre
   automático (sección 11). Si el programa corría, sigue al acabar. Desde
-  que se suelta, el LED parpadea en amarillo hasta que acaba (si el
-  programa está en SLOW, la pausa espera a que pase a FAST).
+  que se suelta, el LED parpadea en amarillo hasta que acaba.
 
 Sin el monitor cargado, cualquier pulsación cambia QuickSilva. En el
 emulador conviene una tecla o un botón para el QuickSilva "mantenido".
@@ -544,21 +572,55 @@ emulador conviene una tecla o un botón para el QuickSilva "mantenido".
      parar ahí;
   4. `c` otra vez → tiene que volver a parar en la vuelta siguiente;
   5. `s 10`, `d`, `m`, `x`;
-  6. al final `bc` y `c`: el programa sigue sin rastro de los `FF`.
+  6. al final `bc` y `c`: el programa sigue sin rastro de los `FF`;
+  7. lo mismo con un programa en SLOW (BASIC sirve): `p` tiene que parar en
+     el programa (no en `$0066`) con `(SLOW)`, y al seguir la imagen vuelve;
+  8. el botón: 1-3 s y `Z`, `L`, `S`, espacio; y 3 s varias veces seguidas,
+     también en SLOW;
+  9. `snap`, y `LOAD *Z81` del fichero, dos veces seguidas.
+
+### 10.8 Fase 3: `o`, `u`, `g` y `w`
+
+Todo en el MCU; la FPGA ya tenía el comparador (sección 6) y el monitor no
+cambia (se programa con peticiones `OUT` al puerto `$3FEF`: `$80`/`$81`
+dirección, `$82` modo).
+
+- **`w`** usa el comparador en modo 2 (lectura), 3 (escritura) o 4 (E/S).
+  Se queda puesto hasta `w` sin nada o un reset. Para con el motivo 6 en la
+  instrucción siguiente a la del acceso.
+- **`g dir`** ("ejecutar hasta"). Si el comparador está libre (sin `w`) y el
+  programa no está en SLOW, lo pone en modo 1 (ejecución) en `dir`: no toca
+  la memoria, así que vale con código automodificable o que todavía no se ha
+  cargado. Si no, pone un `FF` temporal en la tabla de breakpoints (en SLOW
+  el comparador solo mira la M1 exacta y la FPGA solo para en la NMI; el
+  `FF` espera en `JR $` y sí para). **Al parar, por lo que sea**, el
+  comparador vuelve a como estaba (el `w`, o apagado) y los `FF` temporales
+  salen de la tabla. La consola dice `reached` en vez del motivo.
+- **`o`** lee 4 bytes en el PC y los desensambla: si es `CALL`, `CALL cc`,
+  `RST`, `DJNZ`, `HALT` o un repetido (`ED B0`-`B3`, `B8`-`BB`), `g` a la
+  instrucción siguiente; si no, `s 1`.
+- **`u`** lee `[SP]` y hace `g` a esa dirección. Vale si la rutina no ha
+  metido nada en la pila desde que la llamaron.
+
+En el emulador, lo mismo con su comparador; la prueba 13 de `cosim.cpp` lo
+recorre (un `CALL` con `o`, `s` + `u`, `g`, `w` de escritura, y `o` con el
+comparador ocupado, que usa un `FF` temporal).
 
 ## 11. Fase 2b: snapshots
 
 ### 11.1 Qué lo lanza
 
 - La consola: `snap [-a] [nombre]`. Sin `-a`, las páginas mapeadas en los 8
-  bloques y las que ha escrito el programa (sección 11.6); con `-a`, todas
+  bloques y las que ha escrito el programa (sección 11.5); con `-a`, todas
   las páginas 0-62 (sin FULL_PAGING, solo hasta la 31: el mapper no llega
   más allá). Desde la consola el programa **se queda parado** (si corría,
   se pausa antes).
 - El botón QuickSilva mantenido 3 s (sección 10.6): si el programa corría,
   sigue al acabar.
-- Las teclas `S` y `Z` en la pausa del botón (sección 11.7). Mientras graba, el LED parpadea en amarillo y la
-consola contesta `Snapshot in progress`.
+- Las teclas `S` y `Z` en la pausa del botón (sección 11.6).
+
+Mientras graba, el LED parpadea en amarillo y la consola contesta
+`Snapshot in progress`.
 
 **Nombre:** el que se dé (con `.Z81` si no lleva extensión), en el
 directorio actual. Si no, el nombre (sin extensión) del último fichero
@@ -571,17 +633,27 @@ no tiene `_`; `EXPLORER.P` → `EXPLORER001.Z81`); sin nada cargado, `NONAME001.
 Todo con peticiones al monitor, con el programa parado:
 1. el mapper: 8 `IN` del puerto `(b << 8) | $E7`, b = 0-7 (6 bits);
 2. Chroma81: `OUT $03` y `IN` del puerto `$3FEF` (índice 3);
-3. los POKEs de control: puntero de la BRAM a 2038 (`$85`, bajo, `$86`,
-   alto), `OUT $02` e `INSEQ` de 61 bytes (2038-2098). La BRAM de sombra
-   guarda lo último que escribió la CPU en esas direcciones. Si el valor es
-   el byte de la ROM en esa dirección, se toma como **nunca escrito**: la
-   BRAM se carga con la ROM al arrancar;
-4. `[MEMORY]` y `[COLOUR]`: `READ` de 256 bytes, de `$2000` a `$FFFF` y de
-   `$C000` a `$FFFF` (en `$2000`-`$3FFF`, la página del programa, no la del
-   monitor);
-5. las páginas: `READP`. El monitor pone la página en el bloque 7 un
+3. los AY de la FPGA: `OUT $04`/`$05` e `IN` (el registro elegido de cada
+   uno), `AYREAD` de 16 registros por `$00CF` (A) y `$00C7` (B), y después
+   `OUT` para volver a elegir el que estaba;
+4. las páginas escritas: `OUT $06` e `INSEQ` de 64 (sección 11.5);
+5. la BRAM de sombra (índice 2): puntero a 2038 (`$85`, bajo, `$86`, alto),
+   `OUT $02` e `INSEQ` de 61 bytes (2038-2098, los POKEs de control); después
+   el puntero a `$0C00` e `INSEQ` de 1024 (los sprites, sección 11.4) y el
+   puntero a 2100 e `INSEQ` de 1 (el sprite elegido). La sombra guarda lo
+   último que escribió la CPU en cada dirección. Si un POKE vale el byte de
+   la ROM en esa dirección, se toma como **nunca escrito**: la sombra se
+   carga con la ROM al arrancar;
+6. `[MEMORY]`: `READ` de 256 bytes de `$2000` a `$FFFF` (en `$2000`-`$3FFF`,
+   la página del programa, no la del monitor). Con cada trozo de
+   `$2000`-`$BFFF`, un `INSEQ` de la sombra del mismo trozo (puntero
+   seguido desde `$2000`) para saber qué bloques no coinciden (`SHADOW`);
+7. `[COLOUR]`: `INSEQ` de la sombra de `$C000`-`$FFFF`;
+8. las páginas: `READP`. El monitor pone la página en el bloque 7 un
    momento (`OUT (C),A` con B = página y A = `(página & 31) << 3 | 7`, que
-   vale con y sin FULL_PAGING) y lo devuelve como estaba.
+   vale con y sin FULL_PAGING) y lo devuelve como estaba;
+9. los bloques de la sombra que se guardan: puntero a `bloque * $2000` e
+   `INSEQ` de 8 KB.
 
 El MCU no puede leer los bits de configuración en la FPGA: guarda el último
 valor que mandó con cada orden de configuración (`cfg_value`).
@@ -594,7 +666,7 @@ suyo: `VV ` o `*NNNN VV `, 16 tokens por línea.
 
 - `[CPU]`: los registros del bloque de la parada. `IM 01` siempre (no se
   puede leer; la ROM pone IM 1). `IF1` = `IF2` = IFF2.
-- `[ZX81]`: `NMI 00` (parado en FAST).
+- `[ZX81]`: `NMI 01` si estaba en SLOW (bit 6 del estado), si no `NMI 00`.
 - `[MEMORY]`: `MEMRANGE 2000 FFFF`, la memoria tal como la ve el programa,
   y `ROM_PROTECTED 00` (como EightyOne con el SD81 Booster: con `01`
   protegería `$2000`-`$3FFF`).
@@ -630,7 +702,7 @@ suyo: `VV ` o `*NNNN VV `, 16 tokens por línea.
     espacios no se guarda;
   - `SPRITE_SEL` y `SPRITE n en x y c0..c7 p0..p7 m0..m7` (solo los
     sprites que no están todos a cero): de la copia de los sprites en la
-    sombra (sección 11.5). Un sprite cuyos 28 bytes siguen siendo los de la
+    sombra (sección 11.4). Un sprite cuyos 28 bytes siguen siendo los de la
     ROM en esa posición no se ha escrito nunca (una ROM sin la limpieza del
     reset) y no se guarda; tampoco `SPRITE_SEL` si es el byte de la ROM
     en 2100 (se guarda 00).
@@ -652,53 +724,7 @@ suyo: `VV ` o `*NNNN VV `, 16 tokens por línea.
   ni la copia de los sprites, que ya van en sus claves (en la práctica,
   solo con CP/M).
 
-### 11.6 Las páginas escritas (FPGA rev 0.09)
-
-Para que un snapshot normal (sin `-a`) guarde lo que usa el programa sin
-tener que elegir, la FPGA lleva un bit por página (64): se pone a 1 cuando
-una escritura de la CPU llega a la SRAM en esa página (la de `sram_page`,
-con la ventana del monitor incluida). Las escrituras del MCU con el Z80 en
-reset no cuentan. Es una RAM distribuida de 64×1 (con 64 registros no
-cabía en la FPGA). Se lee por `$3FEF`, índice 6: `OUT $06` y 64 `IN`
-seguidos (el MCU usa INSEQ), uno por página, en el bit 0.
-
-La **orden 11** del canal de configuración las borra: al pasar a 1, un
-contador recorre las 64 posiciones (64 ciclos del Z80). El MCU manda 1 y
-después 0. El MCU las borra:
-- al cargar un programa (`LOAD`, en `dbg_note_loaded`);
-- al empezar a cargar un snapshot (las escritas pasan a ser las de la
-  carga);
-- en el reset del Z80.
-
-El snapshot guarda las mapeadas más las escritas (menos la 63). Con una FPGA
-anterior los índices dan 0 y quedan solo las mapeadas.
-
-En el emulador: un bit por página que se pone al escribir la CPU en ella,
-el índice 6 con su puntero y la orden 11.
-
-### 11.7 La pausa del botón QS: teclado del ZX81
-
-Sin menú en pantalla. Cuando la pausa la pide el botón QS (soltarlo entre 1
-y 3 s con el programa en marcha), al parar el MCU lee el teclado por el
-monitor cada 40 ms: `IN` de las filas `$FDFE`, `$FEFE`, `$BFFE` y `$7FFE`
-(nada se escribe en la memoria del programa). Cada tecla cuenta **al
-soltarla**, y solo si se ha pulsado durante la pausa (las que ya estaban
-pulsadas al parar no valen): así el programa no la ve al seguir.
-
-| Tecla | Qué hace |
-|---|---|
-| `S` | snapshot (nombre automático) y el programa sigue |
-| `Z` | snapshot y se queda parado (el teclado sigue activo) |
-| `L` | carga el último snapshot grabado en esta sesión (desde el encendido) |
-| `ESPACIO` | sigue |
-
-`L` carga sin pasar por la ROM: el programa ya está parado en el monitor.
-Como la ROM no pone el modo de interrupción, el MCU lo manda con los
-registros: `SETREGS` de **31 bytes**, con el IM (0-2) en el byte 30. El
-monitor lo pone al salir (`im_req`, `$FF` = no tocar). El resto de la carga
-es la de la sección 12.
-
-### 11.5 Los sprites en la sombra (FPGA rev 0.08)
+### 11.4 Los sprites en la sombra
 
 Los POKEs 2101-2128 son los mismos para los 32 sprites (el 2100 elige
 cuál), así que la sombra, que guarda lo último escrito en cada dirección,
@@ -723,15 +749,61 @@ de copiar los juegos de caracteres): el reset de la FPGA solo los apaga, y
 así la copia empieza limpia. El emulador tiene que hacer lo mismo: o
 ejecuta esa ROM, o al reset pone sus sprites y la copia a cero.
 
-### 11.4 En el emulador
+### 11.5 Las páginas escritas
 
-Lo más sencillo es generar el `.Z81` directamente con su propio guardado,
-añadiendo las claves `HW_POKES`/`HW_CFG` si quiere ser fiel. Si se emula el
-monitor y el protocolo, hacen falta los índices 2 y 3 del puerto `$3FEF`,
-los registros 5 y 6 y las peticiones 7 y 8. `cosim.cpp` lo modela y
-compara cada `.Z81` con la memoria emulada.
+Para que un snapshot normal (sin `-a`) guarde lo que usa el programa sin
+tener que elegir, la FPGA lleva un bit por página (64): se pone a 1 cuando
+una escritura de la CPU llega a la SRAM en esa página (la de `sram_page`,
+con la ventana del monitor incluida). Las escrituras del MCU con el Z80 en
+reset no cuentan. Es una RAM distribuida de 64×1 (con 64 registros no
+cabía en la FPGA). Se lee por `$3FEF`, índice 6: `OUT $06` y 64 `IN`
+seguidos (el MCU usa INSEQ), uno por página, en el bit 0.
 
-La carga está en la sección 12.
+La **orden 11** del canal de configuración las borra: al pasar a 1, un
+contador recorre las 64 posiciones (64 ciclos del Z80). El MCU manda 1 y
+después 0. El MCU las borra:
+- al cargar un programa (`LOAD`, en `dbg_note_loaded`);
+- al empezar a cargar un snapshot (las escritas pasan a ser las de la
+  carga);
+- en el reset del Z80.
+
+El snapshot guarda las mapeadas más las escritas (menos la 63). Con una FPGA
+anterior los índices dan 0 y quedan solo las mapeadas.
+
+En el emulador: un bit por página que se pone al escribir la CPU en ella,
+el índice 6 con su puntero y la orden 11.
+
+### 11.6 La pausa del botón QS: teclado del ZX81
+
+Sin menú en pantalla. Cuando la pausa la pide el botón QS (soltarlo entre 1
+y 3 s con el programa en marcha), al parar el MCU lee el teclado por el
+monitor cada 40 ms: `IN` de las filas `$FDFE`, `$FEFE`, `$BFFE` y `$7FFE`
+(nada se escribe en la memoria del programa). Cada tecla cuenta **al
+soltarla**, y solo si se ha pulsado durante la pausa (las que ya estaban
+pulsadas al parar no valen): así el programa no la ve al seguir.
+
+| Tecla | Qué hace |
+|---|---|
+| `S` | snapshot (nombre automático) y el programa sigue |
+| `Z` | snapshot y se queda parado (el teclado sigue activo) |
+| `L` | carga el último snapshot grabado en esta sesión (desde el encendido) |
+| `ESPACIO` | sigue |
+
+`L` carga sin pasar por la ROM: el programa ya está parado en el monitor.
+Como la ROM no pone el modo de interrupción, el MCU lo manda con los
+registros: `SETREGS` de **31 bytes**, con el IM (0-2) en el byte 30. El
+monitor lo pone al salir (`im_req`, `$FF` = no tocar). El resto de la carga
+es la de la sección 12.
+
+### 11.7 En el emulador
+
+Lo más sencillo es generar el `.Z81` con su propio guardado, con las mismas
+claves (incluidas `HW_POKES`, `HW_CFG`, `AY3_*`, `SPRITE` y `SHADOW` si
+quiere ser fiel). Si emula el monitor y el protocolo, hacen falta los
+índices 2-6 del puerto `$3FEF`, los registros 5-7, las peticiones 7-12, la
+copia de los sprites (11.4) y las páginas escritas (11.5). `cosim.cpp` lo
+modela y compara cada `.Z81` con la memoria emulada. La carga está en la
+sección 12.
 
 ## 12. Carga de snapshots (`LOAD *Z81` con el monitor)
 
@@ -741,7 +813,7 @@ la 1, que es donde se ejecuta la ROM. La salida del monitor (`SETREGS` +
 `CONT`) deja todos los registros, R incluido, como estaban. Sin monitor se
 usa el cargador de siempre (comando 70, `z81_snapshot_loading.md`).
 
-### 12.1 La FPGA (rev 0.08)
+### 12.1 La FPGA
 
 - **Registro 7 del puerto `$3FEF`:** `OUT $87` y después el dato. El dato
   se escribe en la BRAM de sombra, en el puntero de los registros 5 y 6, y
@@ -756,10 +828,10 @@ usa el cargador de siempre (comando 70, `z81_snapshot_loading.md`).
 
   Fuera del monitor no hace nada. La pone y la quita el MCU.
 
-### 12.2 El monitor (versión 3: `"SD81DBG",3` en `$2003`; 1254 bytes)
+### 12.2 El monitor (versión 3: `"SD81DBG",3` en `$2003`)
 
 `SETREGS` acepta 30 bytes o 31, con el modo de interrupción en el último
-(sección 11.7).
+(sección 11.6).
 
 | op | Nombre | Dirección | n | Después | Qué hace |
 |---|---|---|---|---|---|
@@ -784,7 +856,7 @@ empieza cada sección. El Z80 espera mientras tanto.
 
 | Estado | Qué hace la ROM |
 |---|---|
-| 0 | `DI`, `OUT ($FD),A` (NMI apagada: con ella el depurador no para), `IM` del snapshot, trampa (`OUT $10` a `$3FEF`) y `JR $`. No vuelve: el MCU carga todo al parar y salta al snapshot. |
+| 0 | `DI`, `OUT ($FD),A` (NMI apagada), `IM` del snapshot, trampa (`OUT $10` a `$3FEF`) y `JR $`. No vuelve: el MCU carga todo al parar y salta al snapshot. Si venía de SLOW, la trampa espera hasta que la FPGA ve FAST (un cuadro sin NMI, 20 ms). |
 | `0xFF` | Sin monitor: vuelve a mandar el nombre con el comando 70 (el cargador de siempre). |
 | 1-3 | Error, como el 70: 1 sin fichero, 2 sin `[MEMORY]`, 3 fichero mal hecho (`REPORT-G`, `-H`, `-I`). |
 
@@ -890,7 +962,7 @@ vuelta del monitor, PC+1). Con `NMI 01`, los 8 bytes debajo de SP.
 - **Para cargar como el hardware:**
   - el registro 7 y la orden 10 (sección 12.1);
   - las peticiones 9 a 12 del monitor y la relectura del mapper (12.2);
-  - los índices 4 y 5 y la copia de los sprites (11.5);
+  - los índices 4 y 5 y la copia de los sprites (11.4);
   - el comando 75 con la lógica del MCU (12.4).
 
   O, si es más cómodo, el emulador puede cargar el `.Z81` con su propio
@@ -943,19 +1015,27 @@ registro. `R_IN` pasa a 10 (una M1 más).
 
 - Al parar, `stop_nmi` = bit 6 del estado. Si el PC es `$0066`, **deshace
   la NMI** antes de nada: lee `[SP]` y pone `PC = [SP]`, `SP + 2` y R - 1
-  (la M1 del reconocimiento). La consola y los snapshots ven el programa
-  como si la NMI no hubiera llegado; la ROM pierde una línea de su cuenta
-  (como mucho, un cuadro movido al seguir). La consola añade `(SLOW)`.
-- Al seguir (o dar pasos), si `stop_nmi`, vuelve por `OUT ($FE),A` / `RET`
+  (la M1 del reconocimiento), y se lo manda al monitor con `SETREGS` (si
+  no, un paso volvería a `$0066`). La consola y los snapshots ven el
+  programa como si la NMI no hubiera llegado; la ROM pierde una línea de su
+  cuenta (como mucho, un cuadro movido al seguir).
+- `prog_slow`: el programa es SLOW (se pone al parar con el bit 6 y se
+  mantiene hasta que se sigue de verdad). La consola añade `(SLOW)`.
+- **Al seguir de verdad** (`c`, `g`, `o` sobre un `CALL`, `u`, `S` en la
+  pausa del botón), si `prog_slow`, vuelve por `OUT ($FE),A` / `RET`
   escritos debajo de la pila (8 bytes; como la carga con `NMI 01`, sección
   12.4): `PC = SP-8`, `SP = SP-2`, R menos 2.
-- Los pasos (`s n`) piden n+2 (el `OUT` y el `RET`) y la ruptura espera a
-  la NMI siguiente: en SLOW el programa sigue hasta ella (como mucho unos
-  200 ciclos). Son aproximados.
-- El paso para saltar un breakpoint en el PC: si al volver a parar sigue en
-  el breakpoint con el mismo R (la NMI llegó antes de ejecutarlo), se
-  repite.
-- El snapshot de un programa parado en SLOW guarda `NMI 01`.
+- **Los pasos** (`s n`, `o` sobre una instrucción normal, y el paso para
+  saltar un breakpoint en el PC) **se dan con la NMI apagada**: son exactos
+  (sin NMI no hay pantalla ni rutina de vídeo que se cuele). Tras 20 ms
+  parado la FPGA ya ve FAST y para en la instrucción justa. Al parar de un
+  paso el bit 6 sale a 0, pero `prog_slow` sigue y el siguiente `c` vuelve
+  a encender la NMI. Consecuencia: un bucle que espera a la rutina de vídeo
+  (el BASIC esperando una tecla en `$04CF`, que mira el bit 0 de CDFLAG) no
+  sale paso a paso; hay que usar `c` o `g`.
+- `g`/`o`/`u` en SLOW usan un `FF` temporal (sección 10.8), que espera en
+  `JR $` a la NMI.
+- El snapshot de un programa SLOW (`prog_slow`) guarda `NMI 01`.
 
 ### 13.4 Mientras está parado
 

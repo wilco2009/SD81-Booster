@@ -10,9 +10,13 @@
  #define LOG2
  //#define LOG3
 
-#ifndef SERIAL_RX_BUFFER_SIZE
-#define SERIAL_RX_BUFFER_SIZE 512
-#endif /* SERIAL_RX_BUFFER_SIZE */
+// El buffer de recepcion de los UART lo fija build_opt.h (-D para todo el
+// nucleo): aqui no sirve, el nucleo se compila aparte y HardwareSerial.h ya
+// lo habria dejado en 64. Con 64 bytes a 921600 baudios, las tramas grandes
+// del ESP32 se perdian en cuanto loop() tardaba mas de ~0,7 ms
+#if !defined(SERIAL_RX_BUFFER_SIZE) || SERIAL_RX_BUFFER_SIZE < 512
+#error "Falta build_opt.h (-DSERIAL_RX_BUFFER_SIZE=512) en la carpeta del sketch"
+#endif
 
 // #define COMMON_ANODE
 

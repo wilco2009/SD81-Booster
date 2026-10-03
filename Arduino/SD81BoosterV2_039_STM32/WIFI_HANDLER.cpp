@@ -137,8 +137,27 @@ static int alloc_handle() {
   return -1;
 }
 
+// LIST_DIR por paginas: cada peticion trae el indice de la primera entrada
+// que quiere (start_index, un byte). Abrir el directorio y saltar
+// start_index entradas en cada pagina hacia el listado cuadratico (una
+// carpeta de 300 ficheros eran decenas de miles de openNext) y, al pasar de
+// 255, el ESP32 volvia a pedir la 0 y el listado no acababa nunca. Ahora el
+// directorio se queda abierto entre paginas (el cursor) y se sigue donde se
+// quedo si la peticion es la siguiente (start_index el esperado, modulo 256)
+// o se repite la anterior (un reintento del ESP32: se vuelve al principio de
+// esa pagina). Cualquier otra cosa empieza de cero, como antes.
+#define LIST_CURSOR_MS  5000      // un listado abandonado se cierra solo
+
+static FsFile   ls_dir;           // el cursor
+static char     ls_path[WIFI_PROTO_MAX_PATH];
+static uint8_t  ls_next;          // start_index de la pagina siguiente
+static uint8_t  ls_last;          // start_index de la ultima pagina servida
+static uint32_t ls_last_pos;      // posicion del directorio al empezarla
+static uint32_t ls_t;
+
+static void list_cursor_close(){ if (ls_dir) ls_dir.close(); }
+
 static void handle_list_dir(const uint8_t* payload, uint16_t len) {
-  log_1("WIFI LIST_DIR: enter, len=%d", len);
   char path[WIFI_PROTO_MAX_PATH];
   if (len < 2 || !extract_path(payload, len - 1, path)) {
     log_1("WIFI LIST_DIR: extract_path failed");
@@ -146,65 +165,66 @@ static void handle_list_dir(const uint8_t* payload, uint16_t len) {
     return;
   }
   uint8_t start_index = payload[len - 1];
-  log_1("WIFI LIST_DIR: path=%s start_index=%d", path, start_index);
+  log_3("WIFI LIST_DIR: path=%s start_index=%d", path, start_index);
 
-  FsFile listDir = sd.open(path);
-  log_1("WIFI LIST_DIR: sd.open returned");
-  if (!listDir || !listDir.isDir()) {
-    log_1("WIFI LIST_DIR: not a directory or doesn't exist");
-    if (listDir) listDir.close();
-    send_status_only(CMD_LIST_DIR, ST_NOT_FOUND);
-    return;
+  bool same = ls_dir && millis() - ls_t < LIST_CURSOR_MS && !strcmp(path, ls_path);
+  if (same && start_index == ls_next) {
+    // la siguiente: el cursor ya esta ahi
+  } else if (same && start_index == ls_last) {
+    ls_dir.seekSet(ls_last_pos);          // reintento: la misma pagina otra vez
+  } else {
+    list_cursor_close();
+    ls_dir = sd.open(path);
+    if (!ls_dir || !ls_dir.isDir()) {
+      log_1("WIFI LIST_DIR: not a directory or doesn't exist: %s", path);
+      list_cursor_close();
+      send_status_only(CMD_LIST_DIR, ST_NOT_FOUND);
+      return;
+    }
+    strcpy(ls_path, path);
+    FsFile entry;
+    for (uint8_t k = 0; k < start_index && entry.openNext(&ls_dir, O_RDONLY); k++) entry.close();
   }
-
-  FsFile entry;
-  uint8_t skipped = 0;
-  log_1("WIFI LIST_DIR: before skip loop");
-  while (skipped < start_index && entry.openNext(&listDir, O_RDONLY)) {
-    entry.close();
-    skipped++;
-  }
-  log_1("WIFI LIST_DIR: skip done (%d)", skipped);
+  ls_last = start_index;
+  ls_last_pos = ls_dir.curPosition();
 
   uint16_t pos = 3;   // 0=status, 1=entry_count, 2=has_more, filled in at the end
   uint8_t count = 0;
   bool has_more = false;
   char name[64];
+  FsFile entry;
 
-  while (count < 4) {   // max 4 entries per page, plenty within one frame
-    log_1("WIFI LIST_DIR: before openNext count=%d", count);
-    if (!entry.openNext(&listDir, O_RDONLY)) break;
-    log_1("WIFI LIST_DIR: openNext returned, reading name");
+  // tantas entradas como quepan en la trama (antes, 4 por pagina)
+  for (;;) {
+    uint32_t here = ls_dir.curPosition();
+    if (!entry.openNext(&ls_dir, O_RDONLY)) break;
     entry.getName(name, sizeof(name));
-    log_1("WIFI LIST_DIR: entry=%s", name);
     uint8_t name_len = (uint8_t)strlen(name);
     uint32_t size = entry.size();
     uint8_t flags = entry.isDir() ? WIFI_PROTO_FLAG_DIR : 0;
     entry.close();
 
-    if (pos + 1 + name_len + 4 + 1 > WIFI_PROTO_MAX_FRAME_PAYLOAD) { has_more = true; break; }
-
+    if (pos + 1 + name_len + 4 + 1 > WIFI_PROTO_MAX_FRAME_PAYLOAD) {
+      ls_dir.seekSet(here);               // no cabe: sera la primera de la siguiente
+      has_more = true;
+      break;
+    }
     tx_payload[pos++] = name_len;
     memcpy(&tx_payload[pos], name, name_len); pos += name_len;
     memcpy(&tx_payload[pos], &size, 4); pos += 4;
     tx_payload[pos++] = flags;
     count++;
   }
-  log_1("WIFI LIST_DIR: main loop finished, count=%d", count);
 
-  if (!has_more) {
-    FsFile probe;
-    if (probe.openNext(&listDir, O_RDONLY)) { has_more = true; probe.close(); }
-  }
-  log_1("WIFI LIST_DIR: has_more=%d, closing listDir", has_more);
+  if (!has_more) list_cursor_close();      // se acabo: el siguiente listado empieza de cero
+  ls_next = start_index + count;
+  ls_t = millis();
+  log_3("WIFI LIST_DIR: count=%d has_more=%d", count, has_more);
 
   tx_payload[0] = ST_OK;
   tx_payload[1] = count;
   tx_payload[2] = has_more ? 1 : 0;
-  listDir.close();
-  log_1("WIFI LIST_DIR: sending response, pos=%d", pos);
   wifi_send_frame(CMD_LIST_DIR, tx_payload, pos);
-  log_1("WIFI LIST_DIR: response sent");
 }
 
 static void handle_stat(const uint8_t* payload, uint16_t len) {

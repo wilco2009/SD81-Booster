@@ -80,7 +80,9 @@ enum {
   TAG_KBD,          // teclado en la pausa del boton QS (arg = fila 0-3)
   TAG_UNWIND,       // SLOW: parado en la entrada de la NMI, su vuelta ([SP])
   TAG_STEPOVER,     // o: la instruccion en el PC
-  TAG_STEPOUT       // u: la direccion de vuelta en [SP]
+  TAG_STEPOUT,      // u: la direccion de vuelta en [SP]
+  TAG_VIEW,         // v: los POKEs de control en la sombra (2038-2098)
+  TAG_VIEW_SYNC     // v: ya se ha escrito el 2045 (orden 10 fuera)
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -315,7 +317,10 @@ static void q_cont(bool run){
   q_push(OP_CONT, 0, 0);
 }
 
+static void view_off();
+
 static void dbg_continue(){
+  view_off();                                 // v: el video del programa, antes de nada
   if (foreign_rst()) queue_emulate_rst();
   int at = bp_find(reg16(R_PC));
   queue_insert_bps(at);
@@ -416,6 +421,9 @@ static uint8_t* ld_data(uint8_t k);
 
 static void tmp_stop();
 static void free_temp_bps();
+static void view_result(uint8_t* d, uint16_t n);
+static bool view_is_on();
+static void view_drop();
 static void run_to(uint16_t addr, const char* what);
 static void step_over(uint8_t* b, uint16_t n);
 
@@ -519,6 +527,8 @@ static void on_result(uint8_t* data, uint16_t n){
       break;
     case TAG_STEPOVER: step_over(data, n); break;
     case TAG_STEPOUT:  if (n == 2) run_to(data[0] | (data[1] << 8), "Step out"); break;
+    case TAG_VIEW:      view_result(data, n); break;
+    case TAG_VIEW_SYNC: send_bit_config(cfgcmd_DBGPOKE, 0); break;
     case TAG_UNWIND:                          // SLOW: deshacer la NMI
       if (n == 2) {
         set_reg16(R_PC, data[0] | (data[1] << 8));
@@ -582,7 +592,7 @@ void cmd_dbg_poll(void){
   if (r.op == OP_WRITE || r.op == OP_SETREGS || r.op == OP_AYWRITE)
     for (uint16_t i = 0; i < r.n; i++) SendByteToZ80(r.data[i]);
   if (r.op == OP_WRITEP || r.op == OP_BRAMW) {  // los datos de la carga, en su buffer
-    uint8_t* d = ld_data(r.arg);
+    uint8_t* d = (r.arg == 0xFF) ? r.data : ld_data(r.arg);   // (0xFF: en la propia peticion)
     for (uint16_t i = 0; i < r.n; i++) SendByteToZ80(d[i]);
   }
   last = r;
@@ -613,6 +623,7 @@ static void help(){
   Serial.println("  g addr         run to addr");
   Serial.println("  b addr         set a breakpoint      bc [addr]  clear one / all      bl  list");
   Serial.println("  w r|w|io addr  watchpoint (read, write, I/O port)    w  clear it");
+  Serial.println("  v              video while stopped: Superfast text on / off (SLOW and FAST programs)");
   Serial.println("  d [addr] [n]   disassemble n instructions (10) from addr (PC)");
   Serial.println("  m addr [n]     dump n bytes (64)");
   Serial.println("  e addr b1 b2.. write bytes");
@@ -689,6 +700,15 @@ bool dbg_console(const char* line){
     for (int i = 0; i < NBP; i++) if (bps[i].used) { Serial.printf("%d: %04X\r\n", i, bps[i].addr); any = true; }
     if (!any) Serial.println("No breakpoints");
     if (watch_mode) Serial.printf("Watchpoint: %s %04X\r\n", watch_name(), watch_addr);
+  }
+  else if (!strcmp(cmd, "v")) {
+    if (view_is_on()) { view_off(); Serial.println("Video: back to the program's own"); }
+    else {                                    // primero, los POKEs en la sombra
+      q_out(DBG_PORT, 0x85); q_out(DBG_PORT, 2038 & 0xFF);   // 2038-2098 (POKE_FIRST/POKE_N)
+      q_out(DBG_PORT, 0x86); q_out(DBG_PORT, 2038 >> 8);
+      q_out(DBG_PORT, 0x02);
+      q_push(OP_INSEQ, DBG_PORT, 61, TAG_VIEW);
+    }
   }
   else if (!strcmp(cmd, "g")) {
     if (!parse_hex(p, a)) { Serial.println("g addr"); return true; }
@@ -770,6 +790,7 @@ void dbg_reset(void){
   dirty_clear();                              // las paginas escritas, desde aqui
   watch_mode = 0;                             // el reset de la FPGA borra el comparador
   prog_slow = stop_nmi = false;
+  view_drop();
   cmp_tmp = false;
   stopped = false;
   poll_state = 0;
@@ -928,6 +949,7 @@ void dbg_snapshot(bool all, const char* name, bool resume){
   sn.resume = resume;
   strncpy(sn.user_name, name ? name : "", sizeof(sn.user_name) - 1);
   sn.user_name[sizeof(sn.user_name) - 1] = 0;
+  view_off();                                 // el .Z81 guarda el video del programa
   if (stopped) snap_begin();
   else {                                      // al parar empieza (on_break)
     snap_pending = true;
@@ -1637,6 +1659,7 @@ static void ld_bram_ptr(uint16_t a){
 // Empieza al parar en la trampa de la ROM
 static void ld_begin(){
   ld.pending = false;
+  view_drop();                                // la carga repone los POKEs
   dirty_clear();                              // las paginas escritas seran las de la carga
   set_blinking(clCYAN, 4);
   Serial.println("\r\nLoading snapshot ...");
@@ -1931,4 +1954,51 @@ static void kbd_result(uint8_t k, uint8_t v){
     ld_begin();
   }
   else if (press & 8) { Serial.println("QS pause: continue"); dbg_continue(); }
+}
+
+// ---------------------------------------------------------------------
+// v: video mientras esta parado. Un programa en SLOW o en FAST no tiene
+// imagen parado (la NMI esta apagada); la FPGA si puede pintar su D_FILE en
+// Superfast texto desde la BRAM de sombra, donde esta todo lo que ha escrito
+// la CPU. v pone POKE 2045,170 (con la orden 10, desde el monitor) y lo
+// quita al seguir de verdad (c, g, o sobre un CALL, u, S), antes de un
+// snapshot o con otra v: el 2045 vuelve a su valor (85 si nunca se escribio)
+// y su byte de la sombra al de antes. 85 apaga el D_FILE y los atributos
+// alternativos: si estaban, se vuelven a poner. Los pasos la mantienen
+// ---------------------------------------------------------------------
+static bool view_on = false;
+static uint8_t view_pk[POKE_N];             // 2038-2098 en la sombra al activarla
+
+static bool view_is_on(){ return view_on; }
+static void view_drop(){ view_on = false; }
+
+static void view_result(uint8_t* d, uint16_t n){
+  if (n < POKE_N) return;
+  uint8_t m = d[2045 - POKE_FIRST];
+  if (m >= 170 && m <= 174) { Serial.printf("Video: the program is already Superfast (POKE 2045,%d)\r\n", m); return; }
+  memcpy(view_pk, d, POKE_N);
+  send_bit_config(cfgcmd_DBGPOKE, 1);         // el monitor escribe como el programa
+  q_write1(2045, 170);
+  q_push(OP_IN, 0x00E7, 0, TAG_VIEW_SYNC);    // cuando llegue, la orden 10 fuera
+  view_on = true;
+  Serial.println("Video: Superfast text while stopped (v again, or continue, to go back)");
+}
+
+static void view_off(){
+  if (!view_on) return;
+  view_on = false;
+  uint8_t sh = view_pk[2045 - POKE_FIRST], rom = 0;
+  bool never = rom_file_read(2045, &rom, 1) == 1 && rom == sh;
+  uint8_t m = never ? 85 : sh;
+  send_bit_config(cfgcmd_DBGPOKE, 1);
+  q_write1(2045, m);
+  if (m == 85) {                              // 85 apaga el D_FILE y los atributos alternativos
+    if (view_pk[2098 - POKE_FIRST] == 170) q_write1(2098, 170);
+    if (view_pk[2061 - POKE_FIRST] == 170) q_write1(2061, 170);
+  }
+  q_push(OP_IN, 0x00E7, 0, TAG_VIEW_SYNC);
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, 2045 & 0xFF);   // la sombra del 2045, como estaba
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, 2045 >> 8);
+  DbgReq* r = q_push(OP_BRAMW, 0, 1, TAG_NONE, 0xFF);
+  if (r) r->data[0] = sh;
 }

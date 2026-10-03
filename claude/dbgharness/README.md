@@ -74,3 +74,6 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
   `OUT ($FE)`/`RET`; un breakpoint en el PC.
 - la fase 3: `o` sobre un `CALL`, `s` + `u`, `g`, un punto de vigilancia de
   escritura y `o` con el comparador ocupado (con un `FF` temporal).
+- `v`: el 2045 a 170 con la orden 10, los pasos la mantienen, al quitarla
+  (con `v` o al seguir) el 2045 y su sombra como estaban y el D_FILE
+  alternativo otra vez; con un programa ya Superfast no hace nada.

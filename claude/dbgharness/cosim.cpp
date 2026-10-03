@@ -753,6 +753,32 @@ int main(int argc, char** argv){
           out_log.find("Watchpoint: write 6100") != std::string::npos, "o con w: el FF se quita, el punto sigue");
     con("w");
     CHECK(run_until_waiting(5000000) && cmp_mode == 0, "w: quitado");
+    // v: video Superfast mientras esta parado
+    bram[2045] = romfile[2045]; pokereg[2045] = 0x55;   // video nativo (2045 nunca escrito)
+    bram[2098] = 0xAA; pokereg[2098] = 0xAA;            // con el D_FILE alternativo puesto
+    bram[2061] = romfile[2061];                         // y sin los atributos alternativos
+    con("v");
+    CHECK(run_until_waiting(5000000) && pokereg[2045] == 170 && cfgs[cfgcmd_DBGPOKE] == 0, "v: POKE 2045,170 (orden 10 fuera)");
+    con("s");
+    CHECK(run_until_waiting(5000000) && pokereg[2045] == 170, "v: los pasos la mantienen");
+    poke_log.clear();
+    con("v");
+    CHECK(run_until_waiting(5000000) && pokereg[2045] == 85 && bram[2045] == romfile[2045] && cfgs[cfgcmd_DBGPOKE] == 0,
+          "v otra vez: 2045 a 85 y su sombra como estaba");
+    CHECK(poke_log.size() == 2 && poke_log[0] == 2045 && poke_log[1] == 2098 && pokereg[2098] == 0xAA,
+          "v: el D_FILE alternativo, otra vez despues del 85");
+    con("v");
+    CHECK(run_until_waiting(5000000) && pokereg[2045] == 170, "v: otra vez Superfast");
+    con("c");
+    run_program(100);
+    CHECK(!mon && pokereg[2045] == 85 && bram[2045] == romfile[2045], "v: al seguir, el video del programa");
+    pause_pend = true;
+    CHECK(run_until_waiting(5000000), "v: pausa");
+    bram[2045] = 0xAA;
+    { std::lock_guard<std::mutex> l(out_mx); out_log.clear(); }
+    con("v");
+    CHECK(run_until_waiting(5000000) && out_log.find("already Superfast") != std::string::npos, "v: si ya es Superfast, nada");
+    bram[2045] = romfile[2045];
     con("c");
     run_program(100);
   }

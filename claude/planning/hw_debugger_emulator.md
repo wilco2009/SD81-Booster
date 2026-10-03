@@ -29,7 +29,8 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
-| (siguiente) | Fase 3: `o` (paso por encima), `u` (salir de la rutina), `g` (ejecutar hasta) y `w` (puntos de vigilancia) en la consola. Solo el MCU: la FPGA y el monitor no cambian | 10.5, 10.8 |
+| (este) | Orden `v`: vídeo Superfast texto mientras está parado (programas en SLOW y FAST). Solo el MCU | 10.5, 13.4 |
+| 26c37a9 | Fase 3: `o` (paso por encima), `u` (salir de la rutina), `g` (ejecutar hasta) y `w` (puntos de vigilancia) en la consola. Solo el MCU: la FPGA y el monitor no cambian | 10.5, 10.8 |
 
 **Importante:** la ROM nueva manda el comando 75 antes que el 70. El
 emulador tiene que contestarlo, aunque sea con `0xFF` ("sin monitor"), o
@@ -535,6 +536,7 @@ solo valen `p`, `snap` y `h`.
 | `g dir` | ejecutar hasta dir |
 | `b dir` / `bc [dir]` / `bl` | poner, quitar (uno o todos) y listar breakpoints (y el punto de vigilancia) |
 | `w r\|w\|io dir` / `w` | punto de vigilancia de lectura, escritura o E/S (el byte bajo del puerto) / quitarlo |
+| `v` | vídeo mientras está parado: Superfast texto sí / no (sección 13.4) |
 | `d [dir] [n]` | desensamblar n instrucciones (10, como mucho 60) desde dir (PC) |
 | `m dir [n]` | volcado de n bytes (64, como mucho 256) |
 | `e dir b1 b2 …` | escribir bytes (hasta 32) |
@@ -1037,9 +1039,34 @@ registro. `R_IN` pasa a 10 (una M1 más).
   `JR $` a la NMI.
 - El snapshot de un programa SLOW (`prog_slow`) guarda `NMI 01`.
 
-### 13.4 Mientras está parado
+### 13.4 Mientras está parado: la orden `v`
 
-La pantalla se queda en negro, como en FAST, hasta continuar.
+Parado, un programa en SLOW o en FAST no tiene imagen (la NMI está
+apagada): la pantalla se queda en negro hasta continuar. Con **`v`** la FPGA
+la pinta en Superfast texto desde la BRAM de sombra, donde está todo lo que
+ha escrito la CPU (el D_FILE incluido). Solo con la orden: no se garantiza
+que valga para todos los programas.
+
+- **Al activarla**, el MCU lee de la sombra los POKEs de control (2038-2098,
+  índice 2). Si el 2045 ya vale 170-174 (el programa es Superfast), no hace
+  nada. Si no, `POKE 2045,170` con la orden 10 (sección 12.1), y una `IN`
+  de barrera para quitar la orden 10.
+- **Los pasos** (`s`, `o` sobre una instrucción normal) la mantienen: se ve
+  cómo cambia la pantalla.
+- **Se quita** con otra `v`, al seguir de verdad (`c`, `g`, `o` sobre un
+  `CALL`, `u`, `S`: antes de nada, también antes de poner los breakpoints)
+  y antes de un snapshot (el `.Z81` guarda el vídeo del programa):
+  - `POKE 2045` con su valor de antes, o 85 si nunca se escribió (si el
+    byte de la sombra es el de la ROM);
+  - 85 apaga el D_FILE y los atributos alternativos: si en la sombra 2098 o
+    2061 valían 170, se vuelven a poner;
+  - el byte de la sombra en 2045, como estaba (BRAMW de un byte), para que
+    el siguiente `snap` lo vea igual.
+- La carga de un snapshot la descarta (repone los POKEs).
+
+Limitaciones: un D_FILE comprimido (1 K) sale desordenado; un programa con
+su propia rutina de vídeo (pseudo hi-res, WRX…) enseña su D_FILE, no lo que
+pinta su rutina.
 
 ### 13.5 En el emulador
 

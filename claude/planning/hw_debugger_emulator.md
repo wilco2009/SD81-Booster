@@ -29,7 +29,7 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
-| (este) | Orden `v`: vídeo Superfast texto mientras está parado (programas en SLOW y FAST). Solo el MCU | 10.5, 13.4 |
+| cc3f2f9 | Orden `v`: vídeo Superfast texto mientras está parado (programas en SLOW y FAST). Solo el MCU | 10.5, 13.4 |
 | 26c37a9 | Fase 3: `o` (paso por encima), `u` (salir de la rutina), `g` (ejecutar hasta) y `w` (puntos de vigilancia) en la consola. Solo el MCU: la FPGA y el monitor no cambian | 10.5, 10.8 |
 
 **Importante:** la ROM nueva manda el comando 75 antes que el 70. El

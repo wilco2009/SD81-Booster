@@ -77,7 +77,8 @@ enum {
   TAG_LD_MAP,       // carga: pagina de un bloque (sin MAPPER; arg = bloque)
   TAG_LD_SYNC,      // carga: ya se han escrito los POKEs
   TAG_SNAP_DIRTY,   // snapshot: las paginas escritas (arg = byte 0-7)
-  TAG_KBD           // teclado en la pausa del boton QS (arg = fila 0-3)
+  TAG_KBD,          // teclado en la pausa del boton QS (arg = fila 0-3)
+  TAG_UNWIND        // SLOW: parado en la entrada de la NMI, su vuelta ([SP])
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -117,6 +118,8 @@ static uint8_t poll_state = 0;     // 0: recibir el resultado; 1: esperar petici
 static DbgReq last;                // la peticion cuyo resultado llega en el siguiente POLL
 static int8_t internal_step = -1;  // breakpoint saltado con un paso (indice)
 static bool stop_foreign = false;  // parado en un RST 38h del programa (FF que no es nuestro)
+static bool stop_nmi = false;      // parado en SLOW: la NMI estaba encendida (el monitor la apaga)
+static uint8_t istep_r = 0;        // R al dar el paso para saltar un breakpoint
 static uint8_t pause_tgl = 0;
 static uint8_t res[256];
 
@@ -279,22 +282,49 @@ static void resumed(){
   set_status_led_ok();
 }
 
+// Volver al programa. Si estaba en SLOW, el monitor apago la NMI al entrar:
+// se vuelve por OUT ($FE),A / RET escritos debajo de su pila (8 bytes),
+// como en la carga de snapshots con NMI 01. Con la NMI encendida la FPGA no
+// la deja saltar mientras entra el monitor (sim_int 0.10)
+static void q_cont(){
+  if (stop_nmi) {
+    uint16_t s = reg16(R_SP), pc = reg16(R_PC);
+    DbgReq* r = q_push(OP_WRITE, s - 8, 8);
+    if (r) {
+      static const uint8_t stub[8] = {0xD3, 0xFE, 0xC9, 0, 0, 0, 0, 0};
+      memcpy(r->data, stub, 8);
+      r->data[6] = pc & 0xFF; r->data[7] = pc >> 8;
+    }
+    set_reg16(R_SP, s - 2);
+    set_reg16(R_PC, s - 8);
+    regs[R_R] = (regs[R_R] & 0x80) | ((regs[R_R] - 2) & 0x7F);   // las dos M1 del OUT y el RET
+    q_setregs();
+    stop_nmi = false;
+  }
+  q_push(OP_CONT, 0, 0);
+}
+
+// Pasos: en SLOW cuentan tambien el OUT y el RET de la vuelta (y las
+// instrucciones de la rutina de la NMI, si salta entre medias)
+static uint16_t slow_steps(uint16_t n){ return stop_nmi ? n + 2 : n; }
+
 static void dbg_continue(){
   if (foreign_rst()) queue_emulate_rst();
   int at = bp_find(reg16(R_PC));
   queue_insert_bps(at);
   if (at >= 0) {                              // primero un paso sin ese breakpoint
-    queue_steps(1);
+    queue_steps(slow_steps(1));
     internal_step = at;
+    istep_r = regs[R_R];
   }
-  q_push(OP_CONT, 0, 0);
+  q_cont();
   resumed();
 }
 
 static void dbg_step(uint16_t n){
   if (foreign_rst()) queue_emulate_rst();
-  queue_steps(n);
-  q_push(OP_CONT, 0, 0);
+  queue_steps(slow_steps(n));
+  q_cont();
   resumed();
 }
 
@@ -318,17 +348,42 @@ static void ld_feed();
 static uint8_t* ld_data(uint8_t k);
 
 // Ha llegado DBG_BREAK con los registros
+static void on_break2();
+
+// En SLOW la FPGA para en la entrada de la NMI ($0066, sim_int 0.12): antes
+// de nada se deshace (PC = [SP], SP + 2, R - 1 por la M1 del reconocimiento),
+// como si no hubiera llegado. La ROM pierde una linea de su cuenta: como
+// mucho, un cuadro movido al seguir
 static void on_break(){
   q_count = 0;
   poll_state = 0;
   stopped = true;
+  stop_nmi = (regs[R_DBGST] & 0x40) != 0;
+  if (stop_nmi && reg16(R_PC) == 0x0066) {
+    q_push(OP_READ, reg16(R_SP), 2, TAG_UNWIND);
+    return;
+  }
+  on_break2();
+}
+
+static void on_break2(){
   if (internal_step >= 0) {
     int i = internal_step;
     internal_step = -1;
     if ((regs[R_DBGST] & 7) == 4) {           // el paso para saltar el breakpoint:
-      q_push(OP_READ, bps[i].addr, 1, TAG_BP_ORIG, i);   // ponerlo y seguir
-      q_write1(bps[i].addr, 0xFF);
-      q_push(OP_CONT, 0, 0);
+      // En SLOW, si la NMI llego antes de la instruccion del breakpoint
+      // (seguimos en el y R no ha avanzado: deshecha la NMI, R es el de
+      // antes), el paso no la ejecuto: otra vez. Si la ejecuto, R avanza 1
+      // o 2 (sus M1), aunque vuelva a si misma (JR $)
+      if (stop_nmi && reg16(R_PC) == bps[i].addr && ((regs[R_R] - istep_r) & 0x7F) == 0) {
+        queue_steps(slow_steps(1));
+        internal_step = i;
+        istep_r = regs[R_R];
+      } else {
+        q_push(OP_READ, bps[i].addr, 1, TAG_BP_ORIG, i);   // ponerlo y seguir
+        q_write1(bps[i].addr, 0xFF);
+      }
+      q_cont();
       resumed();
       return;
     }
@@ -342,9 +397,9 @@ static void on_break(){
   }
   set_status_LED(clMAGENTA);
   if (kbd_arm) { kbd_arm = false; kbd_on = true; kbd_prev = 0x0F; kbd_armed = 0; }   // pausa del boton QS: S, Z, L o espacio
-  char b[80];
-  snprintf(b, sizeof(b), "\r\n*** STOP at %04X: %s%s", reg16(R_PC), reason_name(regs[R_DBGST]),
-    (regs[R_DBGST] & 0x20) ? " (inside the simulated interrupt)" : "");
+  char b[96];
+  snprintf(b, sizeof(b), "\r\n*** STOP at %04X: %s%s%s", reg16(R_PC), reason_name(regs[R_DBGST]),
+    (regs[R_DBGST] & 0x20) ? " (inside the simulated interrupt)" : "", stop_nmi ? " (SLOW)" : "");
   Serial.println(b);
   queue_remove_bps();
   queue_show();
@@ -392,6 +447,14 @@ static void on_result(uint8_t* data, uint16_t n){
       break;
     case TAG_KBD:
       kbd_result(last.arg, n ? data[0] : 0xFF);
+      break;
+    case TAG_UNWIND:                          // SLOW: deshacer la NMI
+      if (n == 2) {
+        set_reg16(R_PC, data[0] | (data[1] << 8));
+        set_reg16(R_SP, reg16(R_SP) + 2);
+        regs[R_R] = (regs[R_R] & 0x80) | ((regs[R_R] - 1) & 0x7F);
+      }
+      on_break2();
       break;
   }
 }
@@ -807,7 +870,7 @@ static void snap_begin(){
   swf("IR %04X\n", (regs[R_I] << 8) | regs[R_R]);
   swf("IM 01      IF1 %02X\n", regs[R_IFF]);   // IM no se puede leer: la ROM pone IM 1
   swf("HT 00      IF2 %02X\n", regs[R_IFF]);
-  sw("\n[ZX81]\nNMI 00     SYNC 00\nLINE 000\n"); // parado en FAST: sin NMI
+  swf("\n[ZX81]\nNMI %02X     SYNC 00\nLINE 000\n", (regs[R_DBGST] & 0x40) ? 1 : 0);   // SLOW: NMI encendida
 
   // el mapper, el registro de Chroma y los POKEs de control (BRAM de sombra)
   for (int b = 0; b < 8; b++) q_push(OP_IN, (b << 8) | 0xE7, 0, TAG_SNAP_MAP, b);
@@ -1563,6 +1626,7 @@ static void ld_finish(){
   ld.stage = LD_OFF;
   set_blinking_off();
   stop_foreign = false;
+  stop_nmi = false;                           // la NMI la pone la carga (ld.nmi)
   Serial.printf("Snapshot loaded: PC=%04X\r\n", reg16(R_PC));
   DbgReq* r = q_push(OP_SETREGS, 0, ld.set_im ? REGS_LEN + 1 : REGS_LEN);
   if (r) {                                    // sin la ROM (L), el IM va detras de los registros

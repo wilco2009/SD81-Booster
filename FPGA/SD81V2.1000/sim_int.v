@@ -104,6 +104,21 @@
 //         guarden solo las que usa el programa
 //       15 firma 52h
 //
+// Revision 0.12 - SLOW: se rompe en la entrada de la NMI (la M1 en $0066),
+//                 sin ventana de tiempos: la rutina aun no ha tocado AF' y la
+//                 siguiente NMI esta a ~200 ciclos. El MCU deshace la NMI
+//                 (PC = [SP], SP+2). Un FF se sirve como JR $ hasta la NMI
+//                 siguiente y rompe ahi con el motivo 7
+// Revision 0.11 - SLOW se decide por el tiempo desde la ultima NMI (menos
+//                 de un cuadro), no por los OUT ($FE)/($FD): la ROM apaga la
+//                 NMI mientras dibuja y ahi no se puede parar (la INT de cada
+//                 linea entraria en el monitor)
+// Revision 0.10 - SLOW: con la NMI encendida solo se rompe en una ventana
+//                 justo despues de la NMI de una linea (48-140 ciclos tras su
+//                 M1 en $0066), para que el monitor la apague antes de la
+//                 siguiente. Un FF fuera de la ventana se sirve como JR $
+//                 (18 FE) hasta que se abra. El bit 6 del estado dice si la
+//                 NMI estaba encendida al parar
 // Revision 0.09 - Indice 6: las paginas escritas, en RAM distribuida de
 //                 64x1 (orden 11 de SD81.v para borrarlas). Con 64 registros
 //                 no cabia
@@ -214,7 +229,11 @@ module sim_int(
 	reg [3:0] ridx = 4'd0;		// lo que devuelve IN
 	reg wexp = 1'b0;			// el OUT siguiente es el dato de wreg
 	reg [2:0] wreg = 3'd0;
-	reg nmi_on = 1'b0;			// generador de NMI encendido (SLOW): no se rompe
+	reg nmi_brk = 1'b0;			// el programa estaba en SLOW al parar (bit 6 del estado)
+	reg [15:0] nmi_age = 16'hFFFF;	// ciclos desde la ultima M1 en $0066 (la NMI de una linea)
+	reg dspin = 1'b0;			// esta M1 (un FF fuera de la ventana) recibe JR $
+	reg dspin_op = 1'b0;		// y la lectura siguiente, su operando FE
+	reg spin_pend = 1'b0;		// un FF esperando a la NMI (rompe en ella, motivo 7)
 	reg io_prev = 1'b0;
 	reg [1:0] armed_s = 2'b00;	// dbg_loaded viene del dominio de CFG_CLK
 	// paginas escritas: RAM distribuida de 64x1 con dos puertos (2 LUTs);
@@ -275,9 +294,24 @@ module sim_int(
 	wire counted = prog_m1 & ~sim_inj & (lvl | (phase == phIDLE));	// el paso se queda en su nivel
 	wire step_brk = step_on & counted & (step_cnt == 16'd0);
 	wire swbp = (data == 8'hFF);		// RST 38h de verdad: breakpoint por software
-	wire take = armed & ~nmi_on & dbg_idle & prog_m1 &
-	            (swbp | step_brk | (~skip & (pause_pend | watch_pend | cmp_exec)));
-	wire [2:0] take_reason = swbp ? 3'd7 :
+	// SLOW: la NMI llega cada 207 ciclos y su rutina ($0066) usa AF', asi que
+	// no puede saltar mientras el monitor entra (RST, CALL, JP y su OUT
+	// ($FD),A, que la apaga). En SLOW solo se rompe en la primera M1 de la
+	// NMI ($0066): la rutina aun no ha hecho nada y la siguiente NMI esta
+	// lejos. Mientras se dibuja la pantalla no hay NMI (la ROM la apaga, con
+	// la INT habilitada: ahi no se puede parar). SLOW es "ha habido una NMI
+	// hace menos de un cuadro" (192 lineas sin NMI son unos 40000 ciclos; el
+	// contador llega a 65535), no lo que digan los OUT ($FE)/($FD)
+	wire slow = (nmi_age != 16'hFFFF);
+	wire at_nmi = (addr == 16'h0066);
+	wire brk_ok = ~slow | at_nmi;
+	wire take = armed & brk_ok & dbg_idle & prog_m1 &
+	            (swbp | spin_pend | step_brk | (~skip & (pause_pend | watch_pend | cmp_exec)));
+	// Un FF (breakpoint) en SLOW fuera de la NMI no se puede dejar pasar
+	// (seria un RST de verdad): se sirve JR $ y la CPU vuelve a el hasta que
+	// llega la NMI, donde se rompe (spin_pend) y el MCU la deshace
+	wire spin = armed & ~brk_ok & dbg_idle & prog_m1 & swbp;
+	wire [2:0] take_reason = (swbp | spin_pend) ? 3'd7 :
 	                         (~skip & cmp_exec) ? 3'd5 :
 	                         (~skip & watch_pend) ? 3'd6 :
 	                         step_brk ? 3'd4 : {1'b0, pause_src};
@@ -335,6 +369,12 @@ module sim_int(
 					data_out = 8'hC9;				// RET
 				end
 			end
+		end else if (m1rd && dspin) begin
+			enable_out = 1'b1;
+			data_out = 8'h18;						// JR $ (SLOW, fuera de la ventana)
+		end else if (rd && nM1 && dspin_op) begin
+			enable_out = 1'b1;
+			data_out = 8'hFE;
 		end else if (m1rd && (dinj || inj)) begin
 			enable_out = 1'b1;
 			data_out = 8'hFF;						// RST 38h
@@ -368,7 +408,7 @@ module sim_int(
 
 	always @(*) begin
 		case (ridx)
-			4'd0:  port_out = {armed, nmi_on, lvl, 2'b00, reason};
+			4'd0:  port_out = {armed, nmi_brk, lvl, 2'b00, reason};
 			4'd1:  port_out = sim_status;
 			4'd2:  port_out = bram_data;
 			4'd3:  port_out = chroma_reg;
@@ -405,7 +445,11 @@ module sim_int(
 			ridx <= 4'd0;
 			wexp <= 1'b0;
 			wreg <= 3'd0;
-			nmi_on <= 1'b0;
+			nmi_brk <= 1'b0;
+			nmi_age <= 16'hFFFF;
+			dspin <= 1'b0;
+			dspin_op <= 1'b0;
+			spin_pend <= 1'b0;
 			io_prev <= 1'b0;
 			armed_s <= 2'b00;
 			tgl_s <= 3'b000;
@@ -441,6 +485,10 @@ module sim_int(
 				if (dclr_cnt == 6'd63) dclr_run <= 1'b0;
 			end
 			dirty_rd_prev <= dirty_rd;
+
+			// SLOW: ciclos desde la NMI de la ultima linea (su M1 en $0066)
+			if (m1_sample && addr == 16'h0066) nmi_age <= 16'd0;
+			else if (slow) nmi_age <= nmi_age + 1'b1;
 			if (dirty_rd_prev & ~dirty_rd)
 				dptr <= dptr + 1'b1;
 			if ((bram_rd_prev & ~bram_rd) | (bram_wr_prev & ~bram_wr))
@@ -466,11 +514,9 @@ module sim_int(
 			if (armed & dbg_idle & watch_hit)
 				watch_pend <= 1'b1;
 
-			// OUT: generador de NMI (como la ULA) y puerto $3FEF, una vez por ciclo
+			// OUT al puerto $3FEF, una vez por ciclo
 			io_prev <= io_wr;
 			if (io_wr & ~io_prev) begin
-				if (~addr[1]) nmi_on <= 1'b0;			// OUT ($FD): NMI apagada (FAST)
-				else if (~addr[0]) nmi_on <= 1'b1;		// OUT ($FE): NMI encendida (SLOW)
 				if (addr == 16'h3FEF) begin
 					if (wexp) begin
 						wexp <= 1'b0;
@@ -509,13 +555,20 @@ module sim_int(
 					inj <= 1'b0;					// (en la bajada de T3)
 					inj_halt <= 1'b0;
 					dinj <= 1'b0;
+					if (dspin) dspin_op <= 1'b1;	// detras viene la lectura del operando
+					dspin <= 1'b0;
 				end
 			end else if (~m1_seen) begin
 				m1_seen <= 1'b1;
-				inj <= sim_inj & ~take;
-				inj_halt <= halt_ok & ~take;
+				inj <= sim_inj & ~take & ~spin;
+				inj_halt <= halt_ok & ~take & ~spin;
 				dinj <= take;
+				dspin <= spin;
+				dspin_op <= 1'b0;
+				if (spin) spin_pend <= 1'b1;
 				if (take) begin
+					spin_pend <= 1'b0;
+					nmi_brk <= slow;
 					reason <= take_reason;
 					lvl <= (phase != phIDLE);
 					pause_pend <= 1'b0;

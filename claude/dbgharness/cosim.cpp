@@ -136,6 +136,7 @@ static uint8_t bram[65536];         // la BRAM de sombra, por direccion
 static uint8_t pokereg[65536];      // los registros de los POKEs de control (2038-2098)
 static std::vector<int> poke_log;   // en que orden se han escrito
 static bool nmi_on = false;
+static bool nmi_brk = false;        // la NMI estaba encendida al parar (bit 6 del estado)
 static uint8_t ay_reg[2][16], ay_sel[2];  // los AY de la FPGA: [0] el A (A3=1), [1] el B
 static uint8_t sprreg[32][28], spr_sel = 0;   // los sprites (2100-2128)
 static int chroma_reg = -1;
@@ -218,7 +219,7 @@ BYTE z80_readport_wrapper(int port, int*){
     if (ridx == 4) return ay_sel[0];
     if (ridx == 5) return ay_sel[1];
     if (ridx == 6) return (uint8_t)((dirty >> (dptr++ & 63)) & 1);
-    return ridx == 0 ? (0x80 | (lvl << 5) | reason) : ridx == 15 ? 0x52 : 0;
+    return ridx == 0 ? (0x80 | (nmi_brk ? 0x40 : 0) | (lvl << 5) | reason) : ridx == 15 ? 0x52 : 0;
   }
   return 0xFF;
 }
@@ -230,6 +231,8 @@ static void wr(int a, uint8_t v){ *ptr(a) = v; }
 static int R(){ return (z80.r & 0x7F) | (z80.r7 & 0x80); }
 
 // ------------------------- la FPGA, por instruccion -----------------------
+static int nmi_tick = 0;             // SLOW: instrucciones hasta la NMI siguiente
+static bool spin_pend = false;      // un FF esperando a la NMI
 static processor z_entry;            // el programa al parar (para comparar)
 static int r_entry;
 static void do_entry(uint8_t why){
@@ -240,12 +243,14 @@ static void do_entry(uint8_t why){
   sp -= 2; wr(sp, 0x3B); wr(sp + 1, 0x00);                          // CALL
   z80.sp.w = sp; z80.pc.w = 0x2000; z80.r += 2;
   reason = why; mon = true; step_on = false; pause_pend = false; skip = false;
+  nmi_brk = nmi_on;                             // (la FPGA solo para en SLOW en su ventana)
 }
 static void do_exit(){
   mon = false;
   uint16_t sp = z80.sp.w;
   z80.pc.w = rd16(sp) - 1; z80.sp.w = sp + 2; z80.r += 4;
   skip = true;
+  nmi_tick = 0;
 }
 
 static int errors = 0;
@@ -255,6 +260,9 @@ static void con(const char* l){ std::lock_guard<std::mutex> lk(con_mx); con_line
 
 // Ejecuta hasta que el MCU espera una orden (parado) o se pasan n instrucciones
 static long executed = 0;
+// SLOW (nmi_on): una NMI cada 40 instrucciones (la rutina de $0066 cuenta
+// en A', como la de la ROM). La FPGA (sim_int 0.12) solo para en la entrada
+// de la NMI, y un FF se queda en JR $ hasta ella (spin_pend)
 static void step_cpu(){
   if (mon) {
     z80_do_opcode();
@@ -262,13 +270,19 @@ static void step_cpu(){
     return;
   }
   uint16_t pc = z80.pc.w;
-  if (rd(pc) == 0xFF) { do_entry(7); return; }
-  if (step_on && step_cnt == 0) { do_entry(4); return; }
-  if (pause_pend && !skip) { do_entry(1); return; }
-  if (step_on) step_cnt--;
-  skip = false;
-  z80_do_opcode();
-  executed++;
+  bool brk_ok = !nmi_on || pc == 0x0066;
+  bool ff = rd(pc) == 0xFF;
+  if ((ff || spin_pend) && brk_ok) { spin_pend = false; do_entry(7); return; }
+  if (brk_ok && step_on && step_cnt == 0) { do_entry(4); return; }
+  if (brk_ok && pause_pend && !skip) { do_entry(1); return; }
+  if (ff) spin_pend = true;                     // JR $: no avanza
+  else {
+    if (step_on && step_cnt) step_cnt--;
+    skip = false;
+    z80_do_opcode();
+    executed++;
+  }
+  if (nmi_on && ++nmi_tick >= 40) { nmi_tick = 0; z80_nmi(); }
 }
 static bool run_until_waiting(long max){
   for (long k = 0; k < max; k++) {
@@ -359,6 +373,7 @@ int main(int argc, char** argv){
   f = fopen(argv[2], "rb"); n = fread(&ram[3][0], 1, 8192, f); fclose(f);                 // programa en $6000
   (void)n;
   for (int i = 0; i < 8192; i++) ram[1][i] = 0xA5;                                          // "ROM" del bloque 1
+  { static const uint8_t nmi[4] = {0x08, 0x3C, 0x08, 0xC9}; memcpy(&ram[0][0x66], nmi, 4); }   // NMI: EX AF,AF' / INC A / EX AF,AF' / RET
   memcpy(romfile, ram[0], 8192); memcpy(romfile + 8192, ram[1], 8192);                       // y su fichero
   memcpy(bram, ram[0], 8192); memcpy(bram + 8192, ram[1], 8192);                             // la BRAM al arrancar
   z80_init(); z80_reset();
@@ -571,6 +586,7 @@ int main(int argc, char** argv){
   same_regs(z_s, r_s);
 
   // 11. sin consola: el boton QS (1-3 s, pausa) y el teclado del ZX81
+  nmi_on = false;                               // (en FAST; el SLOW, en la 12)
   {
     auto run_ms = [&](long ms){ long t = now_ms(); while (now_ms() - t < ms) step_cpu(); };
     auto run_until = [&](std::function<bool()> c, long ms){ long t = now_ms(); while (!c() && now_ms() - t < ms) step_cpu(); return c(); };
@@ -598,6 +614,7 @@ int main(int argc, char** argv){
     tap(6, 1);                                  // L: carga el ultimo grabado
     CHECK(run_until([&]{ return logged("Snapshot loaded"); }, 20000), "L: carga NONAME002");
     CHECK(run_until([]{ return !mon; }, 5000), "L: el programa sigue");
+    run_until([&]{ return z80.pc.w == zq.pc.w; }, 1000);   // (en SLOW, tras el OUT y el RET de la pila)
     CHECK(z80.hl.w == zq.hl.w && z80.pc.w == zq.pc.w && R() == rq && *pptr(0x6100) == m6100, "L: como al hacer el snapshot");
     run_ms(100);
     CHECK(qs_pause(), "QS: pausa otra vez");
@@ -616,6 +633,46 @@ int main(int argc, char** argv){
     mark(); qs_level = 0; run_ms(3500); qs_level = 1;
     CHECK(run_until([&]{ return logged("Snapshot saved: /NONAME004.Z81"); }, 20000), "QS 3,5 s: snapshot NONAME004");
     CHECK(run_until([]{ return !mon && !dbg_is_stopped(); }, 5000), "QS 3,5 s: el programa sigue");
+  }
+
+  // 12. SLOW: con NMI (una cada 40 instrucciones), la FPGA para en la
+  //     entrada de la NMI y el MCU la deshace; el monitor la apaga al entrar
+  //     y al seguir se vuelve por OUT ($FE),A / RET debajo de la pila
+  {
+    run_program(100);
+    nmi_on = true; nmi_tick = 0;
+    run_program(300);
+    { std::lock_guard<std::mutex> l(out_mx); out_log.clear(); }
+    pause_pend = true;
+    CHECK(run_until_waiting(5000000), "SLOW: pausa");
+    CHECK(z_entry.pc.w == 0x0066, "SLOW: la FPGA para en la entrada de la NMI");
+    processor zs = z_entry; int rs = r_entry;
+    uint16_t xpc = rd16(zs.sp.w);               // la vuelta de la NMI: el PC del programa
+    char want[48]; snprintf(want, sizeof want, "*** STOP at %04X", xpc);
+    CHECK(out_log.find(want) != std::string::npos && out_log.find("(SLOW)") != std::string::npos,
+          "SLOW: el MCU deshace la NMI (STOP en el PC del programa)");
+    CHECK(!nmi_on, "SLOW: el monitor apaga la NMI al entrar");
+    con("c");
+    while (processed != posted) step_cpu();
+    for (long k = 0; k < 2000000 && mon; k++) step_cpu();
+    CHECK(z80.pc.w == (uint16_t)(zs.sp.w + 2 - 8) && !nmi_on, "SLOW: vuelve por el OUT de debajo de la pila");
+    step_cpu(); step_cpu();
+    CHECK(nmi_on && z80.pc.w == xpc && z80.sp.w == (uint16_t)(zs.sp.w + 2), "SLOW: NMI encendida; PC y SP como antes de la NMI");
+    CHECK(R() == (((rs - 1) & 0x7F) | (rs & 0x80)), "SLOW: R como antes de la NMI");
+    CHECK(z80.af_.w == zs.af_.w, "SLOW: AF' (el contador de la NMI) intacto");
+    // un breakpoint en el PC (el JR $ del final): el paso para saltarlo y
+    // otra vez en el, siempre en la NMI y deshaciendola
+    pause_pend = true;
+    CHECK(run_until_waiting(5000000), "SLOW: pausa otra vez");
+    char bcmd[16]; snprintf(bcmd, sizeof bcmd, "b %04x", xpc);
+    { std::lock_guard<std::mutex> l(out_mx); out_log.clear(); }
+    con(bcmd); con("c");
+    CHECK(run_until_waiting(5000000), "SLOW: vuelve a parar en el breakpoint");
+    snprintf(want, sizeof want, "*** STOP at %04X: breakpoint (SLOW)", xpc);
+    CHECK(out_log.find(want) != std::string::npos, "SLOW: en el breakpoint, motivo 7, deshecha la NMI");
+    con("bc"); con("c");
+    run_program(100);
+    nmi_on = false;
   }
 
   // 10. un .Z81 de EightyOne sin MAPPER ni HW_POKES (claves de EightyOne)

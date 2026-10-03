@@ -370,18 +370,38 @@ module tb_dbg;
 		dbg_exit(16'h6502);
 		m1(16'h6502, 8'h00); expect_mem(8'h00, "trampa: vuelta");
 
-		// --- con la NMI encendida (SLOW) no rompe; al apagarla, si ---
-		io_out(16'h00FE, 8'h00);								// OUT ($FE): NMI encendida
+		// --- SLOW (ha habido NMI de linea, M1 en $0066, hace menos de un
+		//     cuadro): solo rompe en la M1 de la NMI ---
+		m1(16'h0066, 8'h08); expect_mem(8'h08, "SLOW: una NMI sin nada pendiente");
+		m1(16'h0067, 8'h3C);
 		io_out(16'h3FEF, 8'h10);
-		m1(16'h6600, 8'h00); expect_mem(8'h00, "SLOW: la pausa espera");
-		m1(16'h6601, 8'hFF); expect_mem(8'hFF, "SLOW: un FF de memoria es un RST de verdad");
-		mem_wr(16'h7FFF, 0); mem_wr(16'h7FFE, 0);
-		m1(16'h0038, 8'hF5); expect_mem(8'hF5, "SLOW: $0038 de la ROM");
-		io_out(16'h00FD, 8'h00);								// OUT ($FD): NMI apagada
-		m1(16'h6602, 8'h00);
-		dbg_enter(16'h6602, 3'd3);
-		dbg_exit(16'h6602);
-		m1(16'h6602, 8'h00);
+		m1(16'h6600, 8'h00); expect_mem(8'h00, "SLOW: fuera de la NMI no rompe");
+		m1(16'h6601, 8'hFF); expect_fpga(8'h18, "SLOW: FF fuera de la NMI: JR $");
+		mem_rd(16'h6602, 8'h77); expect_fpga(8'hFE, "SLOW: y su operando FE");
+		repeat (160) @(posedge clk);
+		m1(16'h6601, 8'hFF); expect_fpga(8'h18, "SLOW: el JR $ vuelve al FF");
+		mem_rd(16'h6602, 8'h77); expect_fpga(8'hFE, "SLOW: operando otra vez");
+		m1(16'h0066, 8'h08);									// la NMI siguiente: rompe
+		dbg_enter(16'h0066, 3'd7);								// (el FF manda: motivo 7)
+		io_out(16'h3FEF, 8'h00); io_in(16'h3FEF);
+		expect_val(got[6], 1, "SLOW: en SLOW al parar");
+		dbg_exit(16'h0066);
+		m1(16'h0066, 8'h08); expect_mem(8'h08, "SLOW: vuelta: la NMI sigue");
+		io_out(16'h3FEF, 8'h10);								// trampa: en la NMI siguiente
+		m1(16'h6603, 8'h00); expect_mem(8'h00, "SLOW: la trampa espera a la NMI");
+		m1(16'h0066, 8'h08);
+		dbg_enter(16'h0066, 3'd3);
+		dbg_exit(16'h0066);
+		m1(16'h0066, 8'h08);
+		// --- FAST: un cuadro entero sin NMI ---
+		repeat (65600) @(posedge clk);
+		io_out(16'h3FEF, 8'h10);
+		m1(16'h6605, 8'h00);
+		dbg_enter(16'h6605, 3'd3);
+		io_out(16'h3FEF, 8'h00); io_in(16'h3FEF);
+		expect_val(got[6], 0, "FAST: no en SLOW al parar");
+		dbg_exit(16'h6605);
+		m1(16'h6605, 8'h00);
 
 		// --- joystick: arriba y abajo a la vez ---
 		up_n = 0; #2000 down_n = 0;

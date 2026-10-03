@@ -72,7 +72,7 @@ MAPP        equ 0E7h            ; mapper
 TMPBLK      equ 7               ; bloque para ver la pagina tapada del bloque 1
 CMD_BREAK   equ 73
 CMD_POLL    equ 74
-R_IN        equ 9               ; M1 desde la ruptura hasta el LD A,R
+R_IN        equ 10              ; M1 desde la ruptura hasta el LD A,R
 R_OUT       equ 22              ; M1 desde el LD R,A hasta volver a PC
 
             org  2000h
@@ -83,9 +83,14 @@ R_OUT       equ 22              ; M1 desde el LD R,A hasta volver a PC
 ; ---------------------------------------------------------------------
 ;  Entrada. La pila del programa: [SP] = $003B (del CALL), [SP+2] = PC+1
 ;  (del RST). Las M1 hasta el LD A,R son R_IN: FF, CD, C3 (el JP de $2000),
-;  ED 73, 31, F5 y ED 5F.
+;  D3, ED 73, 31, F5 y ED 5F.
+;  Lo primero, OUT ($FD),A: la NMI apagada (en SLOW la FPGA solo para en
+;  una ventana justo despues de la NMI de una linea, para que esto llegue
+;  antes de la siguiente; su rutina usa AF'). Si estaba encendida, el MCU la
+;  vuelve a encender al continuar (bit 6 del estado).
 ; ---------------------------------------------------------------------
-entry:      ld   (save_sp),sp
+entry:      out  (0FDh),a       ; NMI apagada (no toca ningun registro)
+            ld   (save_sp),sp
             ld   sp,regs+20     ; el bloque de registros se rellena con PUSH
             push af
             ld   a,r

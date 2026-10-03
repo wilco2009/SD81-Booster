@@ -253,7 +253,7 @@ Z80 no hace falta estar en el monitor.
 
 | IN (índice) | Qué devuelve |
 |---|---|
-| 0 | estado: bit 7 armado, bit 6 NMI encendida, bit 5 `lvl`, bits 2-0 motivo de la última ruptura |
+| 0 | estado: bit 7 armado, bit 6 la NMI estaba encendida al parar (rev 0.10; antes, NMI encendida ahora), bit 5 `lvl`, bits 2-0 motivo de la última ruptura |
 | 1 | interrupciones simuladas: `enabled, pending, arm, superfast, halted, call_now, fase(2 bits)` |
 | 2 | (2b) el byte de la BRAM de sombra en el puntero; el puntero avanza 1 al acabar cada `IN` |
 | 3 | (2b) el registro de Chroma81 (lo último escrito con `OUT $7FEF`) |
@@ -904,3 +904,68 @@ vuelta del monitor, PC+1). Con `NMI 01`, los 8 bytes debajo de SP.
     y POKEs (con su orden);
   - lo mismo con `NMI 01`;
   - un `.Z81` de EightyOne sin `MAPPER` ni `HW_POKES`.
+
+## 13. Programas en SLOW (fase 4, FPGA rev 0.12)
+
+En SLOW la NMI salta en cada línea (cada 207 ciclos) y su rutina (`$0066`)
+usa AF' como contador de líneas. Si saltara mientras el monitor entra (con
+AF y AF' intercambiados para guardarlos), lo corrompería. Y mientras la ROM
+dibuja las 192 líneas apaga la NMI pero deja la INT habilitada (una por
+línea, a `$0038`, cuya rutina hace `POP HL`): si se para ahí, la INT entra
+en el monitor y le rompe la pila.
+
+### 13.1 La FPGA
+
+- `nmi_age`: ciclos desde la última M1 en `$0066`, 16 bits, hasta `$FFFF`.
+  **SLOW** es `nmi_age != $FFFF`: ha habido una NMI hace menos de un cuadro
+  (las 192 líneas sin NMI son unos 40000 ciclos). No se usan los `OUT
+  ($FE)`/`($FD)`: la ROM los hace en cada cuadro.
+- En SLOW **solo se rompe en la primera M1 de la NMI** (`$0066`): la rutina
+  aún no ha hecho nada (AF' intacto) y la siguiente NMI está a unos 200
+  ciclos, tiempo de sobra para que el monitor la apague. Mientras se dibuja
+  no hay NMI y no se rompe. En FAST, en cualquier instrucción, como antes.
+- Un `FF` (breakpoint) en SLOW fuera de `$0066` no se puede dejar pasar
+  (sería un `RST 38h` de verdad): la FPGA sirve `JR $` (`18`, y `FE` en la
+  lectura del operando), la CPU vuelve a él y, al llegar la NMI, se rompe
+  en `$0066` con el motivo 7 (`spin_pend`).
+- Bit 6 del estado (índice 0): el programa estaba en SLOW al parar.
+
+(Las revisiones 0.10 y 0.11 usaban una ventana de tiempo tras la NMI; la
+0.10 se colgaba al parar mientras se dibujaba y la 0.11 a veces no llegaba
+a parar.)
+
+### 13.2 El monitor (1256 bytes)
+
+Su primera instrucción es `OUT ($FD),A`: apaga la NMI sin tocar ningún
+registro. `R_IN` pasa a 10 (una M1 más).
+
+### 13.3 El MCU
+
+- Al parar, `stop_nmi` = bit 6 del estado. Si el PC es `$0066`, **deshace
+  la NMI** antes de nada: lee `[SP]` y pone `PC = [SP]`, `SP + 2` y R - 1
+  (la M1 del reconocimiento). La consola y los snapshots ven el programa
+  como si la NMI no hubiera llegado; la ROM pierde una línea de su cuenta
+  (como mucho, un cuadro movido al seguir). La consola añade `(SLOW)`.
+- Al seguir (o dar pasos), si `stop_nmi`, vuelve por `OUT ($FE),A` / `RET`
+  escritos debajo de la pila (8 bytes; como la carga con `NMI 01`, sección
+  12.4): `PC = SP-8`, `SP = SP-2`, R menos 2.
+- Los pasos (`s n`) piden n+2 (el `OUT` y el `RET`) y la ruptura espera a
+  la NMI siguiente: en SLOW el programa sigue hasta ella (como mucho unos
+  200 ciclos). Son aproximados.
+- El paso para saltar un breakpoint en el PC: si al volver a parar sigue en
+  el breakpoint con el mismo R (la NMI llegó antes de ejecutarlo), se
+  repite.
+- El snapshot de un programa parado en SLOW guarda `NMI 01`.
+
+### 13.4 Mientras está parado
+
+La pantalla se queda en negro, como en FAST, hasta continuar.
+
+### 13.5 En el emulador
+
+- `nmi_age` (16 bits), romper solo en la M1 de `$0066` en SLOW, `JR $` para
+  un `FF` y `spin_pend`, el bit 6.
+- El monitor nuevo (1256 bytes) ya hace el `OUT ($FD),A`.
+- Referencia: `claude/dbgharness/cosim.cpp`, prueba 12: con una NMI cada 40
+  instrucciones (una rutina en `$0066` que cuenta en A'), la pausa y un
+  breakpoint en SLOW.

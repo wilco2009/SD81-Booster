@@ -312,6 +312,17 @@ static void run_program(long n){
   for (long k = 0; k < n && !mon; k++) step_cpu();
 }
 
+// Hay un breakpoint en addr? (por la consola: bl)
+static bool bp_used(uint16_t addr){
+  { std::lock_guard<std::mutex> l(out_mx); out_log.clear(); }
+  con("bl");
+  run_until_waiting(5000000);
+  char t[16];
+  snprintf(t, sizeof(t), ": %04X", addr);
+  std::lock_guard<std::mutex> l(out_mx);
+  return out_log.find(t) != std::string::npos;
+}
+
 // Lee un .Z81 y lo compara con la memoria emulada
 static std::vector<std::string> toks;
 static size_t tp;
@@ -820,6 +831,171 @@ int main(int argc, char** argv){
     con("v 1234"); con("v F000");
     CHECK(run_until_waiting(5000000) && out_log.find("only 0000") != std::string::npos &&
           out_log.find("does not fit") != std::string::npos && pokereg[2045] == 85, "v 1234 y v F000: no");
+
+    // ui: la pantalla del depurador (80 columnas desde la sombra, D_FILE en 1000)
+    {
+      auto run_ms = [&](long ms){ long t = now_ms(); while (now_ms() - t < ms) step_cpu(); };
+      auto tap = [&](int row, int bit){ key(row, bit, true); run_ms(150); key(row, bit, false); run_ms(150); };
+      auto zx = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return 38 + c - 'A';
+        if (c >= '0' && c <= '9') return 28 + c - '0';
+        return c == ' ' ? 0 : c == '\'' ? 11 : c == '-' ? 22 : c == '(' ? 16 : c == ')' ? 17 : c == '.' ? 27 : c == ',' ? 26 : -1;
+      };
+      auto row_has = [&](int row, const char* t){             // en la sombra, sin mirar el inverso
+        const uint8_t* d = bram + 0x1000 + 1 + row * 81;
+        int L = strlen(t);
+        for (int c = 0; c + L <= 80; c++) {
+          int j = 0;
+          while (j < L && (d[c + j] & 0x7F) == zx(t[j])) j++;
+          if (j == L) return true;
+        }
+        return false;
+      };
+      auto pc_is = [&](int row){ char t[16]; snprintf(t, sizeof(t), "PC %04X", z_entry.pc.w); return row_has(row, t); };
+      static uint8_t sh_s[1945], pk_s[61];
+      memcpy(sh_s, bram + 0x1000, 1945);
+      memcpy(pk_s, bram + 2038, 61);
+      uint8_t p2045 = pokereg[2045], p2098 = pokereg[2098];
+      chroma_reg = 0x2C;                                       // con color (el IN del indice 3 da 2C)
+      con("x i=3f");
+      CHECK(run_until_waiting(5000000), "ui: la I del programa, 3F (en el bloque)");
+      uint16_t mem0 = z_entry.hl.w & 0xFFF0;                   // el volcado empieza en HL
+      con("ui");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 174 && pokereg[2096] == 0x00 && pokereg[2097] == 0x10 &&
+            pokereg[2098] == 170 && cfgs[cfgcmd_DBGPOKE] == 0, "ui: 80 columnas y el D_FILE alternativo en 1000");
+      CHECK(z80.i == 0x1E && chroma_reg == 0x0C, "ui: el monitor espera con I = 1E (SETI); sin color");
+      CHECK(row_has(0, "SD81 BOOSTER DEBUGGER") && pc_is(2) && row_has(23, "Q QUIT") && row_has(5, "DISASSEMBLY"),
+            "ui: la pantalla en la sombra (titulo, registros, teclas)");
+      CHECK(memcmp(bram + 2038, pk_s, 61) != 0, "ui: la sombra de los POKEs, la de la pantalla");
+      con("s");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 174 && z80.i == 0x1E && pc_is(2), "ui: un paso, la pantalla al dia");
+      con("x pc=6203");                                        // 6203 LD HL,1234 (6209 es JR $)
+      CHECK(run_until_waiting(5000000) && row_has(2, "PC 6203"), "ui: x pc=6203, en la pantalla");
+      tap(1, 1);                                               // S: un paso
+      CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6206 && pc_is(2), "ui: la tecla S da un paso");
+      tap(4, 4);                                               // 6: el volcado, 16 mas abajo
+      char mt[16];
+      snprintf(mt, sizeof(mt), "MEMORY %04X", (uint16_t)(mem0 + 16));
+      CHECK(run_until_waiting(5000000) && row_has(18, mt), "ui: la tecla 6 baja el volcado");
+      con("ui");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == p2045 && pokereg[2098] == p2098 && chroma_reg == 0x2C &&
+            z80.i == 0x3F, "ui otra vez: el video, el color y la I del programa");
+      CHECK(!memcmp(bram + 0x1000, sh_s, 1945) && !memcmp(bram + 2038, pk_s, 61), "ui: la sombra exactamente como estaba");
+      con("ui");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 174, "ui: otra vez");
+      run_ms(150);                                             // (lo pulsado antes del primer barrido no cuenta)
+      tap(2, 0);                                               // Q: cerrar
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == p2045 && !memcmp(bram + 0x1000, sh_s, 1945) && z80.i == 0x3F,
+            "ui: la tecla Q la cierra");
+      con("ui");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 174, "ui: puesta para seguir");
+      con("c");
+      run_program(100);
+      CHECK(!mon && pokereg[2045] == p2045 && !memcmp(bram + 0x1000, sh_s, 1945), "ui: al seguir, el video del programa");
+      pause_pend = true;
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 174 && pc_is(2) && z80.i == 0x1E, "ui: al parar, otra vez");
+      con("ui");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == p2045 && !memcmp(bram + 0x1000, sh_s, 1945), "ui: cerrada");
+      chroma_reg = -1;
+    }
+
+    // sym: simbolos de pasmo (6200 CALL 6210 / 6203 LD HL,1234 / 6206 LD (6100),A / 6209 JR $)
+    {
+      FILE* fs = fopen("sd_TEST.SYM", "wb");
+      fputs("START\t\tEQU 06203H\r\nSTORE:\tEQU $6206\r\nLOOP = 0x6209\r\n; un comentario\r\n"
+            "DATA\tEQU 06100H\r\nSUB1\t\tEQU 06210H\r\nTOO_LONG_A_NAME_FOR_THE_TABLE EQU 07000H\r\n", fs);
+      fclose(fs);
+      auto logged = [&](const char* t){ std::lock_guard<std::mutex> l(out_mx); return out_log.find(t) != std::string::npos; };
+      auto clear = [&](){ std::lock_guard<std::mutex> l(out_mx); out_log.clear(); };
+      clear();
+      con("sym TEST.SYM");
+      CHECK(run_until_waiting(5000000) && logged("6 symbols from /TEST.SYM"), "sym: cargados a mano (pasmo, = y :)");
+      clear();
+      con("d 6200 4");
+      CHECK(run_until_waiting(5000000) && logged("CALL SUB1") && logged("START:") && logged("LD (DATA),A") && logged("LOOP:"),
+            "sym: etiquetas y operandos en el desensamblado");
+      con("b loop"); con("x pc=start");
+      CHECK(run_until_waiting(5000000), "sym: b loop, x pc=start");
+      clear();
+      con("bl");
+      CHECK(run_until_waiting(5000000) && logged("6209"), "sym: b con un simbolo (sin mayusculas)");
+      con("c");
+      run_program(100);
+      CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6209 && logged("STOP at 6209 (LOOP)"), "sym: para en LOOP, con su nombre");
+      con("bc loop"); con("x pc=6200"); con("s");
+      CHECK(run_until_waiting(5000000) && logged("STOP at 6210 (SUB1)"), "sym: s, en SUB1");
+      con("s");
+      CHECK(run_until_waiting(5000000) && logged("STOP at 6212 (SUB1+2)"), "sym: SUB1+2");
+      clear();
+      dbg_note_loaded("TEST.P");                              // LOAD "TEST.P": en la parada siguiente, TEST.SYM
+      con("sym -"); con("s");
+      CHECK(run_until_waiting(5000000) && logged("Symbols cleared") && logged("Symbols: 6 from /TEST.SYM"),
+            "sym: al cargar un programa, su .SYM");
+      clear();
+      dbg_note_loaded("/OTRO.P");
+      con("s");
+      CHECK(run_until_waiting(5000000) && logged("Symbols cleared (no /OTRO.SYM)"), "sym: otro programa sin .SYM: fuera");
+      clear();
+      con("sym");
+      CHECK(run_until_waiting(5000000) && logged("No symbols"), "sym: ninguno");
+      remove("sd_TEST.SYM");
+    }
+
+    // ui: lo de la consola desde el teclado del ZX81
+    {
+      auto run_ms = [&](long ms){ long t = now_ms(); while (now_ms() - t < ms) step_cpu(); };
+      auto tap = [&](int row, int bit){ key(row, bit, true); run_ms(120); key(row, bit, false); run_ms(120); };
+      static const char* rows[8] = {"^ZXCV", "ASDFG", "QWERT", "12345", "09876", "POIUY", "\nLKJH", " .MNB"};
+      auto typ = [&](const char* t){
+        for (; *t; t++)
+          for (int r = 0; r < 8; r++) { const char* q = strchr(rows[r], *t); if (q && *t) { tap(r, q - rows[r]); break; } }
+        run_until_waiting(5000000);
+      };
+      auto zx = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return 38 + c - 'A';
+        if (c >= '0' && c <= '9') return 28 + c - '0';
+        return c == ' ' ? 0 : c == '(' ? 16 : c == ')' ? 17 : c == ':' ? 14 : -1;
+      };
+      auto row_has = [&](int row, const char* t){
+        const uint8_t* d = bram + 0x1000 + 1 + row * 81;
+        int L = strlen(t);
+        for (int c = 0; c + L <= 80; c++) {
+          int j = 0;
+          while (j < L && (d[c + j] & 0x7F) == zx(t[j])) j++;
+          if (j == L) return true;
+        }
+        return false;
+      };
+      uint8_t p2045 = pokereg[2045];
+      con("x pc=6203"); con("ui");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 174, "ui teclas: puesta");
+      run_ms(150);
+      typ("B\n");
+      CHECK(bp_used(0x6203) && row_has(4, "BREAKPOINTS 6203") && row_has(1, "BREAKPOINT SET AT 6203"), "ui teclas: B ENTER, breakpoint en el PC");
+      typ("B6203");
+      CHECK(!bp_used(0x6203) && row_has(4, "BREAKPOINTS NONE"), "ui teclas: B 6203, quitado");
+      typ("RP6206");
+      CHECK(row_has(2, "PC 6206"), "ui teclas: R P 6206");
+      typ("E6100AABB\n");
+      CHECK(rd(0x6100) == 0xAA && rd(0x6101) == 0xBB, "ui teclas: E 6100 AA BB ENTER");
+      typ("M6100");
+      CHECK(row_has(18, "MEMORY 6100") && row_has(19, "6100  AA BB"), "ui teclas: M 6100");
+      typ("D6210");
+      CHECK(row_has(6, "6210"), "ui teclas: D 6210");
+      typ("WW6100");
+      CHECK(cmp_mode == 3 && cmp_addr == 0x6100 && row_has(4, "WATCH WRITE 6100"), "ui teclas: W W 6100");
+      typ("W\n");
+      CHECK(cmp_mode == 0, "ui teclas: W ENTER la quita");
+      typ("G6209");
+      CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6209 && pokereg[2045] == 174 && row_has(2, "PC 6209"),
+            "ui teclas: G 6209, y la pantalla otra vez al llegar");
+      typ("V");
+      CHECK(pokereg[2045] == 170, "ui teclas: V, la pantalla del programa (Superfast texto)");
+      typ("V");
+      CHECK(pokereg[2045] == 174 && row_has(2, "PC 6209"), "ui teclas: V otra vez, la del depurador");
+      typ("Q");
+      CHECK(pokereg[2045] == p2045, "ui teclas: Q");
+    }
     con("c");
     run_program(100);
   }

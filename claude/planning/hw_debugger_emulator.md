@@ -16,7 +16,7 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | Pieza | Versión | Dónde |
 |---|---|---|
 | FPGA | `sim_int.v` rev **0.12** | `FPGA/SD81V2.1000/sim_int.v`, `SD81.v`, `ay38912.v` |
-| Monitor | versión **3** (`"SD81DBG",3` en `$2003`), **1256 bytes** | `z80rom/debugmon.asm` → `/SYS/DEBUG.BIN` |
+| Monitor | versión **4** (`"SD81DBG",4` en `$2003`), **1287 bytes** | `z80rom/debugmon.asm` → `/SYS/DEBUG.BIN` |
 | ROM | `LOAD *Z81` con el comando 75; sprites a cero en el reset | `z80rom/sdhandler.inc.asm` → `/SYS/SDBOOST.ROM` |
 | MCU | comandos 73, 74 y 75 (`LAST_COMMAND 75`) | `DEBUGGER.cpp`, `MCUSTATE.cpp`, `COMMANDS.cpp`, `SD_handle.cpp` |
 
@@ -29,7 +29,9 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
-| (siguiente) | Orden `v dir`: vídeo Superfast HiRes mientras está parado, con el mapa de bits (WRX) en `dir`; copia a la sombra si no está alineado. Solo el MCU. Probado en el arnés; en hardware sin confirmar con un WRX real (no se encontró la dirección del mapa de bits) | 13.4 |
+| (siguiente) | Símbolos de pasmo (`sym`; `LOAD` lee `<nombre>.SYM`): etiquetas y operandos en el desensamblado, direcciones por nombre. Solo el MCU | 13.7 |
+| (siguiente) | Fase 3b: pantalla del depurador en el ZX81 (`ui`, o `D` en la pausa del botón QS). Monitor versión 4 con `SETI` (petición 13). Sin FPGA | 12.2, 13.6 |
+| 8afd989 | Orden `v dir`: vídeo Superfast HiRes mientras está parado, con el mapa de bits (WRX) en `dir`; copia a la sombra si no está alineado. Solo el MCU. Probado en el arnés; en hardware sin confirmar con un WRX real (no se encontró la dirección del mapa de bits) | 13.4 |
 | cc3f2f9 | Orden `v`: vídeo Superfast texto mientras está parado (programas en SLOW y FAST). Solo el MCU | 10.5, 13.4 |
 | 26c37a9 | Fase 3: `o` (paso por encima), `u` (salir de la rutina), `g` (ejecutar hasta) y `w` (puntos de vigilancia) en la consola. Solo el MCU: la FPGA y el monitor no cambian | 10.5, 10.8 |
 
@@ -464,6 +466,7 @@ genere una petición.
 | 7 | INSEQ (2b) | puerto (16 bits) | 1-256 | — | m `IN` seguidos del mismo puerto |
 | 8 | READP (2b) | desplazamiento en la página | 1-256 bytes | — | m bytes de la página p |
 | 9-12 | WRITEP, BRAMW, AYREAD, AYWRITE | | | | sección 12.2 |
+| 13 | SETI | 0 | I en el byte bajo | — | — (sección 12.2) |
 
 Con `CONT` el monitor rehace la vuelta con el SP y el PC del bloque
 (`[SP-2] = PC+1`, `SP-2`) y sale con `JP $003B`. Por eso el MCU puede cambiar
@@ -843,6 +846,20 @@ usa el cargador de siempre (comando 70, `z81_snapshot_loading.md`).
 | 10 | BRAMW | 0 | 1-256 | n datos | por cada byte, `OUT $87` y el dato al puerto `$3FEF`: la BRAM de sombra |
 | 11 | AYREAD | puerto de elección del AY (`$00CF` el A, `$00C7` el B) | 16 | — | para i = 0..n-1: `OUT (puerto),i` e `IN (puerto)` → n bytes |
 | 12 | AYWRITE | puerto de elección | 16 | n datos | para i = 0..n-1: `OUT (puerto),i` y el dato al puerto de datos (el mismo con A7 = 0) |
+| 13 | SETI (versión 4) | 0 | I (byte bajo) | — | I mientras el monitor espera; 0 = la del programa. Se queda puesta (ver abajo) |
+
+**SETI** es para la pantalla del depurador (fase 3b del plan). En Superfast,
+la FPGA saca la fuente de I, porque `ROMTABLE[15:8]` copia el byte alto de
+la dirección en cada refresco. Parado, I es la del programa, que en un WRX
+puede ser cualquier cosa. Con `SETI $1E` se ve la fuente de la ROM.
+
+- El valor se guarda en el monitor (`ui_i`) y se queda puesto: cada entrada,
+  después de guardar la I del programa en el bloque (byte 24), vuelve a
+  poner esa I, hasta un `SETI 0`. Así no parpadea entre pasos.
+- Va después del `LD A,R`, así que `R_IN` no cambia.
+- `CONT` siempre repone la I del bloque: el programa nunca la ve.
+- En el emulador basta con que I salga en la dirección de los ciclos de
+  refresco y la FPGA emulada la siga, como en el hardware.
 
 Además, un `OUT` (petición 4) a un puerto con el byte bajo `$E7` vuelve a
 leer las páginas de los bloques 1 y 7. Las lecturas y escrituras de
@@ -1137,3 +1154,111 @@ como está, sin ampliarla.
 - Referencia: `claude/dbgharness/cosim.cpp`, prueba 12: con una NMI cada 40
   instrucciones (una rutina en `$0066` que cuenta en A'), la pausa y un
   breakpoint en SLOW.
+
+### 13.6 La pantalla del depurador (`ui`)
+
+Mientras el programa está parado, una pantalla de 80 × 24 en el propio
+ZX81 con lo mismo que la consola, sin necesitar el PC:
+- registros, breakpoints y punto de vigilancia;
+- desensamblado con el PC en inverso, y la pila;
+- volcado de memoria (3 líneas);
+- una línea para lo que se teclea o lo que ha pasado;
+- dos de teclas. Se abre con `ui` en la consola o con `D` en
+la pausa del botón QS. Se cierra con `Q`, con otra `ui` o al cargar un
+snapshot. Mientras está pedida, al seguir se quita y al volver a parar se
+pone otra vez. No hace falta FPGA nueva: es Superfast de 80 columnas desde
+la sombra.
+
+**Cómo se pone** (todo por el monitor, con la orden 10 para los POKEs):
+1. Lee los POKEs de control de la sombra (2038-2098), el Chroma (índice 3)
+   y guarda los 1945 bytes de la sombra en `$1000` (índice 2).
+2. Lee 64 bytes desde la ventana del desensamblado, 24 de la pila y 64 del
+   volcado, compone la pantalla y la escribe con `BRAMW` en `$1000`. Es un
+   D_FILE de 80 columnas: 1 byte de relleno al principio y 24 filas de 81
+   (80 caracteres y 1 de relleno). Caracteres del ZX81, inverso con el
+   bit 7.
+3. Detrás, el vídeo:
+   - los 128/256 caracteres fuera (la fuente sería otra);
+   - el Chroma sin color (bit 5 a 0);
+   - `SETI $1E` (la fuente de la ROM);
+   - `POKE 2045,174` (80 columnas, caracteres de 7 píxeles);
+   - `POKE 2096,$00`, `2097,$10`, `2098,170` (D_FILE alternativo en
+     `$1000`);
+   - y la barrera.
+
+**En cada parada** vuelve a leer y solo manda los trozos que cambian.
+
+**Al quitarla:**
+- 2096/2097 a su valor (0 si nunca se escribieron) y 2098 a 170 u 85;
+- 2045 a su valor (85 si nunca se escribió); con 85, 2098 y 2061 otra vez
+  si estaban;
+- el Chroma, los 128/256 caracteres y `SETI 0`;
+- la sombra de 2045, de 2096-2098 y de `$1000`, como estaban.
+
+Tras un reset con la pantalla puesta, en la siguiente parada el MCU mira la
+sombra de los POKEs y, si sigue como la dejó la pantalla, la repone.
+
+**La zona `$1000`-`$1798`:** la FPGA no lee ahí (solo las celdas del
+D_FILE, los atributos, la fuente según I y el HiRes), y el programa no
+escribe en la zona de la ROM.
+
+**Teclado** (8 filas cada 40 ms; cuenta al soltar, y lo que ya estaba
+pulsado al abrirla no cuenta hasta soltarlo). Las direcciones se teclean en
+hex: con 4 cifras se acepta sola, con menos hace falta ENTER, y cualquier
+otra tecla cancela.
+
+| Tecla | Qué hace |
+|---|---|
+| `S` | un paso |
+| `O` | paso por encima |
+| `U` | salir de la rutina |
+| `C`, espacio | seguir |
+| `G` dir | ir hasta `dir` |
+| `B` dir | pone o quita un breakpoint (`B` ENTER: en el PC) |
+| `W` `R`/`W`/`I` dir | punto de vigilancia de lectura, escritura o E/S (`W` ENTER lo quita) |
+| `R` reg valor | un registro: `P` PC, `S` SP, `A` AF, `B` BC, `D` DE, `H` HL, `X` IX, `Y` IY (4 cifras), `I` I (2) |
+| `E` dir bytes ENTER | escribe bytes (2 cifras cada uno) desde `dir` |
+| `D` dir | desensamblar desde `dir` hasta la parada siguiente (`D` ENTER: el PC) |
+| `M` dir | volcado desde `dir` (`M` ENTER: HL) |
+| `5` `6` `7` `8` | volcado: −48, +16, −16, +48 |
+| `V` | la pantalla del programa: la suya si es Superfast; si no, Superfast texto de su D_FILE, como `v`. Ahí: `V` vuelve, `S` paso (se ve cambiar la pantalla), `C`/espacio sigue |
+| `Z` | snapshot (se queda parado; la pantalla vuelve) |
+| `L` | carga el último snapshot grabado en la sesión |
+| `Q` | cerrar |
+
+**En el emulador** hace falta:
+- el modo de 80 columnas (2045,174) con el D_FILE alternativo;
+- que la fuente siga a I en los refrescos;
+- `SETI` en el monitor (sección 12.2);
+- y nada más.
+
+Referencia: la prueba `ui` de `cosim.cpp`.
+
+### 13.7 Símbolos (`sym`)
+
+Solo el MCU; el emulador no tiene que hacer nada.
+
+- **El fichero:** el de símbolos de pasmo (`pasmo prog.asm prog.bin
+  prog.sym`), con líneas `NOMBRE<tab>EQU 0ABCDH`. También valen
+  `NOMBRE: EQU $ABCD` y `NOMBRE = 0x1234`; lo que va detrás de `;` no
+  cuenta.
+- **Cuántos:** hasta 2048, con nombres de hasta 21 caracteres. Van en la CCM
+  RAM del STM32, ordenados por valor; con valores repetidos manda el primero
+  del fichero.
+- **Carga automática:** al cargar un programa con `LOAD`, el MCU apunta su
+  nombre con `.SYM` (`MAZOGS.P` → `MAZOGS.SYM`, en la misma carpeta). En la
+  parada siguiente lo lee; si no existe, quita los símbolos que hubiera.
+- **Carga a mano:** `sym fichero` (relativo a la carpeta actual), `sym -`
+  los quita, y `sym` solo dice cuántos hay.
+- **Dónde se ven:**
+  - en el desensamblado de la consola, la etiqueta en su propia línea
+    (`START:`);
+  - en la pantalla, en una columna;
+  - en los dos, los operandos de 4 cifras (`CALL SUB1`, `LD (DATA),A`);
+  - en la línea de parada y en el título de la pantalla, `STOP at 6212
+    (SUB1+2)`: el símbolo anterior a menos de 256 bytes, si vale `$0100` o
+    más.
+- **Direcciones por nombre:** cualquier dirección de la consola (`b`, `bc`,
+  `g`, `w`, `d`, `m`, `e`, `v`, `x reg=`) puede ser un símbolo, sin
+  distinguir mayúsculas, o `símbolo+n` (n en hex). El símbolo gana al hex;
+  `$BEEF` fuerza el hex.

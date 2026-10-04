@@ -48,6 +48,8 @@
 ;               IN (puerto) para i = 0..n-1           -> n bytes
 ;   12 AYWRITE  direccion = puerto de seleccion: OUT (puerto),i y el dato i
 ;               al puerto de datos (el mismo con A7 = 0), i = 0..n-1 -> nada
+;   13 SETI     n bajo = I mientras el monitor espera (0 = la del programa)
+;                                                     -> nada
 ;  INSEQ y READP son para los snapshots: los POKEs de control, en la BRAM de
 ;  sombra ($3FEF, indice 2), y las paginas que no estan mapeadas. WRITEP y
 ;  BRAMW, para cargarlos.
@@ -56,6 +58,12 @@
 ;  Las lecturas y escrituras de $2000-$3FFF van a la pagina del programa
 ;  (no a la del monitor), mapeandola un momento en el bloque 7. El bloque 0
 ;  (ROM) se puede escribir mientras corre el monitor.
+;
+;  SETI es para la pantalla del depurador: en Superfast la FPGA saca la
+;  fuente de I (la sigue en cada refresco), y parado I es la del programa
+;  (en un WRX, cualquier cosa). Con SETI 1Eh se ve la de la ROM. Se queda
+;  puesto: cada entrada vuelve a poner esa I en cuanto ha guardado la del
+;  programa, hasta un SETI 0. Al continuar siempre vuelve la del programa.
 ;
 ;  R: el monitor descuenta las M1 que hay entre la ruptura y su LD A,R, y al
 ;  salir las que hay entre su LD R,A y la vuelta a PC, asi que el programa
@@ -78,7 +86,7 @@ R_OUT       equ 22              ; M1 desde el LD R,A hasta volver a PC
             org  2000h
 
             jp   entry
-            defb "SD81DBG",3    ; $2003: firma y version (3: carga de snapshots)
+            defb "SD81DBG",4    ; $2003: firma y version (4: SETI)
 
 ; ---------------------------------------------------------------------
 ;  Entrada. La pila del programa: [SP] = $003B (del CALL), [SP+2] = PC+1
@@ -155,7 +163,11 @@ e_iff:      ld   (regs+26),a
             inc  hl
             ld   (regs+20),hl
 
-            ld   a,CMD_BREAK    ; avisar al MCU
+            ld   a,(ui_i)       ; SETI puesto: su I mientras espera
+            or   a
+            jr   z,e_noi
+            ld   i,a
+e_noi:      ld   a,CMD_BREAK    ; avisar al MCU
             call mcu_send
             ld   hl,regs
             ld   b,30
@@ -229,6 +241,16 @@ pr3:        ld   a,(op)
             jp   z,q_ayread
             cp   12
             jp   z,q_aywrite
+            cp   13
+            jp   z,q_seti
+            jp   poll
+
+q_seti:     ld   a,(rn)         ; I mientras espera (0 = la del programa)
+            ld   (ui_i),a
+            or   a
+            jr   nz,qs1
+            ld   a,(regs+24)
+qs1:        ld   i,a
             jp   poll
 
 q_inseq:    ld   de,(rn)        ; n IN seguidos del mismo puerto
@@ -570,6 +592,7 @@ mrw:        in   a,(CLKP)
 ; ---------------------------------------------------------------------
 regs:       defs 30
 im_req:     defb 0FFh           ; byte 31 de SETREGS: IM al salir (FF = no tocar)
+ui_i:       defb 0              ; SETI: I mientras espera (0 = la del programa)
 save_sp:    defw 0
 sp_ret:     defw 0
 r_raw:      defb 0

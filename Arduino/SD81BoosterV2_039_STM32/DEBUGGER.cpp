@@ -48,6 +48,7 @@
 #define OP_BRAMW   10     // n bytes a la BRAM de sombra, en su puntero
 #define OP_AYREAD  11     // n registros de un AY (puerto de seleccion)
 #define OP_AYWRITE 12     // n registros de un AY
+#define OP_SETI    13     // I mientras el monitor espera (0 = la del programa); version 4
 
 #define AY_PORT_A  0x00CF // seleccion / lectura del AY A (ZonX) y del B
 #define AY_PORT_B  0x00C7
@@ -84,7 +85,15 @@ enum {
   TAG_VIEW,         // v: los POKEs de control en la sombra (2038-2098)
   TAG_VIEW_SYNC,    // v: ya se ha escrito el 2045 (orden 10 fuera)
   TAG_VIEW_SAVE,    // v dir: un trozo de la sombra que se va a pisar (arg = trozo)
-  TAG_VIEW_COPY     // v dir: un trozo del mapa de bits (arg = trozo)
+  TAG_VIEW_COPY,    // v dir: un trozo del mapa de bits (arg = trozo)
+  TAG_UI_PK,        // pantalla: los POKEs de control en la sombra
+  TAG_UI_CHROMA,    // pantalla: el registro de Chroma81
+  TAG_UI_SAVE,      // pantalla: un trozo de la sombra que se va a pisar (arg = trozo)
+  TAG_UI_DIS,       // pantalla: bytes para el desensamblado
+  TAG_UI_STK,       // pantalla: la pila
+  TAG_UI_MEM,       // pantalla: el volcado de memoria
+  TAG_UI_KBD,       // pantalla: una fila del teclado (arg = fila 0-7)
+  TAG_UI_FIX        // pantalla: tras un reset, los POKEs en la sombra
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -166,12 +175,173 @@ static void q_setregs(){
   if (r) memcpy(r->data, regs, REGS_LEN);
 }
 
+// El monitor escribe POKEs como el programa (orden 10). Con LOAD *ROMLOCK
+// la FPGA no los haria: se quita un momento. poke_end(), cuando llegue la
+// barrera (TAG_VIEW_SYNC)
+static bool poke_relock = false;
+static void poke_begin(){
+  send_bit_config(cfgcmd_DBGPOKE, 1);
+  if (cfg_value(cfgcmd_ROMLOCK)) { send_bit_config(cfgcmd_ROMLOCK, 0); poke_relock = true; }
+}
+static void poke_end(){
+  send_bit_config(cfgcmd_DBGPOKE, 0);
+  if (poke_relock) { poke_relock = false; send_bit_config(cfgcmd_ROMLOCK, 1); }
+}
+
 static uint16_t reg16(int i){ return regs[i] | (regs[i+1] << 8); }
 static void set_reg16(int i, uint16_t v){ regs[i] = v & 0xFF; regs[i+1] = v >> 8; }
 
 static int bp_find(uint16_t addr){
   for (int i = 0; i < NBP; i++) if (bps[i].used && bps[i].addr == addr) return i;
   return -1;
+}
+
+// ---------------------------------------------------------------------
+// Simbolos (fase 5). El fichero de simbolos de pasmo (pasmo prog.asm
+// prog.bin prog.sym: "NOMBRE<tab>EQU 0ABCDH"); tambien vale "NOMBRE: EQU
+// $ABCD" o "NOMBRE = 0x1234". Al cargar un programa (LOAD) se apunta su
+// nombre con .SYM y, en la parada siguiente, se lee si existe (si no, fuera
+// los que hubiera). O a mano: sym fichero. Van en la CCM RAM (64 KB que el
+// enlazador no usa), ordenados por valor; con valores repetidos, el primero
+// del fichero
+// ---------------------------------------------------------------------
+#define SYM_MAX   2048
+#define SYM_NAME  22                          // con el 0 final; los mas largos se cortan
+struct Sym { uint16_t val; char name[SYM_NAME]; };
+static_assert(sizeof(Sym) * SYM_MAX <= 0x10000, "los simbolos no caben en la CCM RAM");
+#ifdef ARDUINO_ARCH_STM32
+static Sym* const syms = (Sym*)0x10000000;
+#else
+static Sym syms_ram[SYM_MAX];                 // (en el PC, el arnes)
+static Sym* const syms = syms_ram;
+#endif
+static uint16_t sym_n = 0;
+static char sym_src[96] = "";                 // de que fichero son
+static char sym_auto[96] = "";                // el .SYM del ultimo programa cargado
+static bool sym_auto_pend = false;            // mirarlo en la parada siguiente
+
+static bool ci_eq(const char* a, const char* b){
+  while (*a && toupper((uint8_t)*a) == toupper((uint8_t)*b)) { a++; b++; }
+  return !*a && !*b;
+}
+
+static bool sym_num(const char* t, uint32_t* v){
+  char b[16];
+  size_t L = strlen(t);
+  int base = 10;
+  if (t[0] == '$' || t[0] == '#') { t++; L--; base = 16; }
+  else if (t[0] == '0' && (t[1] == 'x' || t[1] == 'X')) { t += 2; L -= 2; base = 16; }
+  else if (L && (t[L - 1] == 'h' || t[L - 1] == 'H')) { L--; base = 16; }
+  if (!L || L >= sizeof(b)) return false;
+  memcpy(b, t, L);
+  b[L] = 0;
+  char* e;
+  *v = strtoul(b, &e, base);
+  return *e == 0;
+}
+
+static void sym_line(char* l){
+  char* c = strchr(l, ';');
+  if (c) *c = 0;
+  char* t[3];
+  int n = 0;
+  for (char* q = strtok(l, " \t"); q && n < 3; q = strtok(nullptr, " \t")) t[n++] = q;
+  if (n < 3 || !(ci_eq(t[1], "EQU") || !strcmp(t[1], "="))) return;
+  size_t L = strlen(t[0]);
+  if (L && t[0][L - 1] == ':') t[0][--L] = 0;
+  if (!L || !(isalpha((uint8_t)t[0][0]) || t[0][0] == '_' || t[0][0] == '.' || t[0][0] == '@')) return;
+  uint32_t v;
+  if (!sym_num(t[2], &v) || v > 0xFFFF || sym_n >= SYM_MAX) return;
+  syms[sym_n].val = v;
+  snprintf(syms[sym_n].name, SYM_NAME, "%s", t[0]);
+  sym_n++;
+}
+
+// Simbolos leidos; -1 si no se puede abrir (entonces no se toca lo que hay)
+static int sym_load(const char* path){
+  if (!z81in_open(path)) return -1;
+  sym_n = 0;
+  char line[128];
+  int len = 0, c;
+  do {
+    c = z81in_read();
+    if (c >= 0 && c != '\n' && c != '\r') { if (len < (int)sizeof(line) - 1) line[len++] = c; continue; }
+    line[len] = 0;
+    if (len) sym_line(line);
+    len = 0;
+  } while (c >= 0);
+  z81in_close();
+  for (int i = 1; i < sym_n; i++) {           // por valor (insercion: estable)
+    Sym t = syms[i];
+    int j = i;
+    while (j > 0 && syms[j - 1].val > t.val) { syms[j] = syms[j - 1]; j--; }
+    syms[j] = t;
+  }
+  snprintf(sym_src, sizeof(sym_src), "%s", path);
+  return sym_n;
+}
+
+static int sym_lower(uint16_t v){
+  int lo = 0, hi = sym_n;
+  while (lo < hi) { int m = (lo + hi) / 2; if (syms[m].val < v) lo = m + 1; else hi = m; }
+  return lo;
+}
+
+static const char* sym_at(uint16_t v){
+  int i = sym_lower(v);
+  return (i < sym_n && syms[i].val == v) ? syms[i].name : nullptr;
+}
+
+// "NOMBRE" o "NOMBRE+n": el simbolo anterior, a menos de 256 bytes (y desde
+// $0100: los valores pequenos suelen ser constantes, no direcciones)
+static bool sym_near(uint16_t v, char* out, size_t sz){
+  int i = sym_lower(v);
+  if (i < sym_n && syms[i].val == v) { snprintf(out, sz, "%s", syms[i].name); return true; }
+  if (i == 0) return false;
+  int k = i - 1;
+  while (k > 0 && syms[k - 1].val == syms[k].val) k--;   // el primero de los que valen eso
+  if (syms[k].val < 0x100 || v - syms[k].val >= 0x100) return false;
+  snprintf(out, sz, "%s+%X", syms[k].name, v - syms[k].val);
+  return true;
+}
+
+static bool sym_find(const char* name, uint16_t* v){
+  for (int i = 0; i < sym_n; i++) if (ci_eq(syms[i].name, name)) { *v = syms[i].val; return true; }
+  return false;
+}
+
+// En un desensamblado, "1234h" (4 cifras) por su simbolo, si lo hay
+static void sym_subst(char* t, size_t sz){
+  if (!sym_n) return;
+  char out[96];
+  size_t o = 0;
+  for (size_t i = 0; t[i] && o < sizeof(out) - 1; ) {
+    if ((i == 0 || !isalnum((uint8_t)t[i - 1])) && isxdigit((uint8_t)t[i]) && isxdigit((uint8_t)t[i + 1]) &&
+        isxdigit((uint8_t)t[i + 2]) && isxdigit((uint8_t)t[i + 3]) && (t[i + 4] == 'h' || t[i + 4] == 'H') &&
+        !isalnum((uint8_t)t[i + 5])) {
+      char h[5] = {t[i], t[i + 1], t[i + 2], t[i + 3], 0};
+      const char* name = sym_at(strtoul(h, nullptr, 16));
+      if (name) {
+        int w = snprintf(out + o, sizeof(out) - o, "%s", name);
+        o = (w < 0 || o + w >= sizeof(out)) ? sizeof(out) - 1 : o + w;
+        i += 5;
+        continue;
+      }
+    }
+    out[o++] = t[i++];
+  }
+  out[o] = 0;
+  snprintf(t, sz, "%s", out);
+}
+
+// Al parar: el .SYM del programa cargado, si se ha cargado uno desde la
+// ultima vez
+static void sym_auto_load(){
+  if (!sym_auto_pend) return;
+  sym_auto_pend = false;
+  int n = sym_load(sym_auto);
+  if (n >= 0) Serial.printf("Symbols: %d from %s\r\n", n, sym_auto);
+  else if (sym_n) { sym_n = 0; sym_src[0] = 0; Serial.printf("Symbols cleared (no %s)\r\n", sym_auto); }
 }
 
 // ---------------------------------------------------------------------
@@ -206,11 +376,14 @@ static void print_regs(){
 // Desensambla count instrucciones de bytes (leidos desde addr). Devuelve los
 // bytes usados.
 static int print_disasm(uint16_t addr, uint8_t* bytes, int len, int count){
-  char text[64], b[100];
+  char text[96], b[140];
   int pos = 0;
   for (int k = 0; k < count && pos < len; k++) {
     int used = Z80Disassembler::disassemble(text, bytes + pos, len - pos);
     if (used <= 0) used = 1;
+    sym_subst(text, sizeof(text));
+    const char* lab = sym_at(addr + pos);
+    if (lab) Serial.printf("%s:\r\n", lab);
     int p = snprintf(b, sizeof(b), "%c%04X  ", bp_find(addr + pos) >= 0 ? '*' : ' ', (uint16_t)(addr + pos));
     for (int j = 0; j < 4; j++)
       p += snprintf(b + p, sizeof(b) - p, j < used ? "%02X" : "  ", bytes[pos + j]);
@@ -320,9 +493,11 @@ static void q_cont(bool run){
 }
 
 static void view_off();
+static void ui_run();
 
 static void dbg_continue(){
   view_off();                                 // v: el video del programa, antes de nada
+  ui_run();                                   // y la pantalla del depurador (vuelve al parar)
   if (foreign_rst()) queue_emulate_rst();
   int at = bp_find(reg16(R_PC));
   queue_insert_bps(at);
@@ -430,6 +605,21 @@ static bool view_busy();
 static void view_drop();
 static void view_request(bool hr, uint16_t dir);
 static uint8_t* view_data(uint8_t which, uint16_t off);
+static void view_times();
+// Pantalla del depurador (fase 3b, mas abajo)
+static bool ui_want = false;        // pedida: se ensena en cada parada
+static void ui_result(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n);
+static void ui_show();
+static void ui_hide();
+static void ui_run();
+static void ui_drop();
+static void ui_on_break();
+static void ui_on_stop();
+static void ui_refresh();
+static bool ui_busy();
+static bool ui_entering_now();
+static bool ui_is_shown();
+static void ui_kbd_feed();
 static void run_to(uint16_t addr, const char* what);
 static void step_over(uint8_t* b, uint16_t n);
 
@@ -444,6 +634,7 @@ static void on_break(){
   q_count = 0;
   poll_state = 0;
   stopped = true;
+  ui_on_break();                              // la cola se ha vaciado
   stop_nmi = (regs[R_DBGST] & 0x40) != 0;
   if (stop_nmi) prog_slow = true;
   if (stop_nmi && reg16(R_PC) == 0x0066) {
@@ -477,16 +668,19 @@ static void on_break2(){
     ld_begin();
     return;
   }
+  sym_auto_load();
   set_status_LED(clMAGENTA);
-  if (kbd_arm) { kbd_arm = false; kbd_on = true; kbd_prev = 0x0F; kbd_armed = 0; }   // pausa del boton QS: S, Z, L o espacio
-  char b[96];
-  snprintf(b, sizeof(b), "\r\n*** STOP at %04X: %s%s%s", reg16(R_PC), reached ? "reached" : reason_name(regs[R_DBGST]),
+  if (kbd_arm) { kbd_arm = false; kbd_on = !ui_want; kbd_prev = 0x1F; kbd_armed = 0; }   // pausa del boton QS: S, Z, L, D o espacio
+  char b[140], where[40] = "";
+  if (sym_near(reg16(R_PC), where + 2, sizeof(where) - 3)) { where[0] = ' '; where[1] = '('; strcat(where, ")"); }
+  snprintf(b, sizeof(b), "\r\n*** STOP at %04X%s: %s%s%s", reg16(R_PC), where, reached ? "reached" : reason_name(regs[R_DBGST]),
     (regs[R_DBGST] & 0x20) ? " (inside the simulated interrupt)" : "", prog_slow ? " (SLOW)" : "");
   Serial.println(b);
   queue_remove_bps();
   free_temp_bps();
   queue_show();
   if (snap_pending) { snap_pending = false; snap_begin(); }
+  else ui_on_stop();                          // la pantalla del depurador, si se pidio
 }
 
 // Ha llegado el resultado de la peticion last
@@ -535,7 +729,11 @@ static void on_result(uint8_t* data, uint16_t n){
     case TAG_STEPOUT:  if (n == 2) run_to(data[0] | (data[1] << 8), "Step out"); break;
     case TAG_VIEW:      view_result(data, n); break;
     case TAG_VIEW_SAVE: case TAG_VIEW_COPY: view_part(last.tag, last.arg, data, n); break;
-    case TAG_VIEW_SYNC: send_bit_config(cfgcmd_DBGPOKE, 0); break;
+    case TAG_VIEW_SYNC: poke_end(); view_times(); break;
+    case TAG_UI_PK: case TAG_UI_CHROMA: case TAG_UI_SAVE: case TAG_UI_DIS:
+    case TAG_UI_STK: case TAG_UI_MEM: case TAG_UI_KBD: case TAG_UI_FIX:
+      ui_result(last.tag, last.arg, data, n);
+      break;
     case TAG_UNWIND:                          // SLOW: deshacer la NMI
       if (n == 2) {
         set_reg16(R_PC, data[0] | (data[1] << 8));
@@ -584,6 +782,7 @@ void cmd_dbg_poll(void){
   }
   snap_feed();                                // un snapshot en curso pide lo siguiente
   kbd_feed();                                 // el teclado, en la pausa del boton QS
+  ui_kbd_feed();                              // y con la pantalla del depurador
   ld_feed();                                  // y una carga
   if (q_count == 0) return;                   // sin peticion: otra vuelta del loop
   poll_state = 0;                             // (antes de sacarla: ver dbg_waiting)
@@ -600,8 +799,8 @@ void cmd_dbg_poll(void){
     for (uint16_t i = 0; i < r.n; i++) SendByteToZ80(r.data[i]);
   if (r.op == OP_WRITEP || r.op == OP_BRAMW) {  // los datos de la carga, en su buffer
     uint8_t* d = (r.arg == 0xFF) ? r.data :                   // (0xFF: en la propia peticion;
-                 (r.arg == 0xFE) ? view_data(r.page, r.addr) :    //  0xFE: los buffers de v dir)
-                 ld_data(r.arg);
+                 (r.arg == 0xFE) ? view_data(r.page, r.addr) :    //  0xFE: los buffers de v dir
+                 ld_data(r.arg);                                  //  y de la pantalla)
     for (uint16_t i = 0; i < r.n; i++) SendByteToZ80(d[i]);
   }
   last = r;
@@ -621,8 +820,28 @@ static bool parse_hex(const char*& p, uint32_t& v){
   return p != s;
 }
 
+// Una direccion: un simbolo (con +desplazamiento en hex), o hex. El
+// simbolo gana: para un hex que tambien sea simbolo (BEEF), $BEEF
+static bool parse_addr(const char*& p, uint32_t& v){
+  while (*p == ' ') p++;
+  char tok[SYM_NAME + 8];
+  int n = 0;
+  const char* q = p;
+  while (*q && *q != ' ' && *q != '+' && n < (int)sizeof(tok) - 1) tok[n++] = *q++;
+  tok[n] = 0;
+  uint16_t sv;
+  if (n && *p != '$' && sym_find(tok, &sv)) {
+    v = sv;
+    p = q;
+    uint32_t off;
+    if (*p == '+') { p++; if (parse_hex(p, off)) v = (v + off) & 0xFFFF; }
+    return true;
+  }
+  return parse_hex(p, v);
+}
+
 static void help(){
-  Serial.println("Debugger (hex numbers):");
+  Serial.println("Debugger (hex numbers; an addr can also be a symbol, or symbol+n):");
   Serial.println("  p              pause the program");
   Serial.println("  r              registers and instruction at PC");
   Serial.println("  s [n]          step n instructions (1)");
@@ -634,12 +853,14 @@ static void help(){
   Serial.println("  w r|w|io addr  watchpoint (read, write, I/O port)    w  clear it");
   Serial.println("  v              video while stopped: Superfast text on / off (SLOW and FAST programs)");
   Serial.println("  v addr         video while stopped: Superfast HiRes, bitmap (32 x 192) at addr (WRX)");
+  Serial.println("  ui             debugger screen on the ZX81 on / off (its keys are listed on it)");
   Serial.println("  d [addr] [n]   disassemble n instructions (10) from addr (PC)");
   Serial.println("  m addr [n]     dump n bytes (64)");
   Serial.println("  e addr b1 b2.. write bytes");
   Serial.println("  x reg=val      set a register (af bc de hl ix iy af' bc' de' hl' sp pc i r)");
   Serial.println("  io port [val]  read (or write) an I/O port");
   Serial.println("  snap [-a] [f]  snapshot (.Z81): mapped pages, -a all pages; name: last LOADed file");
+  Serial.println("  sym [f | -]    symbols (pasmo .sym): load f, - clears, none: show; LOAD reads <name>.SYM");
   Serial.println("  DBG_RELOAD     reload /SYS/DEBUG.BIN (like a reset)");
 }
 
@@ -656,7 +877,7 @@ static bool set_reg(const char* p){
     if (strncmp(p, n.name, l) == 0 && p[l] == '=') {
       const char* v = p + l + 1;
       uint32_t val;
-      if (!parse_hex(v, val)) return false;
+      if (!parse_addr(v, val)) return false;
       if (n.wide) set_reg16(n.idx, val); else regs[n.idx] = val;
       if (n.idx == R_PC) stop_foreign = false;   // ya no se esta sobre el RST que paro
       return true;
@@ -678,6 +899,7 @@ bool dbg_console(const char* line){
   if (snap_busy()) { Serial.println("Snapshot in progress"); return true; }
   if (ld_busy()) { Serial.println("Loading a snapshot"); return true; }
   if (view_busy()) { Serial.println("Video: copying the bitmap"); return true; }
+  if (ui_entering_now()) { Serial.println("Debugger screen: starting"); return true; }
   if (!strcmp(cmd, "p")) { if (stopped) Serial.println("Already stopped"); else dbg_pause(); return true; }
   if (!strcmp(cmd, "snap")) {
     while (*p == ' ') p++;
@@ -686,13 +908,29 @@ bool dbg_console(const char* line){
     dbg_snapshot(all, p, false);              // desde la consola se queda parado
     return true;
   }
+  if (!strcmp(cmd, "sym")) {
+    while (*p == ' ') p++;
+    if (!*p) {
+      if (sym_n) Serial.printf("%d symbols from %s\r\n", sym_n, sym_src);
+      else Serial.println("No symbols");
+    } else if (!strcmp(p, "-")) { sym_n = 0; sym_src[0] = 0; Serial.println("Symbols cleared"); }
+    else {
+      char path[96];
+      snprintf(path, sizeof(path), "%s%s", p[0] == '/' ? "" : current_dir, p);
+      int n = sym_load(path);
+      if (n < 0) Serial.printf("Can't open %s\r\n", path);
+      else Serial.printf("%d symbols from %s\r\n", n, path);
+    }
+    if (stopped) ui_refresh();
+    return true;
+  }
   if (!stopped) { Serial.println("Running: p to pause"); return true; }
 
   if (!strcmp(cmd, "r")) queue_show();
   else if (!strcmp(cmd, "c")) dbg_continue();
   else if (!strcmp(cmd, "s")) dbg_step(parse_hex(p, n) && n ? n : 1);
   else if (!strcmp(cmd, "b")) {
-    if (!parse_hex(p, a)) { Serial.println("b addr"); return true; }
+    if (!parse_addr(p, a)) { Serial.println("b addr"); return true; }
     if (bp_find(a) >= 0) { Serial.println("Already set"); return true; }
     int i = 0;
     while (i < NBP && bps[i].used) i++;
@@ -701,7 +939,7 @@ bool dbg_console(const char* line){
     Serial.printf("Breakpoint %d at %04X\r\n", i, (unsigned)a);
   }
   else if (!strcmp(cmd, "bc")) {
-    if (parse_hex(p, a)) {
+    if (parse_addr(p, a)) {
       int i = bp_find(a);
       if (i < 0) Serial.println("No breakpoint there"); else bps[i].used = false;
     } else for (int i = 0; i < NBP; i++) bps[i].used = false;
@@ -712,15 +950,21 @@ bool dbg_console(const char* line){
     if (!any) Serial.println("No breakpoints");
     if (watch_mode) Serial.printf("Watchpoint: %s %04X\r\n", watch_name(), watch_addr);
   }
+  else if (!strcmp(cmd, "ui")) {
+    if (ui_want) { ui_want = false; ui_run(); Serial.println("Debugger screen off"); }
+    else { ui_want = true; ui_show(); Serial.println("Debugger screen on (Q on the ZX81 or ui to close)"); }
+    return true;
+  }
   else if (!strcmp(cmd, "v")) {
+    if (ui_is_shown()) { Serial.println("Close the debugger screen first (ui)"); return true; }
     if (view_is_on()) { view_off(); Serial.println("Video: back to the program's own"); }
-    else if (parse_hex(p, a)) {
+    else if (parse_addr(p, a)) {
       if (a + 6144 > 0x10000) { Serial.println("v addr: the bitmap (6144 bytes) does not fit"); return true; }
       view_request(true, a);
     } else view_request(false, 0);
   }
   else if (!strcmp(cmd, "g")) {
-    if (!parse_hex(p, a)) { Serial.println("g addr"); return true; }
+    if (!parse_addr(p, a)) { Serial.println("g addr"); return true; }
     run_to(a, "Run to");
   }
   else if (!strcmp(cmd, "o")) q_push(OP_READ, reg16(R_PC), 4, TAG_STEPOVER);
@@ -738,19 +982,19 @@ bool dbg_console(const char* line){
       Serial.println("Watchpoint cleared");
       return true;
     }
-    if (!parse_hex(p, a)) { Serial.println("w r|w|io addr"); return true; }
+    if (!parse_addr(p, a)) { Serial.println("w r|w|io addr"); return true; }
     watch_mode = m; watch_addr = a;
     queue_cmp(a, m);
     Serial.printf("Watchpoint: %s %04X\r\n", watch_name(), watch_addr);
   }
   else if (!strcmp(cmd, "d")) {
-    if (!parse_hex(p, a)) a = reg16(R_PC);
+    if (!parse_addr(p, a)) a = reg16(R_PC);
     if (!parse_hex(p, n) || !n) n = 10;
     if (n > 60) n = 60;
     q_push(OP_READ, a, n * 4, TAG_DISASM, n);
   }
   else if (!strcmp(cmd, "m")) {
-    if (!parse_hex(p, a)) { Serial.println("m addr [n]"); return true; }
+    if (!parse_addr(p, a)) { Serial.println("m addr [n]"); return true; }
     if (!parse_hex(p, n) || !n) n = 64;
     if (n > 256) n = 256;
     q_push(OP_READ, a, n, TAG_DUMP);
@@ -759,7 +1003,7 @@ bool dbg_console(const char* line){
     uint8_t bytes[32];
     uint16_t cnt = 0;
     uint32_t v;
-    if (parse_hex(p, a))
+    if (parse_addr(p, a))
       while (cnt < sizeof(bytes) && parse_hex(p, v)) bytes[cnt++] = v;
     if (!cnt) { Serial.println("e addr b1 b2 ..."); return true; }
     DbgReq* r = q_push(OP_WRITE, a, cnt);
@@ -774,7 +1018,8 @@ bool dbg_console(const char* line){
     if (parse_hex(p, n)) q_out(a, n);
     else q_push(OP_IN, a, 0, TAG_IN);
   }
-  else Serial.println("? (h for help)");
+  else { Serial.println("? (h for help)"); return true; }
+  if (stopped) ui_refresh();                  // lo que haya cambiado, tambien en la pantalla
   return true;
 }
 
@@ -789,7 +1034,7 @@ void dbg_pause(void){
 }
 
 bool dbg_is_stopped(void){ return stopped; }
-bool dbg_waiting(void){ return stopped && poll_state == 1 && q_count == 0 && !snap_busy() && !ld_busy() && !view_busy(); }
+bool dbg_waiting(void){ return stopped && poll_state == 1 && q_count == 0 && !snap_busy() && !ld_busy() && !view_busy() && !ui_busy(); }
 
 static void ld_cancel();
 
@@ -800,6 +1045,7 @@ void dbg_reset(void){
   watch_mode = 0;                             // el reset de la FPGA borra el comparador
   prog_slow = stop_nmi = false;
   view_drop();
+  ui_drop();
   cmp_tmp = false;
   stopped = false;
   poll_state = 0;
@@ -834,7 +1080,7 @@ void dbg_qs_button(void){
   uint32_t now = millis();
   if (down && !qs_down) { qs_down = true; qs_t0 = now; qs_stage = 0; return; }
   if (down) {
-    if (!debug_monitor_loaded || snap_busy() || ld_busy() || view_busy()) return;
+    if (!debug_monitor_loaded || snap_busy() || ld_busy() || view_busy() || ui_entering_now()) return;
     if (qs_stage == 0 && now - qs_t0 >= 1000) { qs_stage = 1; set_status_LED(clMAGENTA); }
     if (qs_stage == 1 && now - qs_t0 >= 3000) { qs_stage = 2; set_status_LED(clYELLOW); }
     return;
@@ -843,7 +1089,7 @@ void dbg_qs_button(void){
   qs_down = false;                            // al soltar
   if (now - qs_t0 < 30) return;               // rebote
   if (!debug_monitor_loaded || qs_stage == 0) { toggle_qs(); return; }
-  if (snap_busy() || ld_busy() || view_busy()) return;
+  if (snap_busy() || ld_busy() || view_busy() || ui_entering_now()) return;
   if (qs_stage == 1) {
     if (stopped) { Serial.println("QS button: continue"); dbg_continue(); }
     else { kbd_arm = true; dbg_pause(); led_state(); }   // magenta cuando llegue; despues, el teclado
@@ -898,6 +1144,11 @@ void dbg_note_opendir(const char* arg, bool ok){
 
 void dbg_note_loaded(const char* name){
   dirty_clear();                              // programa nuevo: sus paginas, desde cero
+  const char* dot = strrchr(name, '.');       // sus simbolos: el mismo nombre con .SYM
+  const char* sl = strrchr(name, '/');
+  int base = (dot && (!sl || dot > sl)) ? dot - name : strlen(name);
+  snprintf(sym_auto, sizeof(sym_auto), "%s%.*s.SYM", name[0] == '/' ? "" : current_dir, base, name);
+  sym_auto_pend = true;
   const char* b = strrchr(name, '/');
   b = b ? b + 1 : name;
   int i = 0;
@@ -959,6 +1210,7 @@ void dbg_snapshot(bool all, const char* name, bool resume){
   strncpy(sn.user_name, name ? name : "", sizeof(sn.user_name) - 1);
   sn.user_name[sizeof(sn.user_name) - 1] = 0;
   view_off();                                 // el .Z81 guarda el video del programa
+  ui_hide();
   if (stopped) snap_begin();
   else {                                      // al parar empieza (on_break)
     snap_pending = true;
@@ -1178,7 +1430,7 @@ static void snap_finish(){
     strcpy(last_snap, sn.path);               // para la L en la pausa del boton QS
   }
   if (sn.resume) dbg_continue();
-  else { led_state(); Serial.println("Stopped. Type h for help."); }
+  else { led_state(); Serial.println("Stopped. Type h for help."); ui_on_stop(); }
 }
 
 // La sombra de los bloques que no son [MEMORY] (SHADOW, como EightyOne): el
@@ -1669,6 +1921,8 @@ static void ld_bram_ptr(uint16_t a){
 static void ld_begin(){
   ld.pending = false;
   view_drop();                                // la carga repone los POKEs
+  ui_want = false;                            // y la pantalla, si estaba, se quita bien antes
+  ui_run();
   dirty_clear();                              // las paginas escritas seran las de la carga
   set_blinking(clCYAN, 4);
   Serial.println("\r\nLoading snapshot ...");
@@ -1921,28 +2175,30 @@ static void dirty_clear(){
 // seguir
 //   S  snapshot y sigue          Z  snapshot y se queda parado
 //   L  carga el ultimo snapshot grabado en esta sesion
-//   ESPACIO  sigue
+//   D  la pantalla del depurador  ESPACIO  sigue
 // ---------------------------------------------------------------------
-static const struct { uint16_t port; uint8_t bit; } kbd_keys[4] = {
+#define KBD_N 5
+static const struct { uint16_t port; uint8_t bit; } kbd_keys[KBD_N] = {
   {0xFDFE, 0x02},   // S  (A S D F G)
   {0xFEFE, 0x02},   // Z  (SHIFT Z X C V)
   {0xBFFE, 0x02},   // L  (ENTER L K J H)
-  {0x7FFE, 0x01}    // ESPACIO (SPACE . M N B)
+  {0x7FFE, 0x01},   // ESPACIO (SPACE . M N B)
+  {0xFDFE, 0x04}    // D  (A S D F G)
 };
-static uint8_t kbd_now = 0;                     // pulsadas: bit 0 S, 1 Z, 2 L, 3 espacio
+static uint8_t kbd_now = 0;                     // pulsadas: bit 0 S, 1 Z, 2 L, 3 espacio, 4 D
 static uint32_t kbd_t = 0;
 
 static void kbd_feed(){
   if (!kbd_on || !stopped || snap_busy() || ld_busy() || q_count) return;
   if (millis() - kbd_t < 40) return;
   kbd_t = millis();
-  for (int k = 0; k < 4; k++) q_push(OP_IN, kbd_keys[k].port, 0, TAG_KBD, k);
+  for (int k = 0; k < KBD_N; k++) q_push(OP_IN, kbd_keys[k].port, 0, TAG_KBD, k);
 }
 
 static void kbd_result(uint8_t k, uint8_t v){
   if (k == 0) kbd_now = 0;
   if (!(v & kbd_keys[k].bit)) kbd_now |= 1 << k;
-  if (k != 3) return;
+  if (k != KBD_N - 1) return;
   uint8_t press = kbd_now & ~kbd_prev;
   uint8_t release = kbd_prev & ~kbd_now;
   kbd_prev = kbd_now;
@@ -1963,6 +2219,12 @@ static void kbd_result(uint8_t k, uint8_t v){
     ld_begin();
   }
   else if (press & 8) { Serial.println("QS pause: continue"); dbg_continue(); }
+  else if (press & 16) {
+    Serial.println("QS pause: D, debugger screen");
+    kbd_on = false;                           // las teclas, de la pantalla
+    ui_want = true;
+    ui_show();
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -1991,11 +2253,25 @@ static bool view_copying = false;           // copiandolo: la consola y el boton
 static uint16_t view_dir = 0, view_blk = 0;  // donde esta y desde donde lo pinta la FPGA
 static uint8_t view_pk[POKE_N];             // 2038-2098 en la sombra al activarla
 static uint8_t view_buf[2][VIEW_HR_LEN];    // [0] el mapa de bits, [1] la sombra que se pisa
+static uint32_t view_t[3];                  // la copia: inicio (0 = sin medir), sombra leida, memoria leida
 
 static bool view_is_on(){ return view_on; }
 static bool view_busy(){ return view_copying; }
 static void view_drop(){ view_on = false; view_copying = false; }
-static uint8_t* view_data(uint8_t which, uint16_t off){ return view_buf[which & 1] + off; }
+static uint8_t* ui_buf(uint8_t which);
+static uint8_t* view_data(uint8_t which, uint16_t off){
+  return (which >= 2 ? ui_buf(which) : view_buf[which & 1]) + off;
+}
+
+// Lo que tarda la copia, por partes (6144 bytes cada una): la velocidad del
+// enlace con el monitor en cada sentido
+static void view_times(){
+  if (!view_t[0]) return;
+  uint32_t now = millis();
+  Serial.printf("Video: copy timing - shadow read %lu ms, memory read %lu ms, shadow write %lu ms\r\n",
+                view_t[1] - view_t[0], view_t[2] - view_t[1], now - view_t[2]);
+  view_t[0] = 0;
+}
 
 static void view_bram_ptr(uint16_t a){
   q_out(DBG_PORT, 0x85); q_out(DBG_PORT, a & 0xFF);
@@ -2012,7 +2288,7 @@ static void view_request(bool hr, uint16_t dir){
 }
 
 static void view_apply(){
-  send_bit_config(cfgcmd_DBGPOKE, 1);         // el monitor escribe como el programa
+  poke_begin();                               // el monitor escribe como el programa
   if (view_hr) {
     DbgReq* r = q_push(OP_WRITE, 2043, 3);    // HFILE y el modo
     if (r) { r->data[0] = view_blk & 0xFF; r->data[1] = view_blk >> 8; r->data[2] = 171; }
@@ -2036,6 +2312,7 @@ static void view_result(uint8_t* d, uint16_t n){
   if (!view_blk) { Serial.println("v addr: below 2000 only 0000 (the copy would hide the ROM)"); return; }
   Serial.println("Video: copying the bitmap ...");
   view_copying = true;
+  view_t[0] = millis();
   view_bram_ptr(view_blk);
   q_out(DBG_PORT, 0x02);
   for (int k = 0; k < VIEW_CHUNKS; k++) q_push(OP_INSEQ, DBG_PORT, 256, TAG_VIEW_SAVE, k);
@@ -2045,6 +2322,7 @@ static void view_result(uint8_t* d, uint16_t n){
 static void view_part(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n){
   if (k >= VIEW_CHUNKS) return;
   memcpy(view_buf[tag == TAG_VIEW_SAVE ? 1 : 0] + k * 256, d, n < 256 ? n : 256);
+  if (k == VIEW_CHUNKS - 1) view_t[tag == TAG_VIEW_SAVE ? 1 : 2] = millis();
   if (tag != TAG_VIEW_COPY || k != VIEW_CHUNKS - 1) return;
   view_copying = false;                       // lo que queda va en la cola, antes que lo siguiente
   view_bram_ptr(view_blk);                    // el mapa de bits, al principio del bloque
@@ -2063,7 +2341,7 @@ static void view_off(){
   const uint8_t* sh = view_pk + (2043 - POKE_FIRST);       // 2043, 2044, 2045 en la sombra
   auto never = [&](int i){ return rom_ok && rom[i] == sh[i]; };
   uint8_t m = never(2) ? 85 : sh[2];
-  send_bit_config(cfgcmd_DBGPOKE, 1);
+  poke_begin();
   if (view_hr) {                              // HFILE como estaba (0 si nunca se escribio)
     DbgReq* r = q_push(OP_WRITE, 2043, 2);
     if (r) { r->data[0] = never(0) ? 0 : sh[0]; r->data[1] = never(1) ? 0 : sh[1]; }
@@ -2084,5 +2362,602 @@ static void view_off(){
       if (q) q->page = 1;
     }
     view_copied = false;
+  }
+}
+
+// ---------------------------------------------------------------------
+// Pantalla del depurador en el ZX81 (fase 3b), sin FPGA. Mientras esta
+// parado, la FPGA pinta en Superfast de 80 columnas (POKE 2045,174) un
+// D_FILE que el MCU compone en la sombra del bloque de la ROM ($1000, con
+// el override 2096/2097 y 2098,170), escribiendolo con BRAMW: la SRAM del
+// programa no se toca. El monitor pone I = $1E mientras espera (SETI, version
+// 4): la fuente sale de I. Sin color: el Chroma se apaga mientras se ve, y
+// los 128/256 caracteres tambien (la fuente seria otra).
+//   Entrar: los POKEs y el Chroma de ahora, y guardar la sombra de $1000.
+//           Despues el primer dibujo y, detras, el video.
+//   Cada parada: se leen el desensamblado, la pila y el volcado y solo se
+//           mandan los trozos que cambian (BRAMW va a ~84 us/byte).
+//   Salir (Q, ui, seguir de verdad, snapshot, carga): los POKEs como
+//           estaban (85 / 0 si nunca se escribieron), su sombra, la de
+//           $1000, el Chroma, los 128/256 caracteres y SETI 0.
+// Teclado (al soltar), lo de la consola sin consola:
+//   S paso  O por encima  U salir de la rutina  C o ESPACIO seguir
+//   G ir a  B breakpoint (pone o quita; ENTER: en el PC)  W vigilancia (R, W
+//   o I y la direccion; ENTER la quita)  R registro (P S A B D H X Y I y el
+//   valor)  E poke (direccion y bytes; ENTER acaba)  D desensamblar desde
+//   (ENTER: el PC)  M volcado desde (ENTER: HL)  5-8 moverlo
+//   V la pantalla del programa (Superfast texto si no lo es; S, C, ESPACIO
+//   y V para volver)  Z snapshot  L cargar el ultimo  Q cerrar
+// Las direcciones: hasta 4 cifras hex y ENTER (con 4, sola); otra tecla
+// cancela.
+// ---------------------------------------------------------------------
+#define UI_DF      0x1000                     // D_FILE en la sombra (libre: la FPGA no lee ahi)
+#define UI_COLS    80
+#define UI_ROWS    24
+#define UI_STRIDE  81                         // 80 + 1 de relleno por fila (como el NEWLINE)
+#define UI_DF_LEN  (1 + UI_ROWS * UI_STRIDE)  // 1945
+#define UI_CHUNKS  ((UI_DF_LEN + 255) / 256)
+#define UI_DIS_N   12                         // lineas de desensamblado
+#define UI_STK_N   12                         // palabras de la pila
+#define UI_MEM_N   3                          // lineas de volcado (16 bytes)
+#define UI_FONT_I  0x1E                       // la fuente de la ROM
+
+static bool ui_shown = false;       // en la FPGA (o a punto: primer dibujo en camino)
+static bool ui_entering = false;    // guardando la sombra: la consola y el boton QS esperan
+static bool ui_abort = false;       // quitada mientras entraba
+static bool ui_applied = false;     // POKEs, Chroma y caracteres puestos
+static bool ui_apply_pend = false;  // ponerlos detras del primer dibujo
+static bool ui_seti = false;        // el monitor tiene SETI puesto (se queda en la pagina 63)
+static bool ui_fix = false;         // un reset con la pantalla puesta: arreglar la sombra
+static uint8_t ui_df[UI_DF_LEN];    // lo que hay (o va a haber) en la sombra
+static uint8_t ui_nd[UI_DF_LEN];    // la pantalla nueva
+static uint8_t ui_save[UI_DF_LEN];  // la sombra de antes
+static uint8_t ui_pk[POKE_N];       // los POKEs de control en la sombra, al entrar
+static uint8_t ui_chroma = 0, ui_c128 = 0, ui_c256 = 0;
+static uint16_t ui_dis = 0, ui_mem = 0;
+static bool ui_mem_set = false;
+static uint8_t ui_dis_b[64], ui_stk_b[2 * UI_STK_N], ui_mem_b[16 * UI_MEM_N];
+static uint8_t ui_pend = 0;         // lecturas de la pantalla en camino
+// Lo que se esta tecleando (fila 1)
+enum { UP_NONE, UP_GO, UP_BP, UP_DIS, UP_MEM, UP_POKEADDR, UP_POKE, UP_WMODE, UP_WADDR, UP_REG, UP_REGVAL };
+static uint8_t ui_pr = UP_NONE, ui_pr_n = 0;  // pregunta y cifras tecleadas
+static uint16_t ui_pr_v = 0, ui_poke_a = 0;
+static uint8_t ui_wmode = 0, ui_reg = 0;
+static char ui_msg[UI_COLS + 1] = "";         // lo que ha pasado (fila 1, hasta la tecla siguiente)
+static bool ui_dis_follow = true;           // el desensamblado sigue al PC (D lo suelta hasta la parada siguiente)
+static bool ui_prog_view = false;           // V: la pantalla del programa, con el teclado leyendose
+static uint8_t ui_krow[8], ui_kprev[8], ui_karmed[8];
+static uint32_t ui_kt = 0;
+
+static bool ui_busy(){ return ui_entering || ui_pend; }
+static bool ui_entering_now(){ return ui_entering; }
+static bool ui_is_shown(){ return ui_shown || ui_entering; }
+static uint8_t* ui_buf(uint8_t which){ return which == 2 ? ui_df : ui_save; }
+
+static void ui_bram_ptr(uint16_t a){
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, a & 0xFF);
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, a >> 8);
+}
+
+// n bytes de un buffer de la pantalla (2 ui_df, 3 ui_save) desde off, a la
+// sombra en base + off
+static void ui_bramw(uint8_t which, uint16_t base, uint16_t off, uint16_t n){
+  ui_bram_ptr(base + off);
+  for (uint16_t o = 0; o < n; o += 256) {
+    DbgReq* r = q_push(OP_BRAMW, off + o, (n - o) < 256 ? (n - o) : 256, TAG_NONE, 0xFE);
+    if (r) r->page = which;
+  }
+}
+
+// --- texto en el juego de caracteres del ZX81 ---
+static uint8_t zx_chr(char c){
+  if (c >= 'a' && c <= 'z') c -= 32;
+  if (c >= 'A' && c <= 'Z') return 38 + (c - 'A');
+  if (c >= '0' && c <= '9') return 28 + (c - '0');
+  switch (c) {
+    case '"': case '\'': return 11;
+    case '$': return 13; case ':': return 14; case '?': return 15;
+    case '(': return 16; case ')': return 17; case '>': return 18; case '<': return 19;
+    case '=': return 20; case '+': return 21; case '-': return 22; case '*': return 23;
+    case '/': return 24; case ';': return 25; case ',': return 26; case '.': return 27;
+  }
+  return 0;                                   // el espacio y lo que no hay
+}
+
+static uint8_t* ui_row(int row){ return ui_nd + 1 + row * UI_STRIDE; }
+
+static void ui_put(int row, int col, const char* t, bool inv = false){
+  uint8_t* d = ui_row(row);
+  for (; *t && col < UI_COLS; t++, col++) d[col] = zx_chr(*t) | (inv ? 0x80 : 0);
+}
+
+static void ui_putf(int row, int col, bool inv, const char* fmt, ...){
+  char b[UI_COLS + 1];
+  va_list a;
+  va_start(a, fmt);
+  vsnprintf(b, sizeof(b), fmt, a);
+  va_end(a);
+  ui_put(row, col, b, inv);
+}
+
+static void ui_invert(int row, int c0, int c1){       // c0..c1-1 en inverso
+  uint8_t* d = ui_row(row);
+  for (int c = c0; c < c1 && c < UI_COLS; c++) d[c] |= 0x80;
+}
+
+// Una instruccion; los saltos relativos con su destino. Devuelve los bytes
+static int ui_disasm(uint16_t addr, uint8_t* b, int len, char* out, size_t sz){
+  uint8_t op = b[0];
+  if (len >= 2 && (op == 0x10 || op == 0x18 || (op & 0xE7) == 0x20)) {
+    static const char* const jr[] = {"DJNZ ", "JR ", "JR NZ,", "JR Z,", "JR NC,", "JR C,"};
+    int i = op == 0x10 ? 0 : op == 0x18 ? 1 : 2 + ((op >> 3) & 3);
+    snprintf(out, sz, "%s%04XH", jr[i], (uint16_t)(addr + 2 + (int8_t)b[1]));
+    return 2;
+  }
+  int used = Z80Disassembler::disassemble(out, b, len);
+  return used <= 0 ? 1 : used;
+}
+
+static void ui_compose(){
+  memset(ui_nd, 0, UI_DF_LEN);
+  uint16_t pc = reg16(R_PC), sp = reg16(R_SP);
+  // 0: titulo y por que ha parado
+  ui_invert(0, 0, UI_COLS);
+  ui_put(0, 1, "SD81 BOOSTER DEBUGGER", true);
+  char b[UI_COLS + 1];
+  char where[40] = "";
+  if (sym_near(pc, where + 2, sizeof(where) - 3)) { where[0] = ' '; where[1] = '('; strcat(where, ")"); }
+  snprintf(b, sizeof(b), "%s AT %04X%s%s", reason_name(regs[R_DBGST]), pc, where, prog_slow ? " (SLOW)" : "");
+  ui_put(0, UI_COLS - 1 - (int)strlen(b), b, true);
+  // 1: lo que se esta tecleando, o lo que ha pasado
+  if (ui_pr) {
+    static const char* const q[] = {"", "GO TO", "BREAKPOINT (ENTER: AT PC)", "DISASSEMBLE FROM (ENTER: PC)",
+      "MEMORY FROM (ENTER: HL)", "POKE AT", "", "WATCH: R READ  W WRITE  I I/O  (ENTER CLEARS)", "WATCH", "REGISTER: P PC  S SP  A AF  B BC  D DE  H HL  X IX  Y IY  I I", ""};
+    int w = (ui_pr == UP_REGVAL && ui_reg == R_I) ? 2 : 4;
+    char h[5] = "----";                       // (el ZX81 no tiene "_")
+    h[w] = 0;
+    for (int i = 0; i < ui_pr_n; i++) h[i] = "0123456789ABCDEF"[(ui_pr_v >> (4 * (ui_pr_n - 1 - i))) & 15];
+    if (ui_pr == UP_POKE) {
+      h[2] = 0;
+      ui_putf(1, 1, false, "POKE %04X: %s  (2 DIGITS A BYTE, ENTER ENDS)", ui_poke_a, h);
+    } else if (ui_pr == UP_REGVAL) {
+      static const struct { uint8_t idx; const char* n; } rn[] = {{R_PC, "PC"}, {R_SP, "SP"}, {R_AF, "AF"}, {R_BC, "BC"},
+        {R_DE, "DE"}, {R_HL, "HL"}, {R_IX, "IX"}, {R_IY, "IY"}, {R_I, "I"}};
+      const char* name = "";
+      for (auto& r : rn) if (r.idx == ui_reg) name = r.n;
+      ui_putf(1, 1, false, "%s = %s", name, h);
+    } else if (ui_pr == UP_WADDR) {
+      ui_putf(1, 1, false, "WATCH %s: %s", ui_wmode == 2 ? "READ" : ui_wmode == 3 ? "WRITE" : "I/O", h);
+    } else if (ui_pr == UP_WMODE || ui_pr == UP_REG) ui_put(1, 1, q[ui_pr]);
+    else ui_putf(1, 1, false, "%s: %s", q[ui_pr], h);
+  } else if (ui_msg[0]) ui_put(1, 1, ui_msg);
+  // 2-3: registros
+  ui_putf(2, 1, false, "PC %04X  SP %04X  AF %04X  BC %04X  DE %04X  HL %04X  IX %04X  IY %04X",
+          pc, sp, reg16(R_AF), reg16(R_BC), reg16(R_DE), reg16(R_HL), reg16(R_IX), reg16(R_IY));
+  char fl[9];
+  for (int i = 0; i < 8; i++) fl[i] = (regs[R_AF] & (0x80 >> i)) ? "SZ5H3PNC"[i] : '-';
+  fl[8] = 0;
+  ui_putf(3, 1, false, "AF'%04X  BC'%04X  DE'%04X  HL'%04X  I %02X  R %02X  IFF %d  F %s  PAGE %02X",
+          reg16(R_AF_), reg16(R_BC_), reg16(R_DE_), reg16(R_HL_), regs[R_I], regs[R_R], regs[R_IFF], fl, regs[R_PAGE1]);
+  // 4: breakpoints y punto de vigilancia
+  {
+    char t[UI_COLS + 1];
+    int p = snprintf(t, sizeof(t), "BREAKPOINTS");
+    int nb = 0;
+    for (int i = 0; i < NBP && p < 60; i++)
+      if (bps[i].used && !bps[i].temp) { p += snprintf(t + p, sizeof(t) - p, " %04X", bps[i].addr); nb++; }
+    if (!nb) p += snprintf(t + p, sizeof(t) - p, " NONE");
+    if (watch_mode) snprintf(t + p, sizeof(t) - p, "   WATCH %s %04X", watch_name(), watch_addr);
+    ui_put(4, 1, t);
+  }
+  // 5-17: desensamblado (con el PC en inverso) y la pila
+  ui_invert(5, 0, 57);
+  ui_put(5, 1, "DISASSEMBLY", true);
+  ui_invert(5, 58, UI_COLS);
+  ui_putf(5, 59, true, "STACK %04X", sp);
+  int pos = 0;
+  for (int k = 0; k < UI_DIS_N && pos < 60; k++) {
+    uint16_t a = ui_dis + pos;
+    char t[96];
+    int used = ui_disasm(a, ui_dis_b + pos, 64 - pos, t, sizeof(t));
+    sym_subst(t, sizeof(t));
+    char hx[9] = "";
+    for (int j = 0; j < used && j < 4; j++) snprintf(hx + 2 * j, 3, "%02X", ui_dis_b[pos + j]);
+    const char* lab = sym_at(a);
+    ui_putf(6 + k, 1, false, "%c%04X %-10.10s %-8s %.30s", bp_find(a) >= 0 ? '*' : ' ', a, lab ? lab : "", hx, t);
+    if (a == pc) ui_invert(6 + k, 0, 57);
+    pos += used;
+  }
+  for (int k = 0; k < UI_STK_N; k++)
+    ui_putf(6 + k, 59, false, "%04X  %04X", (uint16_t)(sp + 2 * k), ui_stk_b[2 * k] | (ui_stk_b[2 * k + 1] << 8));
+  // 18-21: volcado (los caracteres, en los del ZX81; los codigos 64-127, un punto)
+  ui_invert(18, 0, UI_COLS);
+  ui_putf(18, 1, true, "MEMORY %04X", ui_mem);
+  for (int k = 0; k < UI_MEM_N; k++) {
+    uint16_t a = ui_mem + 16 * k;
+    char t[UI_COLS + 1];
+    int p = snprintf(t, sizeof(t), "%04X ", a);
+    for (int j = 0; j < 16; j++) p += snprintf(t + p, sizeof(t) - p, " %02X", ui_mem_b[16 * k + j]);
+    ui_put(19 + k, 1, t);
+    uint8_t* d = ui_row(19 + k) + 1 + p + 2;
+    for (int j = 0; j < 16; j++) { uint8_t c = ui_mem_b[16 * k + j]; d[j] = (c & 0x40) ? 27 : c; }
+  }
+  // 22-23: las teclas
+  ui_invert(22, 0, UI_COLS);
+  ui_put(22, 1, "S STEP  O OVER  U OUT  C/SPACE CONT  G GO TO  B BREAKPOINT  W WATCH  R REGISTER", true);
+  ui_invert(23, 0, UI_COLS);
+  ui_put(23, 1, "D DISASM  M MEMORY  5-8 SCROLL  E POKE  V PROG SCREEN  Z SNAP  L LOAD  Q QUIT", true);
+}
+
+// Manda lo que ha cambiado. Trozos seguidos (huecos de menos de 24 bytes se
+// mandan tambien); con muchos, uno solo del primero al ultimo: la cola
+static void ui_flush(){
+  uint16_t st[16], en[16];
+  int ns = 0, i = 0;
+  bool many = false;
+  while (i < UI_DF_LEN) {
+    if (ui_nd[i] == ui_df[i]) { i++; continue; }
+    int e = i, gap = 0;
+    for (int j = i + 1; j < UI_DF_LEN && gap < 24; j++) {
+      if (ui_nd[j] != ui_df[j]) { e = j; gap = 0; } else gap++;
+    }
+    if (ns == 16) { many = true; en[ns - 1] = e; }
+    else { st[ns] = i; en[ns] = e; ns++; }
+    i = e + 1;
+  }
+  if (!ns) return;
+  if (many || ns > 8) { en[0] = en[ns - 1]; ns = 1; }
+  for (int k = 0; k < ns; k++) {
+    uint16_t n = en[k] - st[k] + 1;
+    memcpy(ui_df + st[k], ui_nd + st[k], n);
+    ui_bramw(2, UI_DF, st[k], n);
+  }
+}
+
+// El video de la pantalla, detras del primer dibujo
+static void ui_apply_video(){
+  ui_applied = true;
+  if (ui_c128) send_bit_config(cfgcmd_128CHARS, 0);
+  if (ui_c256) send_bit_config(cfgcmd_256CHARS, 0);
+  if (ui_chroma & 0x20) q_out(0x7FEF, ui_chroma & ~0x20);   // sin color
+  q_push(OP_SETI, 0, UI_FONT_I);
+  ui_seti = true;
+  poke_begin();
+  q_write1(2045, 174);                        // 80 columnas
+  DbgReq* r = q_push(OP_WRITE, 2096, 3);      // y el D_FILE alternativo
+  if (r) { r->data[0] = UI_DF & 0xFF; r->data[1] = UI_DF >> 8; r->data[2] = 170; }
+  q_push(OP_IN, 0x00E7, 0, TAG_VIEW_SYNC);    // barrera: la orden 10 fuera
+}
+
+static void ui_draw(){
+  if (!ui_shown || !stopped) return;          // seguir ya en la cola: al parar, otra vez
+  ui_compose();
+  ui_flush();
+  if (ui_apply_pend) { ui_apply_pend = false; ui_apply_video(); }
+}
+
+static void ui_refresh(){
+  if (!ui_shown || ui_entering || QSIZE - q_count < 8) return;
+  q_push(OP_READ, ui_dis, 64, TAG_UI_DIS);
+  q_push(OP_READ, reg16(R_SP), 2 * UI_STK_N, TAG_UI_STK);
+  q_push(OP_READ, ui_mem, 16 * UI_MEM_N, TAG_UI_MEM);
+  ui_pend += 3;
+}
+
+// Entrar: los POKEs y el Chroma de ahora, y la sombra que se va a pisar
+static void ui_show(){
+  ui_prog_view = false;
+  if (ui_shown || ui_entering || !stopped) return;
+  view_off();
+  ui_entering = true;
+  ui_abort = false;
+  ui_c128 = cfg_value(cfgcmd_128CHARS);
+  ui_c256 = cfg_value(cfgcmd_256CHARS);
+  ui_bram_ptr(POKE_FIRST);
+  q_out(DBG_PORT, 0x02);
+  q_push(OP_INSEQ, DBG_PORT, POKE_N, TAG_UI_PK);
+  q_out(DBG_PORT, 0x03);
+  q_push(OP_IN, DBG_PORT, 0, TAG_UI_CHROMA);
+  ui_bram_ptr(UI_DF);
+  q_out(DBG_PORT, 0x02);
+  for (int k = 0; k < UI_CHUNKS; k++) {
+    uint16_t n = UI_DF_LEN - k * 256;
+    q_push(OP_INSEQ, DBG_PORT, n < 256 ? n : 256, TAG_UI_SAVE, k);
+  }
+}
+
+// La sombra como estaba: 2045, 2096-2098 y la de $1000
+static void ui_restore_shadow(){
+  ui_bram_ptr(2045);
+  DbgReq* r = q_push(OP_BRAMW, 0, 1, TAG_NONE, 0xFF);
+  if (r) r->data[0] = ui_pk[2045 - POKE_FIRST];
+  ui_bram_ptr(2096);
+  r = q_push(OP_BRAMW, 0, 3, TAG_NONE, 0xFF);
+  if (r) memcpy(r->data, ui_pk + (2096 - POKE_FIRST), 3);
+  ui_bramw(3, UI_DF, 0, UI_DF_LEN);
+}
+
+// Salir: el video del programa (como view_off) y la sombra
+static void ui_hide(){
+  if (ui_entering) { ui_abort = true; return; }
+  if (!ui_shown) return;
+  ui_shown = false;
+  ui_pr = UP_NONE;
+  ui_msg[0] = 0;
+  if (ui_applied) {
+    ui_applied = false;
+    uint8_t rom[POKE_N];
+    bool rom_ok = rom_file_read(POKE_FIRST, rom, POKE_N) == POKE_N;
+    auto pk = [&](int a){ return ui_pk[a - POKE_FIRST]; };
+    auto never = [&](int a){ return rom_ok && rom[a - POKE_FIRST] == pk(a); };
+    poke_begin();
+    DbgReq* r = q_push(OP_WRITE, 2096, 3);
+    if (r) {
+      r->data[0] = never(2096) ? 0 : pk(2096);
+      r->data[1] = never(2097) ? 0 : pk(2097);
+      r->data[2] = pk(2098) == 170 ? 170 : 85;
+    }
+    uint8_t m = never(2045) ? 85 : pk(2045);
+    q_write1(2045, m);
+    if (m == 85) {                            // 85 apaga el D_FILE y los atributos alternativos
+      if (pk(2098) == 170) q_write1(2098, 170);
+      if (pk(2061) == 170) q_write1(2061, 170);
+    }
+    q_push(OP_IN, 0x00E7, 0, TAG_VIEW_SYNC);
+    if (ui_chroma & 0x20) q_out(0x7FEF, ui_chroma);
+    if (ui_c128) send_bit_config(cfgcmd_128CHARS, 1);
+    if (ui_c256) send_bit_config(cfgcmd_256CHARS, 1);
+  }
+  if (ui_seti) { q_push(OP_SETI, 0, 0); ui_seti = false; }
+  ui_restore_shadow();
+}
+
+// Reset del Z80: la FPGA ya no tiene los POKEs, pero la sombra si. Se
+// arregla en la siguiente parada, si sigue como la dejo la pantalla
+static void ui_drop(){
+  if (ui_shown && ui_applied) ui_fix = true;
+  ui_shown = ui_entering = ui_applied = ui_apply_pend = ui_abort = false;
+  ui_pend = 0;
+  ui_pr = UP_NONE;
+  ui_prog_view = false;
+  ui_want = false;
+}
+
+// Seguir de verdad o cargar: fuera la pantalla y la del programa (V)
+static void ui_run(){
+  ui_prog_view = false;
+  ui_hide();
+}
+
+static void ui_on_break(){
+  ui_pend = 0;                                // la cola se ha vaciado
+  ui_dis_follow = true;
+  if (ui_fix) {
+    ui_fix = false;
+    ui_bram_ptr(POKE_FIRST);
+    q_out(DBG_PORT, 0x02);
+    q_push(OP_INSEQ, DBG_PORT, POKE_N, TAG_UI_FIX);
+  }
+}
+
+// Al quedarse parado (despues de lo del snapshot): ensenarla o refrescarla.
+// Sin pedirla, el SETI fuera (se queda en el monitor)
+static void ui_on_stop(){
+  if (ui_want && !ui_prog_view) { if (ui_shown) ui_refresh(); else ui_show(); }
+  else if (ui_seti) { q_push(OP_SETI, 0, 0); ui_seti = false; }
+}
+
+// --- teclado: las 8 filas cada 40 ms; cuenta al soltar ---
+static void ui_kbd_feed(){
+  if ((!ui_shown && !ui_prog_view) || !stopped || ui_busy() || view_busy() || snap_busy() || ld_busy() || q_count) return;
+  if (millis() - ui_kt < 40) return;
+  ui_kt = millis();
+  for (int r = 0; r < 8; r++) q_push(OP_IN, ((0xFF ^ (1 << r)) << 8) | 0xFE, 0, TAG_UI_KBD, r);
+}
+
+// Una respuesta completa (ENTER, o todas las cifras)
+static void ui_accept(){
+  uint8_t pr = ui_pr;
+  uint16_t v = ui_pr_v;
+  bool got = ui_pr_n > 0;
+  ui_pr = UP_NONE;
+  switch (pr) {
+    case UP_GO:
+      if (got) run_to(v, "Run to");
+      break;
+    case UP_BP: {
+      if (!got) v = reg16(R_PC);
+      int i = bp_find(v);
+      if (i >= 0) { bps[i].used = false; snprintf(ui_msg, sizeof(ui_msg), "BREAKPOINT CLEARED AT %04X", v); break; }
+      i = 0;
+      while (i < NBP && bps[i].used) i++;
+      if (i == NBP) { snprintf(ui_msg, sizeof(ui_msg), "NO ROOM FOR MORE BREAKPOINTS"); break; }
+      bps[i].used = true; bps[i].addr = v; bps[i].state = 0; bps[i].temp = false;
+      snprintf(ui_msg, sizeof(ui_msg), "BREAKPOINT SET AT %04X", v);
+      break;
+    }
+    case UP_DIS:
+      ui_dis = got ? v : reg16(R_PC);
+      ui_dis_follow = !got;
+      break;
+    case UP_MEM:
+      ui_mem = got ? v : reg16(R_HL);
+      break;
+    case UP_POKEADDR:
+      if (got) { ui_poke_a = v; ui_pr = UP_POKE; ui_pr_n = 0; ui_pr_v = 0; }
+      break;
+    case UP_WADDR:
+      if (!got) break;
+      watch_mode = ui_wmode; watch_addr = v;
+      queue_cmp(v, ui_wmode);
+      snprintf(ui_msg, sizeof(ui_msg), "WATCHPOINT: %s %04X", watch_name(), v);
+      break;
+    case UP_REGVAL:
+      if (!got) break;
+      if (ui_reg == R_I) regs[R_I] = v; else set_reg16(ui_reg, v);
+      if (ui_reg == R_PC) { stop_foreign = false; ui_dis_follow = true; }
+      q_setregs();
+      break;
+  }
+}
+
+static void ui_ask(uint8_t pr){ ui_pr = pr; ui_pr_n = 0; ui_pr_v = 0; }
+
+static void ui_prompt_key(char c){
+  int h = (c >= '0' && c <= '9') ? c - '0' : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : -1;
+  switch (ui_pr) {
+    case UP_WMODE:
+      if (c == 'R' || c == 'W' || c == 'I') { ui_wmode = c == 'R' ? 2 : c == 'W' ? 3 : 4; ui_ask(UP_WADDR); }
+      else if (c == '\n') {
+        ui_pr = UP_NONE;
+        watch_mode = 0;
+        queue_cmp(0, 0);
+        snprintf(ui_msg, sizeof(ui_msg), "WATCHPOINT CLEARED");
+      } else ui_pr = UP_NONE;
+      return;
+    case UP_REG: {
+      static const struct { char k; uint8_t idx; } rk[] = {{'P', R_PC}, {'S', R_SP}, {'A', R_AF}, {'B', R_BC},
+        {'D', R_DE}, {'H', R_HL}, {'X', R_IX}, {'Y', R_IY}, {'I', R_I}};
+      ui_pr = UP_NONE;
+      for (auto& r : rk) if (r.k == c) { ui_reg = r.idx; ui_ask(UP_REGVAL); }
+      return;
+    }
+    case UP_POKE:
+      if (h >= 0) {
+        ui_pr_v = (ui_pr_v << 4) | h;
+        if (++ui_pr_n == 2) { q_write1(ui_poke_a, ui_pr_v); ui_poke_a++; ui_pr_n = 0; ui_pr_v = 0; }
+      } else ui_pr = UP_NONE;                 // ENTER u otra tecla: se acabo
+      return;
+    default: {
+      int w = (ui_pr == UP_REGVAL && ui_reg == R_I) ? 2 : 4;
+      if (h >= 0) {
+        ui_pr_v = (ui_pr_v << 4) | h;
+        if (++ui_pr_n == w) ui_accept();
+      } else if (c == '\n') ui_accept();
+      else ui_pr = UP_NONE;
+      return;
+    }
+  }
+}
+
+// V: la pantalla del programa mientras esta parado (la suya si es
+// Superfast; si no, Superfast texto de su D_FILE, como la orden v)
+static void ui_prog_screen(){
+  ui_hide();
+  ui_prog_view = true;
+  view_request(false, 0);
+  Serial.println("Debugger screen: program screen (V to come back)");
+}
+
+static void ui_key(char c){
+  if (ui_prog_view) {                         // con la pantalla del programa
+    if (c == 'V') { view_off(); ui_show(); }
+    else if (c == 'S') dbg_step(1);
+    else if (c == 'C' || c == ' ') { Serial.println("Debugger screen: continue"); dbg_continue(); }
+    return;
+  }
+  ui_msg[0] = 0;
+  if (ui_pr) { ui_prompt_key(c); ui_refresh(); return; }
+  switch (c) {
+    case 'S': dbg_step(1); return;
+    case 'O': q_push(OP_READ, reg16(R_PC), 4, TAG_STEPOVER); return;
+    case 'U': q_push(OP_READ, reg16(R_SP), 2, TAG_STEPOUT); return;
+    case 'C': case ' ': Serial.println("Debugger screen: continue"); dbg_continue(); return;
+    case 'Z': Serial.println("Debugger screen: snapshot"); dbg_snapshot(false, "", false); return;
+    case 'Q': ui_want = false; ui_run(); Serial.println("Debugger screen off"); return;
+    case 'V': ui_prog_screen(); return;
+    case 'L': {
+      if (!last_snap[0]) { snprintf(ui_msg, sizeof(ui_msg), "NO SNAPSHOT SAVED YET"); break; }
+      uint8_t im;
+      uint8_t st = ld_prepare(last_snap, &im);
+      if (st) { snprintf(ui_msg, sizeof(ui_msg), "CAN'T LOAD THE LAST SNAPSHOT (ERROR %d)", st); break; }
+      Serial.printf("Debugger screen: L, %s\r\n", last_snap);
+      ld.set_im = true;                       // sin la ROM: el IM va con SETREGS
+      ld_begin();
+      return;
+    }
+    case 'G': ui_ask(UP_GO); break;
+    case 'B': ui_ask(UP_BP); break;
+    case 'D': ui_ask(UP_DIS); break;
+    case 'M': ui_ask(UP_MEM); break;
+    case 'E': ui_ask(UP_POKEADDR); break;
+    case 'W': ui_ask(UP_WMODE); break;
+    case 'R': ui_ask(UP_REG); break;
+    case '5': ui_mem -= 48; break;
+    case '6': ui_mem += 16; break;
+    case '7': ui_mem -= 16; break;
+    case '8': ui_mem += 48; break;
+    default: return;
+  }
+  ui_refresh();
+}
+
+static void ui_kbd_result(uint8_t r, uint8_t v){
+  static const char keys[8][5] = {
+    {0, 'Z', 'X', 'C', 'V'}, {'A', 'S', 'D', 'F', 'G'}, {'Q', 'W', 'E', 'R', 'T'}, {'1', '2', '3', '4', '5'},
+    {'0', '9', '8', '7', '6'}, {'P', 'O', 'I', 'U', 'Y'}, {'\n', 'L', 'K', 'J', 'H'}, {' ', '.', 'M', 'N', 'B'}
+  };
+  if (r > 7) return;
+  ui_krow[r] = ~v & 0x1F;
+  if (r != 7) return;
+  char go = 0;
+  for (int k = 0; k < 8; k++) {
+    uint8_t press = ui_krow[k] & ~ui_kprev[k], release = ui_kprev[k] & ~ui_krow[k];
+    ui_kprev[k] = ui_krow[k];
+    ui_karmed[k] |= press;                    // pulsada con la pantalla puesta
+    uint8_t g = release & ui_karmed[k];
+    ui_karmed[k] &= ~release;
+    for (int b = 0; b < 5 && !go; b++) if ((g & (1 << b)) && keys[k][b]) go = keys[k][b];
+  }
+  if (go && (ui_shown || ui_prog_view) && stopped) ui_key(go);
+}
+
+static void ui_result(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n){
+  switch (tag) {
+    case TAG_UI_PK: if (n >= POKE_N) memcpy(ui_pk, d, POKE_N); break;
+    case TAG_UI_CHROMA: ui_chroma = n ? d[0] : 0; break;
+    case TAG_UI_SAVE:
+      if (k >= UI_CHUNKS) break;
+      memcpy(ui_save + k * 256, d, n < 256 ? n : 256);
+      if (k != UI_CHUNKS - 1) break;
+      ui_entering = false;
+      if (ui_abort) { ui_abort = false; break; }
+      ui_shown = true;
+      memset(ui_df, 0xFF, UI_DF_LEN);         // nada mandado: el primer dibujo, entero
+      memset(ui_karmed, 0, sizeof(ui_karmed));
+      memset(ui_kprev, 0x1F, sizeof(ui_kprev));   // las ya pulsadas no cuentan hasta soltarlas
+      if (!ui_mem_set) { ui_mem = reg16(R_HL) & 0xFFF0; ui_mem_set = true; }
+      ui_dis = reg16(R_PC);
+      ui_apply_pend = true;
+      ui_refresh();
+      break;
+    case TAG_UI_DIS: case TAG_UI_STK: case TAG_UI_MEM:
+      if (tag == TAG_UI_DIS) {
+        memset(ui_dis_b, 0, sizeof(ui_dis_b));
+        memcpy(ui_dis_b, d, n < 64 ? n : 64);
+        // el PC tiene que verse, con un par de lineas detras: si no, desde el PC
+        uint16_t pc = reg16(R_PC);
+        int pos = 0;
+        bool seen = false;
+        char t[48];
+        for (int j = 0; j < UI_DIS_N - 3 && pos < 60; j++) {
+          if ((uint16_t)(ui_dis + pos) == pc) { seen = true; break; }
+          pos += ui_disasm(ui_dis + pos, ui_dis_b + pos, 64 - pos, t, sizeof(t));
+        }
+        if (!seen && ui_dis != pc && ui_dis_follow) {
+          ui_dis = pc;
+          if (q_push(OP_READ, ui_dis, 64, TAG_UI_DIS)) ui_pend++;
+        }
+      }
+      else if (tag == TAG_UI_STK) memcpy(ui_stk_b, d, n < sizeof(ui_stk_b) ? n : sizeof(ui_stk_b));
+      else memcpy(ui_mem_b, d, n < sizeof(ui_mem_b) ? n : sizeof(ui_mem_b));
+      if (ui_pend && --ui_pend == 0) ui_draw();
+      break;
+    case TAG_UI_KBD: ui_kbd_result(k, n ? d[0] : 0xFF); break;
+    case TAG_UI_FIX:                          // sigue como la dejo la pantalla? entonces arreglarla
+      if (n >= POKE_N && d[2045 - POKE_FIRST] == 174 && d[2098 - POKE_FIRST] == 170 &&
+          d[2096 - POKE_FIRST] == (UI_DF & 0xFF) && d[2097 - POKE_FIRST] == (UI_DF >> 8))
+        ui_restore_shadow();
+      break;
   }
 }

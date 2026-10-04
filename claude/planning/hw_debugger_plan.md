@@ -373,7 +373,69 @@ con `claude/dbgharness`):
 - paso por encima, "ejecutar hasta", puntos de vigilancia en la consola
   (hecho el 3 de octubre de 2026: `o`, `g`, `u` y `w`, solo en el MCU;
   `hw_debugger_emulator.md` sección 10.8);
-- **decidir la traza y la interfaz en la pantalla del ZX81** (§1, 11).
+- **decidir la traza y la interfaz en la pantalla del ZX81** (§1, 11). La
+  interfaz quedó decidida el 3 de octubre de 2026 (abajo). La traza sigue
+  pendiente: necesita memoria en la FPGA, y la BRAM está a 32/32.
+
+**Fase 3b. Pantalla del depurador en el ZX81, sin FPGA** (decidida el 3
+de octubre de 2026). Hecha en el monitor (versión 4, `SETI`) y en el MCU
+(`ui` y `D` en la pausa QS); probada en hardware. Después, desde el teclado
+del ZX81, lo mismo que la consola: breakpoints, vigilancia, ir a,
+registros, poke, desensamblar y volcar desde una dirección, la pantalla del
+programa (`V`) y cargar el último snapshot (en verde en el arnés).
+Detalle en `hw_debugger_emulator.md`, sección 13.6. Las slices están al 95 %, así que todo
+sale de lo que ya existe: firmware y `DEBUG.BIN`, sin tocar la FPGA ni
+`SDBOOST.ROM`. Generaliza la orden `v`.
+
+- **Cómo se ve.** Mientras está parado, la FPGA pinta en Superfast desde la
+  BRAM de sombra: 80 columnas (`POKE 2045,174`, caracteres de 7 píxeles) o
+  32 (`170`). El D_FILE sale del override (2096/2097 y `2098,170`) y apunta
+  a una zona de la sombra que el programa no usa. El MCU escribe ahí con
+  `BRAMW`, sin tocar la SRAM: el programa no se entera. Color opcional, con
+  la base de atributos independiente (2059/2060 y `2061,170`) y el Chroma
+  en modo 1.
+- **Qué lee la FPGA de la sombra** (comprobado en `SD81.v`): las celdas
+  (`DFILE_eff`), los atributos (`$C000…` o el override), la fuente
+  (`ROMTABLE`, que sigue a I en cada refresco) y el HiRes (`vpage`). El
+  espejo de sprites de `$0C00-$0FFF` solo lo lee el MCU, para los
+  snapshots. Por eso la sombra del bloque de la ROM está libre, salvo los
+  POKEs (2038-2100), el espejo de sprites y la fuente (`$1E00-$1FFF`):
+  - pantalla de 80 × 24: `1 + 24 × 81` = 1945 bytes en `$1000-$1798`;
+  - atributos: otros 1945 en `$0000-$0798` (por debajo de 2038).
+- **La fuente.** I está en la tabla de caracteres y, parado, I es la del
+  programa (en un WRX, cualquier cosa). En este modo el monitor pone
+  I = `$1E` mientras espera órdenes; la I del programa vuelve con `CONT`,
+  como el resto de los registros. Es el único cambio en `debugmon.asm`: una
+  petición nueva o un indicador.
+- **Al salir** (continuar, snapshot o tecla): se reponen 2045, 2096-2098,
+  2059-2061 y el Chroma, como en `view_off()`. La sombra de las dos zonas se
+  guarda al entrar y se repone al salir, como en `v dir`.
+- **Contenido.** Registros, unas líneas de desensamblado alrededor del PC
+  (el desensamblador del MCU ya existe), un volcado de memoria, los
+  breakpoints y la línea de estado. Solo el juego de caracteres del ZX81:
+  mayúsculas, y vídeo inverso para resaltar el PC.
+- **Teclado.** El de la pausa del botón QS, que ya existe: `S` paso, `O`
+  por encima, `U` salir, `C` continuar, cursores para mover el volcado o el
+  desensamblado, y las teclas de snapshot de siempre. Se entra con el
+  botón QS (1 s) o con una orden de la consola.
+- **Velocidad.** Cada byte de `BRAMW` pasa por el handshake con el monitor.
+  Se mide con `v dir` en una dirección sin alinear: imprime lo que tardan
+  las tres partes de la copia (6144 bytes cada una). Medido en hardware
+  (3 de octubre de 2026): leer la sombra 429 ms, leer la memoria 521 ms y
+  escribir la sombra 518 ms, unos 84 µs por byte (12 KB/s) al escribir.
+  Una pantalla de 80 × 24 entera son ~165 ms, y con atributos el doble.
+  Por eso:
+  - al entrar se guarda la sombra de las dos zonas (~0,3 s) y se pintan la
+    pantalla y los atributos (~0,33 s): una vez;
+  - en cada paso solo se envían las líneas que cambian (el MCU guarda una
+    copia de lo que hay en pantalla): un paso normal cambia los registros
+    y unas pocas líneas, unos 20-40 ms;
+  - los atributos solo cambian para mover el resaltado del PC.
+- **Lo rico** (listados largos, editar memoria, breakpoints con el ratón)
+  va en la web del ESP32 (fase 5), que tampoco cuesta FPGA.
+- **Por comprobar antes de programar:** la velocidad de `BRAMW`; que la
+  fuente de 7 píxeles se lee bien en 80 columnas; y si un programa que
+  escribe en la zona de la ROM (no debería) ensucia la sombra elegida.
 
 **Fase 4. Vídeo nativo (SLOW):** (3 de octubre de 2026: hecha la versión
 de menor coste y probada en hardware, commit 37e12d5;
@@ -385,7 +447,9 @@ pasos en SLOW son aproximados.)
   mientras está parado);
 - que la FPGA no rompa en la rutina de vídeo ni ejecutando el DFILE.
 
-**Fase 5. Interfaz web en el ESP32 y símbolos de pasmo.**
+**Fase 5. Interfaz web en el ESP32 y símbolos de pasmo.** Los símbolos,
+hechos el 3 de octubre de 2026 (solo el MCU; `hw_debugger_emulator.md`
+sección 13.7). Falta la web.
 
 **Emulador:** hecho para la fase 1: `hw_debugger_emulator.md` (nuevo) y
 `sim_int_emulator.md` actualizado a la rev 0.06 (sin contadores, puerto

@@ -81,3 +81,21 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
   alinear (el mapa de bits copiado al bloque y, al quitarla con `v` o al
   seguir, la sombra exactamente como estaba, HFILE y 2045 a 0 / 85); `v 1234`
   y `v F000` no se aceptan.
+- `ui`, la pantalla del depurador:
+  - 2045 a 174, el D_FILE alternativo en `$1000`, el monitor esperando con
+    I = `$1E` (SETI) y el Chroma sin color;
+  - el título, los registros y las teclas en la sombra;
+  - un paso y las teclas S, 6 y Q;
+  - al seguir se quita y al parar vuelve;
+  - al quitarla, la sombra exactamente como estaba, el color y la I del
+    programa;
+  - las teclas: `B` ENTER y `B` dir, `R P`, `E` con bytes, `M`, `D`, `W W`
+    y `W` ENTER, `G` (y la pantalla otra vez al llegar), `V` ida y vuelta
+    y `Q`.
+- `sym`:
+  - un `.SYM` de pasmo (también con `=` y `:`), cargado a mano y al cargar
+    un programa;
+  - etiquetas y operandos en `d`;
+  - `b`, `bc` y `x pc=` con nombres;
+  - la parada con `(LOOP)` y `(SUB1+2)`;
+  - otro programa sin `.SYM` los quita.

@@ -33,6 +33,29 @@
 #include "z80-disassembler.h"
 #include "MCUSTATE.h"
 
+// Lo que el depurador escribe en la consola va tambien a un anillo de 4 KB,
+// con un contador que solo crece: la interfaz web (ESP32, CMD_DBG) lo lee
+// desde donde se quedo. Desde aqui, Serial es dbg_out
+#define OUT_RING 4096
+static char out_ring[OUT_RING];
+static uint32_t out_head = 0;                 // bytes escritos desde el arranque
+static void out_put(const char* s){ while (*s) out_ring[out_head++ % OUT_RING] = *s++; }
+struct DbgOut {
+  void println(const char* s){ Serial.println(s); out_put(s); out_put("\r\n"); }
+  int printf(const char* f, ...){
+    char b[256];
+    va_list a;
+    va_start(a, f);
+    int n = vsnprintf(b, sizeof(b), f, a);
+    va_end(a);
+    Serial.print(b);
+    out_put(b);
+    return n;
+  }
+};
+static DbgOut dbg_out;
+#define Serial dbg_out
+
 #define DBG_PORT 0x3FEF
 
 // Peticiones al monitor
@@ -3207,4 +3230,42 @@ static void ft_result(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n){
   }
   if (k < FT_SHOW) { memset(ft_op[k], 0, 4); memcpy(ft_op[k], d, n < 4 ? n : 4); }
   if (ft_pend && --ft_pend == 0) ft_done();
+}
+
+// ---------------------------------------------------------------------
+// Interfaz web (ESP32): CMD_DBG trae una orden de la consola (con un numero:
+// un reintento del ESP32 no la ejecuta dos veces) y se lleva lo que se ha
+// escrito desde donde iba y el estado
+// ---------------------------------------------------------------------
+static uint8_t web_last_id = 0;
+
+void dbg_web_exec(uint8_t id, const char* line){
+  if (!id || id == web_last_id || !line[0]) return;
+  web_last_id = id;
+  char l[128];
+  size_t n = 0;
+  while (line[n] && n < sizeof(l) - 1) { l[n] = line[n]; n++; }
+  l[n] = 0;
+  for (size_t i = 0; i < n && l[i] != ' '; i++) l[i] = tolower((uint8_t)l[i]);   // la orden, en minusculas
+  out_put("> "); out_put(l); out_put("\r\n");
+  if (!dbg_console(l)) Serial.println("? (h for help)");
+}
+
+// Hasta max bytes desde seq (si ya no estan, desde el mas antiguo que haya);
+// *from, donde empiezan
+uint16_t dbg_out_read(uint32_t seq, uint8_t* buf, uint16_t max, uint32_t* from){
+  uint32_t head = out_head;
+  if (seq > head) seq = head;                 // (el STM32 se ha reiniciado)
+  if (head - seq > OUT_RING) seq = head - OUT_RING;
+  uint16_t n = 0;
+  while (seq + n < head && n < max) { buf[n] = out_ring[(seq + n) % OUT_RING]; n++; }
+  *from = seq;
+  return n;
+}
+
+// bit 0 monitor cargado, 1 parado, 2 pantalla del depurador, 3 historial
+// (tron), 4 traza lenta en curso, 5 snapshot o carga en curso
+uint8_t dbg_web_state(void){
+  return (debug_monitor_loaded ? 1 : 0) | (stopped ? 2 : 0) | (ui_is_shown() ? 4 : 0) | (ft_on ? 8 : 0) |
+         (trace_on ? 16 : 0) | ((snap_busy() || ld_busy()) ? 32 : 0);
 }

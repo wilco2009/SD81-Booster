@@ -122,7 +122,8 @@ static void mcu_thread(){
     else if (c != -1) { printf("MCU: comando desconocido %d\n", c); cmd_active = -1; }
     std::string line;
     { std::lock_guard<std::mutex> l(con_mx); if (!con_lines.empty()) { line = con_lines.front(); con_lines.pop_front(); } }
-    if (!line.empty()) { logs("> "); logs(line.c_str()); logs("\n"); dbg_console(line.c_str()); processed++; }
+    if (!line.empty() && line[0] == '\x01') { dbg_web_exec((uint8_t)line[1], line.c_str() + 2); processed++; }   // la web (CMD_DBG)
+    else if (!line.empty()) { logs("> "); logs(line.c_str()); logs("\n"); dbg_console(line.c_str()); processed++; }
     dbg_qs_button();
     std::this_thread::yield();
   }
@@ -271,6 +272,23 @@ static int errors = 0;
 #define CHECK(c, msg) do { if (!(c)) { printf("ERROR %s\n", msg); errors++; } else printf("ok    %s\n", msg); } while (0)
 
 static void con(const char* l){ std::lock_guard<std::mutex> lk(con_mx); con_lines.push_back(l); posted++; }
+// Una orden desde la web (CMD_DBG), con su numero
+static void web(uint8_t id, const char* l){
+  std::string s = "\x01"; s += (char)id; s += l;
+  std::lock_guard<std::mutex> lk(con_mx); con_lines.push_back(s); posted++;
+}
+// Lo que lee la web desde seq (como el ESP32: sigue desde from + len)
+static std::string web_read(uint32_t& seq){
+  std::string out;
+  uint8_t b[240];
+  for (;;) {
+    uint32_t from;
+    uint16_t n = dbg_out_read(seq, b, sizeof(b), &from);
+    out.append((const char*)b, n);
+    seq = from + n;
+    if (!n) return out;
+  }
+}
 
 // Ejecuta hasta que el MCU espera una orden (parado) o se pasan n instrucciones
 static long executed = 0;
@@ -1020,6 +1038,23 @@ int main(int argc, char** argv){
       }
       con("troff");
       CHECK(run_until_waiting(5000000) && cfgs[12] == 0, "troff");
+
+      // la web: CMD_DBG (dbg_web_exec, dbg_out_read, dbg_web_state)
+      uint32_t wseq = 0;
+      web_read(wseq);                                          // lo de antes, fuera
+      web(7, "R");                                             // en mayusculas: la orden se pasa a minusculas
+      CHECK(run_until_waiting(5000000), "web: r");
+      std::string w = web_read(wseq);
+      CHECK(w.find("> r") != std::string::npos && w.find("PC=6209") != std::string::npos, "web: la orden y su salida");
+      web(7, "s");                                             // el mismo numero: un reintento, no se repite
+      CHECK(run_until_waiting(5000000) && web_read(wseq).empty(), "web: un reintento no repite la orden");
+      CHECK((dbg_web_state() & 3) == 3 && !(dbg_web_state() & 8), "web: estado (monitor, parado, sin historial)");
+      web(8, "bl");
+      CHECK(run_until_waiting(5000000) && web_read(wseq).find("No breakpoints") != std::string::npos, "web: otra orden");
+      uint32_t old = 0;
+      uint8_t b[240]; uint32_t from;
+      dbg_out_read(old, b, sizeof(b), &from);
+      CHECK(from > 0, "web: si ya no esta, desde lo mas antiguo que quede");
     }
 
     // ui: lo de la consola desde el teclado del ZX81

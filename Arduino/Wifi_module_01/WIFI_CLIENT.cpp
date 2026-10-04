@@ -387,3 +387,24 @@ bool wifi_client_net_poll(uint8_t status,
   }
   return true;
 }
+
+bool wifi_client_dbg(uint8_t id, uint32_t seq, const char* cmd,
+                     uint8_t* out_state, uint32_t* out_from,
+                     uint8_t* out_data, uint16_t* out_len) {
+  *out_len = 0;
+  uint8_t req[6 + WIFI_PROTO_DBG_CMD];
+  size_t cl = (id && cmd) ? strnlen(cmd, WIFI_PROTO_DBG_CMD) : 0;
+  req[0] = id;
+  memcpy(&req[1], &seq, 4);
+  req[5] = (uint8_t)cl;
+  if (cl) memcpy(&req[6], cmd, cl);
+  WifiProtoResp r = wifi_client_request(CMD_DBG, req, (uint16_t)(6 + cl));
+  if (!r.ok || r.len < 8 || r.payload[0] != ST_OK) return false;
+  *out_state = r.payload[1];
+  memcpy(out_from, &r.payload[2], 4);
+  uint16_t n = r.payload[6] | (r.payload[7] << 8);
+  if (n > WIFI_PROTO_DBG_OUT || (uint16_t)(8 + n) > r.len) return false;
+  memcpy(out_data, &r.payload[8], n);
+  *out_len = n;
+  return true;
+}

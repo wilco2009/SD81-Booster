@@ -3,6 +3,7 @@
 #include "SD_handle.h"
 #include "GLOBALS.h"
 #include "RTC.h"
+#include "DEBUGGER.h"
 
 // Todas las peticiones las inicia el ESP32; el STM32 solo responde. Handles
 // propios (independientes de f_handle[]/f_opened[], que usa el interprete de
@@ -594,6 +595,28 @@ static void net_bridge_test_tick() {
 }
 #endif
 
+// CMD_DBG: la consola del depurador desde la web (ver WIFI_PROTOCOL.h)
+static void handle_dbg(const uint8_t* payload, uint16_t len) {
+  if (len < 6) return;                        // trama corta: que reintente
+  uint8_t id = payload[0];
+  uint32_t seq;
+  memcpy(&seq, &payload[1], 4);
+  uint8_t cl = payload[5];
+  if ((uint16_t)(6 + cl) > len || cl > WIFI_PROTO_DBG_CMD) return;
+  char line[WIFI_PROTO_DBG_CMD + 1];
+  memcpy(line, &payload[6], cl);
+  line[cl] = 0;
+  dbg_web_exec(id, line);
+  uint32_t from;
+  uint16_t n = dbg_out_read(seq, &tx_payload[8], WIFI_PROTO_DBG_OUT, &from);
+  tx_payload[0] = ST_OK;
+  tx_payload[1] = dbg_web_state();
+  memcpy(&tx_payload[2], &from, 4);
+  tx_payload[6] = (uint8_t)(n & 0xFF);
+  tx_payload[7] = (uint8_t)(n >> 8);
+  wifi_send_frame(CMD_DBG, tx_payload, 8 + n);
+}
+
 void wifi_handler_poll() {
 #if NET_BRIDGE_TEST
   net_bridge_test_tick();
@@ -628,6 +651,7 @@ void wifi_handler_poll() {
     case CMD_SET_TIME:     handle_set_time(rx_payload, len); break;
     case CMD_WRITE_SYNC:   handle_write_sync(rx_payload, len); break;
     case CMD_NET_POLL:     handle_net_poll(rx_payload, len); break;
+    case CMD_DBG:          handle_dbg(rx_payload, len); break;
     default: break;   // comando desconocido: se ignora
   }
 }

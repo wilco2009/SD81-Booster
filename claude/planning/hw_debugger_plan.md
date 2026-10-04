@@ -454,7 +454,8 @@ pasos en SLOW son aproximados.)
 
 **Fase 5. Interfaz web en el ESP32 y símbolos de pasmo.** Los símbolos,
 hechos el 3 de octubre de 2026 (solo el MCU; `hw_debugger_emulator.md`
-sección 13.7). Falta la web.
+sección 13.7). La web, hecha el 4 de octubre de 2026: la consola del
+depurador en `/debug` del ESP32, con `CMD_DBG` (sección 13.10).
 
 **Emulador:** hecho para la fase 1: `hw_debugger_emulator.md` (nuevo) y
 `sim_int_emulator.md` actualizado a la rev 0.06 (sin contadores, puerto

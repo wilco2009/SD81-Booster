@@ -29,7 +29,8 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
-| (siguiente) | Historial: la traza de la FPGA (sim_int 0.13, orden 12, índices 7/8), el PC de cada instrucción en `$1000-$17FF`; la pantalla del depurador pasa a `$0000`; `th`/`H` lo enseñan, `tron`/`troff` | 3, 13.6, 13.9 |
+| (siguiente) | Fase 5: la consola del depurador en la web del ESP32 (`/debug`, `CMD_DBG` en el protocolo UART). STM32 y ESP32 | 13.10 |
+| 5823b2e | Historial: la traza de la FPGA (sim_int 0.13, orden 12, índices 7/8), el PC de cada instrucción en `$1000-$17FF`; la pantalla del depurador pasa a `$0000`; `th`/`H` lo enseñan, `tron`/`troff` | 3, 13.6, 13.9 |
 | ce6d897 | Traza lenta sin FPGA: `t [n]`, `th [n]`; `T` y `H` en la pantalla. Solo el MCU | 13.8 |
 | 7ee9719 | La pausa del botón QS abre la pantalla del depurador (se ve que está parado); `V` la cambia por la del programa con el teclado de la pausa; `ui` en marcha decide si sale en la parada siguiente. Solo el MCU | 11.6, 13.6 |
 | 90a0740 | Fase 3b: pantalla del depurador en el ZX81 (`ui`). Monitor versión 4 con `SETI` (petición 13). Sin FPGA. Y los símbolos de pasmo (`sym`; `LOAD` lee `<nombre>.SYM`) | 12.2, 13.6, 13.7 |
@@ -1355,3 +1356,30 @@ a su velocidad y, al parar por lo que sea, están las últimas 1024.
   PC en la sombra en `$1000 + 2·ptr` (bajo, alto) y `ptr = (ptr + 1) mod
   1024`; los índices 7 y 8 devuelven `ptr`. Sin las M1 del vídeo ni las de
   `HALT`.
+
+### 13.10 La interfaz web (ESP32)
+
+Nada que hacer en el emulador: es el módulo WiFi hablando con el STM32.
+
+- **La página** `/debug` (enlazada desde la del servidor de ficheros) es
+  la consola USB en el navegador. Tiene:
+  - un terminal con todo lo que escribe el depurador;
+  - una línea de órdenes, con historial (flechas);
+  - botones para las habituales: pausa, seguir, paso, por encima, salir,
+    registros, desensamblado, historial, traza 100, breakpoints, la
+    pantalla del ZX81, snapshot, símbolos y ayuda;
+  - el estado en vivo: parado o en marcha, traza, snapshot, pantalla,
+    historial.
+- **El sondeo:** la página pide `/debug/poll?seq=N` cada 400 ms mientras
+  está visible; una orden va en el mismo sondeo (`&c=...`).
+- **En el STM32:** todo lo que el depurador escribe por la consola
+  (`Serial.println`/`printf` en `DEBUGGER.cpp`, que pasan por `dbg_out`)
+  también va a un anillo de 4 KB con un contador que solo crece.
+- **`CMD_DBG` (0x10)** en `WIFI_PROTOCOL.h` lleva una orden con un número
+  (el STM32 no repite el mismo número: los reintentos del protocolo son
+  seguros) y trae hasta 240 bytes desde `seq` y el estado (bits: monitor
+  cargado, parado, pantalla, historial, traza, snapshot). El ESP32 encadena
+  hasta 8 tramas por sondeo.
+- **Las órdenes** se ejecutan como las de la consola USB
+  (`dbg_console`), con la primera palabra en minúsculas, y quedan en el
+  terminal como `> orden`.

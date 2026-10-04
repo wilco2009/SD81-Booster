@@ -109,3 +109,6 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
   12 y los índices 7/8): `tron`, `th 5` tras correr a velocidad real, un
   snapshot sin `SHADOW 00`, `troff`; `H` en la pantalla tras un paso.
 - La pantalla del depurador está en `$0000` (`UIDF`).
+- la web (`CMD_DBG`): órdenes con número (`web()`, como las del ESP32), la
+  salida por `dbg_out_read` desde donde se iba, un reintento que no se
+  repite y el estado.

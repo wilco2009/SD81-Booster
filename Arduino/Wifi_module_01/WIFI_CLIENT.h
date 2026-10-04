@@ -100,4 +100,13 @@ bool wifi_client_net_poll(uint8_t status,
                           uint8_t* rx, uint16_t* out_rx_len,
                           uint8_t* out_rx_free);
 
+// Depurador (CMD_DBG): manda una orden de la consola (id 0 o cmd vacio:
+// ninguna; un reintento con el mismo id no la repite) y trae lo que ha
+// escrito el depurador desde seq: hasta WIFI_PROTO_DBG_OUT bytes en
+// out_data, desde *out_from (mayor que seq si se ha perdido algo). El
+// siguiente seq es *out_from + *out_len. *out_state: ver WIFI_PROTOCOL.h
+bool wifi_client_dbg(uint8_t id, uint32_t seq, const char* cmd,
+                     uint8_t* out_state, uint32_t* out_from,
+                     uint8_t* out_data, uint16_t* out_len);
+
 #endif

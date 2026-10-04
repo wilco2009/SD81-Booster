@@ -40,5 +40,9 @@ uint8_t opendir_list(const char* arg);
 // Snapshot (.Z81): all = todas las paginas (si no, las mapeadas); name vacio
 // = nombre automatico; resume = continuar al acabar (si estaba en marcha)
 void dbg_snapshot(bool all, const char* name, bool resume);
+// Interfaz web (WIFI_HANDLER.cpp, CMD_DBG)
+void dbg_web_exec(uint8_t id, const char* line);
+uint16_t dbg_out_read(uint32_t seq, uint8_t* buf, uint16_t max, uint32_t* from);
+uint8_t dbg_web_state(void);
 
 #endif

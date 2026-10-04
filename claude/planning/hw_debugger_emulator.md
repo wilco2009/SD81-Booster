@@ -29,7 +29,8 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
-| (siguiente) | La pausa del botón QS abre la pantalla del depurador (se ve que está parado); `V` la cambia por la del programa con el teclado de la pausa; `ui` en marcha decide si sale en la parada siguiente. Solo el MCU | 11.6, 13.6 |
+| (siguiente) | Traza lenta sin FPGA: `t [n]`, `th [n]`; `T` y `H` en la pantalla. Solo el MCU | 13.8 |
+| 7ee9719 | La pausa del botón QS abre la pantalla del depurador (se ve que está parado); `V` la cambia por la del programa con el teclado de la pausa; `ui` en marcha decide si sale en la parada siguiente. Solo el MCU | 11.6, 13.6 |
 | 90a0740 | Fase 3b: pantalla del depurador en el ZX81 (`ui`). Monitor versión 4 con `SETI` (petición 13). Sin FPGA. Y los símbolos de pasmo (`sym`; `LOAD` lee `<nombre>.SYM`) | 12.2, 13.6, 13.7 |
 | 8afd989 | Orden `v dir`: vídeo Superfast HiRes mientras está parado, con el mapa de bits (WRX) en `dir`; copia a la sombra si no está alineado. Solo el MCU. Probado en el arnés; en hardware sin confirmar con un WRX real (no se encontró la dirección del mapa de bits) | 13.4 |
 | cc3f2f9 | Orden `v`: vídeo Superfast texto mientras está parado (programas en SLOW y FAST). Solo el MCU | 10.5, 13.4 |
@@ -1252,7 +1253,7 @@ Solo el MCU; el emulador no tiene que hacer nada.
   prog.sym`), con líneas `NOMBRE<tab>EQU 0ABCDH`. También valen
   `NOMBRE: EQU $ABCD` y `NOMBRE = 0x1234`; lo que va detrás de `;` no
   cuenta.
-- **Cuántos:** hasta 2048, con nombres de hasta 21 caracteres. Van en la CCM
+- **Cuántos:** hasta 2048, con nombres de hasta 17 caracteres. Van en la CCM
   RAM del STM32, ordenados por valor; con valores repetidos manda el primero
   del fichero.
 - **Carga automática:** al cargar un programa con `LOAD`, el MCU apunta su
@@ -1272,3 +1273,34 @@ Solo el MCU; el emulador no tiene que hacer nada.
   `g`, `w`, `d`, `m`, `e`, `v`, `x reg=`) puede ser un símbolo, sin
   distinguir mayúsculas, o `símbolo+n` (n en hex). El símbolo gana al hex;
   `$BEEF` fuerza el hex.
+
+### 13.8 Traza lenta (`t`)
+
+Solo el MCU; el emulador no tiene que hacer nada. La traza de verdad (la
+FPGA apuntando cada instrucción) necesitaría BRAM, que está a 32/32: esta
+la hace el MCU paso a paso, a la velocidad de un paso y una lectura por
+instrucción.
+
+- **`t [n]`** (n en hex) da pasos de uno en uno. Antes de cada instrucción
+  apunta el PC, AF, BC, DE, HL, IX, IY, SP y sus 4 bytes, leídos en ese
+  momento, en un anillo de las últimas 1024 (en la CCM RAM, detrás de los
+  símbolos, que pasan a nombres de 17 caracteres). Cada `t` empieza una
+  nueva.
+- **Se para:**
+  - al llegar a `n` instrucciones;
+  - en un breakpoint: el PC está en uno y no se ejecuta (durante la traza
+    los `FF` no están en memoria; se compara el PC);
+  - con un punto de vigilancia u otra ruptura que no sea un paso;
+  - con ESPACIO en el ZX81 (un `IN $7FFE` cada 100 ms);
+  - con cualquier orden en la consola;
+  - con el botón QS.
+
+  Un `RST 38h` del propio programa se ejecuta como siempre. Al parar dice
+  cuántas ha hecho, en cuánto tiempo y por qué, y sigue como una parada
+  normal.
+- **`th [n]`:** las últimas n (14 por omisión), con los registros de antes
+  de cada una. La última es la que se ejecutó justo antes de parar.
+- **En la pantalla:** `T` y el número (ENTER: hasta un breakpoint); `H`
+  cambia el desensamblado por las 12 últimas de la traza (PC, instrucción,
+  AF, HL y SP). El teclado de la pantalla no se lee mientras traza.
+- En SLOW los pasos van con la NMI apagada, como siempre.

@@ -92,7 +92,9 @@ enum {
   TAG_UI_STK,       // pantalla: la pila
   TAG_UI_MEM,       // pantalla: el volcado de memoria
   TAG_UI_KBD,       // pantalla: una fila del teclado (arg = fila 0-7)
-  TAG_UI_FIX        // pantalla: tras un reset, los POKEs en la sombra
+  TAG_UI_FIX,       // pantalla: tras un reset, los POKEs en la sombra
+  TAG_TRACE,        // traza: la instruccion en el PC (antes de ejecutarla)
+  TAG_TRACE_KEY     // traza: la fila de ESPACIO, para pararla
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -205,14 +207,22 @@ static int bp_find(uint16_t addr){
 // del fichero
 // ---------------------------------------------------------------------
 #define SYM_MAX   2048
-#define SYM_NAME  22                          // con el 0 final; los mas largos se cortan
+#define SYM_NAME  18                          // con el 0 final; los mas largos se cortan
 struct Sym { uint16_t val; char name[SYM_NAME]; };
-static_assert(sizeof(Sym) * SYM_MAX <= 0x10000, "los simbolos no caben en la CCM RAM");
+
+// La traza (mas abajo) va en la CCM detras de los simbolos: el estado antes
+// de cada instruccion y sus bytes
+#define TRACE_MAX 1024
+struct TraceE { uint16_t pc, af, bc, de, hl, ix, iy, sp; uint8_t op[4]; };
+static_assert(sizeof(Sym) * SYM_MAX + sizeof(TraceE) * TRACE_MAX <= 0x10000, "los simbolos y la traza no caben en la CCM RAM");
 #ifdef ARDUINO_ARCH_STM32
 static Sym* const syms = (Sym*)0x10000000;
+static TraceE* const trace_buf = (TraceE*)(0x10000000 + sizeof(Sym) * SYM_MAX);
 #else
 static Sym syms_ram[SYM_MAX];                 // (en el PC, el arnes)
 static Sym* const syms = syms_ram;
+static TraceE trace_ram[TRACE_MAX];
+static TraceE* const trace_buf = trace_ram;
 #endif
 static uint16_t sym_n = 0;
 static char sym_src[96] = "";                 // de que fichero son
@@ -335,6 +345,10 @@ static void sym_subst(char* t, size_t sz){
 
 // Al parar: el .SYM del programa cargado, si se ha cargado uno desde la
 // ultima vez
+static void trace_start(uint32_t n);
+static void trace_stop_req();
+static void trace_print(uint32_t n);
+
 static void sym_auto_load(){
   if (!sym_auto_pend) return;
   sym_auto_pend = false;
@@ -619,6 +633,14 @@ static void step_over(uint8_t* b, uint16_t n);
 
 // Ha llegado DBG_BREAK con los registros
 static void on_break2();
+static void on_stopped(bool reached);
+// Traza (mas abajo)
+static bool trace_on = false;
+static uint32_t trace_n = 0;                  // apuntadas (en el anillo, como mucho TRACE_MAX)
+static uint32_t trace_total = 0;              // en esta traza
+static const TraceE& trace_at(uint32_t i);
+static bool trace_break();
+static void trace_result(uint8_t tag, uint8_t* d, uint16_t n);
 
 // En SLOW la FPGA para en la entrada de la NMI ($0066, sim_int 0.12): antes
 // de nada se deshace (PC = [SP], SP + 2, R - 1 por la M1 del reconocimiento),
@@ -662,6 +684,13 @@ static void on_break2(){
     ld_begin();
     return;
   }
+  if (trace_on && trace_break()) return;      // la traza: otro paso
+  on_stopped(reached);
+}
+
+// Parado de verdad: los simbolos, el LED, la linea de STOP, los registros y
+// la pantalla del depurador
+static void on_stopped(bool reached){
   sym_auto_load();
   set_status_LED(clMAGENTA);
   if (kbd_arm) { kbd_arm = false; ui_pause_qs(); }   // pausa del boton QS: el teclado, y V la pantalla
@@ -721,6 +750,7 @@ static void on_result(uint8_t* data, uint16_t n){
     case TAG_VIEW:      view_result(data, n); break;
     case TAG_VIEW_SAVE: case TAG_VIEW_COPY: view_part(last.tag, last.arg, data, n); break;
     case TAG_VIEW_SYNC: poke_end(); view_times(); break;
+    case TAG_TRACE: case TAG_TRACE_KEY: trace_result(last.tag, data, n); break;
     case TAG_UI_PK: case TAG_UI_CHROMA: case TAG_UI_SAVE: case TAG_UI_DIS:
     case TAG_UI_STK: case TAG_UI_MEM: case TAG_UI_KBD: case TAG_UI_FIX:
       ui_result(last.tag, last.arg, data, n);
@@ -841,6 +871,8 @@ static void help(){
   Serial.println("  g addr         run to addr");
   Serial.println("  b addr         set a breakpoint      bc [addr]  clear one / all      bl  list");
   Serial.println("  w r|w|io addr  watchpoint (read, write, I/O port)    w  clear it");
+  Serial.println("  t [n]          trace: n instructions, one by one (none: until a breakpoint or SPACE / any key here)");
+  Serial.println("  th [n]         the last n traced instructions (14), with the registers before each one");
   Serial.println("  v              video while stopped: Superfast text on / off (SLOW and FAST programs)");
   Serial.println("  v addr         video while stopped: Superfast HiRes, bitmap (32 x 192) at addr (WRX)");
   Serial.println("  ui             debugger screen on the ZX81 on / off (running: at the next stop). QS pause: V");
@@ -886,6 +918,7 @@ bool dbg_console(const char* line){
   uint32_t a, n;
 
   if (!strcmp(cmd, "h") || !strcmp(cmd, "?")) { help(); return true; }
+  if (trace_on) { trace_stop_req(); return true; }   // mientras traza, cualquier orden la para
   if (snap_busy()) { Serial.println("Snapshot in progress"); return true; }
   if (ld_busy()) { Serial.println("Loading a snapshot"); return true; }
   if (view_busy()) { Serial.println("Video: copying the bitmap"); return true; }
@@ -944,6 +977,16 @@ bool dbg_console(const char* line){
     for (int i = 0; i < NBP; i++) if (bps[i].used) { Serial.printf("%d: %04X\r\n", i, bps[i].addr); any = true; }
     if (!any) Serial.println("No breakpoints");
     if (watch_mode) Serial.printf("Watchpoint: %s %04X\r\n", watch_name(), watch_addr);
+  }
+  else if (!strcmp(cmd, "t")) {
+    if (!parse_hex(p, n)) n = 0;
+    trace_start(n);
+    return true;
+  }
+  else if (!strcmp(cmd, "th")) {
+    if (!parse_hex(p, n) || !n) n = 0x14;
+    trace_print(n);
+    return true;
   }
   else if (!strcmp(cmd, "ui")) {
     if (ui_is_shown()) { ui_want = false; ui_run(); Serial.println("Debugger screen off"); }
@@ -1086,7 +1129,8 @@ void dbg_qs_button(void){
   if (!debug_monitor_loaded || qs_stage == 0) { toggle_qs(); return; }
   if (snap_busy() || ld_busy() || view_busy() || ui_entering_now()) return;
   if (qs_stage == 1) {
-    if (stopped) { Serial.println("QS button: continue"); dbg_continue(); }
+    if (trace_on) { Serial.println("QS button: stop the trace"); trace_stop_req(); }
+    else if (stopped) { Serial.println("QS button: continue"); dbg_continue(); }
     else { kbd_arm = true; dbg_pause(); led_state(); }   // magenta cuando llegue; despues, el teclado
   } else {
     Serial.println("QS button: snapshot");
@@ -2359,7 +2403,7 @@ static bool ui_mem_set = false;
 static uint8_t ui_dis_b[64], ui_stk_b[2 * UI_STK_N], ui_mem_b[16 * UI_MEM_N];
 static uint8_t ui_pend = 0;         // lecturas de la pantalla en camino
 // Lo que se esta tecleando (fila 1)
-enum { UP_NONE, UP_GO, UP_BP, UP_DIS, UP_MEM, UP_POKEADDR, UP_POKE, UP_WMODE, UP_WADDR, UP_REG, UP_REGVAL };
+enum { UP_NONE, UP_GO, UP_BP, UP_DIS, UP_MEM, UP_POKEADDR, UP_POKE, UP_WMODE, UP_WADDR, UP_REG, UP_REGVAL, UP_TRACE };
 static uint8_t ui_pr = UP_NONE, ui_pr_n = 0;  // pregunta y cifras tecleadas
 static uint16_t ui_pr_v = 0, ui_poke_a = 0;
 static uint8_t ui_wmode = 0, ui_reg = 0;
@@ -2367,6 +2411,7 @@ static char ui_msg[UI_COLS + 1] = "";         // lo que ha pasado (fila 1, hasta
 static bool ui_dis_follow = true;           // el desensamblado sigue al PC (D lo suelta hasta la parada siguiente)
 static bool ui_prog_view = false;           // la pantalla del programa, con el teclado leyendose (pausa QS, V, Q)
 static bool ui_prog_v = false;              // y con Superfast texto (V)
+static bool ui_hist = false;                // H: la traza en lugar del desensamblado
 static uint8_t ui_krow[8], ui_kprev[8], ui_karmed[8];
 static uint32_t ui_kt = 0;
 
@@ -2453,7 +2498,7 @@ static void ui_compose(){
   // 1: lo que se esta tecleando, o lo que ha pasado
   if (ui_pr) {
     static const char* const q[] = {"", "GO TO", "BREAKPOINT (ENTER: AT PC)", "DISASSEMBLE FROM (ENTER: PC)",
-      "MEMORY FROM (ENTER: HL)", "POKE AT", "", "WATCH: R READ  W WRITE  I I/O  (ENTER CLEARS)", "WATCH", "REGISTER: P PC  S SP  A AF  B BC  D DE  H HL  X IX  Y IY  I I", ""};
+      "MEMORY FROM (ENTER: HL)", "POKE AT", "", "WATCH: R READ  W WRITE  I I/O  (ENTER CLEARS)", "WATCH", "REGISTER: P PC  S SP  A AF  B BC  D DE  H HL  X IX  Y IY  I I", "", "TRACE, INSTRUCTIONS (ENTER: UNTIL A BREAKPOINT; SPACE STOPS IT)"};
     int w = (ui_pr == UP_REGVAL && ui_reg == R_I) ? 2 : 4;
     char h[5] = "----";                       // (el ZX81 no tiene "_")
     h[w] = 0;
@@ -2493,10 +2538,22 @@ static void ui_compose(){
   }
   // 5-17: desensamblado (con el PC en inverso) y la pila
   ui_invert(5, 0, 57);
-  ui_put(5, 1, "DISASSEMBLY", true);
+  if (ui_hist) ui_putf(5, 1, true, "TRACE (THE LAST %d OF %lu)", trace_n < UI_DIS_N ? (int)trace_n : UI_DIS_N, (unsigned long)trace_total);
+  else ui_put(5, 1, "DISASSEMBLY", true);
   ui_invert(5, 58, UI_COLS);
   ui_putf(5, 59, true, "STACK %04X", sp);
   int pos = 0;
+  if (ui_hist) {                              // la traza: las ultimas, la mas reciente abajo
+    int m = trace_n < UI_DIS_N ? trace_n : UI_DIS_N;
+    for (int k = 0; k < m; k++) {
+      const TraceE& e = trace_at(trace_n - m + k);
+      char t[96];
+      ui_disasm(e.pc, (uint8_t*)e.op, 4, t, sizeof(t));
+      sym_subst(t, sizeof(t));
+      ui_putf(6 + k, 1, false, "%04X  %-24.24s AF %04X HL %04X SP %04X", e.pc, t, e.af, e.hl, e.sp);
+    }
+    pos = 60;                                 // (sin desensamblado)
+  }
   for (int k = 0; k < UI_DIS_N && pos < 60; k++) {
     uint16_t a = ui_dis + pos;
     char t[96];
@@ -2525,9 +2582,9 @@ static void ui_compose(){
   }
   // 22-23: las teclas
   ui_invert(22, 0, UI_COLS);
-  ui_put(22, 1, "S STEP  O OVER  U OUT  C/SPACE CONT  G GO TO  B BREAKPOINT  W WATCH  R REGISTER", true);
+  ui_put(22, 1, "S STEP O OVER U OUT C/SPACE CONT G GO TO B BREAKPOINT W WATCH R REG T TRACE", true);
   ui_invert(23, 0, UI_COLS);
-  ui_put(23, 1, "D DISASM  M MEMORY  5-8 SCROLL  E POKE  V PROG SCREEN  Z SNAP  L LOAD  Q HIDE", true);
+  ui_put(23, 1, "H HISTORY D DISASM M MEMORY 5-8 SCROLL E POKE V PROGRAM Z SNAP L LOAD Q HIDE", true);
 }
 
 // Manda lo que ha cambiado. Trozos seguidos (huecos de menos de 24 bytes se
@@ -2691,7 +2748,7 @@ static void ui_on_stop(){
 
 // --- teclado: las 8 filas cada 40 ms; cuenta al soltar ---
 static void ui_kbd_feed(){
-  if ((!ui_shown && !ui_prog_view) || !stopped || ui_busy() || view_busy() || snap_busy() || ld_busy() || q_count) return;
+  if ((!ui_shown && !ui_prog_view) || !stopped || trace_on || ui_busy() || view_busy() || snap_busy() || ld_busy() || q_count) return;
   if (millis() - ui_kt < 40) return;
   ui_kt = millis();
   for (int r = 0; r < 8; r++) q_push(OP_IN, ((0xFF ^ (1 << r)) << 8) | 0xFE, 0, TAG_UI_KBD, r);
@@ -2733,6 +2790,10 @@ static void ui_accept(){
       watch_mode = ui_wmode; watch_addr = v;
       queue_cmp(v, ui_wmode);
       snprintf(ui_msg, sizeof(ui_msg), "WATCHPOINT: %s %04X", watch_name(), v);
+      break;
+    case UP_TRACE:
+      ui_hist = true;
+      trace_start(got ? v : 0);
       break;
     case UP_REGVAL:
       if (!got) break;
@@ -2849,6 +2910,8 @@ static void ui_key(char c){
     case 'E': ui_ask(UP_POKEADDR); break;
     case 'W': ui_ask(UP_WMODE); break;
     case 'R': ui_ask(UP_REG); break;
+    case 'T': ui_ask(UP_TRACE); break;
+    case 'H': ui_hist = !ui_hist; break;
     case '5': ui_mem -= 48; break;
     case '6': ui_mem += 16; break;
     case '7': ui_mem -= 16; break;
@@ -2926,4 +2989,100 @@ static void ui_result(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n){
         ui_restore_shadow();
       break;
   }
+}
+
+// ---------------------------------------------------------------------
+// Traza lenta (sin FPGA). El MCU da los pasos de uno en uno (la FPGA para
+// tras cada instruccion) y apunta el estado antes de cada una: PC, los
+// registros y sus 4 bytes (leidos en ese momento). Se para al llegar a n
+// instrucciones, en un breakpoint (el PC en uno, sin ejecutarlo: durante la
+// traza los FF no estan en memoria), con un punto de vigilancia u otra
+// ruptura que no sea un paso, con ESPACIO en el ZX81 (se mira cada 100 ms),
+// con cualquier orden en la consola o con el boton QS. Un RST 38h del
+// programa se ejecuta como siempre. Las ultimas TRACE_MAX quedan en un
+// anillo: th en la consola, H en la pantalla. Cada t empieza una nueva.
+// Velocidad: la de un paso y una lectura por instruccion (unos cientos por
+// segundo)
+// ---------------------------------------------------------------------
+static uint32_t trace_left = 0;               // por ejecutar (0xFFFFFFFF: sin limite)
+static bool trace_abort = false;
+static uint32_t trace_kt = 0, trace_t0 = 0;
+static const char* trace_why = "";
+
+static const TraceE& trace_at(uint32_t i){ return trace_buf[i % TRACE_MAX]; }
+
+static void trace_read(){
+  q_push(OP_READ, reg16(R_PC), 4, TAG_TRACE);
+  if (millis() - trace_kt >= 100) {           // ESPACIO para pararla
+    trace_kt = millis();
+    q_push(OP_IN, 0x7FFE, 0, TAG_TRACE_KEY);
+  }
+}
+
+static void trace_start(uint32_t n){
+  if (!stopped) return;
+  trace_on = true;
+  trace_abort = false;
+  trace_n = trace_total = 0;
+  trace_left = n ? n : 0xFFFFFFFF;
+  trace_t0 = trace_kt = millis();
+  if (n) Serial.printf("Trace: %lu instructions (SPACE on the ZX81, or any command here, stops it)\r\n", (unsigned long)n);
+  else Serial.println("Trace: until a breakpoint (SPACE on the ZX81, or any command here, stops it)");
+  ui_refresh();
+  trace_read();                               // la primera, la del PC de ahora
+}
+
+static void trace_stop_req(){ trace_abort = true; }
+
+// Acabada: lo normal de una parada
+static void trace_end(const char* why){
+  trace_on = false;
+  uint32_t ms = millis() - trace_t0;
+  Serial.printf("Trace: %lu instructions in %lu ms (%s); th to see them\r\n", (unsigned long)trace_total,
+                (unsigned long)ms, why);
+  on_stopped(false);
+}
+
+// En cada parada durante la traza. true: sigue (ya pedida la instruccion)
+static bool trace_break(){
+  uint8_t why = regs[R_DBGST] & 7;
+  if (why != 4 && !stop_foreign) trace_why = reason_name(regs[R_DBGST]);   // vigilancia, pausa, trampa...
+  else if (trace_abort) trace_why = "stopped";
+  else if (!trace_left) trace_why = "count reached";
+  else if (bp_find(reg16(R_PC)) >= 0) trace_why = "breakpoint";
+  else { trace_read(); return true; }
+  trace_end(trace_why);
+  return true;                                // (trace_end ya ha hecho lo de parar)
+}
+
+static void trace_result(uint8_t tag, uint8_t* d, uint16_t n){
+  if (!trace_on) return;
+  if (tag == TAG_TRACE_KEY) { if (n && !(d[0] & 1)) trace_abort = true; return; }
+  if (trace_abort) { trace_end("stopped"); return; }
+  TraceE& e = trace_buf[trace_n % TRACE_MAX];
+  e.pc = reg16(R_PC); e.af = reg16(R_AF); e.bc = reg16(R_BC); e.de = reg16(R_DE);
+  e.hl = reg16(R_HL); e.ix = reg16(R_IX); e.iy = reg16(R_IY); e.sp = reg16(R_SP);
+  memset(e.op, 0, 4);
+  memcpy(e.op, d, n < 4 ? n : 4);
+  trace_n++;
+  trace_total++;
+  if (trace_left != 0xFFFFFFFF) trace_left--;
+  dbg_step(1);
+}
+
+static void trace_print(uint32_t n){
+  if (!trace_n) { Serial.println("No trace (t [n])"); return; }
+  uint32_t have = trace_n < TRACE_MAX ? trace_n : TRACE_MAX;
+  if (n > have) n = have;
+  for (uint32_t k = trace_n - n; k < trace_n; k++) {
+    const TraceE& e = trace_at(k);
+    char t[96];
+    ui_disasm(e.pc, (uint8_t*)e.op, 4, t, sizeof(t));
+    sym_subst(t, sizeof(t));
+    const char* lab = sym_at(e.pc);
+    if (lab) Serial.printf("%s:\r\n", lab);
+    Serial.printf("%04X  %-22s AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X\r\n",
+                  e.pc, t, e.af, e.bc, e.de, e.hl, e.ix, e.iy, e.sp);
+  }
+  Serial.printf("(%lu of %lu traced; the last one ran just before the stop)\r\n", (unsigned long)n, (unsigned long)trace_total);
 }

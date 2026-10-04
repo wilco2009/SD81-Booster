@@ -960,6 +960,34 @@ int main(int argc, char** argv){
       remove("sd_TEST.SYM");
     }
 
+    // t: traza lenta (6200 CALL 6210 / 6203 LD HL,1234 / 6206 LD (6100),A / 6209 JR $ / 6210 LD A,55 / 6212 RET)
+    {
+      auto logged = [&](const char* t){ std::lock_guard<std::mutex> l(out_mx); return out_log.find(t) != std::string::npos; };
+      auto clear = [&](){ std::lock_guard<std::mutex> l(out_mx); out_log.clear(); };
+      con("x pc=6200"); con("x af=0000");
+      CHECK(run_until_waiting(5000000), "t: PC 6200");
+      clear();
+      con("t 4");
+      CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6206 && logged("Trace: 4 instructions") && logged("count reached"),
+            "t 4: cuatro instrucciones (CALL, LD A, RET, LD HL), parada en 6206");
+      clear();
+      con("th");
+      CHECK(run_until_waiting(5000000) && logged("6200  CALL 6210h") && logged("6210  LD A,55h") && logged("6212  RET") &&
+            logged("6203  LD HL,1234h") && logged("AF=5500"), "th: las cuatro, con los registros de antes de cada una");
+      con("b 6209"); con("x pc=6200");
+      CHECK(run_until_waiting(5000000), "t: b 6209");
+      clear();
+      con("t");
+      CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6209 && logged("Trace: 5 instructions") && logged("(breakpoint)"),
+            "t: hasta el breakpoint, sin ejecutarlo");
+      con("bc");
+      clear();
+      con("t");                                               // JR $ sin fin: la para cualquier orden
+      for (int k = 0; k < 300000; k++) step_cpu();
+      con("r");
+      CHECK(run_until_waiting(5000000) && logged("(stopped)") && z_entry.pc.w == 0x6209, "t: la para una orden de la consola");
+    }
+
     // ui: lo de la consola desde el teclado del ZX81
     {
       auto run_ms = [&](long ms){ long t = now_ms(); while (now_ms() - t < ms) step_cpu(); };
@@ -1012,6 +1040,11 @@ int main(int argc, char** argv){
       CHECK(pokereg[2045] == 170, "ui teclas: V, la pantalla del programa (Superfast texto)");
       typ("V");
       CHECK(pokereg[2045] == 174 && row_has(2, "PC 6209"), "ui teclas: V otra vez, la del depurador");
+      typ("T0003");
+      CHECK(run_until_waiting(5000000) && row_has(5, "TRACE (THE LAST 3 OF 3)") && row_has(8, "6209  JR 6209H"),
+            "ui teclas: T 0003, la traza en la pantalla (H)");
+      typ("H");
+      CHECK(row_has(5, "DISASSEMBLY"), "ui teclas: H, otra vez el desensamblado");
       typ("Q");
       CHECK(pokereg[2045] == p2045, "ui teclas: Q");
     }

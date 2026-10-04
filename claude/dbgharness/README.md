@@ -102,3 +102,6 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
   - `b`, `bc` y `x pc=` con nombres;
   - la parada con `(LOOP)` y `(SUB1+2)`;
   - otro programa sin `.SYM` los quita.
+- `t`, la traza lenta: `t 4` (CALL, LD A, RET, LD HL) y `th` con los
+  registros; `t` hasta un breakpoint sin ejecutarlo; `t` sin fin, parada por
+  una orden de la consola; `T` y `H` en la pantalla.

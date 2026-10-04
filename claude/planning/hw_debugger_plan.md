@@ -375,7 +375,9 @@ con `claude/dbgharness`):
   `hw_debugger_emulator.md` sección 10.8);
 - **decidir la traza y la interfaz en la pantalla del ZX81** (§1, 11). La
   interfaz quedó decidida el 3 de octubre de 2026 (abajo). La traza sigue
-  pendiente: necesita memoria en la FPGA, y la BRAM está a 32/32.
+  pendiente: necesita memoria en la FPGA, y la BRAM está a 32/32. Hecha
+  una traza lenta sin FPGA (el MCU paso a paso; `t`, `th`, y `T`/`H` en la
+  pantalla): `hw_debugger_emulator.md` sección 13.8.
 
 **Fase 3b. Pantalla del depurador en el ZX81, sin FPGA** (decidida el 3
 de octubre de 2026). Hecha en el monitor (versión 4, `SETI`) y en el MCU

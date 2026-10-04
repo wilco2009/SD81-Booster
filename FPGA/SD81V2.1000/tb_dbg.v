@@ -50,6 +50,21 @@ module tb_dbg;
 	wire [7:0] bram_data = bram_ptr[7:0] ^ 8'h5A;	// la "BRAM": un patron por direccion
 	integer errors = 0;
 
+	// la traza: trace_wr a system_clk (26 MHz) y la sombra que escribe
+	reg sysclk = 0;
+	always #19 sysclk = ~sysclk;
+	reg trace = 0;					// orden 12
+	reg skipv = 0;					// tr_skip (video o HALT, de SD81.v)
+	wire tr_go;
+	wire [15:0] tr_pc;
+	wire [9:0] tr_ptr;
+	wire tr_we;
+	wire [15:0] tr_waddr;
+	wire [7:0] tr_wdata;
+	reg [7:0] shadow [0:65535];
+	always @(posedge sysclk) if (tr_we) shadow[tr_waddr] <= tr_wdata;
+	trace_wr tw (.clk(sysclk), .tr_go(tr_go), .tr_pc(tr_pc), .ptr(tr_ptr), .we(tr_we), .waddr(tr_waddr), .wdata(tr_wdata));
+
 	m1_tracker trk (
 		.iclock(iclock), .nreset(nreset), .nM1(nM1), .nMREQ(nMREQ), .nRFSH(nRFSH),
 		.data(bus), .boundary(boundary), .index_prefix(index_prefix));
@@ -62,7 +77,8 @@ module tb_dbg;
 		.dbg_loaded(loaded), .dbg_pause_tgl(tgl), .joy_up_n(up_n), .joy_down_n(down_n),
 		.data_out(fpga_data), .enable_out(fpga_en), .state(si_state),
 		.enabled(si_enabled), .dbg_win(dbg_win), .dbg_mon(dbg_mon), .port_out(port_out),
-		.bram_rd(bram_rd), .bram_wr(bram_wr), .bram_ptr(bram_ptr), .bram_data(bram_data), .chroma_reg(8'h3C), .ay_sel_a(8'h0D), .ay_sel_b(8'h07), .sram_wr(1'b0), .sram_page(6'd0), .dirty_clr(1'b0));
+		.bram_rd(bram_rd), .bram_wr(bram_wr), .bram_ptr(bram_ptr), .bram_data(bram_data), .chroma_reg(8'h3C), .ay_sel_a(8'h0D), .ay_sel_b(8'h07), .sram_wr(1'b0), .sram_page(6'd0), .dirty_clr(1'b0),
+		.trace_en(trace), .tr_skip(skipv), .tr_ptr(tr_ptr), .tr_go(tr_go), .tr_pc(tr_pc));
 
 	reg [7:0] got;			// el byte que ha leido la CPU en la ultima lectura
 	reg got_fpga;			// si lo servia la FPGA
@@ -471,6 +487,35 @@ module tb_dbg;
 		m1(16'h7000, 8'h00);
 		m1(16'h7001, 8'hC9); mem_rd(16'h7FFC, 8'h3B); mem_rd(16'h7FFD, 8'h00);
 		m1(16'h003B, 8'hFF); expect_fpga(8'hC9, "HALT: RET de sim tras la pausa");
+
+		// --- traza (orden 12): el PC de cada instruccion del programa ---
+		dis_pulse = 1; @(posedge clk); dis_pulse = 0;
+		m1(16'h4000, 8'h00); repeat (8) @(posedge sysclk);
+		expect_val(tr_ptr, 0, "traza apagada: no apunta");
+		trace = 1; repeat (4) @(posedge clk);
+		m1(16'h4000, 8'h00);
+		m1(16'h4001, 8'hCB); m1(16'h4002, 8'h47);				// BIT 0,A: dos M1, una instruccion
+		m1(16'h4003, 8'h00);
+		skipv = 1; m1(16'h8100, 8'h00); skipv = 0;				// video (NOP forzado): no
+		repeat (8) @(posedge sysclk);
+		expect_val(tr_ptr, 3, "traza: tres instrucciones");
+		expect_val({shadow[16'h1001], shadow[16'h1000]}, 16'h4000, "traza: 4000");
+		expect_val({shadow[16'h1003], shadow[16'h1002]}, 16'h4001, "traza: 4001 (CB 47, una)");
+		expect_val({shadow[16'h1005], shadow[16'h1004]}, 16'h4003, "traza: 4003");
+		tgl = ~tgl; repeat (4) @(posedge clk);					// una pausa
+		m1(16'h4004, 8'h00);
+		dbg_enter(16'h4004, 3'd1);
+		expect_val(tr_ptr, 3, "traza: ni el FF de la ruptura ni el monitor");
+		io_out(16'h3FEF, 8'h07); io_in(16'h3FEF);
+		expect_val(got, 3, "traza: el puntero (indice 7)");
+		io_out(16'h3FEF, 8'h08); io_in(16'h3FEF);
+		expect_val(got, 0, "traza: los bits altos (indice 8)");
+		dbg_exit(16'h4004);
+		expect_val(tr_ptr, 3, "traza: ni el epilogo");
+		m1(16'h4004, 8'h00); repeat (8) @(posedge sysclk);
+		expect_val(tr_ptr, 4, "traza: al volver, la instruccion de la ruptura");
+		expect_val({shadow[16'h1007], shadow[16'h1006]}, 16'h4004, "traza: 4004");
+		trace = 0;
 
 		if (errors == 0) $display("TODO OK");
 		else $display("%0d ERRORES", errors);

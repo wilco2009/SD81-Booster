@@ -133,6 +133,8 @@ static uint8_t ram[64][8192];
 static uint8_t blk[8] = {0, 1, 2, 3, 4, 5, 6, 7};
 static bool mon = false;            // fase MON: ventana, bloque 0 escribible
 static uint8_t bram[65536];         // la BRAM de sombra, por direccion
+#define UIDF 0x0000                  // el D_FILE de la pantalla del depurador, en la sombra
+static uint16_t trptr = 0;           // la traza de la FPGA (orden 12): la entrada siguiente
 static uint8_t pokereg[65536];      // los registros de los POKEs de control (2038-2098)
 static std::vector<int> poke_log;   // en que orden se han escrito
 static bool nmi_on = false;
@@ -229,6 +231,8 @@ BYTE z80_readport_wrapper(int port, int*){
     if (ridx == 4) return ay_sel[0];
     if (ridx == 5) return ay_sel[1];
     if (ridx == 6) return (uint8_t)((dirty >> (dptr++ & 63)) & 1);
+    if (ridx == 7) return trptr & 0xFF;
+    if (ridx == 8) return trptr >> 8;
     return ridx == 0 ? (0x80 | (nmi_brk ? 0x40 : 0) | (lvl << 5) | reason) : ridx == 15 ? 0x52 : 0;
   }
   return 0xFF;
@@ -292,6 +296,10 @@ static void step_cpu(){
   else {
     if (step_on && step_cnt) step_cnt--;
     skip = false;
+    if (cfgs[12]) {                             // la traza (sim_int 0.13): el PC, antes de ejecutarla
+      bram[0x1000 + 2 * trptr] = pc & 0xFF; bram[0x1000 + 2 * trptr + 1] = pc >> 8;
+      trptr = (trptr + 1) & 1023;
+    }
     z80_do_opcode();
     executed++;
   }
@@ -859,7 +867,7 @@ int main(int argc, char** argv){
         return c == ' ' ? 0 : c == '\'' ? 11 : c == '-' ? 22 : c == '(' ? 16 : c == ')' ? 17 : c == '.' ? 27 : c == ',' ? 26 : -1;
       };
       auto row_has = [&](int row, const char* t){             // en la sombra, sin mirar el inverso
-        const uint8_t* d = bram + 0x1000 + 1 + row * 81;
+        const uint8_t* d = bram + UIDF + 1 + row * 81;
         int L = strlen(t);
         for (int c = 0; c + L <= 80; c++) {
           int j = 0;
@@ -870,7 +878,7 @@ int main(int argc, char** argv){
       };
       auto pc_is = [&](int row){ char t[16]; snprintf(t, sizeof(t), "PC %04X", z_entry.pc.w); return row_has(row, t); };
       static uint8_t sh_s[1945], pk_s[61];
-      memcpy(sh_s, bram + 0x1000, 1945);
+      memcpy(sh_s, bram + UIDF, 1945);
       memcpy(pk_s, bram + 2038, 61);
       uint8_t p2045 = pokereg[2045], p2098 = pokereg[2098];
       chroma_reg = 0x2C;                                       // con color (el IN del indice 3 da 2C)
@@ -878,8 +886,8 @@ int main(int argc, char** argv){
       CHECK(run_until_waiting(5000000), "ui: la I del programa, 3F (en el bloque)");
       uint16_t mem0 = z_entry.hl.w & 0xFFF0;                   // el volcado empieza en HL
       con("ui");
-      CHECK(run_until_waiting(5000000) && pokereg[2045] == 174 && pokereg[2096] == 0x00 && pokereg[2097] == 0x10 &&
-            pokereg[2098] == 170 && cfgs[cfgcmd_DBGPOKE] == 0, "ui: 80 columnas y el D_FILE alternativo en 1000");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == 174 && pokereg[2096] == 0x00 && pokereg[2097] == 0x00 &&
+            pokereg[2098] == 170 && cfgs[cfgcmd_DBGPOKE] == 0, "ui: 80 columnas y el D_FILE alternativo en 0000");
       CHECK(z80.i == 0x1E && chroma_reg == 0x0C, "ui: el monitor espera con I = 1E (SETI); sin color");
       CHECK(row_has(0, "SD81 BOOSTER DEBUGGER") && pc_is(2) && row_has(23, "Q HIDE") && row_has(5, "DISASSEMBLY"),
             "ui: la pantalla en la sombra (titulo, registros, teclas)");
@@ -891,7 +899,7 @@ int main(int argc, char** argv){
       tap(1, 1);                                               // S: un paso
       CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6206 && pc_is(2), "ui: la tecla S da un paso");
       mem0 = 0;                                                // la de ahora (se recuerda entre aperturas)
-      for (int c = 8; c < 12; c++) { int z = bram[0x1000 + 1 + 18 * 81 + c] & 0x3F; mem0 = mem0 * 16 + (z >= 38 ? z - 38 + 10 : z - 28); }
+      for (int c = 8; c < 12; c++) { int z = bram[UIDF + 1 + 18 * 81 + c] & 0x3F; mem0 = mem0 * 16 + (z >= 38 ? z - 38 + 10 : z - 28); }
       tap(4, 4);                                               // 6: el volcado, 16 mas abajo
       char mt[16];
       snprintf(mt, sizeof(mt), "MEMORY %04X", (uint16_t)(mem0 + 16));
@@ -899,22 +907,22 @@ int main(int argc, char** argv){
       con("ui");
       CHECK(run_until_waiting(5000000) && pokereg[2045] == p2045 && pokereg[2098] == p2098 && chroma_reg == 0x2C &&
             z80.i == 0x3F, "ui otra vez: el video, el color y la I del programa");
-      CHECK(!memcmp(bram + 0x1000, sh_s, 1945) && !memcmp(bram + 2038, pk_s, 61), "ui: la sombra exactamente como estaba");
+      CHECK(!memcmp(bram + UIDF, sh_s, 1945) && !memcmp(bram + 2038, pk_s, 61), "ui: la sombra exactamente como estaba");
       con("ui");
       CHECK(run_until_waiting(5000000) && pokereg[2045] == 174, "ui: otra vez");
       run_ms(150);                                             // (lo pulsado antes del primer barrido no cuenta)
       tap(2, 0);                                               // Q: cerrar
-      CHECK(run_until_waiting(5000000) && pokereg[2045] == p2045 && !memcmp(bram + 0x1000, sh_s, 1945) && z80.i == 0x3F,
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == p2045 && !memcmp(bram + UIDF, sh_s, 1945) && z80.i == 0x3F,
             "ui: la tecla Q la cierra");
       con("ui");
       CHECK(run_until_waiting(5000000) && pokereg[2045] == 174, "ui: puesta para seguir");
       con("c");
       run_program(100);
-      CHECK(!mon && pokereg[2045] == p2045 && !memcmp(bram + 0x1000, sh_s, 1945), "ui: al seguir, el video del programa");
+      CHECK(!mon && pokereg[2045] == p2045 && !memcmp(bram + UIDF, sh_s, 1945), "ui: al seguir, el video del programa");
       pause_pend = true;
       CHECK(run_until_waiting(5000000) && pokereg[2045] == 174 && pc_is(2) && z80.i == 0x1E, "ui: al parar, otra vez");
       con("ui");
-      CHECK(run_until_waiting(5000000) && pokereg[2045] == p2045 && !memcmp(bram + 0x1000, sh_s, 1945), "ui: cerrada");
+      CHECK(run_until_waiting(5000000) && pokereg[2045] == p2045 && !memcmp(bram + UIDF, sh_s, 1945), "ui: cerrada");
       chroma_reg = -1;
     }
 
@@ -986,6 +994,32 @@ int main(int argc, char** argv){
       for (int k = 0; k < 300000; k++) step_cpu();
       con("r");
       CHECK(run_until_waiting(5000000) && logged("(stopped)") && z_entry.pc.w == 0x6209, "t: la para una orden de la consola");
+
+      // el historial: la traza de la FPGA (tron), siempre grabando
+      con("tron"); con("x pc=6200");
+      CHECK(run_until_waiting(5000000) && cfgs[12] == 1, "tron: la orden 12");
+      con("b 6209"); con("c");
+      run_program(100);
+      CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6209, "historial: el programa corre hasta 6209");
+      clear();
+      con("th 5");
+      CHECK(run_until_waiting(5000000) && logged("6200  CALL 6210h") && logged("6210  LD A,55h") && logged("6212  RET") &&
+            logged("6203  LD HL,1234h") && logged("6206  LD (6100h),A") && logged("the last 5 instructions"),
+            "th 5: las cinco del historial, a velocidad real");
+      con("bc");
+      clear();
+      con("snap");
+      CHECK(run_until_waiting(20000000) && logged("Snapshot saved"), "historial: snapshot");
+      {
+        std::string sp;
+        { std::lock_guard<std::mutex> l(out_mx); size_t a = out_log.find("Snapshot saved: "); if (a != std::string::npos) sp = out_log.substr(a + 16, out_log.find(' ', a + 16) - a - 16); }
+        load_tokens(sdpath(sp.c_str()).c_str());
+        bool sh0 = false;
+        for (size_t i = 0; i + 1 < toks.size(); i++) if (toks[i] == "SHADOW" && toks[i + 1] == "00") sh0 = true;
+        CHECK(!sp.empty() && !toks.empty() && !sh0, "historial: el snapshot no guarda la traza como sombra del bloque 0");
+      }
+      con("troff");
+      CHECK(run_until_waiting(5000000) && cfgs[12] == 0, "troff");
     }
 
     // ui: lo de la consola desde el teclado del ZX81
@@ -996,6 +1030,7 @@ int main(int argc, char** argv){
       auto typ = [&](const char* t){
         for (; *t; t++)
           for (int r = 0; r < 8; r++) { const char* q = strchr(rows[r], *t); if (q && *t) { tap(r, q - rows[r]); break; } }
+        run_ms(150);                                           // (el barrido que ve la tecla soltada)
         run_until_waiting(5000000);
       };
       auto zx = [](char c) -> int {
@@ -1004,7 +1039,7 @@ int main(int argc, char** argv){
         return c == ' ' ? 0 : c == '(' ? 16 : c == ')' ? 17 : c == ':' ? 14 : -1;
       };
       auto row_has = [&](int row, const char* t){
-        const uint8_t* d = bram + 0x1000 + 1 + row * 81;
+        const uint8_t* d = bram + UIDF + 1 + row * 81;
         int L = strlen(t);
         for (int c = 0; c + L <= 80; c++) {
           int j = 0;
@@ -1045,6 +1080,13 @@ int main(int argc, char** argv){
             "ui teclas: T 0003, la traza en la pantalla (H)");
       typ("H");
       CHECK(row_has(5, "DISASSEMBLY"), "ui teclas: H, otra vez el desensamblado");
+      con("tron");
+      typ("S");                                                // ha seguido: H ya es el historial de la FPGA
+      typ("H");
+      CHECK(row_has(5, "HISTORY (THE LAST 12)") && row_has(17, "6209") && row_has(17, "JR 6209H"),
+            "ui teclas: H, el historial de la FPGA (la ultima, abajo)");
+      typ("H");
+      con("troff");
       typ("Q");
       CHECK(pokereg[2045] == p2045, "ui teclas: Q");
     }

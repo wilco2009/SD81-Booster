@@ -94,7 +94,10 @@ enum {
   TAG_UI_KBD,       // pantalla: una fila del teclado (arg = fila 0-7)
   TAG_UI_FIX,       // pantalla: tras un reset, los POKEs en la sombra
   TAG_TRACE,        // traza: la instruccion en el PC (antes de ejecutarla)
-  TAG_TRACE_KEY     // traza: la fila de ESPACIO, para pararla
+  TAG_TRACE_KEY,    // traza: la fila de ESPACIO, para pararla
+  TAG_FT_PTR,       // historial (FPGA): el puntero (arg = 0 bajo, 1 alto)
+  TAG_FT_RING,      // historial: un trozo del anillo
+  TAG_FT_OP         // historial: los bytes de una instruccion (arg = cual)
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -472,8 +475,12 @@ static void queue_steps(uint16_t n){
 
 static bool kbd_arm = false;        // la proxima parada es la del boton QS (teclado: ui_pause_qs)
 
+static bool trace_on = false;                 // traza lenta en curso (mas abajo)
+static bool trace_slow_valid = false;         // lo ultimo es una traza lenta (t) y no se ha seguido desde entonces
+
 static void resumed(){
   stopped = false;
+  if (!trace_on) trace_slow_valid = false;    // th y H: ahora, el historial de la FPGA
   set_status_led_ok();
 }
 
@@ -635,12 +642,21 @@ static void step_over(uint8_t* b, uint16_t n);
 static void on_break2();
 static void on_stopped(bool reached);
 // Traza (mas abajo)
-static bool trace_on = false;
 static uint32_t trace_n = 0;                  // apuntadas (en el anillo, como mucho TRACE_MAX)
 static uint32_t trace_total = 0;              // en esta traza
 static const TraceE& trace_at(uint32_t i);
 static bool trace_break();
 static void trace_result(uint8_t tag, uint8_t* d, uint16_t n);
+// Historial: la traza de la FPGA (mas abajo)
+#define FT_SHOW 60                            // como mucho, de una vez
+static uint8_t ft_stage = 0;                  // 0 nada, 1 puntero, 2 anillo, 3 bytes
+static uint8_t ft_purpose = 0;                // 1 consola (th), 2 pantalla (H)
+static uint16_t ft_n = 0;                     // entradas pedidas / leidas
+static uint16_t ft_pc[FT_SHOW];
+static uint8_t ft_op[FT_SHOW][4];
+static void ft_result(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n);
+static void ft_fetch(uint16_t n, uint8_t purpose);
+static bool ft_on = true;                     // tron / troff (la orden 12 va puesta al cargar el monitor)
 
 // En SLOW la FPGA para en la entrada de la NMI ($0066, sim_int 0.12): antes
 // de nada se deshace (PC = [SP], SP + 2, R - 1 por la M1 del reconocimiento),
@@ -650,6 +666,7 @@ static void on_break(){
   q_count = 0;
   poll_state = 0;
   stopped = true;
+  ft_stage = 0;                               // (la cola se ha vaciado)
   ui_on_break();                              // la cola se ha vaciado
   stop_nmi = (regs[R_DBGST] & 0x40) != 0;
   if (stop_nmi) prog_slow = true;
@@ -751,6 +768,7 @@ static void on_result(uint8_t* data, uint16_t n){
     case TAG_VIEW_SAVE: case TAG_VIEW_COPY: view_part(last.tag, last.arg, data, n); break;
     case TAG_VIEW_SYNC: poke_end(); view_times(); break;
     case TAG_TRACE: case TAG_TRACE_KEY: trace_result(last.tag, data, n); break;
+    case TAG_FT_PTR: case TAG_FT_RING: case TAG_FT_OP: ft_result(last.tag, last.arg, data, n); break;
     case TAG_UI_PK: case TAG_UI_CHROMA: case TAG_UI_SAVE: case TAG_UI_DIS:
     case TAG_UI_STK: case TAG_UI_MEM: case TAG_UI_KBD: case TAG_UI_FIX:
       ui_result(last.tag, last.arg, data, n);
@@ -872,7 +890,8 @@ static void help(){
   Serial.println("  b addr         set a breakpoint      bc [addr]  clear one / all      bl  list");
   Serial.println("  w r|w|io addr  watchpoint (read, write, I/O port)    w  clear it");
   Serial.println("  t [n]          trace: n instructions, one by one (none: until a breakpoint or SPACE / any key here)");
-  Serial.println("  th [n]         the last n traced instructions (14), with the registers before each one");
+  Serial.println("  th [n]         the last n instructions (14): those of t, with the registers, or, if the");
+  Serial.println("                 program has run since, the FPGA's history (PC only; tron / troff)");
   Serial.println("  v              video while stopped: Superfast text on / off (SLOW and FAST programs)");
   Serial.println("  v addr         video while stopped: Superfast HiRes, bitmap (32 x 192) at addr (WRX)");
   Serial.println("  ui             debugger screen on the ZX81 on / off (running: at the next stop). QS pause: V");
@@ -985,7 +1004,15 @@ bool dbg_console(const char* line){
   }
   else if (!strcmp(cmd, "th")) {
     if (!parse_hex(p, n) || !n) n = 0x14;
-    trace_print(n);
+    if (trace_slow_valid) trace_print(n);     // la de t, con los registros
+    else if (ft_stage) Serial.println("History: busy");
+    else ft_fetch(n > FT_SHOW ? FT_SHOW : n, 1);
+    return true;
+  }
+  else if (!strcmp(cmd, "tron") || !strcmp(cmd, "troff")) {
+    ft_on = cmd[3] == 'n';
+    send_bit_config(cfgcmd_DBGTRACE, ft_on ? 1 : 0);
+    Serial.println(ft_on ? "History on (the FPGA notes every instruction)" : "History off");
     return true;
   }
   else if (!strcmp(cmd, "ui")) {
@@ -1525,6 +1552,7 @@ static void snap_result(uint8_t tag, uint8_t* data, uint16_t n){
       if (sn.pgot + n <= 8192) memcpy(sn.page + sn.pgot, data, n);
       sn.pgot += n;
       if (sn.pgot < 8192) break;
+      if (!sn.shblk) rom_file_read(0x1000, sn.page + 0x1000, 0x800);   // ahi va la traza de la FPGA: como la ROM
       if (sn.shblk || !shadow0_is_rom()) {
         swf("SHADOW %02X\n", sn.shblk);
         sn.toks = 0;
@@ -2375,7 +2403,7 @@ static void view_off(){
 // Las direcciones: hasta 4 cifras hex y ENTER (con 4, sola); otra tecla
 // cancela.
 // ---------------------------------------------------------------------
-#define UI_DF      0x1000                     // D_FILE en la sombra (libre: la FPGA no lee ahi)
+#define UI_DF      0x0000                     // D_FILE en la sombra (libre: la FPGA no lee ahi; $1000, la traza)
 #define UI_COLS    80
 #define UI_ROWS    24
 #define UI_STRIDE  81                         // 80 + 1 de relleno por fila (como el NEWLINE)
@@ -2538,12 +2566,23 @@ static void ui_compose(){
   }
   // 5-17: desensamblado (con el PC en inverso) y la pila
   ui_invert(5, 0, 57);
-  if (ui_hist) ui_putf(5, 1, true, "TRACE (THE LAST %d OF %lu)", trace_n < UI_DIS_N ? (int)trace_n : UI_DIS_N, (unsigned long)trace_total);
+  bool hist_ft = ui_hist && !trace_slow_valid;   // H: el historial de la FPGA, o la traza lenta
+  if (hist_ft) ui_putf(5, 1, true, ft_on ? "HISTORY (THE LAST %d)" : "HISTORY (OFF: TRON IN THE CONSOLE)", ft_n);
+  else if (ui_hist) ui_putf(5, 1, true, "TRACE (THE LAST %d OF %lu)", trace_n < UI_DIS_N ? (int)trace_n : UI_DIS_N, (unsigned long)trace_total);
   else ui_put(5, 1, "DISASSEMBLY", true);
   ui_invert(5, 58, UI_COLS);
   ui_putf(5, 59, true, "STACK %04X", sp);
   int pos = 0;
-  if (ui_hist) {                              // la traza: las ultimas, la mas reciente abajo
+  if (hist_ft) {                              // el historial: las ultimas, la mas reciente abajo
+    for (int k = 0; k < ft_n && k < UI_DIS_N; k++) {
+      char t[96];
+      ui_disasm(ft_pc[k], ft_op[k], 4, t, sizeof(t));
+      sym_subst(t, sizeof(t));
+      const char* lab = sym_at(ft_pc[k]);
+      ui_putf(6 + k, 1, false, "%04X %-10.10s %.40s", ft_pc[k], lab ? lab : "", t);
+    }
+    pos = 60;                                 // (sin desensamblado)
+  } else if (ui_hist) {                       // la traza lenta: las ultimas, la mas reciente abajo
     int m = trace_n < UI_DIS_N ? trace_n : UI_DIS_N;
     for (int k = 0; k < m; k++) {
       const TraceE& e = trace_at(trace_n - m + k);
@@ -2640,6 +2679,10 @@ static void ui_refresh(){
   q_push(OP_READ, reg16(R_SP), 2 * UI_STK_N, TAG_UI_STK);
   q_push(OP_READ, ui_mem, 16 * UI_MEM_N, TAG_UI_MEM);
   ui_pend += 3;
+  if (ui_hist && !trace_slow_valid && ft_on && !ft_stage && QSIZE - q_count > UI_DIS_N + 12) {
+    ft_fetch(UI_DIS_N, 2);                    // H: el historial de la FPGA
+    ui_pend++;
+  }
 }
 
 // Entrar: los POKEs y el Chroma de ahora, y la sombra que se va a pisar
@@ -3037,6 +3080,7 @@ static void trace_stop_req(){ trace_abort = true; }
 // Acabada: lo normal de una parada
 static void trace_end(const char* why){
   trace_on = false;
+  trace_slow_valid = true;
   uint32_t ms = millis() - trace_t0;
   Serial.printf("Trace: %lu instructions in %lu ms (%s); th to see them\r\n", (unsigned long)trace_total,
                 (unsigned long)ms, why);
@@ -3085,4 +3129,82 @@ static void trace_print(uint32_t n){
                   e.pc, t, e.af, e.bc, e.de, e.hl, e.ix, e.iy, e.sp);
   }
   Serial.printf("(%lu of %lu traced; the last one ran just before the stop)\r\n", (unsigned long)n, (unsigned long)trace_total);
+}
+
+// ---------------------------------------------------------------------
+// Historial: la traza de la FPGA (sim_int 0.13, orden 12). Con ella puesta
+// (tron, por defecto), cada instruccion del programa apunta su PC en la
+// sombra, en un anillo de 1024 entradas de 2 bytes en $1000-$17FF; el
+// puntero (la entrada siguiente) se lee con los indices 7/8 de $3FEF. Al
+// pedirlo (th, H) se leen solo las ultimas n entradas y, de la memoria, los
+// bytes de cada instruccion para desensamblarla (los de ahora: con codigo
+// que se reescribe pueden no ser los que se ejecutaron). No hay registros:
+// para eso, la traza lenta (t)
+// ---------------------------------------------------------------------
+#define FT_BASE 0x1000
+#define FT_RING 1024
+static uint8_t ft_lo = 0;
+static uint8_t ft_ring[2 * FT_SHOW];
+static uint16_t ft_got = 0, ft_pend = 0;
+
+static void ft_fetch(uint16_t n, uint8_t purpose){
+  if (!stopped || ft_stage || !n) return;
+  ft_stage = 1;
+  ft_purpose = purpose;
+  ft_n = n;
+  q_out(DBG_PORT, 0x07); q_push(OP_IN, DBG_PORT, 0, TAG_FT_PTR, 0);
+  q_out(DBG_PORT, 0x08); q_push(OP_IN, DBG_PORT, 0, TAG_FT_PTR, 1);
+}
+
+static void ft_print(){
+  for (uint16_t k = 0; k < ft_n; k++) {
+    char t[96];
+    ui_disasm(ft_pc[k], ft_op[k], 4, t, sizeof(t));
+    sym_subst(t, sizeof(t));
+    const char* lab = sym_at(ft_pc[k]);
+    if (lab) Serial.printf("%s:\r\n", lab);
+    Serial.printf("%04X  %s\r\n", ft_pc[k], t);
+  }
+  Serial.printf("(the last %d instructions the program ran, from the FPGA's history; the last one, just before the stop)\r\n", ft_n);
+}
+
+static void ft_done(){
+  ft_stage = 0;
+  if (ft_purpose == 1) ft_print();
+  else if (ui_pend && --ui_pend == 0) ui_draw();
+}
+
+static void ft_result(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n){
+  if (!ft_stage) return;
+  if (tag == TAG_FT_PTR) {
+    if (k == 0) { ft_lo = n ? d[0] : 0; return; }
+    uint16_t ptr = (((n ? d[0] : 0) & 3) << 8) | ft_lo;
+    uint16_t first = (ptr + FT_RING - ft_n) % FT_RING;   // la mas antigua de las que se piden
+    uint16_t n1 = (first + ft_n <= FT_RING) ? ft_n : FT_RING - first;
+    ft_stage = 2;
+    ft_got = 0;
+    q_out(DBG_PORT, 0x85); q_out(DBG_PORT, (FT_BASE + 2 * first) & 0xFF);
+    q_out(DBG_PORT, 0x86); q_out(DBG_PORT, (FT_BASE + 2 * first) >> 8);
+    q_out(DBG_PORT, 0x02);
+    q_push(OP_INSEQ, DBG_PORT, 2 * n1, TAG_FT_RING);
+    if (n1 < ft_n) {                          // da la vuelta
+      q_out(DBG_PORT, 0x85); q_out(DBG_PORT, FT_BASE & 0xFF);
+      q_out(DBG_PORT, 0x86); q_out(DBG_PORT, FT_BASE >> 8);
+      q_push(OP_INSEQ, DBG_PORT, 2 * (ft_n - n1), TAG_FT_RING);
+    }
+    return;
+  }
+  if (tag == TAG_FT_RING) {
+    for (uint16_t i = 0; i < n && ft_got < 2 * ft_n; i++) ft_ring[ft_got++] = d[i];
+    if (ft_got < 2 * ft_n) return;
+    ft_stage = 3;
+    ft_pend = ft_n;
+    for (uint16_t i = 0; i < ft_n; i++) {
+      ft_pc[i] = ft_ring[2 * i] | (ft_ring[2 * i + 1] << 8);
+      q_push(OP_READ, ft_pc[i], 4, TAG_FT_OP, i);
+    }
+    return;
+  }
+  if (k < FT_SHOW) { memset(ft_op[k], 0, 4); memcpy(ft_op[k], d, n < 4 ? n : 4); }
+  if (ft_pend && --ft_pend == 0) ft_done();
 }

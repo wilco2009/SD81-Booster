@@ -239,6 +239,7 @@ int load_debug_monitor(void){
     return -1;
   }
   send_bit_config(cfgcmd_DBGLOADED, 1);
+  send_bit_config(cfgcmd_DBGTRACE, 1);   // el historial (traza de la FPGA), siempre puesto
   for (uint32_t i = 0; i < size; i++)
     write_sram(0xE000 + i, f.read());
   f.close();

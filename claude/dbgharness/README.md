@@ -105,3 +105,7 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
 - `t`, la traza lenta: `t 4` (CALL, LD A, RET, LD HL) y `th` con los
   registros; `t` hasta un breakpoint sin ejecutarlo; `t` sin fin, parada por
   una orden de la consola; `T` y `H` en la pantalla.
+- el historial (la traza de la FPGA, modelada en `step_cpu` con la orden
+  12 y los índices 7/8): `tron`, `th 5` tras correr a velocidad real, un
+  snapshot sin `SHADOW 00`, `troff`; `H` en la pantalla tras un paso.
+- La pantalla del depurador está en `$0000` (`UIDF`).

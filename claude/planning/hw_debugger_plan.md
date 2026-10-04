@@ -377,7 +377,9 @@ con `claude/dbgharness`):
   interfaz quedó decidida el 3 de octubre de 2026 (abajo). La traza sigue
   pendiente: necesita memoria en la FPGA, y la BRAM está a 32/32. Hecha
   una traza lenta sin FPGA (el MCU paso a paso; `t`, `th`, y `T`/`H` en la
-  pantalla): `hw_debugger_emulator.md` sección 13.8.
+  pantalla): `hw_debugger_emulator.md` sección 13.8. Y la de verdad, en la
+  FPGA (sim_int 0.13, 4 de octubre de 2026): el PC de cada instrucción en
+  un anillo de 1024 en la sombra, siempre grabando (sección 13.9).
 
 **Fase 3b. Pantalla del depurador en el ZX81, sin FPGA** (decidida el 3
 de octubre de 2026). Hecha en el monitor (versión 4, `SETI`) y en el MCU
@@ -402,7 +404,8 @@ sale de lo que ya existe: firmware y `DEBUG.BIN`, sin tocar la FPGA ni
   espejo de sprites de `$0C00-$0FFF` solo lo lee el MCU, para los
   snapshots. Por eso la sombra del bloque de la ROM está libre, salvo los
   POKEs (2038-2100), el espejo de sprites y la fuente (`$1E00-$1FFF`):
-  - pantalla de 80 × 24: `1 + 24 × 81` = 1945 bytes en `$1000-$1798`;
+  - pantalla de 80 × 24: `1 + 24 × 81` = 1945 bytes en `$1000-$1798`
+    (desde sim_int 0.13, en `$0000-$0798`: `$1000-$17FF` es la traza);
   - atributos: otros 1945 en `$0000-$0798` (por debajo de 2038).
 - **La fuente.** I está en la tabla de caracteres y, parado, I es la del
   programa (en un WRX, cualquier cosa). En este modo el monitor pone

@@ -102,8 +102,24 @@
 //         del puntero, que vuelve a 0 al elegir el indice 6 y avanza al acabar
 //         cada IN (64 IN seguidos: las 64 paginas). Para que los snapshots
 //         guarden solo las que usa el programa
+//       7/8 el puntero de la traza (bajo / los 2 bits altos)
 //       15 firma 52h
 //
+//  TRAZA (orden 12 del MCU): con ella puesta, cada M1 que empieza una
+//  instruccion del programa (prog_m1: no las que sirve la FPGA ni las del
+//  monitor) apunta su direccion en la BRAM de sombra, en un anillo de 1024
+//  entradas de 2 bytes (bajo, alto) en $1000-$17FF: la sombra de la ROM, que
+//  nadie lee. No se apuntan las que no se ejecutan (la del FF de una
+//  ruptura o de una interrupcion simulada, el JR $ del SLOW) ni las del
+//  video (NOP forzado: A15, D6 = 0) ni las de un HALT (tr_skip, de SD81.v).
+//  sim_int solo decide (tr_go, en la subida de T2) y da la direccion
+//  (m1_addr, que no cambia hasta la M1 siguiente); escribe trace_wr, a
+//  system_clk, con tr_go sincronizado. El puntero (la entrada siguiente)
+//  se lee con los indices 7/8: el MCU lee el anillo al parar
+//
+// Revision 0.13 - Traza: cada instruccion del programa apunta su PC en la
+//                 sombra ($1000-$17FF, anillo de 1024) con la orden 12;
+//                 indices 7/8, el puntero (modulo trace_wr)
 // Revision 0.12 - SLOW: se rompe en la entrada de la NMI (la M1 en $0066),
 //                 sin ventana de tiempos: la rutina aun no ha tocado AF' y la
 //                 siguiente NMI esta a ~200 ciclos. El MCU deshace la NMI
@@ -175,7 +191,12 @@ module sim_int(
 	input wire [7:0] ay_sel_b,
 	input wire sram_wr,					// la CPU escribe en la SRAM (SD81.v: ~nWRx)
 	input wire [5:0] sram_page,			// en esta pagina
-	input wire dirty_clr				// orden 11: borrar las paginas escritas (al subir)
+	input wire dirty_clr,				// orden 11: borrar las paginas escritas (al subir)
+	input wire trace_en,				// orden 12: la traza (dominio de CFG_CLK)
+	input wire tr_skip,					// esta M1 es del video (NOP forzado) o de un HALT
+	input wire [9:0] tr_ptr,			// trace_wr: la entrada siguiente
+	output reg tr_go = 1'b0,			// esta M1 se apunta (desde la subida de T2 hasta su final)
+	output wire [15:0] tr_pc			// su direccion
     );
 
 	// ---------------------------------------------------------------
@@ -252,6 +273,7 @@ module sim_int(
 	reg bram_rd_prev = 1'b0;
 	reg bram_wr_go = 1'b0;		// este OUT es el dato del registro 7
 	reg bram_wr_prev = 1'b0;
+	reg [1:0] tren_s = 2'b00;	// trace_en viene del dominio de CFG_CLK
 
 	wire armed = armed_s[1];
 	wire dbg_idle = (dphase == dIDLE);
@@ -339,6 +361,7 @@ module sim_int(
 	// acaba el ciclo, el puerto A de la BRAM escribe el bus en bram_ptr
 	assign bram_wr = bram_wr_go & io_wr;
 	assign dbg_mon = (dphase == dMON);
+	assign tr_pc = m1_addr;			// la de T2: no cambia hasta la M1 siguiente
 
 	// Lo que se sirve en ESTA lectura: combinacional, estable mientras dure
 	always @(*) begin
@@ -415,6 +438,8 @@ module sim_int(
 			4'd4:  port_out = ay_sel_a;
 			4'd5:  port_out = ay_sel_b;
 			4'd6:  port_out = {7'd0, dirty_bit};
+			4'd7:  port_out = tr_ptr[7:0];
+			4'd8:  port_out = {6'd0, tr_ptr[9:8]};
 			4'd15: port_out = 8'h52;
 			default: port_out = 8'h00;
 		endcase
@@ -464,8 +489,11 @@ module sim_int(
 			dclr_cnt <= 6'd0;
 			dptr <= 6'd0;
 			dirty_rd_prev <= 1'b0;
+			tren_s <= 2'b00;
+			tr_go <= 1'b0;
 		end else begin
 			armed_s <= {armed_s[0], dbg_loaded};
+			tren_s <= {tren_s[0], trace_en};
 			tgl_s <= {tgl_s[1:0], dbg_pause_tgl};
 			joy_s <= {joy_s[1:0], ~joy_up_n & ~joy_down_n};
 			dphase_n <= dphase;
@@ -551,6 +579,7 @@ module sim_int(
 			// M1: inyectar o no, en la primera muestra
 			if (~m1_sample) begin
 				m1_seen <= 1'b0;
+				tr_go <= 1'b0;
 				if (~m1_prev) begin					// ya procesado el final de la M1
 					inj <= 1'b0;					// (en la bajada de T3)
 					inj_halt <= 1'b0;
@@ -564,6 +593,8 @@ module sim_int(
 				inj_halt <= halt_ok & ~take & ~spin;
 				dinj <= take;
 				dspin <= spin;
+				// traza: una instruccion del programa que se va a ejecutar
+				tr_go <= tren_s[1] & prog_m1 & ~sim_inj & ~take & ~spin & ~tr_skip;
 				dspin_op <= 1'b0;
 				if (spin) spin_pend <= 1'b1;
 				if (take) begin
@@ -748,4 +779,45 @@ module m1_tracker(
 		end
 	end
 
+endmodule
+
+//////////////////////////////////////////////////////////////////////////////////
+// trace_wr -- escritura de la traza en la BRAM de sombra (puerto A)
+//
+//  Con cada tr_go de sim_int (sincronizado: viene del dominio de iclock)
+//  escribe la direccion de la M1 en dos ciclos seguidos de system_clk, el
+//  byte bajo y el alto, en $1000 + 2*ptr, y avanza el puntero (anillo de
+//  1024). Todo en el mismo reloj que la BRAM: la direccion, el dato y el
+//  puntero cambian a la vez que se escribe, sin carreras. Unos 6 ciclos
+//  (230 ns) desde la subida de T2: acaba antes del refresco, y la CPU no
+//  escribe en una M1. El blit del doble buffer espera (sh_busy en SD81.v)
+//////////////////////////////////////////////////////////////////////////////////
+module trace_wr(
+	input wire clk,					// system_clk
+	input wire tr_go,				// sim_int: esta M1 se apunta
+	input wire [15:0] tr_pc,		// su direccion (estable)
+	output reg [9:0] ptr = 10'd0,	// la entrada siguiente
+	output wire we,
+	output wire [15:0] waddr,
+	output wire [7:0] wdata
+	);
+
+	reg [2:0] go_s = 3'b000;
+	reg [1:0] st = 2'd0;			// 0 nada, 1 byte bajo, 2 byte alto
+
+	always @(posedge clk) begin
+		go_s <= {go_s[1:0], tr_go};
+		case (st)
+			2'd0: if (go_s[1] & ~go_s[2]) st <= 2'd1;
+			2'd1: st <= 2'd2;
+			default: begin
+				st <= 2'd0;
+				ptr <= ptr + 1'b1;
+			end
+		endcase
+	end
+
+	assign we = (st != 2'd0);
+	assign waddr = {5'b00010, ptr, st[1]};		// $1000-$17FF
+	assign wdata = st[1] ? tr_pc[15:8] : tr_pc[7:0];
 endmodule

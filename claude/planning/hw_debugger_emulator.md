@@ -15,7 +15,7 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 
 | Pieza | Versión | Dónde |
 |---|---|---|
-| FPGA | `sim_int.v` rev **0.12** | `FPGA/SD81V2.1000/sim_int.v`, `SD81.v`, `ay38912.v` |
+| FPGA | `sim_int.v` rev **0.13** (traza) | `FPGA/SD81V2.1000/sim_int.v`, `SD81.v`, `ay38912.v` |
 | Monitor | versión **4** (`"SD81DBG",4` en `$2003`), **1287 bytes** | `z80rom/debugmon.asm` → `/SYS/DEBUG.BIN` |
 | ROM | `LOAD *Z81` con el comando 75; sprites a cero en el reset | `z80rom/sdhandler.inc.asm` → `/SYS/SDBOOST.ROM` |
 | MCU | comandos 73, 74 y 75 (`LAST_COMMAND 75`) | `DEBUGGER.cpp`, `MCUSTATE.cpp`, `COMMANDS.cpp`, `SD_handle.cpp` |
@@ -29,7 +29,8 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
-| (siguiente) | Traza lenta sin FPGA: `t [n]`, `th [n]`; `T` y `H` en la pantalla. Solo el MCU | 13.8 |
+| (siguiente) | Historial: la traza de la FPGA (sim_int 0.13, orden 12, índices 7/8), el PC de cada instrucción en `$1000-$17FF`; la pantalla del depurador pasa a `$0000`; `th`/`H` lo enseñan, `tron`/`troff` | 3, 13.6, 13.9 |
+| ce6d897 | Traza lenta sin FPGA: `t [n]`, `th [n]`; `T` y `H` en la pantalla. Solo el MCU | 13.8 |
 | 7ee9719 | La pausa del botón QS abre la pantalla del depurador (se ve que está parado); `V` la cambia por la del programa con el teclado de la pausa; `ui` en marcha decide si sale en la parada siguiente. Solo el MCU | 11.6, 13.6 |
 | 90a0740 | Fase 3b: pantalla del depurador en el ZX81 (`ui`). Monitor versión 4 con `SETI` (petición 13). Sin FPGA. Y los símbolos de pasmo (`sym`; `LOAD` lee `<nombre>.SYM`) | 12.2, 13.6, 13.7 |
 | 8afd989 | Orden `v dir`: vídeo Superfast HiRes mientras está parado, con el mapa de bits (WRX) en `dir`; copia a la sombra si no está alineado. Solo el MCU. Probado en el arnés; en hardware sin confirmar con un WRX real (no se encontró la dirección del mapa de bits) | 13.4 |
@@ -283,6 +284,7 @@ Z80 no hace falta estar en el monitor.
 | 3 | el registro de Chroma81 (lo último escrito con `OUT $7FEF`) |
 | 4 / 5 | el registro elegido del AY A (A3=1, ZonX) / del AY B: el latch de dirección, que sus puertos no dejan leer |
 | 6 | las páginas escritas por la CPU, una por `IN` (bit 0), de la 0 a la 63: el puntero vuelve a 0 al elegir el índice 6 y avanza al acabar cada `IN` (sección 11.5) |
+| 7 / 8 | el puntero de la traza (rev 0.13): bajo / los 2 bits altos (sección 13.9) |
 | 15 | firma `52h` |
 | otros | 0 |
 
@@ -1182,9 +1184,9 @@ la sombra.
 
 **Cómo se pone** (todo por el monitor, con la orden 10 para los POKEs):
 1. Lee los POKEs de control de la sombra (2038-2098), el Chroma (índice 3)
-   y guarda los 1945 bytes de la sombra en `$1000` (índice 2).
+   y guarda los 1945 bytes de la sombra en `$0000` (índice 2).
 2. Lee 64 bytes desde la ventana del desensamblado, 24 de la pila y 64 del
-   volcado, compone la pantalla y la escribe con `BRAMW` en `$1000`. Es un
+   volcado, compone la pantalla y la escribe con `BRAMW` en `$0000`. Es un
    D_FILE de 80 columnas: 1 byte de relleno al principio y 24 filas de 81
    (80 caracteres y 1 de relleno). Caracteres del ZX81, inverso con el
    bit 7.
@@ -1193,8 +1195,8 @@ la sombra.
    - el Chroma sin color (bit 5 a 0);
    - `SETI $1E` (la fuente de la ROM);
    - `POKE 2045,174` (80 columnas, caracteres de 7 píxeles);
-   - `POKE 2096,$00`, `2097,$10`, `2098,170` (D_FILE alternativo en
-     `$1000`);
+   - `POKE 2096,$00`, `2097,$00`, `2098,170` (D_FILE alternativo en
+     `$0000`);
    - y la barrera.
 
 **En cada parada** vuelve a leer y solo manda los trozos que cambian.
@@ -1204,14 +1206,15 @@ la sombra.
 - 2045 a su valor (85 si nunca se escribió); con 85, 2098 y 2061 otra vez
   si estaban;
 - el Chroma, los 128/256 caracteres y `SETI 0`;
-- la sombra de 2045, de 2096-2098 y de `$1000`, como estaban.
+- la sombra de 2045, de 2096-2098 y de `$0000`, como estaban.
 
 Tras un reset con la pantalla puesta, en la siguiente parada el MCU mira la
 sombra de los POKEs y, si sigue como la dejó la pantalla, la repone.
 
-**La zona `$1000`-`$1798`:** la FPGA no lee ahí (solo las celdas del
-D_FILE, los atributos, la fuente según I y el HiRes), y el programa no
-escribe en la zona de la ROM.
+**La zona `$0000`-`$0798`** (hasta 0.12, `$1000`; ahora ahí va la traza,
+sección 13.9): la FPGA no lee ahí (solo las celdas del D_FILE, los
+atributos, la fuente según I y el HiRes), el programa no escribe en la zona
+de la ROM, y acaba antes de los POKEs (2038).
 
 **Teclado** (8 filas cada 40 ms; cuenta al soltar, y lo que ya estaba
 pulsado al abrirla no cuenta hasta soltarlo). Las direcciones se teclean en
@@ -1304,3 +1307,51 @@ instrucción.
   cambia el desensamblado por las 12 últimas de la traza (PC, instrucción,
   AF, HL y SP). El teclado de la pantalla no se lee mientras traza.
 - En SLOW los pasos van con la NMI apagada, como siempre.
+
+### 13.9 Historial: la traza de la FPGA (`sim_int` 0.13)
+
+Con la **orden 12** del canal de configuración puesta (el MCU la pone al
+cargar el monitor; `tron` / `troff` en la consola), cada instrucción del
+programa apunta su PC en la BRAM de sombra, sin frenar nada: el programa va
+a su velocidad y, al parar por lo que sea, están las últimas 1024.
+
+- **Dónde:** un anillo de 1024 entradas de 2 bytes (bajo, alto) en
+  `$1000-$17FF`, la sombra de la ROM, que nadie lee. Entrada k en
+  `$1000 + 2k`. El puntero (la entrada siguiente, 10 bits) se lee por
+  `$3FEF`: índice 7 los 8 bajos, índice 8 los 2 altos. No hay forma de
+  borrarlo: tras encender, hasta la primera vuelta, las entradas que
+  faltan tienen lo que hubiera (los bytes de la ROM).
+- **Qué se apunta:** las M1 que empiezan una instrucción del programa
+  (`prog_m1`: con `boundary` de `m1_tracker`, así un `CB 47` o un
+  `DD 21 nn nn` es una entrada). No se apuntan:
+  - las M1 que sirve la FPGA ni las del monitor;
+  - las que no se ejecutan: la del `FF` de una ruptura o de una
+    interrupción simulada (`take`, `sim_inj`) y el `JR $` del SLOW (`spin`);
+  - las del vídeo: las que el ZX81 cambia por `NOP` (`A15` y `D6 = 0` con
+    `/HALT` alto);
+  - las de un `HALT` de verdad (`/HALT` bajo sin que lo baje MC45).
+
+  Las de la rutina de la NMI y del vídeo de la ROM en SLOW sí se apuntan:
+  son instrucciones de verdad.
+- **Cómo** (hardware): `sim_int` decide en la subida de T2, con la misma
+  muestra que la ruptura, y levanta `tr_go` hasta el final de la M1; la
+  dirección es `m1_addr`, que no cambia hasta la M1 siguiente.
+  `trace_wr` (a `system_clk`) sincroniza `tr_go` y, en su flanco, escribe
+  el byte bajo y el alto en dos ciclos seguidos por el puerto A de la
+  sombra, y avanza el puntero. La CPU no escribe en una M1; el blit del
+  doble búfer espera (`sh_busy`). Acaba unos 230 ns después de T2.
+- **El MCU** lee solo lo que enseña: el puntero, las últimas n entradas y,
+  de la memoria, los 4 bytes de cada instrucción para desensamblarla (los
+  de ahora: con código que se reescribe pueden no ser los que se
+  ejecutaron).
+  - `th [n]` enseña las últimas n (14; como mucho 60 de una vez). Si lo
+    último fue una traza lenta (`t`) y el programa no ha seguido desde
+    entonces, enseña esa, con los registros.
+  - `H` en la pantalla, lo mismo con 12.
+- **Snapshots:** al guardar la sombra del bloque 0, `$1000-$17FF` va como
+  la ROM: la traza no se guarda como sombra.
+- **En el emulador:** con la orden 12, antes de ejecutar cada instrucción
+  del programa (fuera del monitor y de lo que sirve la FPGA), escribir su
+  PC en la sombra en `$1000 + 2·ptr` (bajo, alto) y `ptr = (ptr + 1) mod
+  1024`; los índices 7 y 8 devuelven `ptr`. Sin las M1 del vídeo ni las de
+  `HALT`.

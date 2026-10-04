@@ -336,6 +336,14 @@ module SD81(
 	wire [7:0] ay_sel_o[0:1];	// registro elegido de cada AY (indices 4/5 de $3FEF; ver los AY mas abajo)
 	reg dbg_poke = 1'b0;		// orden 10 del MCU: el monitor escribe como el programa (carga de snapshots)
 	reg dbg_dirty_clr = 1'b0;	// orden 11 del MCU: borrar las paginas escritas (mientras este a 1)
+	reg dbg_trace = 1'b0;		// orden 12 del MCU: la traza (sim_int / trace_wr)
+	wire tr_skip;				// la M1 no se apunta: video (NOP forzado) o HALT (mas abajo, junto a MC45)
+	wire tr_go;
+	wire [15:0] tr_pc;
+	wire [9:0] tr_ptr;
+	wire tr_we;
+	wire [15:0] tr_waddr;
+	wire [7:0] tr_wdata;
 	wire [5:0] sram_page;		// la pagina de la SRAM del acceso de ahora (ver mas abajo)
 	// Mientras el monitor esta activo el bloque 0 se comporta como RAM, igual
 	// que con POKE 2056 en CP/M: se puede escribir (breakpoints por software
@@ -916,7 +924,7 @@ Port $7FEF (01111111 11101111) - IN:
 
 	// --- double buffer: blit shadow->front por el puerto A (arbitrado con la CPU) ---
 	wire cpu_sh_wr = isAttrMem & ~nWR & nRESET;					// escritura CPU en curso (puerto A ocupado)
-	wire sh_busy = cpu_sh_wr | dbg_bram_rd | dbg_bram_wr;		// puerto A ocupado (CPU o el depurador)
+	wire sh_busy = cpu_sh_wr | dbg_bram_rd | dbg_bram_wr | tr_we;	// puerto A ocupado (CPU, el depurador o la traza)
 	wire blit_we = blit_run & blit_phase & ~sh_busy;
 	wire [15:0] blit_raddr = {HFILE[15:13], blit_cnt};			// origen: bloque shadow (HFILE)
 	wire [15:0] blit_waddr = {front_blk, blit_cnt};				// destino: bloque front (BRAM privada)
@@ -926,7 +934,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// dbg_poke) ni la carga de DEBUG.BIN que hace el MCU en $E000-$FFFF
 	// (pagina 63); el registro 7 de $3FEF escribe la BRAM directamente
 	wire dbg_load_blk = dbg_loaded & A15x & A14x & A13x;
-	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): blit_we?1'b1: dbg_bram_wr?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon_ram)? ~nWR:1'b0;
+	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): tr_we?1'b1: blit_we?1'b1: dbg_bram_wr?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon_ram)? ~nWR:1'b0;
 	// Sprites: los POKEs 2101-2128 son los mismos para los 32 (2100 elige
 	// cual), asi que en la sombra no se guardan en su direccion sino en
 	// $0C00 + sprite*32 + campo: la copia de los 32 sprites, que la FPGA no
@@ -934,8 +942,8 @@ Port $7FEF (01111111 11101111) - IN:
 	wire spr_mirror_wr = sprite_poke_wr && (Addr >= SPR_BASE_ADDR);
 	wire [4:0] spr_mirror_field = Addr[4:0] - SPR_BASE_ADDR[4:0];
 	wire [15:0] cpu_sh_addr = spr_mirror_wr ? {6'b000011, spr_sel[4:0], spr_mirror_field} : Addr[15:0];
-	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]: blit_we?blit_waddr: (dbg_bram_rd|dbg_bram_wr)?dbg_bram_ptr: nRFSH?cpu_sh_addr:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
-	wire [7:0] shadowram_din = blit_we? v_dout: data;
+	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]: tr_we?tr_waddr: blit_we?blit_waddr: (dbg_bram_rd|dbg_bram_wr)?dbg_bram_ptr: nRFSH?cpu_sh_addr:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
+	wire [7:0] shadowram_din = tr_we? tr_wdata: blit_we? v_dout: data;
 	wire [8:0] SCR_START_Y = 62;
 	wire [8:0] SCR_START_X = 122;
 	wire [8:0] SCR_END_Y = SCR_START_Y+191;
@@ -1833,7 +1841,23 @@ assign DEBUG_RDY = 1'b0;
 		.ay_sel_b(ay_sel_o[0]),
 		.sram_wr(nRESET & ~nWRx),		// paginas escritas: una escritura de la CPU en la SRAM
 		.sram_page(sram_page),
-		.dirty_clr(dbg_dirty_clr)
+		.dirty_clr(dbg_dirty_clr),
+		.trace_en(dbg_trace),
+		.tr_skip(tr_skip),
+		.tr_ptr(tr_ptr),
+		.tr_go(tr_go),
+		.tr_pc(tr_pc)
+	);
+
+	// Traza: escribe en la sombra lo que decide sim_int
+	trace_wr trace_wr_inst (
+		.clk(system_clk),
+		.tr_go(tr_go),
+		.tr_pc(tr_pc),
+		.ptr(tr_ptr),
+		.we(tr_we),
+		.waddr(tr_waddr),
+		.wdata(tr_wdata)
 	);
 
 
@@ -1988,6 +2012,9 @@ assign DEBUG_RDY = 1'b0;
 		end
 		wire M1NOT_signal = ~nM1 & ~nMREQ & ~nRD & A15 & (mc45_ext67 | ~A14);
 		assign nHALT = M1NOT_signal & EN_MC45? 1'b0: 1'bz;
+		// Traza: no se apuntan las M1 del video (las que el ZX81 cambia por
+		// NOP) ni las de un HALT de verdad (nHALT bajo sin que lo baje MC45)
+		assign tr_skip = forced_NOP_start | (~nHALT & ~(M1NOT_signal & EN_MC45));
 
 		// Forzar /HALT no basta para ejecutar en los bloques 6/7: el
 		// direccionamiento fisico tiene ADEMAS un caso especial que, en modo
@@ -2310,6 +2337,7 @@ assign DEBUG_RDY = 1'b0;
 				else if 	(comm_cmd==9) dbg_loaded <= cfg_reg[CMD_BITS];			// depurador: monitor cargado en la pagina 63 (y armado)
 				else if 	(comm_cmd==10) dbg_poke <= cfg_reg[CMD_BITS];			// depurador: el monitor escribe como el programa (POKEs y BRAM)
 				else if 	(comm_cmd==11) dbg_dirty_clr <= cfg_reg[CMD_BITS];		// depurador: borrar las paginas escritas
+				else if 	(comm_cmd==12) dbg_trace <= cfg_reg[CMD_BITS];			// depurador: la traza
 			end else begin
 				cfg_reg[cfg_cnt]<=CFG_DATA;
 				if (cfg_cnt < MAX_CFG) cfg_cnt <= cfg_cnt+1'b1;

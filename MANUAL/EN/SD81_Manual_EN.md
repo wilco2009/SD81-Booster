@@ -378,6 +378,28 @@ Version 1.0
 
 [Setting it up as ZX81 + SD81 Booster](#setting-it-up-as-zx81-sd81-booster)
 
+[Appendix L --- Hardware debugger](#appendix-l-hardware-debugger)
+
+[What you need](#what-you-need)
+
+[The QuickSilva button](#the-quicksilva-button)
+
+[The debugger screen](#the-debugger-screen)
+
+[Snapshots](#snapshots)
+
+[The USB console](#the-usb-console)
+
+[From a web browser](#from-a-web-browser)
+
+[Symbols](#symbols)
+
+[Trace and history](#trace-and-history)
+
+[For programmers: the OUT trap](#for-programmers-the-out-trap)
+
+[Limitations](#limitations)
+
 *When opening the document, right-click on the table of contents and select \'Update Field\' to see page numbers.*
 
 # Quick Start Guide
@@ -456,7 +478,7 @@ The right side panel presents, from left to right:
 
 - RESET button: resets the entire system (ZX81 + interface).
 
-- QSILVA button: toggles between the QuickSilva interface character set and the standard ZX81 ROM character set. Each press switches between one and the other.
+- QSILVA button: toggles between the QuickSilva interface character set and the standard ZX81 ROM character set. Each press switches between one and the other. Held for 1 to 3 seconds, it pauses the program and shows the debugger; for more than 3 seconds, it saves a snapshot (see Appendix L).
 
 - MICRO-SD slot: insert the microSD card here with your programs, ROMs and system data.
 
@@ -800,7 +822,7 @@ It is also useful for programs that don\'t start properly with the interface con
 
 Don\'t use LOAD FAST on a .Z81 file: since it isn\'t a recognised extension (see 7.6), it would be loaded into memory as-is, without being interpreted.
 
-| **⚠** | *For now only snapshots of a ZX81 without the SD81 Booster\'s paging features work. Memory is restored as the Z80 sees it (8K to 64K), not the interface\'s page assignment, so a program that used MAP, full paging (FULLPAG) or other extended RAM pages won\'t be restored correctly.* |
+| **⚠** | *EightyOne snapshots are restored as the Z80 sees them (8K to 64K). Those saved by the SD81 Booster itself (see Appendix L) also hold the extended RAM pages and their assignment, the control POKEs, the sound and the interface state, and LOAD \*Z81 restores them in full when the debugger is loaded (/SYS/DEBUG.BIN). Without the debugger they are restored like EightyOne ones.* |
 |------|------------------------------------------------------------------|
 
 # 8. File and Directory Management
@@ -2034,6 +2056,8 @@ The USB-C port on the interface also works as a serial debug port. When connecte
 | **Flow control** | None        |
 
 With any serial terminal program (PuTTY on Windows, minicom on Linux, CoolTerm on macOS, or the Arduino IDE\'s own Serial Monitor) it is possible to monitor in real time the MCU messages, including: boot progress, SD access errors, firmware update progress, and debug messages from the filesystem, VGM, PEG and speech synthesis.
+
+The console also accepts the hardware debugger\'s commands (see Appendix L); h shows their help.
 
 | **ℹ** | *The production firmware emits basic status messages via the serial port. Recompiling the firmware with the DEBUG macro active produces much more detailed output, useful for advanced diagnostics and development.* |
 |------|------------------------------------------------------------------|
@@ -3561,5 +3585,121 @@ EightyOne-CrossPlatform is the ZX81 emulator used to develop and validate much o
 5\. Start the emulator. Press RUN+Enter to launch the file explorer, and enjoy. 😉
 
 Behaviour --- LOAD \* commands, extended RAM, RTC, etc. --- should match the real hardware.
+
+# Appendix L --- Hardware debugger
+
+The SD81 Booster includes a hardware debugger: it can stop any program at any time, show its registers and memory, run it step by step, set breakpoints and watchpoints, save the whole machine state to a snapshot and load it back. The program does not need to be prepared for it.
+
+## What you need
+
+The debugger is a small machine code monitor, /SYS/DEBUG.BIN, which the interface loads at power-up into an extended RAM page reserved for it (page 63). If the file is not on the SD card the debugger is not available and everything else works as usual. The MCU firmware, the ROM and the FPGA must come from the same package version.
+
+It can be used in four ways: with the QuickSilva button and the ZX81 keyboard, with nothing else; from the USB console (see 15.4); from a web browser, with the WiFi module; and from the program itself, with the OUT trap.
+
+## The QuickSilva button
+
+| **Press** | **What it does** |
+|------------------------------------|------------------------------------|
+| **Short (under 1 s)** | Toggles QuickSilva, as always. |
+| **1 to 3 s (the LED turns magenta)** | Pause: the program stops and the debugger screen appears. With the program stopped, another 1 to 3 s press resumes it. |
+| **Over 3 s (the LED turns yellow)** | Snapshot: saves the state to a .Z81 file and the program carries on. |
+
+While the program is stopped the STAT LED is magenta. A program in SLOW mode stops when it reaches its next video interrupt.
+
+## The debugger screen
+
+When paused with the button, an 80-column screen appears on the ZX81 itself with the registers, the flags, the breakpoints, the disassembly around the PC (highlighted), the stack and a memory dump. It is driven with the ZX81 keyboard and each key acts when released. Addresses are typed in hex: with 4 digits they are taken at once, with fewer press ENTER, and any other key cancels.
+
+| **Key** | **Action** |
+|------------------------------------|------------------------------------|
+| **S** | One step: runs one instruction. |
+| **O** | Step over: CALL, RST, DJNZ, LDIR and the like run in full. |
+| **U** | Step out of the current routine (to the return address on the stack). |
+| **C / SPACE** | Continue. |
+| **G address** | Run to that address. |
+| **B address** | Set or clear a breakpoint (B ENTER: at the PC). |
+| **W R/W/I address** | Read, write or I/O watchpoint: stops right after the access (W ENTER clears it). |
+| **R register value** | Change a register: P (PC), S (SP), A (AF), B (BC), D (DE), H (HL), X (IX), Y (IY), I. |
+| **E address bytes ENTER** | Write bytes to memory (2 digits each). |
+| **D address** | Disassemble from that address (D ENTER: back to the PC). |
+| **M address** | Memory dump from that address. 5, 6, 7 and 8 move it. |
+| **T number** | Trace: runs that many instructions one by one (T ENTER: up to a breakpoint). SPACE stops it. |
+| **H** | Swaps the disassembly for the last instructions run (see Trace and history). |
+| **V** | Show the program\'s screen (V goes back to the debugger). |
+| **Z** | Snapshot, staying stopped. |
+| **L** | Load the last snapshot saved in this session. |
+| **Q** | Hide the debugger screen (the program\'s screen stays). |
+
+On the program\'s screen (after V or Q) the keyboard is still active: S saves a snapshot and carries on, Z saves a snapshot, L loads the last one, C or SPACE continue and V goes back to the debugger. Once opened, the debugger screen comes up at every stop (breakpoint, step\...) until it is turned off from the console with ui.
+
+## Snapshots
+
+A snapshot saves the whole machine state to the SD card, in an extended EightyOne .Z81 format: memory, registers, the extended RAM pages and their assignment, the control POKEs, the Chroma81 colours, the sprites, the sound chips and the interface state (current directory, open files, VGM music\...).
+
+It is saved in the current folder with the name of the last program loaded plus a number (MAZOGS001.Z81, MAZOGS002.Z81\...), or NONAME001.Z81 if nothing has been loaded. Save it with the QS button (over 3 s), with Z on the debugger screen (or S on the program\'s screen, which also carries on) or from the console:
+
+> snap \[-a\] \[NAME\]
+
+With -a every extended RAM page is saved, not only those the program uses. To load it back, use LOAD \*Z81 \"NAME.Z81\" (see 7.7), the file explorer or L on the debugger screen.
+
+## The USB console
+
+With the USB-C port connected to a PC and a serial terminal open (see 15.4), everything above is available as text commands; h lists them all. Numbers are hex and an address can also be a symbol. The main ones:
+
+| **Command** | **What it does** |
+|------------------------------------|------------------------------------|
+| **p / c** | Pause / continue. |
+| **s \[n\]** | n steps (1). |
+| **o / u** | Step over / step out. |
+| **g addr** | Run to addr. |
+| **b addr / bc \[addr\] / bl** | Set / clear one or all / list breakpoints. |
+| **w r\|w\|io addr / w** | Set / clear the watchpoint. |
+| **r / x reg=value** | Show the registers / change one. |
+| **d \[addr\] \[n\] / m addr \[n\]** | Disassemble / memory dump. |
+| **e addr bytes / io port \[value\]** | Write to memory / read or write a port. |
+| **snap \[-a\] \[name\]** | Snapshot. |
+| **t \[n\] / th \[n\]** | Slow trace / show the last instructions. |
+| **tron / troff** | History on / off. |
+| **sym \[file \| -\]** | Load / clear the symbols. |
+| **ui** | Debugger screen on the ZX81 on / off. |
+| **v / v addr** | With the program stopped, show its screen in Superfast text / its WRX bitmap at addr. |
+
+## From a web browser
+
+With the WiFi module (see 9.7), the page http://IP-address/debug, linked from the file server as Debugger, shows the debugger in panels: disassembly (click the margin to set or clear a breakpoint, double click a line to run to it), registers and flags (click to change a register), breakpoints and watchpoint, stack, memory dump (click a byte to change it) and a console with the same commands as the USB one. The MCU and the WiFi module firmware must be updated together.
+
+## Symbols
+
+If next to the program there is a symbol file with the same name and the .SYM extension (MYGAME.P and MYGAME.SYM), it is read when the program is loaded: the disassembly shows the labels and addresses can be typed by name (b LOOP, g START+10). It is the file the pasmo assembler writes when given a third argument:
+
+> pasmo mygame.asm mygame.bin MYGAME.SYM
+
+It can also be loaded by hand with sym FILE.SYM.
+
+## Trace and history
+
+The interface keeps noting the address of every instruction the program runs, without slowing it down: when it stops, for whatever reason, th 20 in the console (or H on the debugger screen) shows the last instructions that led there. troff and tron turn it off and on.
+
+The slow trace (t n in the console, or T on the screen) runs n instructions one by one and also notes the registers before each one, which th shows. It runs at about 200 instructions per second.
+
+## For programmers: the OUT trap
+
+A program can stop itself at a given point by writing 16 to port \$3FEF; if the debugger is not loaded, nothing happens:
+
+> LD BC,\$3FEF
+>
+> LD A,16
+>
+> OUT (C),A
+
+## Limitations
+
+- Extended RAM page 63 and port \$3FEF are reserved for the debugger.
+
+- A breakpoint in code that is loaded later (or that the program overwrites) is lost. For those cases, use G or a write watchpoint.
+
+- If the program stops in the middle of an SD operation (a LOAD, for instance), let it carry on before using other debugger functions.
+
+- While stopped, a SLOW or FAST program has no picture of its own: V shows it in Superfast text. Programs that make their own picture (WRX, pseudo hi-res) may not look right.
 
 *User Manual SD81 Booster v1.0 --- Open hardware and open source software*

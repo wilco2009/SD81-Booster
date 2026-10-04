@@ -390,6 +390,28 @@ Versión 1.0
 
 [Configuración como ZX81 + SD81 Booster](#configuración-como-zx81-sd81-booster)
 
+[Apéndice L --- Depurador por hardware](#apéndice-l-depurador-por-hardware)
+
+[Qué hace falta](#qué-hace-falta)
+
+[El botón QuickSilva](#el-botón-quicksilva)
+
+[La pantalla del depurador](#la-pantalla-del-depurador)
+
+[Snapshots](#snapshots)
+
+[La consola USB](#la-consola-usb)
+
+[Desde el navegador](#desde-el-navegador)
+
+[Símbolos](#símbolos)
+
+[Traza e historial](#traza-e-historial)
+
+[Para programadores: la trampa OUT](#para-programadores-la-trampa-out)
+
+[Limitaciones](#limitaciones)
+
 *Al abrir el documento, haz clic derecho sobre el índice y selecciona «Actualizar campo» para ver los números de página.*
 
 # Guía de inicio rápido
@@ -470,7 +492,7 @@ El panel lateral derecho presenta, de izquierda a derecha:
 
 - Botón RESET: reinicia el sistema completo (ZX81 + interface).
 
-- Botón QSILVA: alterna entre el juego de caracteres del interface QuickSilva y el juego de caracteres estándar de la ROM del ZX81. Cada pulsación conmuta entre uno y otro.
+- Botón QSILVA: alterna entre el juego de caracteres del interface QuickSilva y el juego de caracteres estándar de la ROM del ZX81. Cada pulsación conmuta entre uno y otro. Pulsado entre 1 y 3 segundos, pausa el programa y muestra el depurador; más de 3 segundos, guarda un snapshot (ver Apéndice L).
 
 - Ranura MICRO-SD: inserta aquí la tarjeta microSD con los programas, ROMs y datos del sistema.
 
@@ -831,7 +853,7 @@ No uses LOAD FAST con un fichero .Z81: al no ser una extensión reconocida (ver 
 
 |  |  |
 |:----:|------------------------------------------------------------------|
-| **⚠** | *Por ahora solo funcionan los snapshots de un ZX81 sin las funciones de paginación del SD81 Booster. Se restaura la memoria tal como la ve el Z80 (de 8K a 64K), no la asignación de páginas del interface, así que un programa que haya usado MAP, la paginación completa (FULLPAG) u otras páginas de la RAM extendida no se recuperará correctamente.* |
+| **⚠** | *Los snapshots de EightyOne se restauran tal como los ve el Z80 (de 8K a 64K). Los que graba el propio SD81 Booster (ver Apéndice L) guardan además las páginas de la RAM extendida y su asignación, los POKEs de control, el sonido y el estado del interface, y LOAD \*Z81 los restaura enteros cuando el depurador está cargado (/SYS/DEBUG.BIN). Sin el depurador se restauran como los de EightyOne.* |
 
 # 8. Gestión de archivos y directorios
 
@@ -2151,6 +2173,8 @@ El puerto USB-C del interface también funciona como puerto serie de depuración
 | **Control de flujo** | Ninguno        |
 
 Con cualquier programa de terminal serie (PuTTY en Windows, minicom en Linux, CoolTerm en macOS, o el propio Monitor Serie del IDE de Arduino) es posible monitorizar en tiempo real los mensajes del MCU, incluyendo: progreso del arranque, errores de acceso a la SD, progreso de actualizaciones de firmware, y mensajes de depuración del sistema de archivos, VGM, PEG y síntesis de voz.
+
+La consola también acepta las órdenes del depurador por hardware (ver Apéndice L); h muestra su ayuda.
 
 |  |  |
 |:----:|------------------------------------------------------------------|
@@ -3662,5 +3686,121 @@ EightyOne-CrossPlatform es el emulador de ZX81 usado para desarrollar y validar 
 
 5\. Arranca el emulador. Pulsa RUN+Enter para arrancar el explorador y a disfrutar. 😉\
 El comportamiento --- comandos LOAD \*, RAM extendida, RTC, etc. --- debería ser el mismo que en el hardware real.
+
+# Apéndice L --- Depurador por hardware
+
+El SD81 Booster incluye un depurador por hardware: puede parar cualquier programa en cualquier momento, enseñar sus registros y su memoria, ejecutarlo paso a paso, poner puntos de ruptura y de vigilancia, guardar el estado completo de la máquina en un snapshot y volver a cargarlo. El programa no tiene que estar preparado para ello.
+
+## Qué hace falta
+
+El depurador es un pequeño monitor en código máquina, /SYS/DEBUG.BIN, que el interface carga al encender en una página de la RAM extendida reservada para él (la 63). Si el fichero no está en la SD, el depurador no está disponible y todo lo demás funciona igual. El firmware del MCU, la ROM y la FPGA tienen que ser de la misma versión del paquete.
+
+Se maneja de cuatro formas: con el botón QuickSilva y el teclado del ZX81, sin nada más; desde la consola USB (ver 15.4); desde el navegador, con el módulo WiFi; y desde el propio programa, con la trampa OUT.
+
+## El botón QuickSilva
+
+| **Pulsación** | **Qué hace** |
+|------------------------------------|------------------------------------|
+| **Corta (menos de 1 s)** | Alterna QuickSilva, como siempre. |
+| **De 1 a 3 s (el LED se pone magenta)** | Pausa: el programa se para y aparece la pantalla del depurador. Con el programa parado, otra pulsación de 1 a 3 s lo hace seguir. |
+| **Más de 3 s (el LED se pone amarillo)** | Snapshot: guarda el estado en un fichero .Z81 y el programa sigue. |
+
+Mientras el programa está parado, el LED STAT está en magenta. Un programa en modo SLOW se para al llegar a su siguiente interrupción de vídeo.
+
+## La pantalla del depurador
+
+Al pausar con el botón aparece, en el propio ZX81, una pantalla de 80 columnas con los registros, los flags, los puntos de ruptura, el desensamblado alrededor del PC (resaltado), la pila y un volcado de memoria. Se maneja con el teclado del ZX81 y cada tecla actúa al soltarla. Las direcciones se teclean en hexadecimal: con 4 cifras se aceptan solas, con menos hay que pulsar ENTER, y cualquier otra tecla cancela.
+
+| **Tecla** | **Acción** |
+|------------------------------------|------------------------------------|
+| **S** | Un paso: ejecuta una instrucción. |
+| **O** | Paso por encima: CALL, RST, DJNZ, LDIR y similares se ejecutan enteros. |
+| **U** | Salir de la rutina actual (hasta la dirección de vuelta de la pila). |
+| **C / ESPACIO** | Seguir. |
+| **G dirección** | Ejecutar hasta esa dirección. |
+| **B dirección** | Poner o quitar un punto de ruptura (B ENTER: en el PC). |
+| **W R/W/I dirección** | Punto de vigilancia de lectura, escritura o E/S: para justo después del acceso (W ENTER lo quita). |
+| **R registro valor** | Cambiar un registro: P (PC), S (SP), A (AF), B (BC), D (DE), H (HL), X (IX), Y (IY), I. |
+| **E dirección bytes ENTER** | Escribir bytes en memoria (2 cifras cada uno). |
+| **D dirección** | Desensamblar desde esa dirección (D ENTER: volver al PC). |
+| **M dirección** | Volcado de memoria desde esa dirección. 5, 6, 7 y 8 lo mueven. |
+| **T número** | Traza: ejecuta ese número de instrucciones de una en una (T ENTER: hasta un punto de ruptura). ESPACIO la para. |
+| **H** | Cambia el desensamblado por las últimas instrucciones ejecutadas (ver Traza e historial). |
+| **V** | Ver la pantalla del programa (V vuelve al depurador). |
+| **Z** | Snapshot, sin seguir. |
+| **L** | Cargar el último snapshot grabado en esta sesión. |
+| **Q** | Quitar la pantalla del depurador (queda la del programa). |
+
+En la pantalla del programa (después de V o Q) el teclado sigue activo: S guarda un snapshot y sigue, Z guarda un snapshot, L carga el último, C o ESPACIO siguen y V vuelve al depurador. Una vez abierta, la pantalla del depurador aparece en cada parada (punto de ruptura, paso\...) hasta quitarla desde la consola con ui.
+
+## Snapshots
+
+Un snapshot guarda en la SD el estado completo de la máquina, en el formato .Z81 de EightyOne ampliado: la memoria, los registros, las páginas de la RAM extendida y su asignación, los POKEs de control, los colores Chroma81, los sprites, los chips de sonido y el estado del interface (directorio actual, ficheros abiertos, música VGM\...).
+
+Se graba en la carpeta actual con el nombre del último programa cargado y un número (MAZOGS001.Z81, MAZOGS002.Z81\...), o NONAME001.Z81 si no se ha cargado ninguno. Se graba con el botón QS (más de 3 s), con Z en la pantalla del depurador (o S en la del programa, que además sigue) o desde la consola:
+
+> snap \[-a\] \[NOMBRE\]
+
+Con -a se guardan todas las páginas de la RAM extendida, no solo las que usa el programa. Para volver a cargarlo, LOAD \*Z81 \"NOMBRE.Z81\" (ver 7.7), el explorador de archivos o L en la pantalla del depurador.
+
+## La consola USB
+
+Conectando el USB-C a un PC y abriendo un terminal serie (ver 15.4), todo lo anterior está disponible como órdenes de texto; h muestra la lista completa. Los números van en hexadecimal y una dirección también puede ser un símbolo. Las principales:
+
+| **Orden** | **Qué hace** |
+|------------------------------------|------------------------------------|
+| **p / c** | Pausa / seguir. |
+| **s \[n\]** | n pasos (1). |
+| **o / u** | Paso por encima / salir de la rutina. |
+| **g dir** | Ejecutar hasta dir. |
+| **b dir / bc \[dir\] / bl** | Poner / quitar uno o todos / listar los puntos de ruptura. |
+| **w r\|w\|io dir / w** | Poner / quitar el punto de vigilancia. |
+| **r / x reg=valor** | Ver los registros / cambiar uno. |
+| **d \[dir\] \[n\] / m dir \[n\]** | Desensamblar / volcado de memoria. |
+| **e dir bytes / io puerto \[valor\]** | Escribir en memoria / leer o escribir un puerto. |
+| **snap \[-a\] \[nombre\]** | Snapshot. |
+| **t \[n\] / th \[n\]** | Traza lenta / ver las últimas instrucciones. |
+| **tron / troff** | Historial encendido / apagado. |
+| **sym \[fichero \| -\]** | Cargar / quitar los símbolos. |
+| **ui** | Pantalla del depurador en el ZX81, sí / no. |
+| **v / v dir** | Con el programa parado, ver su pantalla en Superfast texto / su mapa de bits WRX en dir. |
+
+## Desde el navegador
+
+Con el módulo WiFi (ver 9.7), la página http://dirección-IP/debug, enlazada desde el servidor de ficheros como Debugger, muestra el depurador en paneles: desensamblado (clic en el margen para poner o quitar un punto de ruptura, doble clic en una línea para ejecutar hasta ella), registros y flags (clic para cambiar un registro), puntos de ruptura y de vigilancia, pila, volcado de memoria (clic en un byte para cambiarlo) y una consola con las mismas órdenes que la USB. Hace falta actualizar a la vez el firmware del MCU y el del módulo WiFi.
+
+## Símbolos
+
+Si junto al programa hay un fichero de símbolos con su mismo nombre y la extensión .SYM (MIJUEGO.P y MIJUEGO.SYM), se lee al cargar el programa: el desensamblado muestra las etiquetas y las direcciones se pueden escribir por su nombre (b BUCLE, g INICIO+10). Es el fichero que genera el ensamblador pasmo con un tercer argumento:
+
+> pasmo mijuego.asm mijuego.bin MIJUEGO.SYM
+
+También se puede cargar a mano con sym FICHERO.SYM.
+
+## Traza e historial
+
+El interface apunta continuamente la dirección de cada instrucción que ejecuta el programa, sin frenarlo: al parar por lo que sea, th 20 en la consola (o H en la pantalla del depurador) enseña las últimas instrucciones que llevaron hasta ahí. Se apaga y se enciende con troff y tron.
+
+La traza lenta (t n en la consola, o T en la pantalla) ejecuta n instrucciones de una en una y apunta además los registros de antes de cada una, que th enseña. Va a unas 200 instrucciones por segundo.
+
+## Para programadores: la trampa OUT
+
+Un programa puede pararse a sí mismo en un punto concreto escribiendo 16 en el puerto \$3FEF; si el depurador no está cargado, no pasa nada:
+
+> LD BC,\$3FEF
+>
+> LD A,16
+>
+> OUT (C),A
+
+## Limitaciones
+
+- La página 63 de la RAM extendida y el puerto \$3FEF están reservados para el depurador.
+
+- Un punto de ruptura en código que se carga después (o que el programa sobrescribe) desaparece. Para esos casos, G o un punto de vigilancia de escritura.
+
+- Si el programa se para en mitad de una operación con la SD (un LOAD, por ejemplo), conviene dejarlo seguir antes de usar otras funciones del depurador.
+
+- Parado, un programa en SLOW o en FAST no tiene imagen propia: V la muestra en Superfast texto. Los programas que generan su propia imagen (WRX, pseudo alta resolución) pueden no verse bien.
 
 *Manual de Usuario SD81 Booster v1.0 --- Hardware y software de código abierto*

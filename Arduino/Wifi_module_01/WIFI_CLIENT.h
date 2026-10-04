@@ -104,9 +104,15 @@ bool wifi_client_net_poll(uint8_t status,
 // ninguna; un reintento con el mismo id no la repite) y trae lo que ha
 // escrito el depurador desde seq: hasta WIFI_PROTO_DBG_OUT bytes en
 // out_data, desde *out_from (mayor que seq si se ha perdido algo). El
-// siguiente seq es *out_from + *out_len. *out_state: ver WIFI_PROTOCOL.h
+// siguiente seq es *out_from + *out_len. *out_state: ver WIFI_PROTOCOL.h.
+// *out_view_ver: la version de la vista estructurada
 bool wifi_client_dbg(uint8_t id, uint32_t seq, const char* cmd,
-                     uint8_t* out_state, uint32_t* out_from,
+                     uint8_t* out_state, uint32_t* out_from, uint16_t* out_view_ver,
                      uint8_t* out_data, uint16_t* out_len);
+
+// Depurador (CMD_DBG_VIEW): el trozo part de la vista estructurada (hasta
+// WIFI_PROTO_DBG_OUT bytes), su version y su largo total
+bool wifi_client_dbg_view(uint8_t part, uint16_t* out_ver, uint16_t* out_total,
+                          uint8_t* out_data, uint16_t* out_len);
 
 #endif

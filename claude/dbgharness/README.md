@@ -112,3 +112,7 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
 - la web (`CMD_DBG`): órdenes con número (`web()`, como las del ESP32), la
   salida por `dbg_out_read` desde donde se iba, un reintento que no se
   repite y el estado.
+- la vista de la web (`dbg_view_read`): un paso la recompone (estado,
+  registros, desensamblado con el PC y el breakpoint, pila, volcado);
+  `@m` y `@d` sin eco y con los bytes de la dirección pedida; `@d` vuelve a
+  seguir al PC.

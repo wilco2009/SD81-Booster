@@ -389,7 +389,7 @@ bool wifi_client_net_poll(uint8_t status,
 }
 
 bool wifi_client_dbg(uint8_t id, uint32_t seq, const char* cmd,
-                     uint8_t* out_state, uint32_t* out_from,
+                     uint8_t* out_state, uint32_t* out_from, uint16_t* out_view_ver,
                      uint8_t* out_data, uint16_t* out_len) {
   *out_len = 0;
   uint8_t req[6 + WIFI_PROTO_DBG_CMD];
@@ -399,12 +399,28 @@ bool wifi_client_dbg(uint8_t id, uint32_t seq, const char* cmd,
   req[5] = (uint8_t)cl;
   if (cl) memcpy(&req[6], cmd, cl);
   WifiProtoResp r = wifi_client_request(CMD_DBG, req, (uint16_t)(6 + cl));
-  if (!r.ok || r.len < 8 || r.payload[0] != ST_OK) return false;
+  if (!r.ok || r.len < 10 || r.payload[0] != ST_OK) return false;
   *out_state = r.payload[1];
   memcpy(out_from, &r.payload[2], 4);
-  uint16_t n = r.payload[6] | (r.payload[7] << 8);
-  if (n > WIFI_PROTO_DBG_OUT || (uint16_t)(8 + n) > r.len) return false;
-  memcpy(out_data, &r.payload[8], n);
+  memcpy(out_view_ver, &r.payload[6], 2);
+  uint16_t n = r.payload[8] | (r.payload[9] << 8);
+  if (n > WIFI_PROTO_DBG_OUT || (uint16_t)(10 + n) > r.len) return false;
+  memcpy(out_data, &r.payload[10], n);
+  *out_len = n;
+  return true;
+}
+
+bool wifi_client_dbg_view(uint8_t part, uint16_t* out_ver, uint16_t* out_total,
+                          uint8_t* out_data, uint16_t* out_len) {
+  *out_len = 0;
+  uint8_t req[1] = { part };
+  WifiProtoResp r = wifi_client_request(CMD_DBG_VIEW, req, 1);
+  if (!r.ok || r.len < 6 || r.payload[0] != ST_OK) return false;
+  memcpy(out_ver, &r.payload[1], 2);
+  memcpy(out_total, &r.payload[3], 2);
+  uint16_t n = r.payload[5];
+  if (n > WIFI_PROTO_DBG_OUT || (uint16_t)(6 + n) > r.len) return false;
+  memcpy(out_data, &r.payload[6], n);
   *out_len = n;
   return true;
 }

@@ -7,6 +7,7 @@
 
 #include "WIFI_CLIENT.h"
 #include "LOGO.h"
+#include "DEBUG_PAGE.h"
 #include "VERSION_CHECK.h"
 #include "NET_BRIDGE.h"
 
@@ -365,83 +366,17 @@ static const char* net_state_text(uint8_t st) {
 }
 
 // ---------------------------------------------------------------------
-// Depurador: la consola del depurador del STM32 (DEBUGGER.cpp) en el
-// navegador, por CMD_DBG. La pagina sondea /debug/poll cada 400 ms mientras
-// esta visible: trae lo que ha escrito el depurador desde donde iba (seq) y
-// el estado; una orden va en el mismo sondeo (c=...)
+// Depurador: el depurador del STM32 (DEBUGGER.cpp) en el navegador. La
+// pagina sondea /debug/poll cada 400 ms mientras esta visible (CMD_DBG):
+// trae lo que ha escrito el depurador desde donde iba (seq), el estado y la
+// version de la vista; una orden va en el mismo sondeo (c=...). Cuando la
+// version cambia, pide /debug/view (CMD_DBG_VIEW): registros,
+// desensamblado, pila, volcado y breakpoints, en lineas de texto que pinta
+// en sus paneles
 // ---------------------------------------------------------------------
-static const char DEBUG_PAGE[] = R"HTML(<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SD81 debugger</title>
-<style>
-body{font-family:sans-serif;max-width:960px;margin:0 auto;padding:0 10px}
-h1{text-align:center;margin:8px 0}
-#st{font-weight:bold}
-.run{color:#080}.stop{color:#c00}.off{color:#888}
-.grp{margin:6px 0;display:flex;flex-wrap:wrap;gap:4px}
-button{font-size:14px;padding:5px 10px;cursor:pointer}
-#out{background:#111;color:#ddd;font:13px/1.35 monospace;height:62vh;overflow:auto;white-space:pre;padding:8px;border-radius:4px;margin:6px 0}
-#cmd{width:100%;box-sizing:border-box;font:15px monospace;padding:6px}
-small{color:#666}
-</style></head><body>
-<h1>Debugger</h1>
-<p><a href="/list?path=/">&laquo; Back to file server</a> &nbsp; Status: <span id="st" class="off">...</span></p>
-<div class="grp">
-<button data-c="p">Pause</button><button data-c="c">Continue</button><button data-c="s">Step</button>
-<button data-c="o">Over</button><button data-c="u">Out</button>
-<button data-c="r">Registers</button><button data-c="d">Disassemble</button><button data-c="th 20">History</button>
-<button data-c="t 100">Trace 100</button><button data-c="bl">Breakpoints</button>
-<button data-c="ui">ZX81 screen</button><button data-c="snap">Snapshot</button><button data-c="sym">Symbols</button>
-<button data-c="h">Help</button><button id="clr">Clear</button>
-</div>
-<div id="out"></div>
-<input id="cmd" autocomplete="off" spellcheck="false" placeholder="command, as in the USB console (h for help) - Enter sends, arrows: history">
-<p><small>b addr: breakpoint &middot; g addr: run to &middot; w r|w|io addr: watchpoint &middot; m addr [n]: memory &middot; e addr bytes: poke &middot; x reg=val &middot; an address can be a symbol</small></p>
-<script>
-let seq=0,busy=false,queue=[],hist=[],hi=0;
-const out=document.getElementById('out'),st=document.getElementById('st'),cmd=document.getElementById('cmd');
-function add(t){
-  if(!t)return;
-  const end=out.scrollTop+out.clientHeight>=out.scrollHeight-4;
-  out.textContent+=t;
-  if(out.textContent.length>200000)out.textContent=out.textContent.slice(-150000);
-  if(end)out.scrollTop=out.scrollHeight;
-}
-function state(s){
-  if(!(s&1)){st.textContent='no debug monitor (/SYS/DEBUG.BIN)';st.className='off';return;}
-  let t=(s&2)?'STOPPED':'running';
-  if(s&16)t+=' - tracing';
-  if(s&32)t+=' - snapshot in progress';
-  if(s&4)t+=' - debugger screen on the ZX81';
-  t+=(s&8)?' - history on':' - history off';
-  st.textContent=t;st.className=(s&2)?'stop':'run';
-}
-async function poll(c){
-  if(busy){if(c)queue.push(c);return;}
-  busy=true;
-  try{
-    let u='/debug/poll?seq='+seq;
-    if(c)u+='&c='+encodeURIComponent(c);
-    const j=await (await fetch(u)).json();
-    if(j.ok){
-      if(j.lost)add('\n[... '+j.lost+' bytes lost ...]\n');
-      add(j.text);seq=j.seq;state(j.state);
-    }else{st.textContent='no answer from the STM32 (firmware without the web debugger?)';st.className='off';}
-  }catch(e){st.textContent='connection error';st.className='off';}
-  busy=false;
-  if(queue.length)poll(queue.shift());
-}
-function send(c){if(!c)return;if(hist[hist.length-1]!==c)hist.push(c);hi=hist.length;poll(c);}
-document.querySelectorAll('button[data-c]').forEach(b=>b.onclick=()=>send(b.dataset.c));
-document.getElementById('clr').onclick=()=>{out.textContent='';};
-cmd.addEventListener('keydown',e=>{
-  if(e.key==='Enter'){send(cmd.value.trim());cmd.value='';}
-  else if(e.key==='ArrowUp'){if(hi>0){hi--;cmd.value=hist[hi];}e.preventDefault();}
-  else if(e.key==='ArrowDown'){if(hi<hist.length){hi++;cmd.value=hist[hi]||'';}e.preventDefault();}
-});
-setInterval(()=>{if(!document.hidden)poll();},400);
-poll();cmd.focus();
-</script></body></html>)HTML";
+// La pagina: DEBUG_PAGE.h (fuera del .ino: el preprocesador de Arduino no entiende
+// los literales crudos y, con el JavaScript dentro, se perdia al sacar los prototipos)
+
 
 void handleDebugPage() {
   server.send(200, "text/html", DEBUG_PAGE);
@@ -472,13 +407,14 @@ void handleDebugPoll() {
   if (c.length()) { if (++id == 0) id = 1; cmd_id = id; }
   String text;
   uint8_t state = 0;
+  uint16_t vver = 0;
   uint32_t lost = 0;
   bool ok = false;
   uint8_t buf[WIFI_PROTO_DBG_OUT];
   for (int k = 0; k < 8; k++) {
     uint32_t from;
     uint16_t n;
-    if (!wifi_client_dbg(cmd_id, seq, cmd_id ? c.c_str() : "", &state, &from, buf, &n)) break;
+    if (!wifi_client_dbg(cmd_id, seq, cmd_id ? c.c_str() : "", &state, &from, &vver, buf, &n)) break;
     ok = true;
     if (from > seq) lost += from - seq;
     json_append(text, buf, n);
@@ -488,8 +424,30 @@ void handleDebugPoll() {
   }
   if (!ok) { server.send(200, "application/json", "{\"ok\":0}"); return; }
   String j = "{\"ok\":1,\"state\":" + String(state) + ",\"seq\":" + String(seq) + ",\"lost\":" + String(lost) +
-             ",\"text\":\"" + text + "\"}";
+             ",\"vver\":" + String(vver) + ",\"text\":\"" + text + "\"}";
   server.send(200, "application/json", j);
+}
+
+// /debug/view: la vista estructurada entera ("V version" y sus lineas). Si
+// cambia mientras se leen los trozos, otra vez (hasta 3)
+void handleDebugView() {
+  uint8_t buf[WIFI_PROTO_DBG_OUT];
+  for (int tries = 0; tries < 3; tries++) {
+    String doc;
+    uint16_t ver0 = 0, total = 0, got = 0;
+    bool ok = true;
+    for (uint8_t part = 0; part < 16; part++) {
+      uint16_t ver, n;
+      if (!wifi_client_dbg_view(part, &ver, &total, buf, &n)) { ok = false; break; }
+      if (part == 0) ver0 = ver;
+      else if (ver != ver0) { ok = false; break; }
+      for (uint16_t i = 0; i < n; i++) doc += (char)buf[i];
+      got += n;
+      if (got >= total || n == 0) break;
+    }
+    if (ok) { server.send(200, "text/plain", "V " + String(ver0) + "\n" + doc); return; }
+  }
+  server.send(503, "text/plain", "");
 }
 
 void handleTelnetPage() {
@@ -1149,6 +1107,7 @@ void setup() {
   server.on("/telnet/disconnect", HTTP_POST, handleTelnetDisconnect);
   server.on("/debug", HTTP_GET, handleDebugPage);
   server.on("/debug/poll", HTTP_GET, handleDebugPoll);
+  server.on("/debug/view", HTTP_GET, handleDebugView);
   server.on("/update", HTTP_GET, handleUpdatePage);
   server.on("/update/check", HTTP_POST, handleUpdateCheck);
   server.on("/update/finish", HTTP_POST, handleUpdateFinish);

@@ -120,7 +120,10 @@ enum {
   TAG_TRACE_KEY,    // traza: la fila de ESPACIO, para pararla
   TAG_FT_PTR,       // historial (FPGA): el puntero (arg = 0 bajo, 1 alto)
   TAG_FT_RING,      // historial: un trozo del anillo
-  TAG_FT_OP         // historial: los bytes de una instruccion (arg = cual)
+  TAG_FT_OP,        // historial: los bytes de una instruccion (arg = cual)
+  TAG_WEB_DIS,      // web: los bytes del desensamblado
+  TAG_WEB_STK,      // web: la pila
+  TAG_WEB_MEM       // web: el volcado
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -500,9 +503,11 @@ static bool kbd_arm = false;        // la proxima parada es la del boton QS (tec
 
 static bool trace_on = false;                 // traza lenta en curso (mas abajo)
 static bool trace_slow_valid = false;         // lo ultimo es una traza lenta (t) y no se ha seguido desde entonces
+static void web_refresh();                    // la vista de la web (mas abajo)
 
 static void resumed(){
   stopped = false;
+  if (!trace_on) web_refresh();               // la web: "en marcha"
   if (!trace_on) trace_slow_valid = false;    // th y H: ahora, el historial de la FPGA
   set_status_led_ok();
 }
@@ -679,6 +684,12 @@ static uint16_t ft_pc[FT_SHOW];
 static uint8_t ft_op[FT_SHOW][4];
 static void ft_result(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n);
 static void ft_fetch(uint16_t n, uint8_t purpose);
+// La vista estructurada de la web (mas abajo)
+static void web_refresh();
+static void web_result(uint8_t tag, uint8_t* d, uint16_t n);
+static uint8_t web_pend = 0;
+static bool web_wake = false;                 // la web empieza a mirar: componer la vista
+static bool web_again = false;                // pedida otra vez mientras se leia
 static bool ft_on = true;                     // tron / troff (la orden 12 va puesta al cargar el monitor)
 
 // En SLOW la FPGA para en la entrada de la NMI ($0066, sim_int 0.12): antes
@@ -690,6 +701,8 @@ static void on_break(){
   poll_state = 0;
   stopped = true;
   ft_stage = 0;                               // (la cola se ha vaciado)
+  web_pend = 0;
+  web_again = false;
   ui_on_break();                              // la cola se ha vaciado
   stop_nmi = (regs[R_DBGST] & 0x40) != 0;
   if (stop_nmi) prog_slow = true;
@@ -744,6 +757,7 @@ static void on_stopped(bool reached){
   queue_show();
   if (snap_pending) { snap_pending = false; snap_begin(); }
   else ui_on_stop();                          // la pantalla del depurador, si se pidio
+  web_refresh();                              // y la vista de la web, si hay alguien mirando
 }
 
 // Ha llegado el resultado de la peticion last
@@ -792,6 +806,7 @@ static void on_result(uint8_t* data, uint16_t n){
     case TAG_VIEW_SYNC: poke_end(); view_times(); break;
     case TAG_TRACE: case TAG_TRACE_KEY: trace_result(last.tag, data, n); break;
     case TAG_FT_PTR: case TAG_FT_RING: case TAG_FT_OP: ft_result(last.tag, last.arg, data, n); break;
+    case TAG_WEB_DIS: case TAG_WEB_STK: case TAG_WEB_MEM: web_result(last.tag, data, n); break;
     case TAG_UI_PK: case TAG_UI_CHROMA: case TAG_UI_SAVE: case TAG_UI_DIS:
     case TAG_UI_STK: case TAG_UI_MEM: case TAG_UI_KBD: case TAG_UI_FIX:
       ui_result(last.tag, last.arg, data, n);
@@ -844,6 +859,7 @@ void cmd_dbg_poll(void){
   }
   snap_feed();                                // un snapshot en curso pide lo siguiente
   ui_kbd_feed();                              // el teclado: pausa del boton QS y pantalla del depurador
+  if (web_wake && poll_state == 1) { web_wake = false; web_refresh(); }   // la web acaba de abrirse
   ld_feed();                                  // y una carga
   if (q_count == 0) return;                   // sin peticion: otra vuelta del loop
   poll_state = 0;                             // (antes de sacarla: ver dbg_waiting)
@@ -1108,6 +1124,7 @@ bool dbg_console(const char* line){
   }
   else { Serial.println("? (h for help)"); return true; }
   if (stopped) ui_refresh();                  // lo que haya cambiado, tambien en la pantalla
+  web_refresh();
   return true;
 }
 
@@ -3233,11 +3250,142 @@ static void ft_result(uint8_t tag, uint8_t k, uint8_t* d, uint16_t n){
 }
 
 // ---------------------------------------------------------------------
+// La vista estructurada de la web: un documento de texto, de lineas, que
+// el MCU compone en cada parada (y al seguir) mientras alguien la mira
+// (un CMD_DBG en los ultimos 3 s), y que la pagina pide (CMD_DBG_VIEW)
+// cuando cambia su version:
+//   S estado(hex) parado(0/1) motivo|donde
+//   R PC SP AF BC DE HL IX IY AF' BC' DE' HL' I R IFF PAGINA   (hex)
+//   D marcas direccion|etiqueta|bytes|instruccion   (marcas: > PC, * breakpoint)
+//   K direccion valor                               (la pila)
+//   M direccion 16 bytes                            (el volcado)
+//   B direcciones de los breakpoints
+//   W modo direccion                                (punto de vigilancia)
+//   F seguir(0/1) direccion-del-desensamblado direccion-del-volcado
+// Ordenes de la pagina para la vista (sin eco): @d dir (desensamblar desde
+// ahi), @d (seguir al PC), @m dir (volcado)
+// ---------------------------------------------------------------------
+#define WEB_DIS_N   20
+#define WEB_MEM_N   8
+static uint32_t web_seen = 0;
+static uint16_t web_ver = 1;
+static char web_doc[2400];
+static uint16_t web_doc_len = 0;
+static bool web_follow = true;
+static uint16_t web_dis = 0, web_mem = 0x4000;   // lo que se pide
+static uint16_t web_dis_rd = 0, web_mem_rd = 0x4000;   // lo que se ha leido (con eso se compone)
+static uint8_t web_dis_b[96], web_stk_b[24], web_mem_b[16 * WEB_MEM_N];
+
+static bool web_active(){ return web_seen && millis() - web_seen < 3000; }
+
+static void web_add(const char* f, ...){
+  if (web_doc_len >= sizeof(web_doc) - 1) return;
+  va_list a;
+  va_start(a, f);
+  int n = vsnprintf(web_doc + web_doc_len, sizeof(web_doc) - web_doc_len, f, a);
+  va_end(a);
+  if (n > 0) web_doc_len = ((size_t)web_doc_len + n < sizeof(web_doc)) ? web_doc_len + n : sizeof(web_doc) - 1;
+}
+
+static void web_build(){
+  web_doc_len = 0;
+  web_doc[0] = 0;
+  char where[40] = "";
+  if (stopped) sym_near(reg16(R_PC), where, sizeof(where));
+  web_add("S %02X %d %s|%s\n", dbg_web_state(), stopped ? 1 : 0, stopped ? reason_name(regs[R_DBGST]) : "running", where);
+  web_add("R %04X %04X %04X %04X %04X %04X %04X %04X %04X %04X %04X %04X %02X %02X %d %02X%s\n",
+          reg16(R_PC), reg16(R_SP), reg16(R_AF), reg16(R_BC), reg16(R_DE), reg16(R_HL), reg16(R_IX), reg16(R_IY),
+          reg16(R_AF_), reg16(R_BC_), reg16(R_DE_), reg16(R_HL_), regs[R_I], regs[R_R], regs[R_IFF], regs[R_PAGE1],
+          prog_slow ? " SLOW" : "");
+  web_add("F %d %04X %04X\n", web_follow ? 1 : 0, web_dis_rd, web_mem_rd);
+  web_add("B");
+  for (int i = 0; i < NBP; i++) if (bps[i].used && !bps[i].temp) web_add(" %04X", bps[i].addr);
+  web_add("\n");
+  if (watch_mode) web_add("W %s %04X\n", watch_name(), watch_addr);
+  if (stopped) {
+    int pos = 0;
+    for (int k = 0; k < WEB_DIS_N && pos < 88; k++) {
+      uint16_t a = web_dis_rd + pos;
+      char t[96];
+      int used = ui_disasm(a, web_dis_b + pos, 96 - pos, t, sizeof(t));
+      sym_subst(t, sizeof(t));
+      char hx[9] = "";
+      for (int j = 0; j < used && j < 4; j++) snprintf(hx + 2 * j, 3, "%02X", web_dis_b[pos + j]);
+      const char* lab = sym_at(a);
+      web_add("D %c%c%04X|%s|%s|%s\n", a == reg16(R_PC) ? '>' : ' ', bp_find(a) >= 0 ? '*' : ' ', a, lab ? lab : "", hx, t);
+      pos += used;
+    }
+    for (int k = 0; k < 12; k++)
+      web_add("K %04X %04X\n", (uint16_t)(reg16(R_SP) + 2 * k), web_stk_b[2 * k] | (web_stk_b[2 * k + 1] << 8));
+    for (int k = 0; k < WEB_MEM_N; k++) {
+      web_add("M %04X", (uint16_t)(web_mem_rd + 16 * k));
+      for (int j = 0; j < 16; j++) web_add(" %02X", web_mem_b[16 * k + j]);
+      web_add("\n");
+    }
+  }
+  if (++web_ver == 0) web_ver = 1;
+}
+
+// Lo que haga falta para la vista: parado, leer la memoria (al llegar, se
+// compone); en marcha, solo el estado
+static void web_refresh(){
+  if (!web_active()) return;
+  if (!stopped) { web_build(); return; }
+  if (web_pend) { web_again = true; return; }   // al acabar la de ahora
+  if (QSIZE - q_count < 8) return;
+  uint16_t pc = reg16(R_PC);
+  if (web_follow && (pc < web_dis || pc >= web_dis + 48)) web_dis = pc;   // el PC, a la vista
+  web_dis_rd = web_dis;
+  web_mem_rd = web_mem;
+  q_push(OP_READ, web_dis_rd, 96, TAG_WEB_DIS);
+  q_push(OP_READ, reg16(R_SP), 24, TAG_WEB_STK);
+  q_push(OP_READ, web_mem_rd, 16 * WEB_MEM_N, TAG_WEB_MEM);
+  web_pend = 3;
+}
+
+static void web_result(uint8_t tag, uint8_t* d, uint16_t n){
+  uint8_t* b = tag == TAG_WEB_DIS ? web_dis_b : tag == TAG_WEB_STK ? web_stk_b : web_mem_b;
+  size_t sz = tag == TAG_WEB_DIS ? sizeof(web_dis_b) : tag == TAG_WEB_STK ? sizeof(web_stk_b) : sizeof(web_mem_b);
+  memset(b, 0, sz);
+  memcpy(b, d, n < sz ? n : sz);
+  if (web_pend && --web_pend == 0) {
+    web_build();
+    if (web_again) { web_again = false; web_refresh(); }
+  }
+}
+
+static void web_view_cmd(const char* l){
+  uint32_t a;
+  const char* p = l + 1;
+  if (l[0] == 'd') {
+    if (parse_addr(p, a)) { web_dis = a; web_follow = false; }
+    else web_follow = true;
+  } else if (l[0] == 'm' && parse_addr(p, a)) web_mem = a;
+  web_refresh();
+}
+
+// Un trozo de la vista: part * 240 (CMD_DBG_VIEW). *ver, su version; *total,
+// su largo
+uint16_t dbg_view_read(uint8_t part, uint8_t* buf, uint16_t max, uint16_t* ver, uint16_t* total){
+  web_seen = millis();
+  *ver = web_ver;
+  *total = web_doc_len;
+  uint32_t off = (uint32_t)part * max;
+  if (off >= web_doc_len) return 0;
+  uint16_t n = web_doc_len - off < max ? web_doc_len - off : max;
+  memcpy(buf, web_doc + off, n);
+  return n;
+}
+
+uint16_t dbg_view_ver(void){ return web_ver; }
+
+// ---------------------------------------------------------------------
 // Interfaz web (ESP32): CMD_DBG trae una orden de la consola (con un numero:
 // un reintento del ESP32 no la ejecuta dos veces) y se lleva lo que se ha
 // escrito desde donde iba y el estado
 // ---------------------------------------------------------------------
 static uint8_t web_last_id = 0;
+static void web_view_cmd(const char* l);
 
 void dbg_web_exec(uint8_t id, const char* line){
   if (!id || id == web_last_id || !line[0]) return;
@@ -3246,6 +3394,7 @@ void dbg_web_exec(uint8_t id, const char* line){
   size_t n = 0;
   while (line[n] && n < sizeof(l) - 1) { l[n] = line[n]; n++; }
   l[n] = 0;
+  if (l[0] == '@') { web_view_cmd(l + 1); return; }   // la vista de la web, sin eco
   for (size_t i = 0; i < n && l[i] != ' '; i++) l[i] = tolower((uint8_t)l[i]);   // la orden, en minusculas
   out_put("> "); out_put(l); out_put("\r\n");
   if (!dbg_console(l)) Serial.println("? (h for help)");
@@ -3254,6 +3403,8 @@ void dbg_web_exec(uint8_t id, const char* line){
 // Hasta max bytes desde seq (si ya no estan, desde el mas antiguo que haya);
 // *from, donde empiezan
 uint16_t dbg_out_read(uint32_t seq, uint8_t* buf, uint16_t max, uint32_t* from){
+  if (!web_active()) web_wake = true;         // empieza a mirar: la vista, en cuanto se pueda
+  web_seen = millis();                        // hay alguien mirando la web
   uint32_t head = out_head;
   if (seq > head) seq = head;                 // (el STM32 se ha reiniciado)
   if (head - seq > OUT_RING) seq = head - OUT_RING;

@@ -1055,6 +1055,38 @@ int main(int argc, char** argv){
       uint8_t b[240]; uint32_t from;
       dbg_out_read(old, b, sizeof(b), &from);
       CHECK(from > 0, "web: si ya no esta, desde lo mas antiguo que quede");
+
+      // la vista estructurada (CMD_DBG_VIEW): se compone en cada parada si alguien mira
+      auto view = [&](){
+        std::string d;
+        uint8_t vb[240];
+        uint16_t ver, total;
+        for (uint8_t part = 0; part < 20; part++) {
+          uint16_t n = dbg_view_read(part, vb, sizeof(vb), &ver, &total);
+          d.append((const char*)vb, n);
+          if (d.size() >= total) break;
+        }
+        return d;
+      };
+      con("x pc=6203"); con("b 6209");
+      web_read(wseq);                                          // (alguien mira)
+      uint16_t v0 = dbg_view_ver();
+      con("s");
+      CHECK(run_until_waiting(5000000) && dbg_view_ver() != v0, "vista: un paso la recompone");
+      std::string vd = view();
+      CHECK(vd.find("S ") == 0 && vd.find("\nR 6206 ") != std::string::npos && vd.find("\nD > 6206|") != std::string::npos &&
+            vd.find("\nD  *6209|") != std::string::npos && vd.find("\nB 6209") != std::string::npos &&
+            vd.find("\nK ") != std::string::npos && vd.find("\nM ") != std::string::npos && vd.find("\nF 1 ") != std::string::npos,
+            "vista: estado, registros, desensamblado (PC, breakpoint), pila, volcado");
+      web(10, "@m 6100"); web(11, "@d 6210");
+      CHECK(run_until_waiting(5000000), "vista: @m y @d");
+      vd = view();
+      CHECK(vd.find("\nM 6100 ") != std::string::npos && vd.find("\nF 0 6210 6100") != std::string::npos &&
+            vd.find("\nD   6210||3E55|LD A,55h") != std::string::npos && web_read(wseq).find("@") == std::string::npos,
+            "vista: el volcado y el desensamblado donde se piden, sin eco");
+      web(12, "@d");
+      con("bc");
+      CHECK(run_until_waiting(5000000) && view().find("\nF 1 ") != std::string::npos, "vista: @d, otra vez siguiendo al PC");
     }
 
     // ui: lo de la consola desde el teclado del ZX81

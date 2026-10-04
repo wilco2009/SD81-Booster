@@ -56,6 +56,7 @@ enum WifiProtoCmd : uint8_t {
   CMD_WRITE_SYNC   = 0x0E,  // fuerza el tamano en disco de un handle abierto SIN cerrarlo
   CMD_NET_POLL     = 0x0F,  // puente de datos de red (BBS/telnet) - ver mas abajo
   CMD_DBG          = 0x10,  // depurador: una orden de la consola y su salida - ver mas abajo
+  CMD_DBG_VIEW     = 0x11,  // depurador: un trozo de la vista estructurada - ver mas abajo
   // 0x0B (antiguo CMD_GET_WIFI_CFG) retirado - ver nota mas abajo sobre WIFI.CFG
 };
 
@@ -147,7 +148,8 @@ enum WifiProtoNetStatus : uint8_t {
 //               el ESP32.
 //
 // DBG           req: id(1B), seq(4B LE), cmd_len(1B), cmd(cmd_len, <= 120)
-//               resp: status(1B), state(1B), from(4B LE), len(2B LE), data(len, <= 240)
+//               resp: status(1B), state(1B), from(4B LE), view_ver(2B LE), len(2B LE),
+//                     data(len, <= 240)
 //               La consola del depurador (DEBUGGER.cpp) desde la web. cmd es
 //               una orden como las de la consola USB ("s", "d 4000"...); se
 //               ejecuta si id no es 0 y no es el de la anterior (un
@@ -158,7 +160,16 @@ enum WifiProtoNetStatus : uint8_t {
 //               Siguiente seq = from + len. state: bit 0 monitor cargado,
 //               1 parado, 2 pantalla del depurador puesta, 3 historial
 //               (tron), 4 traza lenta en curso, 5 snapshot o carga en curso.
-//               La pagina lo sondea mientras esta abierta.
+//               La pagina lo sondea mientras esta abierta. view_ver: la
+//               version de la vista estructurada (cambia al recomponerla).
+//               Una orden que empieza por @ es de la vista (@d dir, @d,
+//               @m dir) y no va al terminal.
+//
+// DBG_VIEW      req: part(1B)                          resp: status(1B), ver(2B LE),
+//                                                            total(2B LE), len(1B), data(len)
+//               La vista estructurada (lineas de texto, ver DEBUGGER.cpp),
+//               en trozos de WIFI_PROTO_DBG_OUT: el trozo part. Si ver cambia
+//               entre trozos, se vuelve a empezar.
 //
 // "path(str)": length-prefixed, 1 byte de longitud + bytes UTF-8/ASCII (NO terminador nulo
 // en el cable), maximo WIFI_PROTO_MAX_PATH-1 bytes de nombre.

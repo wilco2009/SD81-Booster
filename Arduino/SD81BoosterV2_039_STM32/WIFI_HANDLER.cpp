@@ -608,13 +608,27 @@ static void handle_dbg(const uint8_t* payload, uint16_t len) {
   line[cl] = 0;
   dbg_web_exec(id, line);
   uint32_t from;
-  uint16_t n = dbg_out_read(seq, &tx_payload[8], WIFI_PROTO_DBG_OUT, &from);
+  uint16_t n = dbg_out_read(seq, &tx_payload[10], WIFI_PROTO_DBG_OUT, &from);
+  uint16_t ver = dbg_view_ver();
   tx_payload[0] = ST_OK;
   tx_payload[1] = dbg_web_state();
   memcpy(&tx_payload[2], &from, 4);
-  tx_payload[6] = (uint8_t)(n & 0xFF);
-  tx_payload[7] = (uint8_t)(n >> 8);
-  wifi_send_frame(CMD_DBG, tx_payload, 8 + n);
+  memcpy(&tx_payload[6], &ver, 2);
+  tx_payload[8] = (uint8_t)(n & 0xFF);
+  tx_payload[9] = (uint8_t)(n >> 8);
+  wifi_send_frame(CMD_DBG, tx_payload, 10 + n);
+}
+
+// CMD_DBG_VIEW: un trozo de la vista estructurada del depurador
+static void handle_dbg_view(const uint8_t* payload, uint16_t len) {
+  if (len < 1) return;
+  uint16_t ver, total;
+  uint16_t n = dbg_view_read(payload[0], &tx_payload[6], WIFI_PROTO_DBG_OUT, &ver, &total);
+  tx_payload[0] = ST_OK;
+  memcpy(&tx_payload[1], &ver, 2);
+  memcpy(&tx_payload[3], &total, 2);
+  tx_payload[5] = (uint8_t)n;
+  wifi_send_frame(CMD_DBG_VIEW, tx_payload, 6 + n);
 }
 
 void wifi_handler_poll() {
@@ -652,6 +666,7 @@ void wifi_handler_poll() {
     case CMD_WRITE_SYNC:   handle_write_sync(rx_payload, len); break;
     case CMD_NET_POLL:     handle_net_poll(rx_payload, len); break;
     case CMD_DBG:          handle_dbg(rx_payload, len); break;
+    case CMD_DBG_VIEW:     handle_dbg_view(rx_payload, len); break;
     default: break;   // comando desconocido: se ignora
   }
 }

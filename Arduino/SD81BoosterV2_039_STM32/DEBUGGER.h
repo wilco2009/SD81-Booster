@@ -44,5 +44,7 @@ void dbg_snapshot(bool all, const char* name, bool resume);
 void dbg_web_exec(uint8_t id, const char* line);
 uint16_t dbg_out_read(uint32_t seq, uint8_t* buf, uint16_t max, uint32_t* from);
 uint8_t dbg_web_state(void);
+uint16_t dbg_view_read(uint8_t part, uint8_t* buf, uint16_t max, uint16_t* ver, uint16_t* total);
+uint16_t dbg_view_ver(void);
 
 #endif

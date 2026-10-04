@@ -78,7 +78,6 @@ enum {
   TAG_LD_MAP,       // carga: pagina de un bloque (sin MAPPER; arg = bloque)
   TAG_LD_SYNC,      // carga: ya se han escrito los POKEs
   TAG_SNAP_DIRTY,   // snapshot: las paginas escritas (arg = byte 0-7)
-  TAG_KBD,          // teclado en la pausa del boton QS (arg = fila 0-3)
   TAG_UNWIND,       // SLOW: parado en la entrada de la NMI, su vuelta ([SP])
   TAG_STEPOVER,     // o: la instruccion en el PC
   TAG_STEPOUT,      // u: la direccion de vuelta en [SP]
@@ -457,14 +456,10 @@ static void queue_steps(uint16_t n){
   q_out(DBG_PORT, 0x84); q_out(DBG_PORT, n >> 8);
 }
 
-static bool kbd_on = false;         // teclado en la pausa del boton QS (mas abajo)
-static bool kbd_arm = false;        // la proxima parada es la del boton QS
-static uint8_t kbd_prev = 0x0F;     // teclas pulsadas en la vuelta anterior
-static uint8_t kbd_armed = 0;       // pulsadas durante la pausa (cuentan al soltarlas)
+static bool kbd_arm = false;        // la proxima parada es la del boton QS (teclado: ui_pause_qs)
 
 static void resumed(){
   stopped = false;
-  kbd_on = false;
   set_status_led_ok();
 }
 
@@ -580,8 +575,6 @@ static void free_temp_bps(){
 // Snapshots (mas abajo)
 static char last_snap[96] = "";     // el ultimo snapshot grabado (L en la pausa del boton QS)
 static void dirty_clear();
-static void kbd_feed();
-static void kbd_result(uint8_t row, uint8_t v);
 static uint8_t ld_prepare(const char* path, uint8_t* im);
 static bool snap_pending = false;
 static bool snap_busy();
@@ -620,6 +613,7 @@ static bool ui_busy();
 static bool ui_entering_now();
 static bool ui_is_shown();
 static void ui_kbd_feed();
+static void ui_pause_qs();
 static void run_to(uint16_t addr, const char* what);
 static void step_over(uint8_t* b, uint16_t n);
 
@@ -670,7 +664,7 @@ static void on_break2(){
   }
   sym_auto_load();
   set_status_LED(clMAGENTA);
-  if (kbd_arm) { kbd_arm = false; kbd_on = !ui_want; kbd_prev = 0x1F; kbd_armed = 0; }   // pausa del boton QS: S, Z, L, D o espacio
+  if (kbd_arm) { kbd_arm = false; ui_pause_qs(); }   // pausa del boton QS: el teclado, y V la pantalla
   char b[140], where[40] = "";
   if (sym_near(reg16(R_PC), where + 2, sizeof(where) - 3)) { where[0] = ' '; where[1] = '('; strcat(where, ")"); }
   snprintf(b, sizeof(b), "\r\n*** STOP at %04X%s: %s%s%s", reg16(R_PC), where, reached ? "reached" : reason_name(regs[R_DBGST]),
@@ -721,9 +715,6 @@ static void on_result(uint8_t* data, uint16_t n){
       break;
     case TAG_SNAP_DIRTY:
       snap_result(last.tag, data, n);
-      break;
-    case TAG_KBD:
-      kbd_result(last.arg, n ? data[0] : 0xFF);
       break;
     case TAG_STEPOVER: step_over(data, n); break;
     case TAG_STEPOUT:  if (n == 2) run_to(data[0] | (data[1] << 8), "Step out"); break;
@@ -781,8 +772,7 @@ void cmd_dbg_poll(void){
     poll_state = 1;
   }
   snap_feed();                                // un snapshot en curso pide lo siguiente
-  kbd_feed();                                 // el teclado, en la pausa del boton QS
-  ui_kbd_feed();                              // y con la pantalla del depurador
+  ui_kbd_feed();                              // el teclado: pausa del boton QS y pantalla del depurador
   ld_feed();                                  // y una carga
   if (q_count == 0) return;                   // sin peticion: otra vuelta del loop
   poll_state = 0;                             // (antes de sacarla: ver dbg_waiting)
@@ -853,7 +843,7 @@ static void help(){
   Serial.println("  w r|w|io addr  watchpoint (read, write, I/O port)    w  clear it");
   Serial.println("  v              video while stopped: Superfast text on / off (SLOW and FAST programs)");
   Serial.println("  v addr         video while stopped: Superfast HiRes, bitmap (32 x 192) at addr (WRX)");
-  Serial.println("  ui             debugger screen on the ZX81 on / off (its keys are listed on it)");
+  Serial.println("  ui             debugger screen on the ZX81 on / off (running: at the next stop). QS pause: V");
   Serial.println("  d [addr] [n]   disassemble n instructions (10) from addr (PC)");
   Serial.println("  m addr [n]     dump n bytes (64)");
   Serial.println("  e addr b1 b2.. write bytes");
@@ -924,6 +914,11 @@ bool dbg_console(const char* line){
     if (stopped) ui_refresh();
     return true;
   }
+  if (!stopped && !strcmp(cmd, "ui")) {       // en marcha: si sale o no en la parada siguiente
+    ui_want = !ui_want;
+    Serial.println(ui_want ? "Debugger screen: on at the next stop" : "Debugger screen: off");
+    return true;
+  }
   if (!stopped) { Serial.println("Running: p to pause"); return true; }
 
   if (!strcmp(cmd, "r")) queue_show();
@@ -951,8 +946,8 @@ bool dbg_console(const char* line){
     if (watch_mode) Serial.printf("Watchpoint: %s %04X\r\n", watch_name(), watch_addr);
   }
   else if (!strcmp(cmd, "ui")) {
-    if (ui_want) { ui_want = false; ui_run(); Serial.println("Debugger screen off"); }
-    else { ui_want = true; ui_show(); Serial.println("Debugger screen on (Q on the ZX81 or ui to close)"); }
+    if (ui_is_shown()) { ui_want = false; ui_run(); Serial.println("Debugger screen off"); }
+    else { ui_want = true; ui_show(); Serial.println("Debugger screen on (V on the ZX81: program screen; ui: off)"); }
     return true;
   }
   else if (!strcmp(cmd, "v")) {
@@ -1040,7 +1035,7 @@ static void ld_cancel();
 
 void dbg_reset(void){
   ld_cancel();                                // una carga a medias no sigue
-  kbd_on = kbd_arm = false;
+  kbd_arm = false;
   dirty_clear();                              // las paginas escritas, desde aqui
   watch_mode = 0;                             // el reset de la FPGA borra el comparador
   prog_slow = stop_nmi = false;
@@ -2168,66 +2163,6 @@ static void dirty_clear(){
 }
 
 // ---------------------------------------------------------------------
-// Teclado del ZX81 en la pausa del boton QS (sin menu en pantalla). El MCU
-// lee cuatro filas por el monitor (IN $xxFE) cada 40 ms, sin tocar nada del
-// programa. Cuenta al soltar una tecla que se ha pulsado durante la pausa
-// (las que ya estaban pulsadas al parar no): asi el programa no la ve al
-// seguir
-//   S  snapshot y sigue          Z  snapshot y se queda parado
-//   L  carga el ultimo snapshot grabado en esta sesion
-//   D  la pantalla del depurador  ESPACIO  sigue
-// ---------------------------------------------------------------------
-#define KBD_N 5
-static const struct { uint16_t port; uint8_t bit; } kbd_keys[KBD_N] = {
-  {0xFDFE, 0x02},   // S  (A S D F G)
-  {0xFEFE, 0x02},   // Z  (SHIFT Z X C V)
-  {0xBFFE, 0x02},   // L  (ENTER L K J H)
-  {0x7FFE, 0x01},   // ESPACIO (SPACE . M N B)
-  {0xFDFE, 0x04}    // D  (A S D F G)
-};
-static uint8_t kbd_now = 0;                     // pulsadas: bit 0 S, 1 Z, 2 L, 3 espacio, 4 D
-static uint32_t kbd_t = 0;
-
-static void kbd_feed(){
-  if (!kbd_on || !stopped || snap_busy() || ld_busy() || q_count) return;
-  if (millis() - kbd_t < 40) return;
-  kbd_t = millis();
-  for (int k = 0; k < KBD_N; k++) q_push(OP_IN, kbd_keys[k].port, 0, TAG_KBD, k);
-}
-
-static void kbd_result(uint8_t k, uint8_t v){
-  if (k == 0) kbd_now = 0;
-  if (!(v & kbd_keys[k].bit)) kbd_now |= 1 << k;
-  if (k != KBD_N - 1) return;
-  uint8_t press = kbd_now & ~kbd_prev;
-  uint8_t release = kbd_prev & ~kbd_now;
-  kbd_prev = kbd_now;
-  kbd_armed |= press;
-  uint8_t go = release & kbd_armed;           // pulsada en la pausa y ya soltada
-  kbd_armed &= ~release;
-  if (!kbd_on || !go) return;
-  press = go;
-  if (press & 1) { Serial.println("QS pause: S, snapshot and continue"); dbg_snapshot(false, "", true); }
-  else if (press & 2) { Serial.println("QS pause: Z, snapshot"); dbg_snapshot(false, "", false); }
-  else if (press & 4) {
-    if (!last_snap[0]) { Serial.println("QS pause: L, no snapshot saved yet"); return; }
-    uint8_t im;
-    uint8_t st = ld_prepare(last_snap, &im);
-    if (st) { Serial.printf("QS pause: L, can't load %s (error %d)\r\n", last_snap, st); return; }
-    Serial.printf("QS pause: L, %s\r\n", last_snap);
-    ld.set_im = true;                         // sin la ROM: el IM va con SETREGS
-    ld_begin();
-  }
-  else if (press & 8) { Serial.println("QS pause: continue"); dbg_continue(); }
-  else if (press & 16) {
-    Serial.println("QS pause: D, debugger screen");
-    kbd_on = false;                           // las teclas, de la pantalla
-    ui_want = true;
-    ui_show();
-  }
-}
-
-// ---------------------------------------------------------------------
 // v: video mientras esta parado. Un programa en SLOW o en FAST no tiene
 // imagen parado (la NMI esta apagada); la FPGA si puede pintar desde la BRAM
 // de sombra, donde esta todo lo que ha escrito la CPU:
@@ -2386,8 +2321,13 @@ static void view_off(){
 //   o I y la direccion; ENTER la quita)  R registro (P S A B D H X Y I y el
 //   valor)  E poke (direccion y bytes; ENTER acaba)  D desensamblar desde
 //   (ENTER: el PC)  M volcado desde (ENTER: HL)  5-8 moverlo
-//   V la pantalla del programa (Superfast texto si no lo es; S, C, ESPACIO
-//   y V para volver)  Z snapshot  L cargar el ultimo  Q cerrar
+//   V la pantalla del programa (Superfast texto si no lo es)  Z snapshot
+//   L cargar el ultimo  Q la pantalla del programa como estaba
+// La pausa del boton QS empieza con ella. Con la pantalla del programa (V o
+// Q), el teclado sigue: S snapshot y sigue, Z snapshot, L cargar el ultimo,
+// C o ESPACIO seguir, V la del depurador. Una vez abierta (pausa QS, V o
+// ui), sale en cada parada (breakpoint, paso...) hasta ui en la consola,
+// que la ensena o la quita del todo
 // Las direcciones: hasta 4 cifras hex y ENTER (con 4, sola); otra tecla
 // cancela.
 // ---------------------------------------------------------------------
@@ -2425,7 +2365,8 @@ static uint16_t ui_pr_v = 0, ui_poke_a = 0;
 static uint8_t ui_wmode = 0, ui_reg = 0;
 static char ui_msg[UI_COLS + 1] = "";         // lo que ha pasado (fila 1, hasta la tecla siguiente)
 static bool ui_dis_follow = true;           // el desensamblado sigue al PC (D lo suelta hasta la parada siguiente)
-static bool ui_prog_view = false;           // V: la pantalla del programa, con el teclado leyendose
+static bool ui_prog_view = false;           // la pantalla del programa, con el teclado leyendose (pausa QS, V, Q)
+static bool ui_prog_v = false;              // y con Superfast texto (V)
 static uint8_t ui_krow[8], ui_kprev[8], ui_karmed[8];
 static uint32_t ui_kt = 0;
 
@@ -2586,7 +2527,7 @@ static void ui_compose(){
   ui_invert(22, 0, UI_COLS);
   ui_put(22, 1, "S STEP  O OVER  U OUT  C/SPACE CONT  G GO TO  B BREAKPOINT  W WATCH  R REGISTER", true);
   ui_invert(23, 0, UI_COLS);
-  ui_put(23, 1, "D DISASM  M MEMORY  5-8 SCROLL  E POKE  V PROG SCREEN  Z SNAP  L LOAD  Q QUIT", true);
+  ui_put(23, 1, "D DISASM  M MEMORY  5-8 SCROLL  E POKE  V PROG SCREEN  Z SNAP  L LOAD  Q HIDE", true);
 }
 
 // Manda lo que ha cambiado. Trozos seguidos (huecos de menos de 24 bytes se
@@ -2743,7 +2684,8 @@ static void ui_on_break(){
 // Al quedarse parado (despues de lo del snapshot): ensenarla o refrescarla.
 // Sin pedirla, el SETI fuera (se queda en el monitor)
 static void ui_on_stop(){
-  if (ui_want && !ui_prog_view) { if (ui_shown) ui_refresh(); else ui_show(); }
+  if (ui_prog_view) { if (ui_prog_v && !view_is_on()) view_request(false, 0); }   // (tras un snapshot)
+  else if (ui_want) { if (ui_shown) ui_refresh(); else ui_show(); }
   else if (ui_seti) { q_push(OP_SETI, 0, 0); ui_seti = false; }
 }
 
@@ -2840,20 +2782,53 @@ static void ui_prompt_key(char c){
   }
 }
 
+// L: el ultimo snapshot grabado en la sesion. Si no se puede, el porque en
+// ui_msg (y en la consola)
+static bool ui_load_last(){
+  if (!last_snap[0]) snprintf(ui_msg, sizeof(ui_msg), "NO SNAPSHOT SAVED YET");
+  else {
+    uint8_t im;
+    uint8_t st = ld_prepare(last_snap, &im);
+    if (!st) {
+      Serial.printf("L: %s\r\n", last_snap);
+      ld.set_im = true;                       // sin la ROM: el IM va con SETREGS
+      ld_begin();
+      return true;
+    }
+    snprintf(ui_msg, sizeof(ui_msg), "CAN'T LOAD %.50s (ERROR %d)", last_snap, st);
+  }
+  Serial.printf("L: %s\r\n", ui_msg);
+  return false;
+}
+
 // V: la pantalla del programa mientras esta parado (la suya si es
 // Superfast; si no, Superfast texto de su D_FILE, como la orden v)
-static void ui_prog_screen(){
+static void ui_prog_screen(bool sf){
   ui_hide();
   ui_prog_view = true;
-  view_request(false, 0);
+  ui_prog_v = sf;
+  if (sf) view_request(false, 0);
   Serial.println("Debugger screen: program screen (V to come back)");
+}
+
+// La pausa del boton QS: la pantalla del depurador (ui_on_stop la pone, y
+// desde ahi sale en cada parada), asi se ve que esta parado. Las teclas que
+// ya estaban pulsadas al parar no cuentan hasta soltarlas
+static void ui_pause_qs(){
+  ui_want = true;
+  ui_prog_view = false;
+  memset(ui_kprev, 0x1F, sizeof(ui_kprev));
+  memset(ui_karmed, 0, sizeof(ui_karmed));
+  Serial.println("QS pause: debugger screen on the ZX81 (C or SPACE continue, Z snapshot, V program screen)");
 }
 
 static void ui_key(char c){
   if (ui_prog_view) {                         // con la pantalla del programa
-    if (c == 'V') { view_off(); ui_show(); }
-    else if (c == 'S') dbg_step(1);
-    else if (c == 'C' || c == ' ') { Serial.println("Debugger screen: continue"); dbg_continue(); }
+    if (c == 'V') { view_off(); ui_want = true; ui_show(); }   // desde aqui, en cada parada
+    else if (c == 'C' || c == ' ') { Serial.println("Paused: continue"); dbg_continue(); }
+    else if (c == 'S') { Serial.println("Paused: S, snapshot and continue"); dbg_snapshot(false, "", true); }
+    else if (c == 'Z') { Serial.println("Paused: Z, snapshot"); dbg_snapshot(false, "", false); }
+    else if (c == 'L') ui_load_last();
     return;
   }
   ui_msg[0] = 0;
@@ -2864,18 +2839,9 @@ static void ui_key(char c){
     case 'U': q_push(OP_READ, reg16(R_SP), 2, TAG_STEPOUT); return;
     case 'C': case ' ': Serial.println("Debugger screen: continue"); dbg_continue(); return;
     case 'Z': Serial.println("Debugger screen: snapshot"); dbg_snapshot(false, "", false); return;
-    case 'Q': ui_want = false; ui_run(); Serial.println("Debugger screen off"); return;
-    case 'V': ui_prog_screen(); return;
-    case 'L': {
-      if (!last_snap[0]) { snprintf(ui_msg, sizeof(ui_msg), "NO SNAPSHOT SAVED YET"); break; }
-      uint8_t im;
-      uint8_t st = ld_prepare(last_snap, &im);
-      if (st) { snprintf(ui_msg, sizeof(ui_msg), "CAN'T LOAD THE LAST SNAPSHOT (ERROR %d)", st); break; }
-      Serial.printf("Debugger screen: L, %s\r\n", last_snap);
-      ld.set_im = true;                       // sin la ROM: el IM va con SETREGS
-      ld_begin();
-      return;
-    }
+    case 'Q': ui_prog_screen(false); return;
+    case 'V': ui_prog_screen(true); return;
+    case 'L': if (ui_load_last()) return; break;
     case 'G': ui_ask(UP_GO); break;
     case 'B': ui_ask(UP_BP); break;
     case 'D': ui_ask(UP_DIS); break;

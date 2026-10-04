@@ -29,8 +29,8 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
-| (siguiente) | Símbolos de pasmo (`sym`; `LOAD` lee `<nombre>.SYM`): etiquetas y operandos en el desensamblado, direcciones por nombre. Solo el MCU | 13.7 |
-| (siguiente) | Fase 3b: pantalla del depurador en el ZX81 (`ui`, o `D` en la pausa del botón QS). Monitor versión 4 con `SETI` (petición 13). Sin FPGA | 12.2, 13.6 |
+| (siguiente) | La pausa del botón QS abre la pantalla del depurador (se ve que está parado); `V` la cambia por la del programa con el teclado de la pausa; `ui` en marcha decide si sale en la parada siguiente. Solo el MCU | 11.6, 13.6 |
+| 90a0740 | Fase 3b: pantalla del depurador en el ZX81 (`ui`). Monitor versión 4 con `SETI` (petición 13). Sin FPGA. Y los símbolos de pasmo (`sym`; `LOAD` lee `<nombre>.SYM`) | 12.2, 13.6, 13.7 |
 | 8afd989 | Orden `v dir`: vídeo Superfast HiRes mientras está parado, con el mapa de bits (WRX) en `dir`; copia a la sombra si no está alineado. Solo el MCU. Probado en el arnés; en hardware sin confirmar con un WRX real (no se encontró la dirección del mapa de bits) | 13.4 |
 | cc3f2f9 | Orden `v`: vídeo Superfast texto mientras está parado (programas en SLOW y FAST). Solo el MCU | 10.5, 13.4 |
 | 26c37a9 | Fase 3: `o` (paso por encima), `u` (salir de la rutina), `g` (ejecutar hasta) y `w` (puntos de vigilancia) en la consola. Solo el MCU: la FPGA y el monitor no cambian | 10.5, 10.8 |
@@ -782,19 +782,24 @@ el índice 6 con su puntero y la orden 11.
 
 ### 11.6 La pausa del botón QS: teclado del ZX81
 
-Sin menú en pantalla. Cuando la pausa la pide el botón QS (soltarlo entre 1
-y 3 s con el programa en marcha), al parar el MCU lee el teclado por el
-monitor cada 40 ms: `IN` de las filas `$FDFE`, `$FEFE`, `$BFFE` y `$7FFE`
-(nada se escribe en la memoria del programa). Cada tecla cuenta **al
-soltarla**, y solo si se ha pulsado durante la pausa (las que ya estaban
-pulsadas al parar no valen): así el programa no la ve al seguir.
+Cuando la pausa la pide el botón QS (soltarlo entre 1 y 3 s con el
+programa en marcha), sale la pantalla del depurador (sección 13.6): así se
+ve que está parado. Con `V` (o `Q`) se cambia por la pantalla del programa,
+y ahí valen las teclas de esta tabla. El MCU lee el teclado por el monitor
+cada 40 ms: las 8 filas, con `IN $xxFE` (nada se escribe en la memoria del
+programa). Cada tecla cuenta **al soltarla**, y solo si
+se ha pulsado durante la pausa (las que ya estaban pulsadas al parar no
+valen): así el programa no la ve al seguir.
 
 | Tecla | Qué hace |
 |---|---|
 | `S` | snapshot (nombre automático) y el programa sigue |
 | `Z` | snapshot y se queda parado (el teclado sigue activo) |
 | `L` | carga el último snapshot grabado en esta sesión (desde el encendido) |
-| `ESPACIO` | sigue |
+| `C`, `ESPACIO` | sigue |
+| `V` | la pantalla del depurador (sección 13.6); desde ahí, `V` vuelve aquí con Superfast texto y `Q` sin él |
+
+En la del depurador, `Z`, `L`, `C` y espacio hacen lo mismo; `S` es un paso.
 
 `L` carga sin pasar por la ROM: el programa ya está parado en el monitor.
 Como la ROM no pone el modo de interrupción, el MCU lo manda con los
@@ -1163,10 +1168,15 @@ ZX81 con lo mismo que la consola, sin necesitar el PC:
 - desensamblado con el PC en inverso, y la pila;
 - volcado de memoria (3 líneas);
 - una línea para lo que se teclea o lo que ha pasado;
-- dos de teclas. Se abre con `ui` en la consola o con `D` en
-la pausa del botón QS. Se cierra con `Q`, con otra `ui` o al cargar un
-snapshot. Mientras está pedida, al seguir se quita y al volver a parar se
-pone otra vez. No hace falta FPGA nueva: es Superfast de 80 columnas desde
+- dos de teclas.
+
+Sale sola en la pausa del botón QS (sección 11.6), o con `ui` en la
+consola. Desde ella, `V` y `Q` pasan a la pantalla del programa con el
+teclado de la pausa (y `V` vuelve); `ui` la quita del todo. Una vez
+abierta, al seguir se quita y en cada parada (breakpoint, paso, `G`...)
+vuelve. Con el programa en marcha,
+`ui` decide si sale en la parada siguiente. La carga de un snapshot la
+quita. No hace falta FPGA nueva: es Superfast de 80 columnas desde
 la sombra.
 
 **Cómo se pone** (todo por el monitor, con la orden 10 para los POKEs):
@@ -1221,10 +1231,10 @@ otra tecla cancela.
 | `D` dir | desensamblar desde `dir` hasta la parada siguiente (`D` ENTER: el PC) |
 | `M` dir | volcado desde `dir` (`M` ENTER: HL) |
 | `5` `6` `7` `8` | volcado: −48, +16, −16, +48 |
-| `V` | la pantalla del programa: la suya si es Superfast; si no, Superfast texto de su D_FILE, como `v`. Ahí: `V` vuelve, `S` paso (se ve cambiar la pantalla), `C`/espacio sigue |
+| `V` | la pantalla del programa: la suya si es Superfast; si no, Superfast texto de su D_FILE, como `v`. Ahí, las teclas de la pausa del botón QS (sección 11.6): `V` vuelve |
 | `Z` | snapshot (se queda parado; la pantalla vuelve) |
 | `L` | carga el último snapshot grabado en la sesión |
-| `Q` | cerrar |
+| `Q` | la pantalla del programa, como estaba (sin Superfast texto); `V` vuelve |
 
 **En el emulador** hace falta:
 - el modo de 80 columnas (2045,174) con el D_FILE alternativo;

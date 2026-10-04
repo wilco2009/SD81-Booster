@@ -92,6 +92,9 @@ pare por medio) y usa la pila. El banco lo para varias veces y comprueba:
   - las teclas: `B` ENTER y `B` dir, `R P`, `E` con bytes, `M`, `D`, `W W`
     y `W` ENTER, `G` (y la pantalla otra vez al llegar), `V` ida y vuelta
     y `Q`.
+- la pausa del botón QS (prueba 11): con la pantalla del depurador; `Z`, `L`
+  y espacio desde ella; `V` a la del programa (ahí `S` es snapshot y sigue)
+  y `V` otra vez a la del depurador.
 - `sym`:
   - un `.SYM` de pasmo (también con `=` y `:`), cargado a mano y al cargar
     un programa;

@@ -617,6 +617,7 @@ int main(int argc, char** argv){
     auto qs_pause = [&](){
       qs_level = 0; run_ms(1500); qs_level = 1;
       bool ok = run_until([]{ return mon && dbg_is_stopped(); }, 3000);
+      run_until([]{ return dbg_waiting(); }, 3000);   // (la pantalla del depurador, puesta)
       run_ms(150);                              // que el MCU lea el teclado sin nada pulsado
       return ok;
     };
@@ -642,6 +643,8 @@ int main(int argc, char** argv){
     CHECK(z80.hl.w == zq.hl.w && z80.pc.w == zq.pc.w && R() == rq && *pptr(0x6100) == m6100, "L: como al hacer el snapshot");
     run_ms(100);
     CHECK(qs_pause(), "QS: pausa otra vez");
+    tap(0, 4);                                  // V: la pantalla del programa (ahi S es snapshot y sigue)
+    run_ms(150);
     tap(1, 1);                                  // S: snapshot y sigue
     CHECK(run_until([&]{ return logged("Snapshot saved: /NONAME003.Z81"); }, 20000), "S: snapshot NONAME003");
     CHECK(run_until([]{ return !mon && !dbg_is_stopped(); }, 5000), "S: el programa sigue");
@@ -652,6 +655,20 @@ int main(int argc, char** argv){
     CHECK(mon && dbg_is_stopped(), "espacio pulsado: todavia parado");
     key(7, 0, false);
     CHECK(run_until([]{ return !mon && !dbg_is_stopped(); }, 5000), "espacio soltado: el programa sigue");
+    // V: la pantalla del depurador desde la pausa; V otra vez, la del programa
+    run_ms(100);
+    uint8_t q2045 = pokereg[2045];
+    CHECK(qs_pause() && pokereg[2045] == 174, "QS: pausa, con la pantalla del depurador");
+    tap(0, 4);                                  // V: la del programa
+    CHECK(run_until([]{ return pokereg[2045] != 174 && dbg_waiting(); }, 5000), "QS, V: la pantalla del programa");
+    run_ms(150);                                // (lo pulsado antes del primer barrido no cuenta)
+    tap(0, 4);                                  // V: otra vez la del depurador
+    CHECK(run_until([]{ return pokereg[2045] == 174 && dbg_waiting(); }, 5000), "QS, V otra vez: la del depurador");
+    run_ms(150);
+    tap(7, 0);                                  // espacio: sigue
+    CHECK(run_until([]{ return !mon && !dbg_is_stopped(); }, 5000) && pokereg[2045] == q2045, "QS, espacio: sigue con su video");
+    con("ui");                                  // (en marcha: que no salga en las paradas siguientes)
+    run_ms(100);
     // el boton 3,5 s con el programa en marcha: snapshot y sigue
     run_ms(100);
     mark(); qs_level = 0; run_ms(3500); qs_level = 1;
@@ -864,7 +881,7 @@ int main(int argc, char** argv){
       CHECK(run_until_waiting(5000000) && pokereg[2045] == 174 && pokereg[2096] == 0x00 && pokereg[2097] == 0x10 &&
             pokereg[2098] == 170 && cfgs[cfgcmd_DBGPOKE] == 0, "ui: 80 columnas y el D_FILE alternativo en 1000");
       CHECK(z80.i == 0x1E && chroma_reg == 0x0C, "ui: el monitor espera con I = 1E (SETI); sin color");
-      CHECK(row_has(0, "SD81 BOOSTER DEBUGGER") && pc_is(2) && row_has(23, "Q QUIT") && row_has(5, "DISASSEMBLY"),
+      CHECK(row_has(0, "SD81 BOOSTER DEBUGGER") && pc_is(2) && row_has(23, "Q HIDE") && row_has(5, "DISASSEMBLY"),
             "ui: la pantalla en la sombra (titulo, registros, teclas)");
       CHECK(memcmp(bram + 2038, pk_s, 61) != 0, "ui: la sombra de los POKEs, la de la pantalla");
       con("s");
@@ -873,6 +890,8 @@ int main(int argc, char** argv){
       CHECK(run_until_waiting(5000000) && row_has(2, "PC 6203"), "ui: x pc=6203, en la pantalla");
       tap(1, 1);                                               // S: un paso
       CHECK(run_until_waiting(5000000) && z_entry.pc.w == 0x6206 && pc_is(2), "ui: la tecla S da un paso");
+      mem0 = 0;                                                // la de ahora (se recuerda entre aperturas)
+      for (int c = 8; c < 12; c++) { int z = bram[0x1000 + 1 + 18 * 81 + c] & 0x3F; mem0 = mem0 * 16 + (z >= 38 ? z - 38 + 10 : z - 28); }
       tap(4, 4);                                               // 6: el volcado, 16 mas abajo
       char mt[16];
       snprintf(mt, sizeof(mt), "MEMORY %04X", (uint16_t)(mem0 + 16));

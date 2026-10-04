@@ -114,6 +114,13 @@ bool mcustate_key(const char* k, uint8_t (*tok)(char* b, uint8_t max)){
   return true;
 }
 
+void mcustate_quiet(void){
+  playing_VGM = false;
+  for (int i = 0; i < NUM_THREADS; i++) playing_PEG[i] = false;
+  ay_registers[8] = ay_registers[9] = ay_registers[10] = 0;   // los tres canales, sin volumen
+  ay_emulator_apply_register_changes();
+}
+
 void mcustate_apply(void){
   // VGM: el del snapshot o ninguno (que no siga sonando el de antes)
   playing_VGM = false;

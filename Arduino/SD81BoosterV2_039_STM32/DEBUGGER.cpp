@@ -2040,7 +2040,14 @@ static void ld_begin(){
   ld.romlock_old = cfg_value(cfgcmd_ROMLOCK);
   if (ld.romlock_old) send_bit_config(cfgcmd_ROMLOCK, 0);   // si no, los POKEs no hacen nada
   if (ld.dir_open) opendir_list(ld.dir_arg);
-  mcustate_apply();                           // AY del MCU, VGM, PEG, ficheros
+  // Mientras se carga, nada suena: el MCU esta ocupado mandando la memoria
+  // y un VGM se arrastraria. Su estado (y el de los AY de la FPGA) se pone
+  // al final, justo antes de seguir (ld_finish)
+  mcustate_quiet();
+  for (int c = 0; c < 2; c++) {               // los AY de la FPGA, sin volumen
+    DbgReq* r = q_push(OP_AYWRITE, c ? AY_PORT_B : AY_PORT_A, 16);
+    if (r) memset(r->data, 0, 16);
+  }
   if (!ld.has_mapper)                         // sin MAPPER: las paginas de ahora
     for (int b = 0; b < 8; b++) q_push(OP_IN, (b << 8) | 0xE7, 0, TAG_LD_MAP, b);
   ld.stage = LD_POKES;
@@ -2126,6 +2133,7 @@ static void ld_finish(){
   stop_nmi = false;                           // la NMI la pone la carga (ld.nmi)
   prog_slow = false;
   Serial.printf("Snapshot loaded: PC=%04X\r\n", reg16(R_PC));
+  mcustate_apply();                           // AY del MCU, VGM, PEG, ficheros: ahora, al seguir
   DbgReq* r = q_push(OP_SETREGS, 0, ld.set_im ? REGS_LEN + 1 : REGS_LEN);
   if (r) {                                    // sin la ROM (L), el IM va detras de los registros
     memcpy(r->data, regs, REGS_LEN);

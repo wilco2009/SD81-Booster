@@ -17,5 +17,8 @@ void mcustate_save(void (*w)(const char* s));
 void mcustate_clear(void);
 bool mcustate_key(const char* key, uint8_t (*tok)(char* b, uint8_t max));
 void mcustate_apply(void);
+// Al empezar la carga: el sonido del MCU callado (VGM, PEG y el AY del MCU),
+// para que no se arrastre mientras se carga; mcustate_apply lo pone al final
+void mcustate_quiet(void);
 
 #endif

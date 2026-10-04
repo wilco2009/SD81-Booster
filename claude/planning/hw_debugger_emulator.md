@@ -30,6 +30,7 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
+| (siguiente) | Carga de snapshots: el sonido callado mientras carga; el estado del MCU (VGM, AY, PEG, ficheros) al final, al seguir. Solo el MCU | 12.4 |
 | 8ba74cf | La web, con paneles: desensamblado, registros, pila, breakpoints, memoria y consola (`CMD_DBG_VIEW`, la vista estructurada que compone el MCU). STM32 y ESP32 | 13.10 |
 | 6300e3a | Fase 5: la consola del depurador en la web del ESP32 (`/debug`, `CMD_DBG` en el protocolo UART). STM32 y ESP32 | 13.10 |
 | 5823b2e | Historial: la traza de la FPGA (sim_int 0.13, orden 12, índices 7/8), el PC de cada instrucción en `$1000-$17FF`; la pantalla del depurador pasa a `$0000`; `th`/`H` lo enseñan, `tron`/`troff` | 3, 13.6, 13.9 |
@@ -916,9 +917,11 @@ En este orden:
    - Se borran las páginas escritas (orden 11): las de la carga serán las
      nuevas.
    - `CUR_DIR` pasa a ser el directorio actual.
-   - El AY del MCU, el VGM, el PEG y los ficheros abiertos
-     (`mcustate_apply`). Sin claves de VGM o PEG se paran los que hubiera;
-     los ficheros abiertos de antes se cierran.
+   - **Silencio mientras carga** (`mcustate_quiet`): se paran el VGM y el
+     PEG, los tres canales del AY del MCU se quedan sin volumen y los dos
+     AY de la FPGA se escriben a cero (petición 12). La carga es larga y el
+     MCU está ocupado mandando la memoria: un VGM que siguiera sonando se
+     arrastraría. El estado del snapshot se pone al final (paso 5).
    - `DIR_OPEN` vuelve a abrir el listado (como `OPENDIR`).
    - Los bits de `HW_CFG`: FULLPAG, MC45, MODE48K, QuickSilva, 128 y 256
      caracteres. Sin `HW_CFG` valen `SEL128`/`SEL256` o, en un `.Z81`
@@ -989,6 +992,9 @@ En este orden:
      escribir R13 se reinicia la envolvente, igual que en EightyOne;
    - ROMLOCK como diga el snapshot;
    - `SETREGS` con los registros de `[CPU]`, `IF1` como IFF2;
+   - el AY del MCU, el VGM (en su posición), el PEG y los ficheros
+     abiertos (`mcustate_apply`). Sin claves de VGM o PEG se quedan
+     parados; los ficheros abiertos de antes se cierran;
    - `CONT`, por el camino normal de los breakpoints.
 6. **NMI.** Si `[ZX81]` trae `NMI 01`, la vuelta pasa por un trozo de
    código que el MCU escribe debajo de la pila del snapshot (S = su SP):

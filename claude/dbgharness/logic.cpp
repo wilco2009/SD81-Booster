@@ -37,6 +37,7 @@ void mcustate_save(void (*)(const char*)){}
 void mcustate_clear(void){}
 bool mcustate_key(const char*, uint8_t (*)(char*, uint8_t)){ return false; }
 void mcustate_apply(void){}
+void mcustate_quiet(void){}
 bool snapfile_open(const char*){ return false; }
 bool snapfile_write(const void*, uint16_t){ return false; }
 void snapfile_close(void){}

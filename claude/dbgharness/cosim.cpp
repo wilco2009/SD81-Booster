@@ -88,7 +88,13 @@ bool mcustate_key(const char* k, uint8_t (*tok)(char*, uint8_t)){
   tok(t, sizeof t); fh_pos_loaded = strtoul(t, nullptr, 16);
   return true;
 }
-void mcustate_apply(void){ fh_applied = fh_loaded; fh_pos_applied = fh_pos_loaded; }
+static bool mcu_quiet = false, apply_late = false;   // el sonido callado al empezar; aplicado al final
+void mcustate_apply(void){
+  fh_applied = fh_loaded; fh_pos_applied = fh_pos_loaded;
+  std::lock_guard<std::mutex> l(out_mx);
+  apply_late = out_log.rfind("Snapshot loaded") != std::string::npos && out_log.rfind("Snapshot loaded") > out_log.rfind("Loading snapshot");
+}
+void mcustate_quiet(void){ mcu_quiet = true; }
 static uint8_t romfile[16384];                 // "SDBOOST.ROM": la imagen de las paginas 0-1
 int32_t rom_file_read(uint32_t off, uint8_t* buf, uint16_t n){
   if (n == 0) return sizeof(romfile);
@@ -614,6 +620,7 @@ int main(int argc, char** argv){
     CHECK(ok, "carga: los sprites (el 5 y los demas a cero) y el elegido");
   }
   CHECK(fh_applied == "/datos.bin" && fh_pos_applied == 0x123, "carga: el estado del MCU (mcustate_key / apply)");
+  CHECK(mcu_quiet && apply_late, "carga: el sonido del MCU callado al empezar y su estado al final");
   CHECK(opened_dir == "*.Z81", "carga: DIR_OPEN -> OPENDIR");
   CHECK(!nmi_on, "carga: NMI apagada (NMI 00)");
   CHECK(cfgs[cfgcmd_DBGPOKE] == 0, "carga: la orden 10 queda apagada");

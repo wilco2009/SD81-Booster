@@ -9,7 +9,7 @@ bloque 1 enseña la página 63. Con él se depura desde la consola del MCU, se
 hacen snapshots `.Z81` (consola, botón QuickSilva y teclado del ZX81) y se
 cargan con `LOAD *Z81`, también de programas en SLOW.
 
-## Estado (3 de octubre de 2026)
+## Estado (4 de octubre de 2026)
 
 Todo lo de este documento está hecho y probado en el hardware. Versiones:
 
@@ -18,7 +18,8 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | FPGA | `sim_int.v` rev **0.13** (traza) | `FPGA/SD81V2.1000/sim_int.v`, `SD81.v`, `ay38912.v` |
 | Monitor | versión **4** (`"SD81DBG",4` en `$2003`), **1287 bytes** | `z80rom/debugmon.asm` → `/SYS/DEBUG.BIN` |
 | ROM | `LOAD *Z81` con el comando 75; sprites a cero en el reset | `z80rom/sdhandler.inc.asm` → `/SYS/SDBOOST.ROM` |
-| MCU | comandos 73, 74 y 75 (`LAST_COMMAND 75`) | `DEBUGGER.cpp`, `MCUSTATE.cpp`, `COMMANDS.cpp`, `SD_handle.cpp` |
+| MCU | comandos 73, 74 y 75 (`LAST_COMMAND 75`); órdenes de configuración 8-12 (pausa, monitor cargado, POKEs del monitor, páginas escritas, traza) | `DEBUGGER.cpp`, `MCUSTATE.cpp`, `COMMANDS.cpp`, `SD_handle.cpp` |
+| Módulo WiFi | la web del depurador (`CMD_DBG`, `CMD_DBG_VIEW`): no afecta al emulador | `Arduino/Wifi_module_01`, `WIFI_HANDLER.cpp` |
 
 **Qué ha cambiado, por orden** (para encontrar lo que le falta al emulador):
 
@@ -29,7 +30,8 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 75edeb3 | Fase 2b: snapshots (`snap`, botón 3 s); `LOAD *Z81` por el monitor (comando 75, **la ROM lo manda antes que el 70**); FPGA: índices 2-5 y registros 5-7 de `$3FEF`, orden 10, copia de los sprites en la sombra; peticiones 7-12 | 6, 11, 12 |
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
-| (siguiente) | Fase 5: la consola del depurador en la web del ESP32 (`/debug`, `CMD_DBG` en el protocolo UART). STM32 y ESP32 | 13.10 |
+| 8ba74cf | La web, con paneles: desensamblado, registros, pila, breakpoints, memoria y consola (`CMD_DBG_VIEW`, la vista estructurada que compone el MCU). STM32 y ESP32 | 13.10 |
+| 6300e3a | Fase 5: la consola del depurador en la web del ESP32 (`/debug`, `CMD_DBG` en el protocolo UART). STM32 y ESP32 | 13.10 |
 | 5823b2e | Historial: la traza de la FPGA (sim_int 0.13, orden 12, índices 7/8), el PC de cada instrucción en `$1000-$17FF`; la pantalla del depurador pasa a `$0000`; `th`/`H` lo enseñan, `tron`/`troff` | 3, 13.6, 13.9 |
 | ce6d897 | Traza lenta sin FPGA: `t [n]`, `th [n]`; `T` y `H` en la pantalla. Solo el MCU | 13.8 |
 | 7ee9719 | La pausa del botón QS abre la pantalla del depurador (se ve que está parado); `V` la cambia por la del programa con el teclado de la pausa; `ui` en marcha decide si sale en la parada siguiente. Solo el MCU | 11.6, 13.6 |
@@ -41,6 +43,20 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 **Importante:** la ROM nueva manda el comando 75 antes que el 70. El
 emulador tiene que contestarlo, aunque sea con `0xFF` ("sin monitor"), o
 `LOAD *Z81` se queda esperando (sección 12.3).
+
+**Lo que tiene que hacer el emulador**, en resumen (el detalle, en cada
+sección):
+- la máquina de estados del depurador, el puerto `$3FEF` (índices 0-8 y 15,
+  registros 0-7) y la ventana de la página 63 (secciones 2-6);
+- el monitor `DEBUG.BIN` corre tal cual: versión 4, con `SETI` (12.2);
+- los snapshots y su carga por el monitor, con el comando 75 (11, 12);
+- SLOW: romper en la entrada de la NMI (13.1, 13.5);
+- Superfast desde la sombra con los override de D_FILE y atributos, el modo
+  de 80 columnas y la fuente según I: es lo que usan `v` y la pantalla del
+  depurador (13.4, 13.6);
+- la traza de la FPGA con la orden 12 (13.9);
+- todo lo demás (consola, pantalla, símbolos, traza lenta, web) es del MCU,
+  que el emulador ejecuta o imita.
 
 Referencias:
 - `FPGA/SD81V2.1000/sim_int.v`: el depurador va dentro del módulo
@@ -323,8 +339,10 @@ escritas no se tocan.
 
 ## 8. Lo que queda para después
 
-- La traza y la interfaz en la pantalla del ZX81 (fase 3, por decidir).
-- La interfaz web en el ESP32: fase 5.
+Nada del plan: la traza (13.8, 13.9), la pantalla del ZX81 (13.6) y la web
+(13.10) están hechas. Quedan dos riesgos documentados en el plan (§9):
+parar en mitad de una conversación con el MCU (un `LOAD`) y los breakpoints
+por software que borra un `LOAD`.
 
 ## 9. Prueba (`EXAMPLES/DBGTEST`)
 
@@ -563,8 +581,8 @@ Ya no bloquea el bucle del MCU mientras se mantiene. **Todo pasa al
 soltarlo** (cambiado en la fase 2b); el LED avisa de lo que hará:
 - **menos de 1 s:** cambia QuickSilva;
 - **de 1 a 3 s** (LED magenta al llegar a 1 s): si el programa corre,
-  pausa y se puede usar el teclado (`S`, `Z`, `L`, espacio: sección
-  11.6); si está parado, continúa;
+  pausa y sale la pantalla del depurador, con su teclado (secciones 11.6 y
+  13.6); si está parado, continúa;
 - **3 s o más** (LED amarillo al llegar a 3 s): snapshot con el nombre
   automático (sección 11). Si el programa corría, sigue al acabar. Desde
   que se suelta, el LED parpadea en amarillo hasta que acaba.
@@ -1383,3 +1401,43 @@ Nada que hacer en el emulador: es el módulo WiFi hablando con el STM32.
 - **Las órdenes** se ejecutan como las de la consola USB
   (`dbg_console`), con la primera palabra en minúsculas, y quedan en el
   terminal como `> orden`.
+
+**Los paneles.** La página tiene:
+- desensamblado (20 líneas, con etiquetas; el PC resaltado; clic en la
+  columna izquierda pone o quita un breakpoint, doble clic en una línea
+  corre hasta ella; seguir al PC o ir a una dirección o símbolo);
+- registros (clic para cambiar uno) y flags;
+- breakpoints y punto de vigilancia (añadir, quitar);
+- pila;
+- volcado de memoria (8 × 16, con los caracteres del ZX81; clic en un byte
+  para cambiarlo);
+- la consola de antes, abajo.
+
+Las acciones son órdenes de la consola (`b`, `bc`, `g`, `x`, `e`, `w`).
+
+**La vista estructurada.** Los paneles salen de un documento de líneas de
+texto que compone el MCU:
+
+| Línea | Qué es |
+|---|---|
+| `S estado parado motivo\|dónde` | estado (los bits de `CMD_DBG`), si está parado, el motivo y el símbolo más cercano |
+| `R PC SP AF BC DE HL IX IY AF' BC' DE' HL' I R IFF página [SLOW]` | los registros (hex) |
+| `F seguir dis mem` | si sigue al PC y dónde empiezan el desensamblado y el volcado |
+| `B dir...` | los breakpoints |
+| `W modo dir` | el punto de vigilancia |
+| `D mm dir\|etiqueta\|bytes\|instrucción` | una línea de desensamblado (`mm`: `>` el PC, `*` breakpoint) |
+| `K dir valor` | una palabra de la pila |
+| `M dir b0 ... b15` | una línea del volcado |
+
+- **Cuándo se compone:** en cada parada, al seguir (solo el estado) y
+  tras cada orden. Solo mientras alguien mira (un `CMD_DBG` en los últimos
+  3 s) y cuando la web empieza a mirar. Lee de la memoria 96 bytes para el
+  desensamblado, 24 de la pila y 128 del volcado, con las direcciones que
+  luego usa para componer.
+- **Versión:** cada vez que se compone sube una versión, que viaja en la
+  respuesta de `CMD_DBG`. La página, al verla cambiar, pide `/debug/view`.
+- **`CMD_DBG_VIEW` (0x11):** el ESP32 lo trae en trozos de 240 bytes con la
+  versión; si cambia a mitad, empieza otra vez.
+- **Órdenes de la vista:** `@d dir` (desensamblar desde ahí, deja de seguir
+  al PC), `@d` (seguir al PC) y `@m dir` (el volcado), sin eco en el
+  terminal.

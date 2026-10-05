@@ -2471,6 +2471,7 @@ LOAD \*FPGA
 | **1.3** | 09/2026 | Modem-style network bridge (BBS/telnet, AT commands), 70 and 80 column modes, MC45 in blocks 6 and 7, alternative screen and attributes, and CP/M 3. |
 | **1.4** | 09/2026 | EightyOne snapshots (LOAD \*Z81), LOAD \*ROMLOCK and fix for border garbage with WRX games. |
 | **1.5** | 09/2026 | TELNET terminal and SD81TEST test program. FPGA: synchronous write capture and FRAMES reads in Superfast. MCU: DEL with absolute paths and reading AY registers 14 and 15. |
+| **1.6** | 10/2026 | Hardware debugger (Appendix L): on-screen display on the ZX81, symbols, trace and history, console and panels in the browser; full snapshots with LOAD \*Z81. Simulated interrupts in the FPGA. ROM: PLOT and TAB in the 70- and 80-column modes (thanks to Kelly Abrantes Murta for reporting the PLOT bug). MCU: sound is silenced while a snapshot loads; the WiFi module web server is smoother. New Appendix K with the EightyOne emulator guide. |
 
 | **ℹ** | *This history will be updated with each new firmware version. Check the project repository for the complete changelog.* |
 |------|------------------------------------------------------------------|

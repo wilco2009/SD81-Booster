@@ -33,7 +33,7 @@
 
 #define CHECK_ROM
 
-#define VERSION 0x25
+#define VERSION 0x26
 #define CPLD_NAME "/SD81CPLD"
 #define MAX_FILENAME_LEN 100
 #define MAX_PARAM_LEN 100

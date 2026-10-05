@@ -8,7 +8,7 @@
 
 		db	.S,.D,.8,.1	; "SD81" interface signature
 ; 8196 ($2004)
-VERSION:	db	$16		; ROM version 1.6
+VERSION:	db	$17		; ROM version 1.7
 
 ; 8197 ($2005)
 		pop	hl		; utility for finding your address

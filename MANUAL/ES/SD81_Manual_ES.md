@@ -2592,6 +2592,7 @@ LOAD \*FPGA
 | **1.3** | 09/2026 | Puente de red tipo módem (BBS/telnet, comandos AT), modos de 70 y 80 columnas, MC45 en los bloques 6 y 7, pantalla y atributos alternativos, y CP/M 3. |
 | **1.4** | 09/2026 | Snapshots de EightyOne (LOAD \*Z81), LOAD \*ROMLOCK y corrección de la basura en el borde con juegos WRX. |
 | **1.5** | 09/2026 | Terminal TELNET y programa de test SD81TEST. FPGA: captura síncrona de escrituras y lectura de FRAMES en Superfast. MCU: DEL con rutas absolutas y lectura de los registros 14 y 15 del AY. |
+| **1.6** | 10/2026 | Depurador por hardware (Apéndice L): pantalla en el ZX81, símbolos, traza e historial, consola y paneles en el navegador; snapshots completos con LOAD \*Z81. Interrupciones simuladas en la FPGA. ROM: PLOT y TAB en los modos de 70 y 80 columnas (gracias a Kelly Abrantes Murta por avisar del fallo de PLOT). MCU: el sonido calla mientras se carga un snapshot; el servidor web del módulo WiFi va más fluido. Nuevo Apéndice K con la guía del emulador EightyOne. |
 
 |  |  |
 |:----:|------------------------------------------------------------------|

@@ -3317,7 +3317,11 @@ L0BAF:  CALL    L0BF5           ; routine STK-TO-BC
         LD      A,$04           ;
 
 ;; COLUMNS
-L0BC5:  SRA     C               ;
+L0BC5:  SRL     C               ; SD81: SRL, no SRA (la ROM original). Con 70/80
+                                ; columnas la X llega a 139/159 y SRA arrastraba
+                                ; el bit 7: X >= 128 daba una columna de 192 o
+                                ; mas (REPORT-B). Mismo tamano y tiempo; con 32
+                                ; columnas, el mismo resultado
         JR      NC,L0BCA        ; to FIND-ADDR
 
         RLCA                    ;

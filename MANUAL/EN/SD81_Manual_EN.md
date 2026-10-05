@@ -1887,9 +1887,9 @@ The 70- and 80-column modes occupy exactly the same physical screen width (80 ch
 
 Switching modes clears the screen (equivalent to CLS): the previous mode's screen content is not preserved, because the width of each row in the screen area changes.
 
-**Known limitation:**
+**TAB and PLOT:**
 
-The TAB command does not work correctly in the 70- and 80-column modes: internally it computes the position with an operation that is only valid for 32 columns. The rest of the printing commands (PRINT, PRINT AT, CLS, SCROLL) work normally in all three modes.
+TAB and PLOT work in all three modes, like the rest of the printing commands (PRINT, PRINT AT, CLS, SCROLL). In 70 and 80 columns, a TAB beyond the line width gives error B instead of wrapping round as in 32 columns. PLOT and UNPLOT accept X from 0 to 139 in 70 columns and from 0 to 159 in 80.
 
 # 14. Error Codes
 

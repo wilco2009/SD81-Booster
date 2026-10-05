@@ -2002,9 +2002,9 @@ Los modos de 70 y 80 columnas ocupan exactamente el mismo ancho físico de panta
 
 Al cambiar de modo, la pantalla se limpia (equivalente a CLS): el contenido de la pantalla del modo anterior no se conserva, porque el ancho de cada fila del área de pantalla cambia.
 
-**Limitación conocida:**
+**TAB y PLOT:**
 
-El comando TAB no funciona correctamente en los modos de 70 y 80 columnas: internamente calcula la posición con una operación que solo es válida para 32 columnas. El resto de comandos de impresión (PRINT, PRINT AT, CLS, SCROLL) funcionan con normalidad en los tres modos.
+TAB y PLOT funcionan en los tres modos, igual que el resto de comandos de impresión (PRINT, PRINT AT, CLS, SCROLL). En 70 y 80 columnas, un TAB más allá del ancho de la línea da el error B, en vez de dar la vuelta como en 32 columnas. PLOT y UNPLOT admiten X de 0 a 139 en 70 columnas y de 0 a 159 en 80.
 
 # 14. Códigos de error
 

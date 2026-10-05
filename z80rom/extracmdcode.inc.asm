@@ -438,7 +438,7 @@ CodeNextByte:	ld	a,(de)
 ; uno a otro: solo cambia cuantas columnas caben.
 ;
 ; COMO se cambia el ancho de las rutinas de la ROM: el ancho esta grabado
-; como constante inmediata en 8 puntos de los primeros 8K (ver
+; como constante inmediata en 11 puntos de los primeros 8K (ver
 ; ColPatchTbl). Esa "ROM" es en realidad RAM, y su proteccion de escritura
 ; es por DIRECCION ($0000-$1FFF), no por pagina, asi que basta con mapear
 ; su pagina en un bloque alto y escribirla desde ahi.
@@ -479,7 +479,7 @@ SetColMode:	push	de		; guardar el modo de video para el final
 		; constantes era inocuo, pero colapsar el DFILE no lo es.
 		call	SET_FAST	; apaga las NMI y el bit 7 de CDFLAG
 		res	6,(iy+iyCDFLAG)	; y que no vuelva a pedir SLOW
-		call	PatchRomWidth	; las 8 constantes, con los valores de (HL)
+		call	PatchRomWidth	; las 11 constantes, con los valores de (HL)
 		call	CollapseDFile	; el DFILE viejo tiene la geometria ANTERIOR
 		pop	de
 		push	de
@@ -524,7 +524,7 @@ CollapseFill:	ld	(hl),$76
 		djnz	CollapseFill
 		ret
 
-; Parchea las 8 constantes de ancho. HL -> tabla de 8 valores, en el mismo
+; Parchea las 11 constantes de ancho. HL -> tabla de 11 valores, en el mismo
 ; orden que ColPatchTbl. Mapea la pagina del bloque 0 en el bloque 6
 ; ($C000), escribe, y devuelve el bloque 6 a la pagina que tuviera.
 PatchRomWidth:	ld	bc,MapperPort	; B=0: leer la pagina del bloque 0
@@ -537,7 +537,7 @@ PatchRomWidth:	ld	bc,MapperPort	; B=0: leer la pagina del bloque 0
 		ld	a,d
 		call	MapPageToBlk6	; la "ROM" asoma en $C000
 		ld	de,ColPatchTbl
-		ld	b,10
+		ld	b,11
 PatchLoop:	push	bc		; B es el contador Y hace falta BC de puntero
 		ld	a,(de)
 		inc	de
@@ -565,7 +565,7 @@ MapPageToBlk6:	add	a,a
 		out	(c),a
 		ret
 
-; Las 10 constantes de ancho de fila de la ROM, verificadas contra el
+; Las 11 constantes de ancho de fila de la ROM, verificadas contra el
 ; binario. Las dos primeras viajan dentro de una carga de 16 BITS
 ; (LD HL,nn / LD BC,nn), no de 8, que es como se colaron en la primera
 ; pasada: un barrido que solo mire operandos inmediatos de un byte no las
@@ -585,7 +585,12 @@ ColPatchTbl:	dw	$05D7		; EDIT/listado    LD HL,$1821 -> S_POSN
 		dw	$0A31		; B-LINES (CLS)   LD C,$21
 		dw	$0B22		; TAB-TEST        CP $21
 		dw	$0C12		; SCROLL          LD C,$21
+		dw	$0B0C		; TAB             AND $1F    (TAB n: n modulo 32)
 
-ColVal80:	db	81,81,81,81,81,79,82,81,81,81
-ColVal70:	db	71,71,71,71,71,69,72,71,71,71
-ColVal32:	db	33,33,33,33,33,31,34,33,33,33
+; El AND de TAB: con $7F, TAB llega a todas las columnas; un TAB mas alla
+; del ancho da REPORT-B (TEST-VAL) en vez de dar la vuelta como con 32
+; (un "modulo 80" no cabe en un AND). En 32 columnas se deja $1F: la ZX
+; Printer (LPRINT TAB) tambien pasa por ese AND y siempre es de 32.
+ColVal80:	db	81,81,81,81,81,79,82,81,81,81,$7F
+ColVal70:	db	71,71,71,71,71,69,72,71,71,71,$7F
+ColVal32:	db	33,33,33,33,33,31,34,33,33,33,$1F

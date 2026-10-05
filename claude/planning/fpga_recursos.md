@@ -39,14 +39,14 @@ estimar el reparto de las 4.397 LUTs finales.
 
 | Bloque | LUTs lógica | LUTs memoria (RAM16X1D) | Flip-flops | Reparto estimado de las LUTs finales |
 |---|---:|---:|---:|---:|
-| **Sprites** (32 × `sprite_slot`) | 1.312 (41 por slot) | 1.536 (768 RAM16X1D) | 576 | **≈ 42 %** (~1.060 lógica + ~775 memoria) |
+| **Sprites** (32 × `sprite_slot`) | 1.312 (41 por slot) | 1.536 (768 RAM16X1D) | 576 | **≈ 39 %** (~940 lógica + ~775 memoria; ver 3.2) |
 | **Lógica principal `SD81`** (vídeo, mapper, configuración, Chroma, doble búfer, MCU...) | 1.890 | 0 | 665 | **≈ 35 %** |
 | **2 chips AY** (`ay_3_8192` × 2) | 717 (358 cada uno) | 40 | 554 | **≈ 14 %** |
 | **Depurador y simuladas** (`sim_int` + `trace_wr` + `m1_tracker`) | 380 | 2 | 230 | **≈ 7 %** |
 | Beeper + DAC I2S | 62 | 0 | 81 | ≈ 1 % |
 | Total | 4.361 (XST: 4.422) | 1.581 | ~2.100 (MAP: 2.103) | |
 
-Lo más llamativo: **los sprites se llevan el 42 % de las LUTs** y casi toda la
+Lo más llamativo: **los sprites se llevan alrededor del 39 % de las LUTs** y casi toda la
 memoria distribuida. Cada slot guarda 24 bytes (8 de píxel, 8 de máscara y 8 de
 color, uno por fila) y lleva dos restadores de 9 bits, comparadores y multiplexores
 de 8 a 1, y todo eso se repite 32 veces. Y 6.144 bits de datos cuestan 775 LUTs
@@ -69,24 +69,50 @@ cobertura de memoria.
 
 Los ahorros son estimaciones salvo donde se indica "medido".
 
-### 3.1 Opciones de las herramientas (sin tocar el diseño)
+### 3.1 Opciones de las herramientas (sin tocar el diseño): medido
 
-- **XST `-opt_mode Area` y `-opt_level 1`: medido.** Lógica 4.422 → 4.277 LUTs
-  (−145, −3 %) y registros 2.026 → 1.954. Poco, pero gratis. Como sobran 22 ns de
-  margen, no hay riesgo de temporización.
-- **MAP `-lc auto` (combinar LUTs) y `-global_opt area`**: hoy están apagados
-  (`-lc off`, `-global_opt off`). No lo he medido; lo habitual es un 3-5 % más,
-  y también reduce los slices.
-- Coste: unos minutos y una síntesis completa. Riesgo: cambia la colocación, hay
-  que volver a probarlo en el hardware.
+Medido el 5 de octubre en la rama `fpga-camino-a`, con síntesis completa (XST, MAP,
+PAR) de cada variante. Todas cumplen la temporización.
 
-### 3.2 Sprites: sacar la decodificación de configuración de cada slot
+| Variante | LUTs | Slices | Registros en pines (IOB) |
+|---|---:|---:|---:|
+| Release v1.6.0 (referencia) | 4.397 | 1.336 (93 %) | 34 |
+| Solo MAP combinación de LUTs en área | 4.362 (−35) | 1.380 | 34 |
+| Solo XST optimización en área (esfuerzo normal) | 4.298 (−99) | 1.373 | 31 |
+| Solo sin equilibrado de registros | 4.415 (+18) | 1.396 | 31 |
+| Las tres juntas, con duplicación de registros activa | 4.255 (−142) | 1.350 | 31 |
+| Las tres juntas y sin duplicación de registros | 4.257 (−140) | 1.301 | 27 |
 
-Cada `sprite_slot` decodifica por su cuenta `cfg_field` (4 comparadores de 5 bits
-y 2 restadores de 3 bits, 32 veces). Esa decodificación es idéntica para todos y
-se puede hacer una sola vez fuera de los slots. Ahorro estimado **~10-15 LUTs por
-slot: 320-480 LUTs de XST, 260-390 finales (6-9 %)**. Esfuerzo bajo (un fichero de
-105 líneas), riesgo bajo, sin pérdida funcional.
+Conclusiones:
+
+- **Ahorro real: ~140 LUTs (3 %)**, casi todo de la optimización de XST en área.
+- **Los slices no mejoran de forma fiable.** Varían entre 1.301 y 1.396 con casi las
+  mismas LUTs: con el diseño tan lleno, la colocación se mueve ±3 % por cualquier
+  cambio. No se puede prometer que bajen.
+- **Bajan los registros dentro de los pines** (de 34 a 31 o 27). Esos registros fijan
+  cuándo se muestrea el bus del Z80, y el proyecto ya pasó por problemas de
+  temporización en ese punto. El análisis de tiempos pasa, pero habría que
+  validar en hardware.
+- Veredicto: **no merece la pena** por sí solo; el riesgo es mayor que el ahorro.
+
+Un efecto lateral útil: la VM de ISE, con 3 núcleos y proveedor KVM, ha pasado de
+13 min 46 s por síntesis a unos 4 min 15 s con tres a la vez, y de 7 min 21 s de
+tiempo de sistema a unos 45 s.
+
+### 3.2 Sprites: sacar la decodificación de configuración de cada slot: descartado
+
+Se probó (rama `fpga-camino-a`, `sprite_cfg_decode`, con un banco de pruebas en
+ModelSim que confirmaba el mismo comportamiento) y **no ahorra nada**: con la misma
+configuración de herramienta, 4.255 LUTs sin el cambio y 4.282 con él. XST ya
+fusionaba esa lógica idéntica entre los 32 slots en el diseño plano. La estimación
+de 260-390 LUTs venía de la síntesis con jerarquía, que cuenta cada slot por
+separado y no ve esa fusión. Revertido.
+
+Esto corrige también el reparto de la sección 2: la síntesis con jerarquía suma
+143 LUTs más que la plana (6.146 frente a 6.003 de XST), y buena parte son lógica de
+slots que en el diseño plano se comparte. Los sprites pesan entonces unas **1.700
+LUTs (~39 %)** y no 1.832 (42 %). Es una estimación: no se ha medido el módulo
+aislado en el diseño plano.
 
 ### 3.3 Menos sprites o menos memoria por sprite
 
@@ -127,11 +153,11 @@ prioridad.
 
 | K (sprites por línea) | LUTs de sprites | Ahorro estimado | Registros |
 |---|---:|---:|---:|
-| 8 | ~450 | **~1.400 (−32 % del total)** | ~300 |
-| 16 | ~750 | ~1.100 (−25 %) | ~550 |
-| 32 (sin límite por línea) | ~1.350 | ~480 | ~1.050 |
+| 8 | ~450 | **~1.100-1.250 (−25 a −28 % del total)** | ~300 |
+| 16 | ~750 | ~800-950 (−18 a −22 %) | ~550 |
+| 32 (sin límite por línea) | ~1.350 | ~200-350 | ~1.050 |
 
-Con K = 8 o 16 es, con diferencia, la mayor palanca de todo el informe. A cambio:
+Con K = 8 sigue siendo la mayor palanca de todo el informe (con K = 16 baja bastante). A cambio:
 
 - **Límite de K sprites por línea de pantalla** (los demás no se dibujan en esa
   línea). Hay 32 sprites en total; lo que cambia es cuántos pueden coincidir en
@@ -201,52 +227,46 @@ permite que una función nueva grande entre en una variante concreta.
 
 ## 4. Resumen y propuesta
 
-Las medidas no se suman sin más: 3.4 sustituye los slots de sprites, así que 3.2 y
-3.3 desaparecen (su ahorro ya está dentro del de 3.4), y las opciones de herramienta
-(3.1) se aplican sobre una lógica más pequeña, con menos margen.
+**Camino A (medido en la rama `fpga-camino-a`): lo que no cambia el comportamiento**
 
-**Camino A: sin sprites desde la sombra** (solo lo que no cambia el comportamiento)
+| Paso | Resultado |
+|---|---|
+| Opciones de XST/MAP (3.1) | −140 LUTs (3 %), slices sin mejora fiable, registros de pines alterados |
+| Decodificación fuera de los slots (3.2) | 0: la herramienta ya lo hacía |
+| Patrón del borde y sumadores (3.7) | Sin tocar: ~10 LUTs el borde, y los sumadores de dirección y el mezclador de audio tienen reglas de ancho y signo delicadas para un ahorro pequeño |
+| **Total** | **~140-250 LUTs (3-6 %)**, y no baja los slices |
 
-| Paso | Ahorro estimado (LUTs) |
-|---|---:|
-| Opciones de XST/MAP (3.1) | 150-300 |
-| Decodificación fuera de los slots (3.2) | 260-390 |
-| Patrón del borde y sumadores (3.7) | 100-200 |
-| **Total** | **~500-900 (12-20 %)**, slices ~93 → ~80-85 % |
+El camino A casi no libera nada, así que no lo propongo para fusionar.
 
-**Camino B: sprites desde la sombra (3.4) más lo independiente**
+**Camino B: sprites desde la sombra (3.4)**
 
-| Paso | K = 8 | K = 16 |
+| Concepto | K = 8 | K = 16 |
 |---|---:|---:|
-| Sprites desde la sombra (3.4; incluye 3.2 y 3.3) | ~1.400 | ~1.100 |
-| Opciones de XST/MAP (3.1), sobre la lógica restante | 100-200 | 100-200 |
-| Patrón del borde y sumadores (3.7) | 100-200 | 100-200 |
-| **Total** | **~1.600-1.800** | **~1.300-1.500** |
-| LUTs resultantes (hoy 4.397) | ~2.600-2.800 (46-49 %) | ~2.900-3.100 (51-54 %) |
+| Sprites desde la sombra | ~1.100-1.250 | ~800-950 |
+| Opciones de XST/MAP (3.1), si se aceptan | ~100 | ~100 |
+| **Total** | **~1.100-1.350** | **~800-1.050** |
+| LUTs resultantes (hoy 4.397) | ~3.050-3.300 (53-58 %) | ~3.350-3.600 (59-63 %) |
 
-**Slices.** Hoy hay 4.700 pares LUT-registro en 1.336 slices (de 4 pares cada uno):
-una eficiencia de empaquetado del 88 %, alta porque la herramienta está apretando
-para que quepa. Con menos lógica el empaquetado se relaja, así que el slice no
-baja tanto como los pares. Estimación con eficiencia entre el 88 % (la actual) y
-el 70-75 % (un diseño holgado):
+**Slices.** Hoy 4.700 pares LUT-registro en 1.336 slices (88 % de eficiencia de
+empaquetado, alta porque la herramienta aprieta para que quepa). Con menos lógica
+el empaquetado se relaja. Con eficiencia entre el 88 % y el 70-75 %, y teniendo
+en cuenta que los slices varían ±3 % con cualquier cambio:
 
-| Caso | Pares LUT-registro | Slices estimados | % de 1.430 |
-|---|---:|---:|---:|
-| Hoy | 4.700 | 1.336 | 93 % |
-| Camino A | ~3.800-4.200 | ~1.080-1.350 | ~75-85 % |
-| B con K = 16 | ~3.200-3.400 | ~910-1.130 | ~64-79 % |
-| B con K = 8 | ~2.900-3.100 | ~820-1.050 | ~57-73 % |
+| Caso | Slices estimados | % de 1.430 |
+|---|---:|---:|
+| Hoy | 1.336 | 93 % |
+| B con K = 16 | ~1.000-1.250 | ~70-87 % |
+| B con K = 8 | ~920-1.150 | ~64-80 % |
 
-Los registros también bajan en B (los sprites pasan de 576 a ~300 o ~550) y casi
-toda la memoria distribuida desaparece (de 797 a ~25 LUTs): se acaba la presión
-sobre los slices de tipo M, que hoy tienen un 55 % ocupado solo por los sprites.
+Casi toda la memoria distribuida desaparece (de 797 a ~25 LUTs), lo que quita la
+presión sobre los slices de tipo M.
 
-**Aparte, y se suma a cualquiera de los dos:** segundo AY fuera (~290 LUTs, pierde un
-chip) y variante sin depurador (~380, quita el depurador de esa variante).
+**Aparte, y se suma a cualquiera:** segundo AY fuera (~290 LUTs, pierde un chip) y
+variante sin depurador (~380, quita el depurador de esa variante).
 
-Las cifras son estimaciones; la de 3.4 es la más incierta, porque depende de
-diseñar el evaluador. Se puede afinar sintetizando solo un `sprite_slot` de línea
-de prototipo.
+Las cifras de B son estimaciones: dependen de cómo salga el evaluador. Lo medido
+ha corregido dos veces mis estimaciones a la baja, así que conviene tratarlas como
+techo.
 
 ## Cómo repetir las medidas
 

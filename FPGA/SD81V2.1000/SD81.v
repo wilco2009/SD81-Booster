@@ -760,11 +760,12 @@ Port $7FEF (01111111 11101111) - IN:
 										sf_hscroll_rows_h[sf_hscroll_row[2:0]];
 
 	// ========================================================================
-	// Sprites 8x8 (1 byte/scanline + mascara), almacenados en distributed RAM
-	// (LUTs), no en BRAM (la BRAM esta a 32/32, sin margen). Boceto probado
-	// aparte en sprite_slot.v / sprite_array_demo.v; ver ese fichero para el
-	// razonamiento de diseno (alineado a byte, sin barrel shifter) y el coste
-	// medido en LUTs/FF por sprite.
+	// Sprites 8x8 (1 byte/scanline + mascara). Se guardan SOLO en la RAM de
+	// sombra ($0C00 + sprite*32 + campo, ver mas abajo) y sprite_engine.v los
+	// lee por linea, durante el borde horizontal: carga en 8 slots de linea los
+	// sprites que cortan la linea que empieza (los 8 de indice mas alto si hay
+	// mas). Antes eran 32 slots con su propia memoria distribuida (sprite_slot.v,
+	// que se conserva como referencia del banco de pruebas).
 	//
 	// Coordenadas libres por pixel en ambos ejes, desplazadas 32 pixeles
 	// respecto a la pantalla para permitir entrar/salir con recorte suave:
@@ -862,7 +863,7 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [8:0] spr_screen_y = line_cnt  - spr_y_line_base;
 
 	// Recorte: nada se dibuja fuera de (0,0)-(255,191). Se hace una sola vez
-	// aqui, no dentro de cada sprite_slot (1 puerta en vez de NUM_SPRITES).
+	// aqui, no dentro de cada slot de linea (1 puerta en vez de 8).
 	wire spr_in_display = (spr_screen_x < 9'd256) && (spr_screen_y < 9'd192);
 
 	// Coordenadas de sprite = pixel de pantalla + 32 (ver cabecera del mapa
@@ -870,47 +871,19 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [8:0] spr_pos_x = spr_screen_x + 9'd32;
 	wire [8:0] spr_pos_y = spr_screen_y + 9'd32;
 
-	wire [NUM_SPRITES-1:0] spr_active;
-	wire [NUM_SPRITES-1:0] spr_pixel;
-	wire [7:0] spr_color [0:NUM_SPRITES-1];
-
-	genvar si;
-	generate
-		for (si = 0; si < NUM_SPRITES; si = si + 1) begin : SPRITES
-			wire this_spr_sel = spr_we && (spr_dest == si);
-			sprite_slot sprite_inst (
-				.clk(pixel_clk),
-				.reset(~nRESET),
-				.cfg_sel(this_spr_sel),
-				.cfg_field(spr_field),
-				.cfg_data(spr_data),
-				.cfg_we(spr_we),
-				.pos_x(spr_pos_x),
-				.pos_y(spr_pos_y),
-				.active(spr_active[si]),
-				.pixel_out(spr_pixel[si]),
-				.color_out(spr_color[si])
-			);
-		end
-	endgenerate
-
-	// Prioridad: gana el sprite de indice mas alto que este activo en el
-	// pixel actual (mismo criterio usado en sprite_array_demo.v)
-	integer spi;
-	reg sprite_hit, sprite_pixel_final;
-	reg [7:0] sprite_color_final;
-	always @(*) begin
-		sprite_hit          = 1'b0;
-		sprite_pixel_final  = 1'b0;
-		sprite_color_final  = 8'hF0;
-		for (spi = 0; spi < NUM_SPRITES; spi = spi + 1) begin
-			if (spr_active[spi]) begin
-				sprite_hit          = 1'b1;
-				sprite_pixel_final  = spr_pixel[spi];
-				sprite_color_final  = spr_color[spi];
-			end
-		end
+	// Sprite activo (POKE 2101): lo guarda aqui la FPGA, no la sombra (que tras
+	// un reset conserva la ROM) y se borra con el reset, como el de cada slot
+	// antiguo. Solo vale para los sprites 0..31.
+	reg [31:0] spr_en = 32'd0;
+	always @(posedge pixel_clk) begin
+		if (~nRESET) spr_en <= 32'd0;
+		else if (spr_we && spr_field == 5'd0 && spr_dest[7:5] == 3'd0)
+			spr_en[spr_dest[4:0]] <= spr_data[0];
 	end
+
+	// Lo que dice el motor de sprites (ver sprite_engine, mas abajo)
+	wire sprite_hit, sprite_pixel_final;
+	wire [7:0] sprite_color_final;
 
 	// Recorte final al area visible (ver spr_in_display)
 	wire sprite_active_final = sprite_hit & spr_in_display;
@@ -921,6 +894,29 @@ Port $7FEF (01111111 11101111) - IN:
 	reg [15:0] ROMTABLE = 16'h1c00;
 	wire [7:0] v_dout;
 	reg [15:0] v_addr;
+
+	// Motor de sprites por linea: lee la tabla de la sombra por el puerto B
+	// entre el sincronismo horizontal y el pixel 120 (el video empieza en el
+	// 126), cuando el video no lo usa, y no si el doble bufer esta copiando.
+	wire        spr_ev_rd;
+	wire [15:0] spr_ev_raddr;
+	sprite_engine #(.K(8), .LIMIT(10'd120)) sprite_eng (
+		.pixel_clk(pixel_clk),
+		.reset(~nRESET),
+		.spr_en(spr_en),
+		.hsync(hsync),
+		.pixel_cnt(pixel_cnt),
+		.blit_busy(blit_run),
+		.pos_x(spr_pos_x),
+		.pos_y(spr_pos_y),
+		.row_ok(spr_screen_y < 9'd192),
+		.v_dout(v_dout),
+		.ev_rd(spr_ev_rd),
+		.ev_raddr(spr_ev_raddr),
+		.hit(sprite_hit),
+		.pixel(sprite_pixel_final),
+		.color(sprite_color_final)
+	);
 
 	// --- double buffer: blit shadow->front por el puerto A (arbitrado con la CPU) ---
 	wire cpu_sh_wr = isAttrMem & ~nWR & nRESET;					// escritura CPU en curso (puerto A ocupado)
@@ -934,12 +930,15 @@ Port $7FEF (01111111 11101111) - IN:
 	// dbg_poke) ni la carga de DEBUG.BIN que hace el MCU en $E000-$FFFF
 	// (pagina 63); el registro 7 de $3FEF escribe la BRAM directamente
 	wire dbg_load_blk = dbg_loaded & A15x & A14x & A13x;
-	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): tr_we?1'b1: blit_we?1'b1: dbg_bram_wr?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon_ram)? ~nWR:1'b0;
+	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): tr_we?1'b1: blit_we?1'b1: dbg_bram_wr?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon_ram & ~spr_oob_wr)? ~nWR:1'b0;
 	// Sprites: los POKEs 2101-2128 son los mismos para los 32 (2100 elige
 	// cual), asi que en la sombra no se guardan en su direccion sino en
 	// $0C00 + sprite*32 + campo: la copia de los 32 sprites, que la FPGA no
 	// deja leer, para los snapshots del depurador. 2100 si va a su direccion.
-	wire spr_mirror_wr = sprite_poke_wr && (Addr >= SPR_BASE_ADDR);
+	// Un sprite >= 32 no existe: su escritura no se copia (antes caia en el
+	// sprite sel & 31 de la copia, que ahora SI lee el motor).
+	wire spr_mirror_wr = sprite_poke_wr && (Addr >= SPR_BASE_ADDR) && (spr_sel[7:5] == 3'd0);
+	wire spr_oob_wr    = sprite_poke_wr && (Addr >= SPR_BASE_ADDR) && (spr_sel[7:5] != 3'd0);
 	wire [4:0] spr_mirror_field = Addr[4:0] - SPR_BASE_ADDR[4:0];
 	wire [15:0] cpu_sh_addr = spr_mirror_wr ? {6'b000011, spr_sel[4:0], spr_mirror_field} : Addr[15:0];
 	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]: tr_we?tr_waddr: blit_we?blit_waddr: (dbg_bram_rd|dbg_bram_wr)?dbg_bram_ptr: nRFSH?cpu_sh_addr:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
@@ -1030,7 +1029,7 @@ Port $7FEF (01111111 11101111) - IN:
 		.douta(shadowram_dout),
 		.clkb(system_clk),
 		.web(1'b0),						// channel only for read
-		.addrb(blit_run ? blit_raddr : v_addr),	// blit lee el shadow durante el blanking
+		.addrb(spr_ev_rd ? spr_ev_raddr : (blit_run ? blit_raddr : v_addr)),	// sprites (borde horizontal) o blit (blanking) o video
 		.doutb(v_dout)
 	);
 

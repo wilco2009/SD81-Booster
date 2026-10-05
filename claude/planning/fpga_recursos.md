@@ -268,6 +268,37 @@ Las cifras de B son estimaciones: dependen de cómo salga el evaluador. Lo medid
 ha corregido dos veces mis estimaciones a la baja, así que conviene tratarlas como
 techo.
 
+## 5. Resultado del camino B (rama `fpga-camino-b`, K = 8): medido
+
+Síntesis completa (XST, MAP, PAR) con las opciones de herramienta de la release, sin
+tocar ninguna. Temporización cumplida.
+
+| | Release v1.6.0 | Camino B (K = 8) | Diferencia |
+|---|---:|---:|---:|
+| Slice LUTs | 4.397 (76 %) | **2.803 (49 %)** | **−1.594 (−36 %)** |
+| LUTs como lógica | 3.566 | 2.732 | −834 |
+| LUTs como memoria distribuida | 797 | 35 | −762 |
+| Registros | 2.103 | 1.860 | −243 |
+| Slices ocupados | 1.336 (93 %) | **1.014 (71 %)** | −322 |
+| BRAM | 32 / 32 | 32 / 32 | sin cambio |
+
+Es más de lo que estimé (1.100-1.250 LUTs): la lógica por slot era mayor de lo que
+calculé. La memoria distribuida de los sprites desaparece, tal como se esperaba.
+
+El motor (`sprite_engine.v`) se comprobó en ModelSim contra los 32 `sprite_slot` de la
+v1.6.0: idéntico, píxel a píxel, con tablas al azar de hasta 8 sprites por línea, y igual a
+la especificación (los 8 de índice más alto de cada línea) con tablas sin límite, en modo de
+32 y de 70/80 columnas (más de 2 millones de píxeles comparados, 0 diferencias; un banco que
+falla si se altera el motor a propósito). El caso peor (32 sprites activos y los 8 que cortan
+la línea siendo los últimos en recorrerse) termina en el píxel 109 (32 columnas) o 99 (80);
+el motor se corta en el 120.
+
+**Lo que no se ha podido comprobar:** el montaje real (arbitraje del puerto B de la BRAM con
+el vídeo, la calibración de las posiciones en los tres modos, y los sprites con el doble
+búfer) solo se ve en el hardware. Cuatro entradas (`nM1`, `nMREQ`, `nRFSH` y `CFG_DATA`) han
+perdido su registro dentro del pin como efecto de la nueva síntesis; no hay restricciones de
+tiempo sobre ellas y la temporización pasa, pero conviene confirmarlo en la placa.
+
 ## Cómo repetir las medidas
 
 1. En una copia del proyecto en la VM: poner `-keep_hierarchy Yes` en `SD81.xst`

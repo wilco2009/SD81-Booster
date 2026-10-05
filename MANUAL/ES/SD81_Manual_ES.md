@@ -3343,7 +3343,7 @@ Se usan 16 caracteres hex en vez de un único bloque de 48 (color+píxel+máscar
 
 ## Capacidad
 
-El firmware actual soporta 32 sprites simultáneos, medido en hardware real al 65% de LUTs de la FPGA (con posicionamiento libre por píxel y color por fila). Es una cifra fija para el usuario final ---depende del bitstream concreto de la FPGA que lleve instalado el interface---, no algo configurable desde BASIC.
+El firmware actual soporta 32 sprites, con posicionamiento libre por píxel y color por fila, pero como máximo 8 de ellos pueden aparecer en una misma línea de pantalla. Si más de 8 sprites activos cortan la misma línea, en esa línea se dibujan los 8 de índice más alto y los demás no aparecen; en las líneas donde no coinciden se ven con normalidad. Es el mismo límite que tenía la NES, y los programas que mueven muchos sprites juntos suelen rotar cuáles quedan fuera en cada imagen para que parpadeen en vez de desaparecer. Un cambio en los datos de un sprite se ve a partir de la línea siguiente. Es una cifra fija para el usuario final \-\--depende del bitstream concreto de la FPGA que lleve instalado el interface\-\--, no algo configurable desde BASIC.
 
 # Apéndice I --- CP/M: un sistema operativo alternativo
 

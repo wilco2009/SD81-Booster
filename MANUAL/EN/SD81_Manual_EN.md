@@ -3241,7 +3241,7 @@ LOAD \*SPRMASK 0,\"070F1F1F3F3F1F1F\"
 
 ## Capacity
 
-The current firmware supports 32 simultaneous sprites, measured on real hardware at 65% of the FPGA\'s LUTs (with free per-pixel positioning and per-row colour). This is a fixed figure for the end user ---it depends on the specific FPGA bitstream installed on the interface--- not something configurable from BASIC.
+The current firmware supports 32 sprites, with free per-pixel positioning and colour per row, but at most 8 of them can appear on the same screen line. If more than 8 active sprites cross the same line, the 8 with the highest index are drawn on that line and the others do not appear; on the lines where they do not coincide they show normally. It is the same limit the NES had, and programs that move many sprites together usually rotate which ones are left out in each frame so that they flicker instead of disappearing. A change to a sprite\'s data shows from the next line. It is a fixed figure for the end user \-\--it depends on the specific FPGA bitstream installed in the interface\-\--, not something configurable from BASIC.
 
 # Appendix I --- CP/M: an alternative operating system
 

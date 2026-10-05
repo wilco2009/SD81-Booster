@@ -388,7 +388,73 @@ Versión 1.0
 
 [Apéndice K --- El emulador EightyOne-CrossPlatform](#apéndice-k-el-emulador-eightyone-crossplatform)
 
-[Configuración como ZX81 + SD81 Booster](#configuración-como-zx81-sd81-booster)
+[Qué se emula](#qué-se-emula)
+
+[Activar el SD81 Booster](#activar-el-sd81-booster)
+
+[La tarjeta SD virtual](#la-tarjeta-sd-virtual)
+
+[Elegir la carpeta](#elegir-la-carpeta)
+
+[La ROM](#la-rom)
+
+[Editar la tarjeta con el emulador en marcha](#editar-la-tarjeta-con-el-emulador-en-marcha)
+
+[Arranque: reset, teclas de arranque y AUTOEXEC](#arranque-reset-teclas-de-arranque-y-autoexec)
+
+[Teclas de arranque](#teclas-de-arranque)
+
+[AUTOEXEC](#autoexec)
+
+[Pantalla, sonido y joystick](#pantalla-sonido-y-joystick)
+
+[Pantalla](#pantalla)
+
+[Sonido](#sonido-1)
+
+[Joystick](#joystick)
+
+[Snapshots](#snapshots)
+
+[Desde el menú del emulador](#desde-el-menú-del-emulador)
+
+[Desde el ZX81](#desde-el-zx81)
+
+[Cargar con el SD81 desactivado](#cargar-con-el-sd81-desactivado)
+
+[CP/M Disk Manager](#cpm-disk-manager)
+
+[Ventana Debug: panel SD81 Booster](#ventana-debug-panel-sd81-booster)
+
+[La consola serie](#la-consola-serie)
+
+[La ventana](#la-ventana)
+
+[El botón QS y el LED](#el-botón-qs-y-el-led)
+
+[Comandos de la consola](#comandos-de-la-consola)
+
+[Mensajes](#mensajes)
+
+[El depurador hardware](#el-depurador-hardware)
+
+[Preparación](#preparación)
+
+[Uso](#uso)
+
+[Sesión típica](#sesión-típica)
+
+[Snapshots desde el depurador](#snapshots-desde-el-depurador)
+
+[Línea de comandos y opciones del INI](#línea-de-comandos-y-opciones-del-ini)
+
+[Línea de comandos](#línea-de-comandos)
+
+[Opciones del INI para arranques automáticos](#opciones-del-ini-para-arranques-automáticos)
+
+[Diferencias con el hardware real](#diferencias-con-el-hardware-real)
+
+[Resolución de problemas](#resolución-de-problemas)
 
 [Apéndice L --- Depurador por hardware](#apéndice-l-depurador-por-hardware)
 
@@ -398,7 +464,7 @@ Versión 1.0
 
 [La pantalla del depurador](#la-pantalla-del-depurador)
 
-[Snapshots](#snapshots)
+[Snapshots](#snapshots-1)
 
 [La consola USB](#la-consola-usb)
 
@@ -3670,22 +3736,340 @@ Con pasmo (http://pasmo.speccy.org/):
 
 # Apéndice K --- El emulador EightyOne-CrossPlatform
 
-EightyOne-CrossPlatform es el emulador de ZX81 usado para desarrollar y validar buena parte del software descrito en este manual antes de probarlo en el hardware real. Reproduce el comportamiento del SD81 Booster --- carga/guardado en SD, RAM extendida, RTC, joystick, etc. --- sin necesitar el ZX81 físico.
+El emulador, EightyOne-CrossPlatform, se descarga de https://codeberg.org/wilco2009/EightyOne-CrossPlatform
 
-> https://codeberg.org/wilco2009/EightyOne-CrossPlatform
+Este apéndice explica **cómo usar el SD81 Booster dentro del emulador EightyOne**: activarlo, apuntarlo a una tarjeta SD virtual y trabajar con las ventanas, menús, snapshots, consola serie y depurador hardware del emulador.
 
-## Configuración como ZX81 + SD81 Booster
+**No** describe los comandos propios del SD81 Booster (LOAD \*\..., PLAY, MAP, \...) ni el hardware. Para eso, consulta el resto de este manual, que se aplica igual en el emulador.
 
-1\. Descarga y compila (o instala la versión ya compilada) EightyOne-CrossPlatform desde el repositorio anterior.
+## Qué se emula
 
-2\. Copia el contenido completo de la tarjeta SD --- la carpeta SYS y el resto --- a una carpeta del disco duro del PC. El emulador lee de ahí como si fuera la tarjeta.
+EightyOne emula el SD81 Booster completo, no solo sus comandos:
 
-3\. En el emulador, selecciona la máquina ZX81 y activa la casilla del SD81 Booster.
+| **Parte** | **En el emulador** |
+|--------------------|----------------------------------------------------|
+| MCU (STM32) | Su protocolo en los puertos \$A7 / \$AF, los comandos del sistema de ficheros, PLAY, VGM, PEG, voz, RTC, joystick |
+| FPGA | Paginación de 64 × 8 KB, MC45, modos de vídeo Superfast y Spectrum, modos de texto con pantallas anchas, sprites hardware, doble búfer, Chroma81, AY ZonX81, interrupciones simuladas |
+| Depurador del firmware | El DEBUGGER.cpp del propio firmware, ejecutándose sin modificar, más la parte FPGA del depurador hardware |
+| Tarjeta SD | Una carpeta de tu ordenador |
+| LED y botón QuickSilva | Se muestran y se manejan desde la ventana de la consola serie |
 
-4\. Abre el diálogo de hardware y activa la interface SD (SD81 Booster), apuntando a la carpeta copiada en el paso 2.
+Como el emulador ejecuta el código real del firmware para el depurador y la ROM real del SD81 (SDBOOST.ROM) para todo lo demás, los programas y herramientas escritos para la placa real se comportan igual.
 
-5\. Arranca el emulador. Pulsa RUN+Enter para arrancar el explorador y a disfrutar. 😉\
-El comportamiento --- comandos LOAD \*, RAM extendida, RTC, etc. --- debería ser el mismo que en el hardware real.
+## Activar el SD81 Booster
+
+1\. Abre **Options → Hardware...** (F6).
+
+2\. Selecciona la máquina **ZX81**, **TS1000** o **TS1500**. El SD81 Booster no está disponible en ZX80, Lambda, R470, TK85, Jupiter Ace ni ZX97LE; allí la casilla aparece atenuada.
+
+3\. Marca **SD81 Booster**.
+
+4\. Pulsa **SD Card...** y elige la carpeta que hará de tarjeta virtual (ver «La tarjeta SD virtual»).
+
+5\. Pulsa **Apply / OK**. La máquina se reinicia con el SD81 Booster instalado.
+
+Con el SD81 Booster activo, el emulador configura el resto de la máquina como la placa real, y estos ajustes quedan forzados:
+
+- Sonido: chip AY **ZonX81**.
+
+- Joystick: **Programmable** (teclas por defecto: 5 izquierda, 8 derecha, 7 arriba, 6 abajo, Espacio disparo).
+
+- Alta resolución: **WRX**.
+
+- Color: **Chroma81**, siempre activo (no hay interruptor).
+
+- Generador de caracteres: **QuickSilva**, que la ROM del SD81 activa cuando hace falta.
+
+- La zona 8--16K es RAM.
+
+El ajuste del SD81 Booster se guarda en el INI y se recuerda entre sesiones. La opción *Save Configuration* (**Options → Configuration**) lo guarda junto con el resto de ajustes de hardware.
+
+## La tarjeta SD virtual
+
+La \"tarjeta SD\" es una carpeta normal. En ella está todo lo que tendría la tarjeta real:
+
+> \<carpeta SD\>/
+>
+> AUTOEXEC.P se ejecuta al arrancar (si existe)
+>
+> SYS/
+>
+> SDBOOST.ROM la imagen de la ROM del SD81 (obligatoria)
+>
+> DEBUG.BIN el monitor del depurador (opcional, ver «El depurador hardware»)
+>
+> \<tecla\>.ROM ROMs alternativas (ver «Teclas de arranque»)
+>
+> \... tus programas, carpetas, snapshots .Z81, ficheros VGM, etc.
+
+### Elegir la carpeta
+
+- **Options → Hardware... → SD Card...** abre un selector de carpeta. En el primer arranque apunta por defecto a la carpeta SD81 junto al emulador.
+
+- Puedes usar cualquier carpeta. Aplica las mismas reglas de nombres que en la tarjeta real (ver el resto de este manual).
+
+- Cambiar la carpeta requiere aplicar el diálogo de hardware, lo que reinicia la máquina.
+
+### La ROM
+
+El emulador lee **\`SYS/SDBOOST.ROM\`** de la SD virtual, exactamente como hace la MCU en la placa real, así que puedes probar una ROM nueva simplemente sustituyendo ese fichero y pulsando **Hard Reset**.
+
+Si el fichero no existe, el emulador recurre a la ROM cargada por el cargador de ROM propio de EightyOne. Algunas funciones (por ejemplo, cargar snapshots a través del monitor del depurador) necesitan la SDBOOST.ROM real.
+
+### Editar la tarjeta con el emulador en marcha
+
+La carpeta se lee bajo demanda, así que puedes añadir o cambiar ficheros con tu gestor de archivos mientras el emulador funciona. Los listados de directorio (LOAD \*DIR) muestran siempre el contenido actual. Un fichero que el SD81 tiene abierto (por ejemplo un VGM en reproducción) lo mantiene abierto el emulador, como en la tarjeta real, y no se puede borrar desde Windows hasta que se cierre.
+
+## Arranque: reset, teclas de arranque y AUTOEXEC
+
+| **Menú** | **Qué hace** |
+|-------------------------------|-----------------------------------------|
+| **Control → Hard Reset (Power Cycle)** (Shift+F2) | Reinicializa la máquina y el SD81 Booster, como si se apagara y encendiera. La ROM se recarga desde la SD. |
+| **Control → Soft Reset (RESET Line)** (F2) | Pulsa la línea de reset. El SD81 Booster conserva su estado y no recarga nada. |
+| **Control → NMI** (Shift+F3) | Genera una NMI. |
+| **Control → Pause** (F3) | Pausa la emulación. |
+
+### Teclas de arranque
+
+La ROM del SD81 mira las teclas numéricas 0--9 durante el arranque para elegir una ROM alternativa (/SYS/\<tecla\>.ROM). En el emulador, **mantén pulsada la tecla numérica mientras pulsas Hard Reset** (o mientras arranca el emulador). El emulador conserva el estado del teclado durante el reset para que la ROM vea la tecla, como en la máquina real.
+
+### AUTOEXEC
+
+Si la raíz de la SD contiene AUTOEXEC.P, la ROM del SD81 lo ejecuta al arrancar, como en la placa real.
+
+## Pantalla, sonido y joystick
+
+### Pantalla
+
+- **Options → Display Settings...** (F5) y **View → Zoom / Border** funcionan como en cualquier máquina. Las pantallas extendidas del SD81 (Spectrum 256 × 192, texto Superfast, modos de texto anchos) se muestran en la ventana normal.
+
+- **Options → TV Emulation...** (F10) ajusta brillo, contraste, color, ruido, fantasma (ghosting) y líneas de barrido (scanlines). Los valores por defecto son los adecuados para la combinación ZX81 + SD81 Booster.
+
+- Un reset devuelve la pantalla al modo ZX81 por defecto y apaga el color Chroma, como la placa real.
+
+### Sonido
+
+El sonido de los chips AY (ZonX81, el segundo AY de la FPGA y el AY de la MCU que usan PLAY, VGM y PEG) va a la salida de audio del emulador. **Options → Sound...** (F8) y **Tools → Sound Output...** se aplican como siempre.
+
+### Joystick
+
+- **Control → Connect Joystick 1/2** conecta un mando físico al joystick programable.
+
+- El mapeo de teclas se cambia con el comando JOY (ver el resto de este manual) o desde el diálogo de hardware.
+
+- Las opciones de **autodisparo** están en el menú Control.
+
+## Snapshots
+
+Los snapshots son ficheros .Z81. Con el SD81 Booster activo llevan una sección extra \[SD81BOOSTER\] con el estado de la placa (el formato está en DOC/z81_snapshot_format.md). Un snapshot hecho con el SD81 restaura todo el estado: las 64 páginas de memoria, el mapeo de páginas, el modo de vídeo, el borde, Chroma, las pantallas anchas, los sprites, los chips AY, un VGM que estuviera sonando, los programas PEG, los ficheros que estuvieran abiertos y el directorio actual.
+
+### Desde el menú del emulador
+
+- **File → Save Snapshot...** (F12) guarda un snapshot.
+
+- **File → Load Snapshot...** (F11) carga uno. Arrastrar y soltar en la ventana solo admite ficheros .P, no snapshots.
+
+### Desde el ZX81
+
+- LOAD \*Z81 \"nombre\" carga un snapshot desde la tarjeta SD. Cuando el monitor del depurador del SD81 está instalado (ver «El depurador hardware»), el emulador lo carga exactamente igual que la placa real: el sonido se silencia mientras carga y el VGM, el PEG y los ficheros abiertos se reanudan al final.
+
+- Los snapshots hechos desde el depurador hardware (el comando snap, o manteniendo el botón QS 3 segundos) son ficheros .Z81 normales y también se cargan desde el menú del emulador.
+
+### Cargar con el SD81 desactivado
+
+Un snapshot con sección \[SD81BOOSTER\] cargado con el SD81 desactivado carga solo la memoria y la CPU; activa primero el SD81 para obtener el estado completo.
+
+## CP/M Disk Manager
+
+**Tools → CP/M Disk Manager...** permite explorar imágenes de disco CP/M y copiar ficheros entre ellas y tu ordenador, sin herramientas externas.
+
+- Formatos admitidos: SD81 **CP/M+ (2 MB)** y SD81 **CP/M 2.2 (250 KB)**.
+
+- Puedes crear una imagen nueva, copiar ficheros desde y hacia la imagen y borrar ficheros.
+
+- CP/M se ejecuta desde la tarjeta SD (LOAD \*CPM\...); consulta el resto de este manual. **Help → CP/M Keyboard Map** muestra el mapa de teclas de CP/M.
+
+## Ventana Debug: panel SD81 Booster
+
+**Tools → Debug Window...** (Ctrl+F6) muestra un panel extra **SD81 Booster** en su esquina inferior derecha cuando la placa está activa. Los valores aparecen atenuados mientras el emulador funciona y se actualizan cuando está detenido.
+
+| **Campo** | **Significado** |
+|----------------|--------------------------------------------------------|
+| Mode | Modo de vídeo actual (TEXT, Spectrum, ancho, \...) |
+| Chroma | Registro de modo de Chroma81 |
+| HFILE | Dirección del fichero de pantalla |
+| Border | Modo y color del borde |
+| NMI gen | Estado del generador de NMI (y fotogramas) |
+| CDFLAG | Estado del indicador FAST/SLOW |
+| WRX | Alta resolución WRX activada o no |
+| MC45 | Modo MC45: off (código hasta \$8000), on (todo el rango) u on (\$C000) |
+| Block / Page | Los 8 bloques de memoria y la página de 8 KB mapeada actualmente en cada uno |
+
+La **Live Memory View** (Ctrl+F5) muestra la memoria tal como la ve la CPU, con el mapeo actual.
+
+Si usas los símbolos de la ventana Debug, los ficheros de símbolos (.SYM) se resuelven por página de memoria, de modo que las etiquetas del código paginado se resuelven en la página correcta.
+
+## La consola serie
+
+La placa real tiene un puerto serie USB-C que se usa para diagnóstico y para el depurador hardware. El emulador ofrece lo mismo en una ventana.
+
+Ábrela con **Tools → SD81 Booster Serial Console...**.
+
+### La ventana
+
+> \[ línea de entrada \] \[QS (hold)\] \[LED\] \[Clear\]
+>
+> +\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--+
+>
+> \| salida de la MCU \|
+>
+> \| \... \|
+>
+> +\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--+
+
+- **Línea de entrada** (arriba): escribe un comando y pulsa **Enter**. La línea se repite en la salida con el prefijo \>. Las teclas **↑** y **↓** recuperan las líneas anteriores.
+
+- **Salida**: todo lo que imprime la MCU, en fuente monoespaciada. La ventana conserva la parte más reciente de una salida larga.
+
+- **Clear**: vacía la salida.
+
+- **QS (hold)** y **LED**: ver más abajo.
+
+### El botón QS y el LED
+
+La placa tiene un **botón QuickSilva** y un **LED de estado** tricolor. En el emulador:
+
+- Mantén pulsado con el ratón el botón **QS (hold)** y suéltalo cuando el LED muestre el color que quieres. Al soltar se ejecuta la acción correspondiente al tiempo que lo has mantenido.
+
+- El **cuadrado LED** junto al botón muestra en tiempo real el color del LED de la placa, incluido el parpadeo.
+
+| **Pulsado durante** | **LED** | **Al soltar** |
+|------------|----------------------------|---------------------------------|
+| menos de 1 s | verde (o cian si QuickSilva está apagado) | conmuta QuickSilva |
+| 1 -- 3 s | magenta | pausa / continúa el programa (depurador hardware) |
+| más de 3 s | amarillo | hace un snapshot |
+
+Otros colores reflejan actividad: amarillo parpadeando mientras se escribe un snapshot, cian parpadeando mientras se carga uno, magenta cuando el depurador tiene el programa parado.
+
+|  |  |
+|:----:|------------------------------------------------------------------|
+| **ℹ** | *El LED y la medición del tiempo de pulsación se actualizan una vez por fotograma emulado, así que el color puede ir retrasado respecto al ratón hasta un fotograma (20 ms). El botón no se evalúa mientras el propio emulador está en pausa.* |
+
+### Comandos de la consola
+
+| **Comando** | **Acción** |
+|-----------------------------|-------------------------------------------|
+| DBG_PAUSE | Detiene el programa en el siguiente límite de instrucción (depurador hardware) |
+| DBG_RELOAD | Recarga /SYS/DEBUG.BIN y reinicia el Z80 y la FPGA |
+| DBG_TRACE / DBG_TRACE on / DBG_TRACE off | Muestra o cambia el trazado de comandos de la MCU en la consola |
+| DBG_FPGA | Vuelca el estado de la FPGA y del mapper emulados (solo emulador, para diagnóstico) |
+| Comandos en minúsculas (r, s, m, \...) | Los comandos del depurador del firmware (ver «El depurador hardware») |
+
+Atajos de menú: **Control → SD81 hardware debugger: pause** y **reload monitor and reset** envían los comandos DBG\_ correspondientes. Pulsar **Arriba y Abajo** a la vez en el joystick también pausa el programa.
+
+### Mensajes
+
+La consola también muestra los mensajes de estado de la MCU. Con el trazado activo (DBG_TRACE on) verás además una línea por cada comando recibido del Z81 (COMMAND=... y AFTER COMMAND=...), útil al informar de un problema.
+
+## El depurador hardware
+
+El SD81 Booster tiene un depurador hardware: la FPGA detiene el programa en un límite de instrucción y llama a un pequeño programa monitor (/SYS/DEBUG.BIN) que reside en la página de memoria 63, y la MCU ofrece la línea de comandos por el puerto serie. El emulador lo implementa todo, con el código real del depurador del firmware, así que se comporta como la placa real. Los comandos, la pantalla del depurador y el botón QS se describen en el Apéndice L; aquí se explica cómo se manejan en el emulador.
+
+### Preparación
+
+1\. Coloca el fichero del monitor en **\`SYS/DEBUG.BIN\`** dentro de la carpeta SD (8 KB como máximo). Se carga en cada hard reset y la consola imprime Debug monitor loaded (/SYS/DEBUG.BIN, ... bytes). Si el fichero no existe, el depurador queda desactivado.
+
+2\. Asegúrate de que la ROM de la SD es una versión que soporte el depurador.
+
+3\. Abre **Tools → SD81 Booster Serial Console...**.
+
+### Uso
+
+1\. Pausa el programa con p en la consola, con la opción de menú **Control → SD81 hardware debugger: pause**, con el botón QS (1--3 s) o con Arriba + Abajo del joystick.
+
+2\. Escribe comandos del depurador en la línea de entrada. La ayuda del propio firmware los lista todos; escribe ? para verla. En resumen:
+
+| **Grupo** | **Comandos** |
+|----------------------|--------------------------------------------------|
+| Ejecución | p pausa, c continuar, s \[n\] paso, o paso por encima, u paso hasta salir, g dir ejecutar hasta una dirección |
+| Breakpoints y watchpoints | b dir, bc, bl; w r\|w\|io dir |
+| Inspección | r registros, d desensamblar, m volcar memoria, io puerto |
+| Modificación | e dir bytes, x reg=val |
+| Traza | t, th (historial) |
+| Símbolos | sym fichero (pasmo .sym); las direcciones admiten símbolo o símbolo+n |
+| Pantalla | ui muestra la pantalla propia del depurador en el ZX81 (texto 80 × 24); v muestra el vídeo del programa mientras está parado |
+| Snapshots | snap \[-a\] \[nombre\] escribe un fichero .Z81 |
+
+Los números son hexadecimales. Se admiten programas en modo **SLOW** y **FAST**.
+
+### Sesión típica
+
+> \> p detiene el programa en ejecución
+>
+> \> r muestra los registros y la instrucción actual
+>
+> \> b 8000 pone un breakpoint
+>
+> \> c continúa; el programa se detiene en 8000
+>
+> \> s 5 ejecuta cinco instrucciones
+>
+> \> snap guarda un snapshot del programa detenido
+>
+> \> c sigue adelante
+
+### Snapshots desde el depurador
+
+snap escribe un fichero .Z81 en la tarjeta SD (el nombre por defecto es el del último programa cargado). Cárgalo con LOAD \*Z81, con **File → Load Snapshot...** o en la placa real. Por defecto solo se guardan las páginas mapeadas; snap -a guarda las 64.
+
+## Línea de comandos y opciones del INI
+
+### Línea de comandos
+
+Por línea de comandos y al arrastrar y soltar sobre la ventana, el emulador solo acepta ficheros .P.
+
+### Opciones del INI para arranques automáticos
+
+En \[MAIN\] del fichero INI:
+
+| **Clave** | **Significado** |
+|----------------|--------------------------------------------------------|
+| AutoType | Una secuencia de **teclas** que se teclea sola una vez arrancada la máquina, como si se escribiera en el teclado. \\n es ENTER. Ejemplo: AutoType=J\*CD\"MIPROYECTO\"\\nR\\n teclea LOAD \*CD\"MIPROYECTO\" y luego RUN, lo que ejecuta AUTOEXEC.P de esa carpeta. |
+
+Son teclas, no texto: en un ZX81 LOAD es la tecla única J; los símbolos que necesitan SHIFT los gestiona el emulador. Está pensado para arranques rápidos y pruebas, no para el uso normal.
+
+La carpeta SD se guarda en el INI con la clave SD81VirtualSD, y el estado del SD81 con la clave SD81.
+
+## Diferencias con el hardware real
+
+El emulador reproduce la placa, pero algunas cosas son distintas por naturaleza:
+
+- **La tarjeta SD es una carpeta.** No hay límites de formato FAT, la tarjeta nunca se \"extrae\" y los nombres de fichero siguen el sistema de ficheros del anfitrión (Windows no distingue mayúsculas).
+
+- **Tiempos.** La MCU y la SD son instantáneas comparadas con lo real; los programas que dependen de la velocidad de la SD van más rápido. La temporización de VGM, PLAY y PEG sigue el reloj del anfitrión.
+
+- **Los comandos de actualización de FPGA y firmware** (LOAD \*FPGA, actualización del firmware) no tienen efecto en el emulador.
+
+- **Hardware no presente:** el Wi-Fi y el servidor de ficheros, la batería del reloj de tiempo real (BAT) y los LEDs de la placa distintos del LED de estado.
+
+- **La consola serie** sustituye al terminal serie USB-C; no hay velocidad ni puerto que configurar.
+
+- El LED de estado y el botón QS se manejan con el ratón en la ventana de la consola; la pulsación corta o larga de la placa real se reproduce por el tiempo que mantienes pulsado el botón del ratón.
+
+## Resolución de problemas
+
+| **Problema** | **Qué comprobar** |
+|-------------------------------|-----------------------------------------|
+| La casilla SD81 Booster aparece atenuada | La máquina elegida no lo soporta. Elige ZX81, TS1000 o TS1500. |
+| Pantalla negra / no arranca nada al activarlo | Falta SYS/SDBOOST.ROM en la carpeta SD o no es válida. Revisa la ruta en **Hardware → SD Card...**. |
+| LOAD \*Z81 termina con pantalla negra | Usa una SDBOOST.ROM reciente; con una ROM antigua el snapshot no se puede cargar a través del monitor del depurador. Cargar desde **File → Load Snapshot...** funciona siempre. |
+| La consola dice \"No debug monitor loaded\" | Falta SYS/DEBUG.BIN o pesa más de 8 KB. Añádelo y haz **Hard Reset** (o DBG_RELOAD). |
+| La consola no muestra nada | Pulsa **Clear** y envía un comando; comprueba que **Tools → SD81 Booster Serial Console...** es la ventana en la que escribes. |
+| No se puede borrar un fichero desde Windows | El emulador lo tiene abierto (por ejemplo un VGM en reproducción). Detén la reproducción desde el programa o reinicia la máquina. |
+| La pantalla sale mal tras cambiar de modo | Haz un **Hard Reset**. Si puedes reproducirlo, guarda un snapshot e infórmalo. |
+| Falta el sonido de los chips AY | Revisa **Options → Sound...**, que la salida de sonido esté activada y que el SD81 esté activo (fuerza el AY ZonX81). |
+
+Para informar de un problema, activa el trazado con DBG_TRACE on, reprodúcelo y copia la salida de la consola.
 
 # Apéndice L --- Depurador por hardware
 

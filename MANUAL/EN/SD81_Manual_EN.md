@@ -3172,7 +3172,7 @@ Allophones are used with the MCU BINARY SAY command (16h) for precise phonetic s
 
 # Appendix H --- Hardware sprites
 
-The SD81 Booster includes a sprite system handled entirely by hardware: 32 sprites of 8×8 pixels, each with its own transparency mask and its own colour per row (several colours within the same sprite), automatically composited over the background image at no CPU cost. They are controlled with POKEs to a fixed address block, or more conveniently with four dedicated LOAD \* commands.
+The SD81 Booster includes a sprite system handled entirely by hardware: 64 sprites of 8×8 pixels, each with its own transparency mask and its own colour per row (several colours within the same sprite), automatically composited over the background image at no CPU cost. They are controlled with POKEs to a fixed address block, or more conveniently with four dedicated LOAD \* commands.
 
 ## Coordinate system
 
@@ -3192,7 +3192,7 @@ Just like HFILE or the border pattern, these addresses fall within the first 8 K
 
 | **Address** | **Value** | **Function** |
 |-------------|---------|---------------------------------------------------|
-| 2100 | 0-31 | Selects the active sprite. Subsequent writes affect this sprite. |
+| 2100 | 0-63 | Selects the active sprite. Subsequent writes affect this sprite. |
 | 2101 | 0/1 | Enables (1) or disables (0) the selected sprite. |
 | 2102 | 0-255 | X coordinate, low 8 bits. |
 | 2103 | 0/1 | X coordinate, bit 8 (full range 0-318). |
@@ -3217,11 +3217,11 @@ Each row\'s colour byte is ink×16+paper, with ink and paper each on the 0-15 sc
 
 ## Priority between overlapping sprites
 
-If more than one sprite is active at the same pixel, the highest-numbered one wins (sprite 31 covers sprite 0). There is no other drawing-order control besides the sprite number.
+If more than one sprite is active at the same pixel, the highest-numbered one wins (sprite 63 covers sprite 0). There is no other drawing-order control besides the sprite number.
 
 ## BASIC commands
 
-**LOAD \*SPRITE \<n\>,\<x\>,\<y\>** --- selects sprite \<n\> (0-31), sets its position and enables it, in a single step.
+**LOAD \*SPRITE \<n\>,\<x\>,\<y\>** --- selects sprite \<n\> (0-63), sets its position and enables it, in a single step.
 
 LOAD \*SPRITE 0,150,88
 
@@ -3241,7 +3241,7 @@ LOAD \*SPRMASK 0,\"070F1F1F3F3F1F1F\"
 
 ## Capacity
 
-The current firmware supports 32 sprites, with free per-pixel positioning and colour per row, but at most 8 of them can appear on the same screen line. If more than 8 active sprites cross the same line, the 8 with the highest index are drawn on that line and the others do not appear; on the lines where they do not coincide they show normally. It is the same limit the NES had, and programs that move many sprites together usually rotate which ones are left out in each frame so that they flicker instead of disappearing. A change to a sprite\'s data shows from the next line. It is a fixed figure for the end user \-\--it depends on the specific FPGA bitstream installed in the interface\-\--, not something configurable from BASIC.
+The current firmware supports 64 sprites, with free per-pixel positioning and colour per row, but at most 8 of them can appear on the same screen line. If more than 8 active sprites cross the same line, the 8 with the highest index are drawn on that line and the others do not appear; on the lines where they do not coincide they show normally. It is the same limit the NES had, and programs that move many sprites together usually rotate which ones are left out in each frame so that they flicker instead of disappearing. A change to a sprite\'s data shows from the next line. It is a fixed figure for the end user \-\--it depends on the specific FPGA bitstream installed in the interface\-\--, not something configurable from BASIC.
 
 # Appendix I --- CP/M: an alternative operating system
 

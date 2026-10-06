@@ -75,7 +75,12 @@ static DbgOut dbg_out;
 
 #define AY_PORT_A  0x00CF // seleccion / lectura del AY A (ZonX) y del B
 #define AY_PORT_B  0x00C7
-#define SPR_MIRROR 0x0C00 // copia de los 32 sprites en la BRAM de sombra (32 x 32)
+#define SPR_MIRROR 0x0C00  // copia de los sprites 0-31 en la BRAM de sombra (32 x 32)
+#define SPR_MIRROR2 0x1800 // la de los sprites 32-63
+#define SPR_N 64           // sprites de la FPGA
+static inline bool spr_in_mirror(uint16_t x){
+  return (x >= SPR_MIRROR && x < SPR_MIRROR + 0x400) || (x >= SPR_MIRROR2 && x < SPR_MIRROR2 + 0x400);
+}
 
 // Que hacer con el resultado
 enum {
@@ -1228,7 +1233,7 @@ static struct {
   uint8_t page[8192];
   uint8_t rle_val; uint32_t rle_cnt; uint8_t toks;
   uint8_t ay_sel[2], ay[2][16];               // los AY de la FPGA (A, B)
-  uint8_t spr[1024], spr_sel;                 // la copia de los sprites
+  uint8_t spr[SPR_N * 32], spr_sel;           // la copia de los sprites (las dos tablas seguidas)
   uint8_t cmp[256]; uint16_t cmp_n; uint8_t cmp_blk;   // trozo de [MEMORY] para comparar con la sombra
   uint8_t shdiff;                             // bloques cuya sombra no es [MEMORY]
   uint8_t shblk;                              // SN_SHADOW: bloque en curso
@@ -1386,6 +1391,9 @@ static void snap_begin(){
   q_out(DBG_PORT, 0x85); q_out(DBG_PORT, SPR_MIRROR & 0xFF);
   q_out(DBG_PORT, 0x86); q_out(DBG_PORT, SPR_MIRROR >> 8);
   for (int k = 0; k < 4; k++) q_push(OP_INSEQ, DBG_PORT, 256, TAG_SNAP_SPR, k);
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, SPR_MIRROR2 & 0xFF);
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, SPR_MIRROR2 >> 8);
+  for (int k = 4; k < 8; k++) q_push(OP_INSEQ, DBG_PORT, 256, TAG_SNAP_SPR, k);
   q_out(DBG_PORT, 0x85); q_out(DBG_PORT, 2100 & 0xFF);
   q_out(DBG_PORT, 0x86); q_out(DBG_PORT, 2100 >> 8);
   q_push(OP_INSEQ, DBG_PORT, 1, TAG_SNAP_SPRSEL);
@@ -1504,11 +1512,12 @@ static void snap_write_sd81(){
   // a cero en cada reset; si un sprite sigue teniendo los bytes de la ROM
   // (una ROM sin esa limpieza), no se ha escrito nunca: no se guarda
   uint8_t* rom = sn.page;                     // (libre hasta las paginas)
-  bool rom_ok = rom_file_read(SPR_MIRROR, rom, 0x400) == 0x400;
+  bool rom_ok = rom_file_read(SPR_MIRROR, rom, 0x400) == 0x400 &&
+                rom_file_read(SPR_MIRROR2, rom + 0x400, 0x400) == 0x400;
   uint8_t sel_rom;
   bool sel_never = rom_file_read(2100, &sel_rom, 1) == 1 && sel_rom == sn.spr_sel;
   swf("SPRITE_SEL %02X\n", sel_never ? 0 : sn.spr_sel);
-  for (int i = 0; i < 32; i++) {
+  for (int i = 0; i < SPR_N; i++) {
     const uint8_t* f = sn.spr + i * 32;
     bool zero = true, never = rom_ok;
     for (int j = 0; j < 28; j++) {
@@ -1559,7 +1568,7 @@ static bool shadow0_is_rom(){
     if (rom_file_read(a, r, 256) != 256) return false;
     for (int i = 0; i < 256; i++) {
       uint16_t x = a + i;
-      if ((x >= POKE_FIRST && x <= 2128) || (x >= SPR_MIRROR && x < SPR_MIRROR + 0x400)) continue;
+      if ((x >= POKE_FIRST && x <= 2128) || spr_in_mirror(x)) continue;
       if (r[i] != sn.page[x]) return false;
     }
   }
@@ -1579,7 +1588,7 @@ static void snap_result(uint8_t tag, uint8_t* data, uint16_t n){
       memcpy(sn.ay[last.arg & 1], data, n < 16 ? n : 16);
       q_out(last.arg ? AY_PORT_B : AY_PORT_A, sn.ay_sel[last.arg & 1]);   // el elegido, como estaba
       break;
-    case TAG_SNAP_SPR:    memcpy(sn.spr + (last.arg & 3) * 256, data, n < 256 ? n : 256); break;
+    case TAG_SNAP_SPR:    memcpy(sn.spr + (last.arg & 7) * 256, data, n < 256 ? n : 256); break;
     case TAG_SNAP_SPRSEL: sn.spr_sel = n ? data[0] : 0; break;
     case TAG_SNAP_DIRTY:
       memset(sn.dirty, 0, sizeof(sn.dirty));
@@ -1715,7 +1724,7 @@ static struct {
   bool dir_open; char dir_arg[48];
   bool set_im;                  // cargado desde la parada (L): el IM va con SETREGS
   bool has_ay[2]; uint8_t ay[2][16], ay_sel[2];   // los AY de la FPGA (A, B)
-  uint8_t spr[32][28], spr_sel;                   // los sprites (los 28 campos de 2101-2128)
+  uint8_t spr[SPR_N][28], spr_sel;                // los sprites (los 28 campos de 2101-2128)
   uint32_t shadow_pos[8];                         // SHADOW de cada bloque (0 = no viene)
   uint8_t page;                 // LD_PAGES: pagina en curso; LD_SPRITES y LD_SHADOW: el siguiente
   uint32_t done;                // bytes ya pedidos de la fuente en curso
@@ -1974,7 +1983,7 @@ static uint8_t ld_prepare(const char* path, uint8_t* im){
           uint32_t h[4];
           for (int i = 0; i < 4 && !bad; i++) { if (!ld_tok(t, sizeof(t))) bad = true; else h[i] = ld_hex(t); }
           if (bad) break;
-          uint8_t* f = ld.spr[h[0] & 31];
+          uint8_t* f = ld.spr[h[0] & (SPR_N - 1)];
           f[0] = h[1]; f[1] = h[2] & 0xFF; f[2] = (h[2] >> 8) & 1; f[3] = h[3];
           for (int i = 4; i < 28 && !bad; i++) { if (!ld_tok(t, sizeof(t))) bad = true; else f[i] = ld_hex(t); }
         }
@@ -2078,7 +2087,7 @@ static void ld_pokes(){
   run(2041, POKE_LAST);
 }
 static void ld_sprites(){                     // 8 sprites cada vez
-  for (int k = 0; k < 8 && ld.page < 32; k++, ld.page++) {
+  for (int k = 0; k < 8 && ld.page < SPR_N; k++, ld.page++) {
     DbgReq* r = q_push(OP_WRITE, 2100, 1);
     if (r) r->data[0] = ld.page;
     r = q_push(OP_WRITE, 2101, 28);
@@ -2153,7 +2162,7 @@ static void ld_feed(){
       return;
     case LD_SPRITES:
       ld_sprites();
-      if (ld.page >= 32) ld.stage = LD_POKES_LATE;
+      if (ld.page >= SPR_N) ld.stage = LD_POKES_LATE;
       return;
     case LD_POKES_LATE:
       ld_pokes_late();
@@ -2220,9 +2229,10 @@ static void ld_feed(){
         for (int i = 0; i < LD_NBUF && ld.done < 8192; i++) {   // menos la copia de los sprites
           int k = ld_chunk(256);
           if (k < 0) { ld_abort("bad RAM_PAGE"); return; }
-          if (ld.done < SPR_MIRROR || ld.done >= SPR_MIRROR + 0x400) q_push(OP_BRAMW, 0, 256, TAG_NONE, k);
+          if (!spr_in_mirror(ld.done)) q_push(OP_BRAMW, 0, 256, TAG_NONE, k);
           ld.done += 256;
           if (ld.done == SPR_MIRROR) { ld_bram_ptr(SPR_MIRROR + 0x400); break; }
+          if (ld.done == SPR_MIRROR2) { ld_bram_ptr(SPR_MIRROR2 + 0x400); break; }
         }
       if (!ld.page_pos[ld.mapper[0]] || ld.done >= 8192) {
         // 2038-2098 en la sombra: el valor de los POKEs escritos y el byte de

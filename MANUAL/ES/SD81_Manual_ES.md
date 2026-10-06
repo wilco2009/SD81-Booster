@@ -3274,7 +3274,7 @@ Los alófonos se usan con el comando MCU BINARY SAY (16h) para síntesis fonéti
 
 # Apéndice H --- Sprites por hardware
 
-El SD81 Booster incluye un sistema de sprites gestionado enteramente por hardware: 32 sprites de 8×8 píxeles, cada uno con su propia máscara de transparencia y su propio color por fila (varios colores dentro del mismo sprite), compuestos automáticamente sobre la imagen de fondo sin coste de CPU. Se controlan con POKEs a un bloque de direcciones fijo, o de forma más cómoda con cuatro comandos LOAD \* dedicados.
+El SD81 Booster incluye un sistema de sprites gestionado enteramente por hardware: 64 sprites de 8×8 píxeles, cada uno con su propia máscara de transparencia y su propio color por fila (varios colores dentro del mismo sprite), compuestos automáticamente sobre la imagen de fondo sin coste de CPU. Se controlan con POKEs a un bloque de direcciones fijo, o de forma más cómoda con cuatro comandos LOAD \* dedicados.
 
 ## Sistema de coordenadas
 
@@ -3294,7 +3294,7 @@ Igual que HFILE o el patrón de borde, estas direcciones caen dentro de los prim
 
 | **Dirección** | **Valor** | **Función** |
 |------------|--------|----------------------------------------------------|
-| 2100 | 0-31 | Selecciona el sprite activo. Las escrituras siguientes afectan a este sprite. |
+| 2100 | 0-63 | Selecciona el sprite activo. Las escrituras siguientes afectan a este sprite. |
 | 2101 | 0/1 | Activa (1) o desactiva (0) el sprite seleccionado. |
 | 2102 | 0-255 | Coordenada X, 8 bits bajos. |
 | 2103 | 0/1 | Coordenada X, bit 8 (rango completo 0-318). |
@@ -3319,11 +3319,11 @@ El byte de color de cada fila es tinta×16+papel, con tinta y papel cada uno en 
 
 ## Prioridad entre sprites solapados
 
-Si en un mismo píxel hay más de un sprite activo, gana el de índice más alto (el sprite 31 tapa al 0). No hay ningún otro control de orden de dibujado aparte del número de sprite.
+Si en un mismo píxel hay más de un sprite activo, gana el de índice más alto (el sprite 63 tapa al 0). No hay ningún otro control de orden de dibujado aparte del número de sprite.
 
 ## Comandos BASIC
 
-**LOAD \*SPRITE \<n\>,\<x\>,\<y\>** --- selecciona el sprite \<n\> (0-31), fija su posición y lo activa, en un solo paso.
+**LOAD \*SPRITE \<n\>,\<x\>,\<y\>** --- selecciona el sprite \<n\> (0-63), fija su posición y lo activa, en un solo paso.
 
 LOAD \*SPRITE 0,150,88
 
@@ -3343,7 +3343,7 @@ Se usan 16 caracteres hex en vez de un único bloque de 48 (color+píxel+máscar
 
 ## Capacidad
 
-El firmware actual soporta 32 sprites, con posicionamiento libre por píxel y color por fila, pero como máximo 8 de ellos pueden aparecer en una misma línea de pantalla. Si más de 8 sprites activos cortan la misma línea, en esa línea se dibujan los 8 de índice más alto y los demás no aparecen; en las líneas donde no coinciden se ven con normalidad. Es el mismo límite que tenía la NES, y los programas que mueven muchos sprites juntos suelen rotar cuáles quedan fuera en cada imagen para que parpadeen en vez de desaparecer. Un cambio en los datos de un sprite se ve a partir de la línea siguiente. Es una cifra fija para el usuario final \-\--depende del bitstream concreto de la FPGA que lleve instalado el interface\-\--, no algo configurable desde BASIC.
+El firmware actual soporta 64 sprites, con posicionamiento libre por píxel y color por fila, pero como máximo 8 de ellos pueden aparecer en una misma línea de pantalla. Si más de 8 sprites activos cortan la misma línea, en esa línea se dibujan los 8 de índice más alto y los demás no aparecen; en las líneas donde no coinciden se ven con normalidad. Es el mismo límite que tenía la NES, y los programas que mueven muchos sprites juntos suelen rotar cuáles quedan fuera en cada imagen para que parpadeen en vez de desaparecer. Un cambio en los datos de un sprite se ve a partir de la línea siguiente. Es una cifra fija para el usuario final \-\--depende del bitstream concreto de la FPGA que lleve instalado el interface\-\--, no algo configurable desde BASIC.
 
 # Apéndice I --- CP/M: un sistema operativo alternativo
 

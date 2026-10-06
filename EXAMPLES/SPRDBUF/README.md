@@ -1,7 +1,8 @@
 # SPRDBUF -- prueba de sprites por línea con el doble buffer
 
 Prueba sintética para el FPGA con **sprites por línea** (los sprites se leen de
-la RAM de sombra, `sprite_engine.v`, máximo 8 por línea) y el **doble buffer**
+la RAM de sombra, `sprite_engine.v`, máximo 8 por línea; en la rama de 64
+sprites hay dos tablas en la sombra) y el **doble buffer**
 (`POKE 2057`, que copia 8 KB por el mismo puerto de la BRAM en el blanking).
 Ningún programa usaba las dos cosas a la vez. Modo Superfast HiRes Spectrum,
 con la pelota de `EXAMPLES/DBUF` rebotando de fondo.
@@ -25,6 +26,8 @@ color del aro dice qué sprite es.
 | Segunda fila (Y=56) | 12-17 | Los **6** cuadrados, enteros |
 | Tercera fila, izquierda (Y=96) y derecha (Y=100) | 18-22 y 23-27 | En las 4 líneas donde coinciden (10 sprites) faltan los dos más a la izquierda: los dos primeros cuadrados de la izquierda salen **cortados por la mitad** (solo sus 4 filas de arriba). Los otros 8 salen enteros |
 | Un cuadrado que recorre la pantalla en horizontal (sprite 28, Y=150) y otro en vertical (sprite 29, X=230) | 28 y 29 | Pasan por encima de la pelota y del fondo sin parpadear ni partirse |
+| Fila de abajo (Y=170), a caballo de las dos tablas (solo con la FPGA de 64 sprites) | 30-39 | Se ven **8**: los sprites 32 a 39. El 30 y el 31 (aros azul y rojo) no aparecen |
+| Última fila (Y=185), solo con la FPGA de 64 sprites | 62 y 63 | Dos cuadrados, de aros verde y cian |
 
 ## Lo que comprueba
 

@@ -761,8 +761,9 @@ Port $7FEF (01111111 11101111) - IN:
 
 	// ========================================================================
 	// Sprites 8x8 (1 byte/scanline + mascara). Se guardan SOLO en la RAM de
-	// sombra ($0C00 + sprite*32 + campo, ver mas abajo) y sprite_engine.v los
-	// lee por linea, durante el borde horizontal: carga en 8 slots de linea los
+	// sombra (sprites 0-31 en $0C00 + sprite*32 + campo, 32-63 en $1800 +
+	// (sprite-32)*32 + campo, ver mas abajo) y sprite_engine.v los lee por
+	// linea, durante el borde horizontal: carga en 8 slots de linea los
 	// sprites que cortan la linea que empieza (los 8 de indice mas alto si hay
 	// mas). Antes eran 32 slots con su propia memoria distribuida (sprite_slot.v,
 	// que se conserva como referencia del banco de pruebas).
@@ -774,7 +775,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// de 0 a 255 y cabe en uno. Lo que caiga fuera de (0,0)-(255,191) no se
 	// dibuja (ver spr_in_display mas abajo).
 	//
-	// POKE 2100,n           -> selecciona el sprite n (0..NUM_SPRITES-1)
+	// POKE 2100,n           -> selecciona el sprite n (0..NUM_SPRITES-1 = 0..63)
 	// POKE 2101,enable       -> activa/desactiva el sprite seleccionado
 	// POKE 2102,x_low        -> X, 8 bits bajos
 	// POKE 2103,x_high       -> X, bit 8 (0 o 1)
@@ -786,7 +787,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// POKE 2113..2120,byte   -> 8 filas de pixel
 	// POKE 2121..2128,byte   -> 8 filas de mascara (bit=1 -> pixel visible)
 	// ========================================================================
-	localparam NUM_SPRITES = 32;		// punto de partida; cambiar solo aqui
+	localparam NUM_SPRITES = 64;		// DEBE coincidir con SPR_COUNT en la ROM
 
 	localparam SPR_SEL_ADDR  = 16'd2100;
 	localparam SPR_BASE_ADDR = 16'd2101;
@@ -873,12 +874,12 @@ Port $7FEF (01111111 11101111) - IN:
 
 	// Sprite activo (POKE 2101): lo guarda aqui la FPGA, no la sombra (que tras
 	// un reset conserva la ROM) y se borra con el reset, como el de cada slot
-	// antiguo. Solo vale para los sprites 0..31.
-	reg [31:0] spr_en = 32'd0;
-	always @(posedge pixel_clk) begin
-		if (~nRESET) spr_en <= 32'd0;
-		else if (spr_we && spr_field == 5'd0 && spr_dest[7:5] == 3'd0)
-			spr_en[spr_dest[4:0]] <= spr_data[0];
+	// antiguo. Solo vale para los sprites 0..63.
+	reg [NUM_SPRITES-1:0] spr_en = {NUM_SPRITES{1'b0}};
+	always @(posedge system_clk) begin
+		if (~nRESET) spr_en <= {NUM_SPRITES{1'b0}};
+		else if (spr_we && spr_field == 5'd0 && spr_dest[7:6] == 2'd0)
+			spr_en[spr_dest[5:0]] <= spr_data[0];
 	end
 
 	// Lo que dice el motor de sprites (ver sprite_engine, mas abajo)
@@ -897,15 +898,18 @@ Port $7FEF (01111111 11101111) - IN:
 
 	// Motor de sprites por linea: lee la tabla de la sombra por el puerto B
 	// entre el sincronismo horizontal y el pixel 120 (el video empieza en el
-	// 126), cuando el video no lo usa, y no si el doble bufer esta copiando.
+	// 126; en 80 columnas, el 195 y el 206), cuando el video no lo usa, y no si
+	// el doble bufer esta copiando. Va a system_clk, 4 pasos de lectura (2 en
+	// 80 columnas) por cada reloj de pixel.
 	wire        spr_ev_rd;
 	wire [15:0] spr_ev_raddr;
-	sprite_engine #(.K(8), .LIMIT(10'd120)) sprite_eng (
-		.pixel_clk(pixel_clk),
+	sprite_engine #(.K(8), .NSPR(NUM_SPRITES), .SB(6)) sprite_eng (
+		.clk(system_clk),
 		.reset(~nRESET),
 		.spr_en(spr_en),
 		.hsync(hsync),
 		.pixel_cnt(pixel_cnt),
+		.limit(sf80_en ? 10'd195 : 10'd120),
 		.blit_busy(blit_run),
 		.pos_x(spr_pos_x),
 		.pos_y(spr_pos_y),
@@ -935,12 +939,13 @@ Port $7FEF (01111111 11101111) - IN:
 	// cual), asi que en la sombra no se guardan en su direccion sino en
 	// $0C00 + sprite*32 + campo: la copia de los 32 sprites, que la FPGA no
 	// deja leer, para los snapshots del depurador. 2100 si va a su direccion.
-	// Un sprite >= 32 no existe: su escritura no se copia (antes caia en el
-	// sprite sel & 31 de la copia, que ahora SI lee el motor).
-	wire spr_mirror_wr = sprite_poke_wr && (Addr >= SPR_BASE_ADDR) && (spr_sel[7:5] == 3'd0);
-	wire spr_oob_wr    = sprite_poke_wr && (Addr >= SPR_BASE_ADDR) && (spr_sel[7:5] != 3'd0);
+	// Un sprite >= 64 no existe: su escritura no se copia (antes caia en el
+	// sprite sel & 31 de la copia, que ahora SI lee el motor). Los sprites
+	// 0-31 estan en $0C00 y los 32-63 en $1800.
+	wire spr_mirror_wr = sprite_poke_wr && (Addr >= SPR_BASE_ADDR) && (spr_sel[7:6] == 2'd0);
+	wire spr_oob_wr    = sprite_poke_wr && (Addr >= SPR_BASE_ADDR) && (spr_sel[7:6] != 2'd0);
 	wire [4:0] spr_mirror_field = Addr[4:0] - SPR_BASE_ADDR[4:0];
-	wire [15:0] cpu_sh_addr = spr_mirror_wr ? {6'b000011, spr_sel[4:0], spr_mirror_field} : Addr[15:0];
+	wire [15:0] cpu_sh_addr = spr_mirror_wr ? {spr_sel[5] ? 6'b000110 : 6'b000011, spr_sel[4:0], spr_mirror_field} : Addr[15:0];
 	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]: tr_we?tr_waddr: blit_we?blit_waddr: (dbg_bram_rd|dbg_bram_wr)?dbg_bram_ptr: nRFSH?cpu_sh_addr:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
 	wire [7:0] shadowram_din = tr_we? tr_wdata: blit_we? v_dout: data;
 	wire [8:0] SCR_START_Y = 62;

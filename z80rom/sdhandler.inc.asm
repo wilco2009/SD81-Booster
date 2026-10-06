@@ -3009,10 +3009,10 @@ SD_RESET:	ld	a,$F7		; Check keyboard row 1-5
 		ld	h,$1E
 		ldir			; copy 4: $3E00-$3FFF
 
-		; Los 32 sprites a cero (el reset de la FPGA solo los apaga): asi
-		; su copia en la BRAM de sombra ($0C00-$0FFF, la que leen los
+		; Los 64 sprites a cero (el reset de la FPGA solo los apaga): asi
+		; su copia en la BRAM de sombra ($0C00-$0FFF y $1800-$1BFF, la que leen los
 		; snapshots del depurador) empieza limpia, igual que los sprites.
-		ld	b,32
+		ld	b,64
 SprClear:	ld	a,b
 		dec	a
 		ld	(2100),a	; elegir el sprite

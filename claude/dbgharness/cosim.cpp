@@ -147,7 +147,8 @@ static std::vector<int> poke_log;   // en que orden se han escrito
 static bool nmi_on = false;
 static bool nmi_brk = false;        // la NMI estaba encendida al parar (bit 6 del estado)
 static uint8_t ay_reg[2][16], ay_sel[2];  // los AY de la FPGA: [0] el A (A3=1), [1] el B
-static uint8_t sprreg[32][28], spr_sel = 0;   // los sprites (2100-2128)
+static uint8_t sprreg[64][28], spr_sel = 0;   // los sprites (2100-2128)
+static int spr_tbl(int n){ return n < 32 ? 0x0C00 + n * 32 : 0x1800 + (n - 32) * 32; }   // su copia en la sombra
 static int chroma_reg = -1;
 static uint8_t* ptr(int a){ a &= 0xFFFF; int b = a >> 13; int pg = (mon && b == 1) ? 63 : blk[b]; return &ram[pg][a & 0x1FFF]; }
 static uint8_t* pptr(int a){ a &= 0xFFFF; return &ram[blk[a >> 13]][a & 0x1FFF]; }   // como lo ve el programa
@@ -172,9 +173,9 @@ void z80_writebyte_wrapper(int a, int d){
     if (a >= 2038 && a <= 2098) { pokereg[a] = d; poke_log.push_back(a); }
     if (a == 2100) spr_sel = d;
     if (a >= 2101 && a <= 2128) {               // un campo del sprite elegido; su sombra, en la copia
-      sprreg[spr_sel & 31][a - 2101] = d;
+      if (spr_sel < 64) sprreg[spr_sel][a - 2101] = d;
       bram[a] = romfile[a];                     // (la FPGA no escribe ahi: deshacer lo de arriba)
-      bram[0x0C00 + (spr_sel & 31) * 32 + (a - 2101)] = d;
+      if (spr_sel < 64) bram[spr_tbl(spr_sel) + (a - 2101)] = d;
     }
     return;
   }
@@ -497,6 +498,10 @@ int main(int argc, char** argv){
   for (int j = 0; j < 28; j++) { sprreg[5][j] = j + 1; bram[0x0C00 + 5 * 32 + j] = j + 1; }   // el sprite 5
   sprreg[5][0] = 1; bram[0x0C00 + 5 * 32] = 1;               // enable y el bit alto de X: 0/1
   sprreg[5][2] = 1; bram[0x0C00 + 5 * 32 + 2] = 1;
+  // el sprite 40 (la segunda tabla, en $1800): distinto del 5
+  for (int j = 0; j < 28; j++) { sprreg[40][j] = 0x60 + j; bram[spr_tbl(40) + j] = 0x60 + j; }
+  sprreg[40][0] = 1; bram[spr_tbl(40)] = 1;
+  sprreg[40][2] = 0; bram[spr_tbl(40) + 2] = 0;
   spr_sel = 5; bram[2100] = 5;
   bram[0x4100] ^= 0xFF;                                       // la sombra del bloque 2 no es la memoria
   { uint8_t b7 = blk[7]; blk[7] = 20; z80_writebyte_wrapper(0xE123, 0x5A); blk[7] = b7; }   // el programa escribe en la pagina 20
@@ -513,7 +518,10 @@ int main(int argc, char** argv){
   tp = 0; CHECK(seek_tok("SPRITE_SEL") && toks[tp] == "05", "SPRITE_SEL");
   tp = 0; CHECK(seek_tok("SPRITE") && toks[tp] == "05" && toks[tp + 1] == "01" && toks[tp + 2] == "0102" && toks[tp + 3] == "04" &&
                 toks[tp + 4] == "05" && toks[tp + 27] == "1C", "SPRITE 05 (n en x y colores filas mascaras)");
-  CHECK(!seek_tok("SPRITE"), "solo el sprite 5");
+  tp = 0; CHECK(seek_tok("SPRITE") && toks[tp] == "05", "SPRITE 05 sigue");
+  CHECK(seek_tok("SPRITE") && toks[tp] == "28" && toks[tp + 1] == "01" && toks[tp + 2] == "0061" && toks[tp + 3] == "63" &&
+        toks[tp + 4] == "64" && toks[tp + 27] == "7B", "SPRITE 28 (el 40: la segunda tabla de sprites)");
+  CHECK(!seek_tok("SPRITE"), "solo los sprites 5 y 40");
   {
     // el 1 y el 3 tambien salen: el monitor (e 2000) y las pilas de la parada
     // escriben en la memoria sin pasar por la sombra
@@ -559,7 +567,7 @@ int main(int argc, char** argv){
     poke_log.clear(); chroma_reg = -1; nmi_on = false; opened_dir = "";
     memset(ay_reg, 0x33, sizeof(ay_reg)); ay_sel[0] = ay_sel[1] = 2;
     memset(sprreg, 0x44, sizeof(sprreg)); spr_sel = 9; bram[2100] = 9;
-    for (int i = 0; i < 32; i++) memset(bram + 0x0C00 + i * 32, 0x44, 28);   // (los bytes 28-31 nadie los escribe)
+    for (int i = 0; i < 64; i++) memset(bram + spr_tbl(i), 0x44, 28);   // (los bytes 28-31 nadie los escribe)
     fh_applied = ""; fh_pos_applied = 0;
   };
   auto load = [&](const char* name, uint8_t want_im){
@@ -615,9 +623,10 @@ int main(int argc, char** argv){
     for (int r = 0; r < 16; r++) ok = ok && ay_reg[0][r] == 0x10 + r && ay_reg[1][r] == 0x80 + r;
     CHECK(ok, "carga: los dos AY y su registro elegido");
     ok = spr_sel == 5;
-    for (int i = 0; i < 32; i++)
-      for (int j = 0; j < 28; j++) ok = ok && sprreg[i][j] == (i == 5 ? (j == 0 || j == 2 ? 1 : j + 1) : 0);
-    CHECK(ok, "carga: los sprites (el 5 y los demas a cero) y el elegido");
+    for (int i = 0; i < 64; i++)
+      for (int j = 0; j < 28; j++)
+        ok = ok && sprreg[i][j] == (i == 5 ? (j == 0 || j == 2 ? 1 : j + 1) : i == 40 ? (j == 0 ? 1 : j == 2 ? 0 : 0x60 + j) : 0);
+    CHECK(ok, "carga: los sprites (el 5, el 40 y los demas a cero) y el elegido");
   }
   CHECK(fh_applied == "/datos.bin" && fh_pos_applied == 0x123, "carga: el estado del MCU (mcustate_key / apply)");
   CHECK(mcu_quiet && apply_late, "carga: el sonido del MCU callado al empezar y su estado al final");

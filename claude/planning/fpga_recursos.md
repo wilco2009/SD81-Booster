@@ -299,6 +299,35 @@ búfer) solo se ve en el hardware. Cuatro entradas (`nM1`, `nMREQ`, `nRFSH` y `C
 perdido su registro dentro del pin como efecto de la nueva síntesis; no hay restricciones de
 tiempo sobre ellas y la temporización pasa, pero conviene confirmarlo en la placa.
 
+## 6. 64 sprites (rama `fpga-sprites64`, K = 8): medido
+
+Sobre la rama B: el motor pasa a `system_clk` (un paso de lectura cada 2 ciclos, 4 pasos de
+lectura por reloj de píxel en 32 columnas y 2 en 80), `spr_en` pasa a 64 bits y la segunda
+tabla de sprites (32-63) va en la sombra en `$1800-$1BFF` (libre).
+
+| | Release v1.6.0 | B (32 sprites) | 64 sprites |
+|---|---:|---:|---:|
+| Slice LUTs | 4.397 (76 %) | 2.803 (49 %) | **2.852 (49 %)** |
+| Registros | 2.103 | 1.860 | 1.911 |
+| Slices ocupados | 1.336 (93 %) | 1.014 (71 %) | **1.027 (72 %)** |
+| BRAM | 32 / 32 | 32 / 32 | 32 / 32 |
+
+Pasar de 32 a 64 sprites cuesta **49 LUTs** (el bit de activo de los 32 sprites nuevos y los
+contadores), tal como se estimó. Temporización cumplida.
+
+Margen de tiempo del motor (caso peor: 64 sprites activos y los 8 que cortan la línea son los
+últimos que recorre): en 32 columnas basta un límite de lectura en el píxel 90 y el hardware
+usa el 120; en 80 columnas hace falta entre 120 y 150 y el hardware usa el 195 (el vídeo no lee
+la sombra hasta el 206). Comprobado en ModelSim con 64 sprites contra los slots antiguos (0
+diferencias con hasta 8 por línea y contra la especificación con más) en los dos modos.
+
+Fuera de la FPGA: la ROM acepta sprites 0-63 y pone a cero los 64 en el arranque (`SPR_COUNT`),
+el MCU guarda y carga las dos tablas en los snapshots (`SPRITE n` hasta `3F`, comprobado con
+una prueba en el banco del depurador) y el manual (Apéndice H) y la especificación del emulador
+(`sprites_por_linea_emulador.md`) lo recogen. Hace falta actualizar la FPGA, el MCU y la ROM a la
+vez: con la FPGA de 32 sprites, un snapshot con sprites 32-63 los escribiría sobre la copia de
+los 0-31.
+
 ## Cómo repetir las medidas
 
 1. En una copia del proyecto en la VM: poner `-keep_hierarchy Yes` en `SD81.xst`

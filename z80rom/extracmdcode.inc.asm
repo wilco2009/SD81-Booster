@@ -198,7 +198,7 @@ CmdHEX:		call	CLASS_6		; Read address
 
 ; Numero de sprites de hardware -- DEBE coincidir con NUM_SPRITES en SD81.v.
 ; Unico sitio a tocar aqui si ese valor cambia.
-SPR_COUNT equ 32
+SPR_COUNT equ 64
 
 ; LOAD *SPRCOL  <n>,"<16 hex chars>"  -- 8 bytes of per-row colour (2105-2112)
 ; LOAD *SPRPIX  <n>,"<16 hex chars>"  -- 8 bytes of pixel data     (2113-2120)

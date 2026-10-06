@@ -20,6 +20,11 @@
 ;      enteros.
 ;   D  sprite 28 recorre la pantalla en horizontal y el 29 en vertical,
 ;      por encima de la pelota. Se mueven al empezar el VSYNC.
+;   E  sprites 30..39 en otra linea (Y=170), a caballo de las dos tablas de la
+;      FPGA (0-31 y 32-63): se ven los 8 de indice mas alto, 32..39; el 30 y el
+;      31 (aros azul y rojo) NO aparecen. Prueba la prioridad entre tablas.
+;   F  sprites 62 y 63 (los ultimos) en la linea de abajo del todo (Y=185),
+;      con aros verde y cian: se ven.
 ;
 ; Con el doble buffer ON (borde VERDE) y OFF (borde ROJO) los sprites tienen
 ; que verse exactamente igual: no parpadean, no se parten y no hay lineas
@@ -99,7 +104,7 @@ main:   call waitvs
         jr nz,main
 
 ; --- salida: sprites fuera, modos normales y vuelta a BASIC ---
-quit:   ld b,32
+quit:   ld b,64
         ld c,0
 qs:     ld a,c
         ld (SPR_SEL),a
@@ -175,6 +180,40 @@ defspr: ; A: sprites 0..5, tinta 1..6, desde X=40
         ld a,32+100
         ld (g_y),a
         ld a,9
+        ld (g_ink),a
+        call group
+        ; E: sprites 30..39 en una linea, 30 y 31 de la primera tabla (Y=170)
+        ld a,30
+        ld (g_n),a
+        ld a,2
+        ld (g_cnt),a
+        ld hl,40
+        ld (g_x),hl
+        ld a,32+170
+        ld (g_y),a
+        ld a,1
+        ld (g_ink),a
+        call group
+        ld a,4
+        ld (g_cnt),a
+        ld a,3
+        ld (g_ink),a
+        call group              ; sprites 32..35, tintas 3..6
+        ld a,4
+        ld (g_cnt),a
+        ld a,9
+        ld (g_ink),a
+        call group              ; sprites 36..39, tintas 9..12
+        ; F: sprites 62 y 63 en la ultima linea (Y=185)
+        ld a,62
+        ld (g_n),a
+        ld a,2
+        ld (g_cnt),a
+        ld hl,40
+        ld (g_x),hl
+        ld a,32+185
+        ld (g_y),a
+        ld a,4
         ld (g_ink),a
         call group
         ; D: sprite 28 (horizontal, Y=150) y 29 (vertical, X=230)

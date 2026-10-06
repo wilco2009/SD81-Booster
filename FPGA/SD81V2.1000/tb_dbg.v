@@ -53,6 +53,8 @@ module tb_dbg;
 	// la traza: trace_wr a system_clk (26 MHz) y la sombra que escribe
 	reg sysclk = 0;
 	always #19 sysclk = ~sysclk;
+	reg [7:0] vid_st = 8'hA5;		// el estado del video que da SD81.v (indice 9)
+	reg [2:0] vid_fr = 3'd5;		// y el bloque de delante del doble buffer (indice 10)
 	reg trace = 0;					// orden 12
 	reg skipv = 0;					// tr_skip (video o HALT, de SD81.v)
 	wire tr_go;
@@ -78,7 +80,7 @@ module tb_dbg;
 		.data_out(fpga_data), .enable_out(fpga_en), .state(si_state),
 		.enabled(si_enabled), .dbg_win(dbg_win), .dbg_mon(dbg_mon), .port_out(port_out),
 		.bram_rd(bram_rd), .bram_wr(bram_wr), .bram_ptr(bram_ptr), .bram_data(bram_data), .chroma_reg(8'h3C), .ay_sel_a(8'h0D), .ay_sel_b(8'h07), .sram_wr(1'b0), .sram_page(6'd0), .dirty_clr(1'b0),
-		.trace_en(trace), .tr_skip(skipv), .tr_ptr(tr_ptr), .tr_go(tr_go), .tr_pc(tr_pc));
+		.trace_en(trace), .tr_skip(skipv), .tr_ptr(tr_ptr), .vid_status(vid_st), .vid_front(vid_fr), .tr_go(tr_go), .tr_pc(tr_pc));
 
 	reg [7:0] got;			// el byte que ha leido la CPU en la ultima lectura
 	reg got_fpga;			// si lo servia la FPGA
@@ -487,6 +489,15 @@ module tb_dbg;
 		m1(16'h7000, 8'h00);
 		m1(16'h7001, 8'hC9); mem_rd(16'h7FFC, 8'h3B); mem_rd(16'h7FFD, 8'h00);
 		m1(16'h003B, 8'hFF); expect_fpga(8'hC9, "HALT: RET de sim tras la pausa");
+
+		// --- estado del video (indices 9, 10 y 11): lo que la captura de pantalla no puede sacar de la sombra ---
+		io_out(16'h3FEF, 8'h09); io_in(16'h3FEF); expect_val(port_out, 8'hA5, "indice 9: estado del video");
+		vid_st = 8'h5A; io_in(16'h3FEF); expect_val(port_out, 8'h5A, "indice 9: sigue a SD81.v");
+		io_out(16'h3FEF, 8'h0A); io_in(16'h3FEF); expect_val(port_out, 5, "indice 10: bloque de delante");
+		vid_fr = 3'd4; io_in(16'h3FEF); expect_val(port_out, 4, "indice 10: sigue a SD81.v");
+		io_out(16'h3FEF, 8'h0B); io_in(16'h3FEF); expect_val(port_out, 8'hC4, "indice 11: la FPGA los tiene");
+		io_out(16'h3FEF, 8'h0C); io_in(16'h3FEF); expect_val(port_out, 0, "indice 12: sin usar");
+		io_out(16'h3FEF, 8'h00);
 
 		// --- traza (orden 12): el PC de cada instruccion del programa ---
 		dis_pulse = 1; @(posedge clk); dis_pulse = 0;

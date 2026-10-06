@@ -117,6 +117,13 @@
 //  system_clk, con tr_go sincronizado. El puntero (la entrada siguiente)
 //  se lee con los indices 7/8: el MCU lee el anillo al parar
 //
+// Revision 0.14 - Estado del video, para la captura de pantalla del depurador:
+//                 indice 9 = {doble buffer, atributos alternativos, D_FILE
+//                 alternativo, 7 caracteres, ancho, Spectrum, HiRes, Superfast},
+//                 indice 10 = el bloque de delante del doble buffer, indice 11 =
+//                 $C4 (la FPGA los tiene). Lo que los POKEs de la sombra no
+//                 dicen (un POKE 2045,85 apaga el D_FILE alternativo y 2045,170
+//                 no lo enciende; un valor que la FPGA ignora)
 // Revision 0.13 - Traza: cada instruccion del programa apunta su PC en la
 //                 sombra ($1000-$17FF, anillo de 1024) con la orden 12;
 //                 indices 7/8, el puntero (modulo trace_wr)
@@ -195,6 +202,8 @@ module sim_int(
 	input wire trace_en,				// orden 12: la traza (dominio de CFG_CLK)
 	input wire tr_skip,					// esta M1 es del video (NOP forzado) o de un HALT
 	input wire [9:0] tr_ptr,			// trace_wr: la entrada siguiente
+	input wire [7:0] vid_status,		// estado del video (indice 9, ver la revision 0.14)
+	input wire [2:0] vid_front,			// bloque de delante del doble buffer (indice 10)
 	output reg tr_go = 1'b0,			// esta M1 se apunta (desde la subida de T2 hasta su final)
 	output wire [15:0] tr_pc			// su direccion
     );
@@ -440,6 +449,9 @@ module sim_int(
 			4'd6:  port_out = {7'd0, dirty_bit};
 			4'd7:  port_out = tr_ptr[7:0];
 			4'd8:  port_out = {6'd0, tr_ptr[9:8]};
+			4'd9:  port_out = vid_status;
+			4'd10: port_out = {5'd0, vid_front};
+			4'd11: port_out = 8'hC4;				// esta FPGA tiene los indices 9 y 10
 			4'd15: port_out = 8'h52;
 			default: port_out = 8'h00;
 		endcase

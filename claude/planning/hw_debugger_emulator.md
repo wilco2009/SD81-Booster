@@ -305,6 +305,9 @@ Z80 no hace falta estar en el monitor.
 | 4 / 5 | el registro elegido del AY A (A3=1, ZonX) / del AY B: el latch de dirección, que sus puertos no dejan leer |
 | 6 | las páginas escritas por la CPU, una por `IN` (bit 0), de la 0 a la 63: el puntero vuelve a 0 al elegir el índice 6 y avanza al acabar cada `IN` (sección 11.5) |
 | 7 / 8 | el puntero de la traza (rev 0.13): bajo / los 2 bits altos (sección 13.9) |
+| 9 | el estado del video (rev 0.14), para la captura de pantalla: bit 0 Superfast (`sfast_mode_en`), 1 HiRes, 2 Spectrum, 3 ancho (70 u 80 columnas), 4 caracteres de 7 pixeles (80), 5 D_FILE alternativo activo, 6 atributos alternativos activos, 7 doble buffer. Son los registros que fijan los POKE 2045, 2098, 2061 y 2057. **Lo que dejan los POKEs en la sombra no basta**: un `POKE 2045,85` apaga el D_FILE y los atributos alternativos y un `POKE 2045,170` posterior no los enciende, y la FPGA ignora los valores de 2045 que no conoce |
+| 10 | el bloque de delante del doble buffer (bits 2-0, `front_blk`) |
+| 11 | `C4h`: esta FPGA tiene los indices 9 y 10 (una anterior da 0). El firmware, si no lo ve, deduce el estado de los POKEs de la sombra |
 | 15 | firma `52h` |
 | otros | 0 |
 

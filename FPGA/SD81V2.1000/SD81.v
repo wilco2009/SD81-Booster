@@ -1849,6 +1849,8 @@ assign DEBUG_RDY = 1'b0;
 		.trace_en(dbg_trace),
 		.tr_skip(tr_skip),
 		.tr_ptr(tr_ptr),
+		.vid_status({dbuf_en, attr_ovr_en, dfile_ovr_en, sf80_char7, sf80_en, sfSP_en, sfHR_en, sfast_mode_en}),
+		.vid_front(front_blk),
 		.tr_go(tr_go),
 		.tr_pc(tr_pc)
 	);

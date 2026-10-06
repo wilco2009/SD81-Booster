@@ -80,7 +80,7 @@ td.hx{color:var(--mu)}
 <input id="mat" placeholder="addr / symbol"><button id="mgo">Go</button></h2>
 <table class="mono" id="mem"></table></section>
 <section class="pn full" id="pcap"><h2><span>Screen capture <small id="capinfo"></small></span>
-<label title="the FPGA may not be using it (POKE 2045,85 turns it off)"><input type="checkbox" id="capalt" checked> alternative D_FILE</label>
+<label title="only with an FPGA that does not report its state: it cannot be known whether it uses it (POKE 2045,85 turns it off)"><input type="checkbox" id="capalt" checked> alternative D_FILE</label>
 <label title="unchecked before capturing: faster (the sprites are not read)"><input type="checkbox" id="capspr" checked> sprites</label><button id="capgo">Capture</button><small id="capmsg"></small></h2>
 <div style="padding:8px;text-align:center;background:#222"><canvas id="capcv" width="288" height="224" style="image-rendering:pixelated;width:576px;max-width:100%;background:#000"></canvas></div>
 </section>
@@ -255,7 +255,9 @@ function drawCap(d){
   const mode=d[1],chroma=d[2],fl=d[3],hs=d[5];
   const sysdf=d[20]|d[21]<<8;
   let dfile=d[6]|d[7]<<8;
-  if((d[3]&16)&&!$('capalt').checked)dfile=sysdf;
+  const exact=!!(d[3]&64);                              // la FPGA dice el estado: no hay que elegir
+  $('capalt').disabled=exact;
+  if((d[3]&16)&&!exact&&!$('capalt').checked)dfile=sysdf;
   const abase=d[8]|d[9]<<8,fbase=d[10]|d[11]<<8,vbase=d[12]|d[13]<<8;
   const col=!!(chroma&0x20),a1=!!(chroma&0x10),s128=!!(fl&1),s256=!!(fl&2),aov=!!(fl&32),hasSpr=!!(fl&8)&&$('capspr').checked;
   const mem=new Uint8Array(65536);
@@ -268,7 +270,7 @@ function drawCap(d){
   $('capinfo').textContent='- '+MODES[mode]+(col?(a1?', colour by position':', colour by character'):', mono')+
     (s256?', 256 chars':s128?', 128 chars':'')+(hasSpr?', sprites':'')+
     ' ['+(mode<=3?'D_FILE '+hx(dfile,4)+((fl&16)?(dfile===sysdf?' (the system one':' (alternative; system '+hx(sysdf,4))+')':'')+', ':'')+(mode>=4?'video '+hx(vbase,4)+((fl&4)?' (dbuf)':'')+', ':'')+
-    'font '+hx(fbase,4)+' (I='+hx(d[4],2)+')'+(hs?', scroll '+hs:'')+', chroma '+hx(chroma,2)+', mode POKE '+MODEPOKE[mode]+']';
+    'font '+hx(fbase,4)+' (I='+hx(d[4],2)+')'+(hs?', scroll '+hs:'')+', chroma '+hx(chroma,2)+(exact?', state from the FPGA':', state from the POKEs')+']';
   const cv=$('capcv'),B=16;
   const wide=mode===2||mode===3,ncols=mode===2?70:mode===3?80:32,cw=mode===3?7:8;
   const stride=mode===2?71:mode===3?81:33;

@@ -150,6 +150,7 @@ static uint8_t ay_reg[2][16], ay_sel[2];  // los AY de la FPGA: [0] el A (A3=1),
 static uint8_t sprreg[64][28], spr_sel = 0;   // los sprites (2100-2128)
 static int spr_tbl(int n){ return n < 32 ? 0x0C00 + n * 32 : 0x1800 + (n - 32) * 32; }   // su copia en la sombra
 static int chroma_reg = -1;
+static int vid_vs = -1, vid_front = 0;         // el estado del video que da la FPGA (indices 9-11); -1: una FPGA sin ellos
 static int chroma_in = 0x2C;                   // lo que da el IN del indice 3
 static uint8_t* ptr(int a){ a &= 0xFFFF; int b = a >> 13; int pg = (mon && b == 1) ? 63 : blk[b]; return &ram[pg][a & 0x1FFF]; }
 static uint8_t* pptr(int a){ a &= 0xFFFF; return &ram[blk[a >> 13]][a & 0x1FFF]; }   // como lo ve el programa
@@ -237,6 +238,9 @@ BYTE z80_readport_wrapper(int port, int*){
   if ((port & 0xFFFF) == 0x3FEF) {
     if (ridx == 2) return bram[bptr++];
     if (ridx == 3) return chroma_in;            // registro de Chroma
+    if (ridx == 9) return vid_vs < 0 ? 0 : vid_vs;
+    if (ridx == 10) return vid_front;
+    if (ridx == 11) return vid_vs < 0 ? 0 : 0xC4;
     if (ridx == 4) return ay_sel[0];
     if (ridx == 5) return ay_sel[1];
     if (ridx == 6) return (uint8_t)((dirty >> (dptr++ & 63)) & 1);
@@ -1338,6 +1342,33 @@ int main(int argc, char** argv){
     setpk(2045, 99);
     ok = capture(d, "otro modo");
     CHECK(ok && d[1] == 6 && d[14] == 1, "captura: un modo desconocido solo trae los POKEs");
+
+    // g2) con una FPGA que dice su estado (indices 9-11) manda ella, no los POKEs de la sombra
+    vid_vs = 1 | 32;                                                             // texto 32, con D_FILE alternativo
+    setpk(2045, 99); setpk(2098, 85); setpk(2096, 0x00); setpk(2097, 0x60);       // (los POKEs dicen otra cosa)
+    ok = capture(d, "FPGA: texto con alternativo");
+    ok = ok && regions_ok(d, rg, "FPGA: texto con alternativo");
+    CHECK(ok && d[1] == 1 && (d[3] & 64) && (d[3] & 16) && (d[6] | (d[7] << 8)) == 0x6000 && !has(rg, 0x5000, 1 + 24 * 33),
+          "captura con el estado de la FPGA: modo y D_FILE alternativo salen de ella, y no trae el del sistema");
+    vid_vs = 1;                                                                  // texto 32, el alternativo apagado
+    setpk(2098, 170);                                                            // (la sombra aun dice 170)
+    ok = capture(d, "FPGA: sin alternativo");
+    CHECK(ok && d[1] == 1 && (d[3] & 64) && !(d[3] & 16) && (d[6] | (d[7] << 8)) == 0x5000,
+          "captura con el estado de la FPGA: el alternativo apagado, aunque la sombra diga 170");
+    vid_vs = 1 | 4 | 128; vid_front = 5;                                        // Spectrum con doble buffer
+    setpk(2057, 85);                                                             // (la sombra dice que no)
+    ok = capture(d, "FPGA: Spectrum con dbuf");
+    CHECK(ok && d[1] == 5 && (d[3] & 4) && d[13] == 0xA0, "captura con el estado de la FPGA: Spectrum con doble buffer y su bloque de delante");
+    vid_vs = 1 | 2 | 64 | 8 * 0;                                                 // HiRes con atributos alternativos
+    ok = capture(d, "FPGA: HiRes");
+    CHECK(ok && d[1] == 4 && (d[3] & 32), "captura con el estado de la FPGA: HiRes con atributos alternativos");
+    vid_vs = 1 | 8 | 16;                                                         // texto de 80 columnas
+    ok = capture(d, "FPGA: 80 columnas");
+    CHECK(ok && d[1] == 3, "captura con el estado de la FPGA: 80 columnas");
+    vid_vs = 0;                                                                  // nativo
+    ok = capture(d, "FPGA: nativo");
+    CHECK(ok && d[1] == 0 && (d[3] & 64), "captura con el estado de la FPGA: ZX81 nativo");
+    vid_vs = -1;                                                                 // vuelta a la FPGA sin los indices
 
     // h) con el programa ya parado se queda parado; y ocupado si ya hay una en curso
     run_program(100);

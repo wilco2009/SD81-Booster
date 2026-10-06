@@ -1297,6 +1297,9 @@ void dbg_note_loaded(const char* name){
 //     2 registro de Chroma   3 banderas: b0 128 caracteres, b1 256, b2 doble
 //     buffer, b3 con sprites, b4 D_FILE alternativo, b5 atributos alternativos
 //     4 el registro I   5 scroll fino horizontal (POKE 2090, 0-7)
+//     (banderas, bit 6: el estado del video viene de la FPGA, indices 9-11 de $3FEF; si no,
+//     se deduce de los POKEs de la sombra, que no dicen si la FPGA ignoro un valor o apago
+//     el D_FILE alternativo)
 //     6 D_FILE (16 bits)   8 base de los atributos alternativos (ya con el +1)
 //     10 base de la fuente   12 bloque de video (vpage << 13)   14 regiones
 //     16-18 filas con scroll fino (POKE 2091-2093; bit 0 de 16 = fila 0)
@@ -1313,6 +1316,7 @@ static struct {
   bool resume, sprites, err;
   uint8_t info;                             // lo de partida que ha llegado (bits)
   uint8_t chroma, pk[POKE_N], df[2];
+  uint8_t vs, vfront, vmagic;               // el estado del video que da la FPGA (indices 9, 10 y 11)
   uint8_t nrg, qr, rr;                      // regiones; la que se pide y la que llega
   uint16_t qo, ro;                          // y por donde van
   uint16_t rg_addr[CAP_NRG], rg_len[CAP_NRG], rg_off[CAP_NRG];
@@ -3483,6 +3487,9 @@ static void cap_begin(){
   cap.info = 0;
   q_out(DBG_PORT, 0x03);
   q_push(OP_IN, DBG_PORT, 0, TAG_CAP_INFO, 0);
+  q_out(DBG_PORT, 0x09); q_push(OP_IN, DBG_PORT, 0, TAG_CAP_INFO, 3);   // modo, D_FILE y atributos alternativos, doble buffer
+  q_out(DBG_PORT, 0x0A); q_push(OP_IN, DBG_PORT, 0, TAG_CAP_INFO, 4);   // el bloque de delante del doble buffer
+  q_out(DBG_PORT, 0x0B); q_push(OP_IN, DBG_PORT, 0, TAG_CAP_INFO, 5);   // $C4: la FPGA tiene los tres
   cap_ptr(POKE_FIRST);
   q_push(OP_INSEQ, DBG_PORT, POKE_N, TAG_CAP_INFO, 1);
   cap_ptr(0x400C);                            // D_FILE, la variable de sistema
@@ -3498,19 +3505,31 @@ static void cap_plan(){
     int i = a - POKE_FIRST;
     return (rom_ok && cap.pk[i] == rom[i]) ? def : cap.pk[i];
   };
+  // el estado del video: de la FPGA si lo da (indices 9-11); si no, de lo ultimo que se escribio en
+  // los POKEs (que no dice si la FPGA lo ignoro o lo apago: un POKE 2045,85 apaga el D_FILE alternativo)
+  bool exact = cap.vmagic == 0xC4;
   int m = pkv(2045, 85);
   uint8_t mode = m == 85 ? 0 : m == 170 ? 1 : m == 173 ? 2 : m == 174 ? 3 : m == 171 ? 4 : m == 172 ? 5 : 6;
+  int dv = pkv(2057, 85);
+  bool dbuf = (dv & 0xF8) == 168;
+  uint8_t front = dv & 7;
+  bool dov = mode >= 1 && mode <= 3 && pkv(2098, 85) == 170;
+  bool aov = mode >= 1 && mode <= 5 && pkv(2061, 85) == 170;
+  if (exact) {
+    uint8_t v = cap.vs;
+    mode = !(v & 1) ? 0 : (v & 2) ? 4 : (v & 4) ? 5 : (v & 8) ? ((v & 16) ? 3 : 2) : 1;
+    dbuf = v & 128;
+    front = cap.vfront & 7;
+    dov = (v & 32) && mode >= 1 && mode <= 3;
+    aov = (v & 64) && mode >= 1 && mode <= 5;
+  }
   bool wide = mode == 2 || mode == 3;
   bool text = mode <= 3;
   uint16_t sysdf = cap.df[0] | (cap.df[1] << 8);
-  bool dov = mode >= 1 && mode <= 3 && pkv(2098, 85) == 170;
   uint16_t dfile = dov ? (uint16_t)(pkv(2096, 0) | (pkv(2097, 0) << 8)) : sysdf;
-  bool aov = mode >= 1 && mode <= 5 && pkv(2061, 85) == 170;
   uint16_t abase = (uint16_t)(pkv(2059, 0) | (pkv(2060, 0) << 8)) + 1;
-  int dv = pkv(2057, 85);
-  bool dbuf = (dv & 0xF8) == 168;
   uint16_t hfile = (uint16_t)(pkv(2043, 0) | (pkv(2044, 0) << 8));
-  uint8_t vpage = dbuf ? (dv & 7) : (hfile >> 13);
+  uint8_t vpage = dbuf ? front : (hfile >> 13);
   bool col = cap.chroma & 0x20, a1 = cap.chroma & 0x10;
   uint8_t I = regs[R_I];
   bool s256 = cfg_value(cfgcmd_256CHARS), s128 = cfg_value(cfgcmd_128CHARS);
@@ -3529,7 +3548,7 @@ static void cap_plan(){
   };
   add(POKE_FIRST, POKE_N);
   if (spr) { add(SPR_MIRROR, 1024); add(SPR_MIRROR2, 1024); }
-  bool alt2 = dov && sysdf != dfile;             // tambien el D_FILE del sistema
+  bool alt2 = dov && sysdf != dfile && !exact;   // tambien el D_FILE del sistema (la FPGA no lo ha dicho)
   if (text) {
     add(dfile, mode == 0 ? 793 : 1 + 24 * stride);
     if (alt2) add(sysdf, 1 + 24 * stride);
@@ -3554,7 +3573,7 @@ static void cap_plan(){
   uint8_t* b = cap.buf;
   memset(b, 0, 24);
   b[0] = 1; b[1] = mode; b[2] = cap.chroma;
-  b[3] = (s128 ? 1 : 0) | (s256 ? 2 : 0) | (dbuf ? 4 : 0) | (spr ? 8 : 0) | (dov ? 16 : 0) | (aov ? 32 : 0);
+  b[3] = (s128 ? 1 : 0) | (s256 ? 2 : 0) | (dbuf ? 4 : 0) | (spr ? 8 : 0) | (dov ? 16 : 0) | (aov ? 32 : 0) | (exact ? 64 : 0);
   b[4] = I;
   b[5] = pkv(2090, 0) & 7;
   b[16] = pkv(2091, 0xFF); b[17] = pkv(2092, 0xFF); b[18] = pkv(2093, 0xFF);
@@ -3587,11 +3606,16 @@ static void cap_done(){
 
 static void cap_result(uint8_t tag, uint8_t arg, uint8_t* d, uint16_t n){
   if (tag == TAG_CAP_INFO) {
-    if (arg == 0) cap.chroma = n ? d[0] : 0;
-    else if (arg == 1) memcpy(cap.pk, d, n < POKE_N ? n : POKE_N);
-    else memcpy(cap.df, d, n < 2 ? n : 2);
+    switch (arg) {
+      case 0: cap.chroma = n ? d[0] : 0; break;
+      case 1: memcpy(cap.pk, d, n < POKE_N ? n : POKE_N); break;
+      case 2: memcpy(cap.df, d, n < 2 ? n : 2); break;
+      case 3: cap.vs = n ? d[0] : 0; break;
+      case 4: cap.vfront = n ? d[0] : 0; break;
+      default: cap.vmagic = n ? d[0] : 0; break;
+    }
     cap.info |= 1 << arg;
-    if (cap.info == 7) cap_plan();
+    if (cap.info == 0x3F) cap_plan();
     if (cap.stage == CAP_DATA && cap.nrg == 0) cap_done();
     return;
   }

@@ -1300,6 +1300,9 @@ void dbg_note_loaded(const char* name){
 //     6 D_FILE (16 bits)   8 base de los atributos alternativos (ya con el +1)
 //     10 base de la fuente   12 bloque de video (vpage << 13)   14 regiones
 //     16-18 filas con scroll fino (POKE 2091-2093; bit 0 de 16 = fila 0)
+//     20 D_FILE del sistema (16 bits): con D_FILE alternativo se trae tambien, porque la
+//     sombra no dice si la FPGA lo tiene activo (un POKE 2045,85 lo apaga y 2045,170 no lo
+//     vuelve a encender); la pagina deja elegir cual dibujar
 //   y las regiones: direccion (16), longitud (16) y los bytes de la sombra
 // ---------------------------------------------------------------------
 #define CAP_MAX 15000
@@ -3526,12 +3529,17 @@ static void cap_plan(){
   };
   add(POKE_FIRST, POKE_N);
   if (spr) { add(SPR_MIRROR, 1024); add(SPR_MIRROR2, 1024); }
+  bool alt2 = dov && sysdf != dfile;             // tambien el D_FILE del sistema
   if (text) {
     add(dfile, mode == 0 ? 793 : 1 + 24 * stride);
+    if (alt2) add(sysdf, 1 + 24 * stride);
     if (col) {
       if (a1) {
         if (mode == 0) add(dfile | 0x8000, 793);
-        else add(aov ? abase : (uint16_t)(0x8000 | ((dfile + 1) & 0x7FFF)), 24 * stride);
+        else {
+          add(aov ? abase : (uint16_t)(0x8000 | ((dfile + 1) & 0x7FFF)), 24 * stride);
+          if (alt2 && !aov) add((uint16_t)(0x8000 | ((sysdf + 1) & 0x7FFF)), 24 * stride);
+        }
       } else add(0xC000, s256 ? 2048 : 1024);
     }
     add(fbase, flen);
@@ -3550,6 +3558,7 @@ static void cap_plan(){
   b[4] = I;
   b[5] = pkv(2090, 0) & 7;
   b[16] = pkv(2091, 0xFF); b[17] = pkv(2092, 0xFF); b[18] = pkv(2093, 0xFF);
+  b[20] = sysdf & 0xFF; b[21] = sysdf >> 8;
   b[6] = dfile & 0xFF; b[7] = dfile >> 8;
   b[8] = abase & 0xFF; b[9] = abase >> 8;
   b[10] = fbase & 0xFF; b[11] = fbase >> 8;

@@ -1299,7 +1299,8 @@ int main(int argc, char** argv){
     ok = ok && regions_ok(d, rg, "70 columnas");
     fb = ((d[4] & 0xF8) << 8);
     CHECK(ok && d[1] == 2 && (d[6] | (d[7] << 8)) == 0x6000 && (d[3] & 0x12) == 0x12 && has(rg, 0x6000, 1 + 24 * 71) &&
-          has(rg, 0xE001, 24 * 71) && has(rg, fb, 2048) && !has(rg, 0x0C00, 1024),
+          has(rg, 0xE001, 24 * 71) && has(rg, fb, 2048) && !has(rg, 0x0C00, 1024) &&
+          (d[20] | (d[21] << 8)) == 0x5000 && has(rg, 0x5000, 1 + 24 * 71) && has(rg, 0xD001, 24 * 71),
           "captura 70 columnas: D_FILE alternativo, atributos de posicion, fuente de 256 y sin sprites (modo ancho)");
 
     // c) Spectrum: el bloque de video sale de HFILE

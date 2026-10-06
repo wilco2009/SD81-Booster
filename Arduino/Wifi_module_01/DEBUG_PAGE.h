@@ -17,6 +17,8 @@ main{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:10px;pad
 .pn h2{font-size:13px;margin:0;padding:5px 8px;background:var(--hd);display:flex;gap:6px;align-items:center}
 .pn h2 span{margin-right:auto}
 .pn h2 input{font:12px monospace;width:90px}
+.pn h2 input[type=checkbox]{width:auto}
+.pn h2 label{white-space:nowrap;font-weight:normal}
 .mono{font:13px/1.45 monospace}
 table{border-collapse:collapse;width:100%}
 td{padding:0 6px;white-space:nowrap}
@@ -78,7 +80,8 @@ td.hx{color:var(--mu)}
 <input id="mat" placeholder="addr / symbol"><button id="mgo">Go</button></h2>
 <table class="mono" id="mem"></table></section>
 <section class="pn full" id="pcap"><h2><span>Screen capture <small id="capinfo"></small></span>
-<label><input type="checkbox" id="capspr" checked> sprites</label><button id="capgo">Capture</button><small id="capmsg"></small></h2>
+<label title="the FPGA may not be using it (POKE 2045,85 turns it off)"><input type="checkbox" id="capalt" checked> alternative D_FILE</label>
+<label title="unchecked before capturing: faster (the sprites are not read)"><input type="checkbox" id="capspr" checked> sprites</label><button id="capgo">Capture</button><small id="capmsg"></small></h2>
 <div style="padding:8px;text-align:center;background:#222"><canvas id="capcv" width="288" height="224" style="image-rendering:pixelated;width:576px;max-width:100%;background:#000"></canvas></div>
 </section>
 <section class="pn full"><h2><span>Console</span>
@@ -212,7 +215,7 @@ cmd.addEventListener('keydown',e=>{
 
 // ---- captura de pantalla: el documento del STM32 (DEBUGGER.cpp, estructura cap) y su dibujo ----
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-let capBusy=false;
+let capBusy=false,lastCap=null;
 function capMsg(t){$('capmsg').textContent=t;}
 async function capGet(off){
   const r=await fetch('/debug/cap?off='+off);
@@ -237,11 +240,12 @@ async function capture(){
       if(c.state!==2||!c.data.length)throw 'lost';
       doc.set(c.data,off);off+=c.data.length;capMsg('reading '+off+' / '+g.total);
     }
-    drawCap(doc);
+    lastCap=doc;drawCap(doc);
     capMsg('');
   }catch(e){capMsg('error: '+e);}
   capBusy=false;
 }
+const MODEPOKE=[85,170,173,174,171,172,'?'];
 const MODES=['ZX81 text','Superfast text 32','Superfast text 70','Superfast text 80','Superfast HiRes','Superfast Spectrum','unknown'];
 function pal(v){
   if(v&7){const b=(v&8)?255:205;return [(v&2)?b:0,(v&4)?b:0,(v&1)?b:0];}
@@ -249,8 +253,11 @@ function pal(v){
 }
 function drawCap(d){
   const mode=d[1],chroma=d[2],fl=d[3],hs=d[5];
-  const dfile=d[6]|d[7]<<8,abase=d[8]|d[9]<<8,fbase=d[10]|d[11]<<8,vbase=d[12]|d[13]<<8;
-  const col=!!(chroma&0x20),a1=!!(chroma&0x10),s128=!!(fl&1),s256=!!(fl&2),aov=!!(fl&32),hasSpr=!!(fl&8);
+  const sysdf=d[20]|d[21]<<8;
+  let dfile=d[6]|d[7]<<8;
+  if((d[3]&16)&&!$('capalt').checked)dfile=sysdf;
+  const abase=d[8]|d[9]<<8,fbase=d[10]|d[11]<<8,vbase=d[12]|d[13]<<8;
+  const col=!!(chroma&0x20),a1=!!(chroma&0x10),s128=!!(fl&1),s256=!!(fl&2),aov=!!(fl&32),hasSpr=!!(fl&8)&&$('capspr').checked;
   const mem=new Uint8Array(65536);
   let p=24;
   for(let i=0;i<d[14];i++){
@@ -259,7 +266,9 @@ function drawCap(d){
     p+=l;
   }
   $('capinfo').textContent='- '+MODES[mode]+(col?(a1?', colour by position':', colour by character'):', mono')+
-    (s256?', 256 chars':s128?', 128 chars':'')+(hasSpr?', sprites':'');
+    (s256?', 256 chars':s128?', 128 chars':'')+(hasSpr?', sprites':'')+
+    ' ['+(mode<=3?'D_FILE '+hx(dfile,4)+((fl&16)?(dfile===sysdf?' (the system one':' (alternative; system '+hx(sysdf,4))+')':'')+', ':'')+(mode>=4?'video '+hx(vbase,4)+((fl&4)?' (dbuf)':'')+', ':'')+
+    'font '+hx(fbase,4)+' (I='+hx(d[4],2)+')'+(hs?', scroll '+hs:'')+', chroma '+hx(chroma,2)+', mode POKE '+MODEPOKE[mode]+']';
   const cv=$('capcv'),B=16;
   const wide=mode===2||mode===3,ncols=mode===2?70:mode===3?80:32,cw=mode===3?7:8;
   const stride=mode===2?71:mode===3?81:33;
@@ -362,6 +371,7 @@ function drawCap(d){
   ctx.putImageData(img,B,B);
 }
 $('capbtn').onclick=$('capgo').onclick=capture;
+$('capalt').onchange=$('capspr').onchange=()=>{if(lastCap)drawCap(lastCap);};
 setInterval(()=>{if(!document.hidden)poll();},400);
 poll();
 </script></body></html>

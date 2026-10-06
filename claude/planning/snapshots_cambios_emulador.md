@@ -139,7 +139,8 @@ explorador:
 - `PEG_MEM`, `PEG_PC`, `PEG_ADDR`, `PEG_RUNNING`, `PEG_CARRY`, `PEG_VARS`:
   el estado de los hilos PEG.
 - `FILE_HANDLE`: los ficheros abiertos por el programa.
-- `SPRITE_SEL` y `SPRITE`: los 32 sprites por hardware.
+- `SPRITE_SEL` y `SPRITE`: los 64 sprites por hardware (`SPRITE n ...` con `n` de
+  00 a 3F; un snapshot de una FPGA de 32 sprites solo trae del 00 al 1F).
 - `SHADOW`: los bloques de la BRAM de sombra que difieren de la RAM mapeada.
 
 ## Cosas del emulador que no hay que replicar

@@ -763,8 +763,8 @@ Port $7FEF (01111111 11101111) - IN:
 	// Sprites 8x8 (1 byte/scanline + mascara). Se guardan SOLO en la RAM de
 	// sombra (sprites 0-31 en $0C00 + sprite*32 + campo, 32-63 en $1800 +
 	// (sprite-32)*32 + campo, ver mas abajo) y sprite_engine.v los lee por
-	// linea, durante el borde horizontal: carga en 8 slots de linea los
-	// sprites que cortan la linea que empieza (los 8 de indice mas alto si hay
+	// linea, durante el borde horizontal: carga en 12 slots de linea los
+	// sprites que cortan la linea que empieza (los 12 de indice mas alto si hay
 	// mas). Antes eran 32 slots con su propia memoria distribuida (sprite_slot.v,
 	// que se conserva como referencia del banco de pruebas).
 	//
@@ -903,7 +903,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// 80 columnas) por cada reloj de pixel.
 	wire        spr_ev_rd;
 	wire [15:0] spr_ev_raddr;
-	sprite_engine #(.K(8), .NSPR(NUM_SPRITES), .SB(6)) sprite_eng (
+	sprite_engine #(.K(12), .NSPR(NUM_SPRITES), .SB(6)) sprite_eng (
 		.clk(system_clk),
 		.reset(~nRESET),
 		.spr_en(spr_en),

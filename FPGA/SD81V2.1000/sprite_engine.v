@@ -23,7 +23,7 @@
 // Prioridad: gana el sprite de indice mas alto. Los sprites se cargan en ese
 // orden, asi que el slot 0 es el de mas prioridad. Si en una linea hay mas de
 // K sprites, se dibujan los K de indice mas alto y los demas no aparecen en
-// ESA linea (como el limite de 8 sprites por linea de la NES).
+// ESA linea (como el limite de 8 sprites por linea de la NES, aqui 12).
 //
 // Reloj: el motor va a system_clk (26 MHz), 4 veces el reloj de pixel en 32
 // columnas y 2 en 80, y da un paso cada DOS ciclos: la BRAM tiene un ciclo
@@ -39,7 +39,7 @@
 // ============================================================================
 
 module sprite_engine #(
-	parameter K    = 8,		// sprites por linea
+	parameter K    = 12,		// sprites por linea
 	parameter NSPR = 64,		// sprites
 	parameter SB   = 6		// bits para numerar los sprites (NSPR <= 2**SB)
 ) (

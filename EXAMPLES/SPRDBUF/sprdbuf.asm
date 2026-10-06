@@ -10,19 +10,21 @@
 ;
 ; Sprites (cuadrado 8x8 con aro de color y centro negro; el color del aro
 ; identifica al sprite):
-;   A  sprites 0..11  en la MISMA linea (Y=16), separados 14 px.
-;      Limite de 8 por linea: se ven los 8 de indice mas alto, los
-;      sprites 0..3 (aros azul, rojo, magenta, verde) NO deben aparecer.
-;   B  sprites 12..17 en otra linea (Y=56). Son 6: se ven los 6.
-;   C  sprites 18..22 (izquierda, Y=96) y 23..27 (derecha, Y=100): en las
-;      lineas 100-103 coinciden 10 sprites, asi que los dos de la izquierda
-;      (18 y 19) solo muestran sus 4 filas de arriba; los otros 8 salen
+;   A  sprites 0..15 en la MISMA linea (Y=16), separados 14 px.
+;      Limite de 12 por linea: se ven los 12 de indice mas alto (los 12 de
+;      la derecha); los 4 de la izquierda (sprites 0..3, aros azul, rojo,
+;      magenta y verde) NO deben aparecer.
+;   B  sprites 16..21 en otra linea (Y=56). Son 6: se ven los 6.
+;   C  sprites 36..42 (izquierda, Y=96) y 43..49 (derecha, Y=100): en las
+;      lineas 100-103 coinciden 14 sprites, asi que los dos de la izquierda
+;      (36 y 37) solo muestran sus 4 filas de arriba; los otros 12 salen
 ;      enteros.
-;   D  sprite 28 recorre la pantalla en horizontal y el 29 en vertical,
+;   D  sprite 60 recorre la pantalla en horizontal y el 61 en vertical,
 ;      por encima de la pelota. Se mueven al empezar el VSYNC.
-;   E  sprites 30..39 en otra linea (Y=170), a caballo de las dos tablas de la
-;      FPGA (0-31 y 32-63): se ven los 8 de indice mas alto, 32..39; el 30 y el
-;      31 (aros azul y rojo) NO aparecen. Prueba la prioridad entre tablas.
+;   E  sprites 22..35 en otra linea (Y=170), a caballo de las dos tablas de
+;      la FPGA (0-31 y 32-63): se ven los 12 de indice mas alto, 24..35; el
+;      22 y el 23 (aros azul y rojo) NO aparecen. Prueba la prioridad entre
+;      tablas.
 ;   F  sprites 62 y 63 (los ultimos) en la linea de abajo del todo (Y=185),
 ;      con aros verde y cian: se ven.
 ;
@@ -47,6 +49,8 @@ SPR_Y    equ 2104
 SPR_COL  equ 2105       ; 8 filas
 SPR_PIX  equ 2113       ; 8 filas
 SPR_MSK  equ 2121       ; 8 filas
+SPR_H    equ 60         ; sprite que recorre la pantalla en horizontal
+SPR_V    equ 61         ; y el que la recorre en vertical
 
 start:  di
         ; --- HFILE = $8000 ---
@@ -130,107 +134,73 @@ wvs2:   in a,(0afh)
         ret
 
 ; -------------------------------------------------------------
-; defspr: define y activa los 28 sprites estaticos y los dos que se mueven
+; defspr: define y activa los sprites de cada grupo y los dos que se mueven
 ; Las posiciones llevan sumados los 32 pixeles de desplazamiento
 ; (X=32 / Y=32 es el pixel 0,0 de la pantalla).
 ; -------------------------------------------------------------
-defspr: ; A: sprites 0..5, tinta 1..6, desde X=40
-        ld a,0
-        ld (g_n),a
-        ld a,6
-        ld (g_cnt),a
-        ld hl,40
-        ld (g_x),hl
-        ld a,32+16
-        ld (g_y),a
-        ld a,1
-        ld (g_ink),a
-        call group
-        ; A: sprites 6..11, tinta 9..14 (sin el 7: blanco sobre blanco)
-        ld a,6
-        ld (g_cnt),a
-        ld a,9
-        ld (g_ink),a
-        call group
-        ; B: sprites 12..17, otra linea
-        ld a,6
-        ld (g_cnt),a
-        ld hl,40
-        ld (g_x),hl
-        ld a,32+56
-        ld (g_y),a
-        ld a,1
-        ld (g_ink),a
-        call group
-        ; C izquierda: sprites 18..22, Y=96
-        ld a,5
-        ld (g_cnt),a
-        ld hl,40
-        ld (g_x),hl
-        ld a,32+96
-        ld (g_y),a
-        ld a,1
-        ld (g_ink),a
-        call group
-        ; C derecha: sprites 23..27, Y=100
-        ld a,5
-        ld (g_cnt),a
-        ld hl,130
-        ld (g_x),hl
-        ld a,32+100
-        ld (g_y),a
-        ld a,9
-        ld (g_ink),a
-        call group
-        ; E: sprites 30..39 en una linea, 30 y 31 de la primera tabla (Y=170)
-        ld a,30
-        ld (g_n),a
-        ld a,2
-        ld (g_cnt),a
-        ld hl,40
-        ld (g_x),hl
-        ld a,32+170
-        ld (g_y),a
-        ld a,1
-        ld (g_ink),a
-        call group
-        ld a,4
-        ld (g_cnt),a
-        ld a,3
-        ld (g_ink),a
-        call group              ; sprites 32..35, tintas 3..6
-        ld a,4
-        ld (g_cnt),a
-        ld a,9
-        ld (g_ink),a
-        call group              ; sprites 36..39, tintas 9..12
-        ; F: sprites 62 y 63 en la ultima linea (Y=185)
-        ld a,62
-        ld (g_n),a
-        ld a,2
-        ld (g_cnt),a
-        ld hl,40
-        ld (g_x),hl
-        ld a,32+185
-        ld (g_y),a
-        ld a,4
-        ld (g_ink),a
-        call group
-        ; D: sprite 28 (horizontal, Y=150) y 29 (vertical, X=230)
-        ld b,28
+defspr: call grp                ; A: sprites 0..15, Y=16
+        defb 0,16
+        defw 40
+        defb 32+16,1
+        call grp                ; B: sprites 16..21, Y=56
+        defb 16,6
+        defw 40
+        defb 32+56,1
+        call grp                ; E: sprites 22..35, Y=170 (cruza las dos tablas)
+        defb 22,14
+        defw 40
+        defb 32+170,1
+        call grp                ; C izquierda: sprites 36..42, Y=96
+        defb 36,7
+        defw 40
+        defb 32+96,1
+        call grp                ; C derecha: sprites 43..49, Y=100
+        defb 43,7
+        defw 130
+        defb 32+100,1
+        call grp                ; F: sprites 62 y 63, Y=185
+        defb 62,2
+        defw 40
+        defb 32+185,4
+        ; D: sprite 60 (horizontal, Y=150) y 61 (vertical, X=230)
+        ld b,SPR_H
         ld de,32
         ld c,32+150
         ld a,5
         call spr_def
-        ld b,29
+        ld b,SPR_V
         ld de,32+230
         ld c,32
         ld a,2
         call spr_def
         ret
 
+; grp: define un grupo de sprites; los datos van detras del CALL:
+;      defb primer sprite, cantidad / defw X inicial / defb Y, tinta inicial
+grp:    pop hl
+        ld a,(hl)
+        ld (g_n),a
+        inc hl
+        ld a,(hl)
+        ld (g_cnt),a
+        inc hl
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        inc hl
+        ld (g_x),de
+        ld a,(hl)
+        ld (g_y),a
+        inc hl
+        ld a,(hl)
+        ld (g_ink),a
+        inc hl
+        push hl                 ; el RET de group vuelve detras de los datos
+        ; sigue en group
+
 ; group: define g_cnt sprites desde g_n, X desde g_x con paso 14, misma Y,
-;        tinta desde g_ink (sube 1 por sprite)
+;        tinta desde g_ink (sube 1 por sprite; salta el 7, que es blanco
+;        sobre blanco, y el 15, y vuelve al 1)
 group:  ld a,(g_cnt)
         or a
         ret z
@@ -251,7 +221,13 @@ group:  ld a,(g_cnt)
         ld a,(g_ink)
         push af
         inc a
-        ld (g_ink),a
+        cp 7
+        jr nz,gi1
+        ld a,9
+gi1:    cp 15
+        jr nz,gi2
+        ld a,1
+gi2:    ld (g_ink),a
         pop af
         call spr_def
         jr group
@@ -293,9 +269,9 @@ ring:   defb 0ffh,81h,81h,81h,81h,81h,81h,0ffh
 full:   defb 0ffh,0ffh,0ffh,0ffh,0ffh,0ffh,0ffh,0ffh
 
 ; -------------------------------------------------------------
-; movspr: el 28 se mueve 2 px en X (9 bits) y el 29 sube 3 px en Y
+; movspr: el 60 se mueve 2 px en X (9 bits) y el 61 sube 3 px en Y
 ; -------------------------------------------------------------
-movspr: ld a,28
+movspr: ld a,SPR_H
         ld (SPR_SEL),a
         ld hl,(s28x)
         ld de,2
@@ -312,7 +288,7 @@ m28ok:  ld (s28x),hl
         ld (SPR_XL),a
         ld a,h
         ld (SPR_XH),a
-        ld a,29
+        ld a,SPR_V
         ld (SPR_SEL),a
         ld a,(s29y)
         add a,3

@@ -31,6 +31,7 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | a600553 | Páginas escritas (índice 6, orden 11); teclado en la pausa del botón (`S`, `Z`, `L`, espacio); `SETREGS` de 31 bytes con el IM; `snap` desde la consola deja el programa parado | 11.5, 11.6 |
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
 | 12f5c16 | Carga de snapshots: el sonido callado mientras carga; el estado del MCU (VGM, AY, PEG, ficheros) al final, al seguir. Solo el MCU | 12.4 |
+| ac01f7c, fa0dd12 (ramas `fpga-camino-b` y `fpga-sprites64`) | Los sprites se leen por línea de la copia de la sombra (máximo 8 por línea) y pasan de 32 a **64**: segunda tabla en `$1800-$1BFF`, `LOAD *SPRITE` hasta 63, snapshots con `SPRITE n` hasta `3F`. Descripción para el emulador: `sprites_por_linea_emulador.md` | 11.4 |
 | 8ba74cf | La web, con paneles: desensamblado, registros, pila, breakpoints, memoria y consola (`CMD_DBG_VIEW`, la vista estructurada que compone el MCU). STM32 y ESP32 | 13.10 |
 | 6300e3a | Fase 5: la consola del depurador en la web del ESP32 (`/debug`, `CMD_DBG` en el protocolo UART). STM32 y ESP32 | 13.10 |
 | 5823b2e | Historial: la traza de la FPGA (sim_int 0.13, orden 12, índices 7/8), el PC de cada instrucción en `$1000-$17FF`; la pantalla del depurador pasa a `$0000`; `th`/`H` lo enseñan, `tron`/`troff` | 3, 13.6, 13.9 |
@@ -135,8 +136,9 @@ normales. Con `dbg_loaded = 0`, la página 63 es como cualquier otra.
 **La sombra (BRAM).** La FPGA copia en su BRAM de sombra (64 KB, por
 dirección lógica) lo que escribe la CPU; el vídeo Superfast y los atributos
 de Chroma salen de ahí. Dos excepciones del depurador:
-- los POKEs de sprites 2101-2128 van a `$0C00 + sprite*32 + campo`, no a su
-  dirección (sección 11.4);
+- los POKEs de sprites 2101-2128 van a la copia de los sprites (`$0C00 +
+  sprite*32 + campo` para el 0-31, `$1800 + (sprite-32)*32 + campo` para el
+  32-63), no a su dirección (sección 11.4);
 - el puerto `$3FEF` la lee (índice 2) y la escribe (registro 7).
 
 ## 3. Cuándo se rompe
@@ -669,8 +671,9 @@ Todo con peticiones al monitor, con el programa parado:
 4. las páginas escritas: `OUT $06` e `INSEQ` de 64 (sección 11.5);
 5. la BRAM de sombra (índice 2): puntero a 2038 (`$85`, bajo, `$86`, alto),
    `OUT $02` e `INSEQ` de 61 bytes (2038-2098, los POKEs de control); después
-   el puntero a `$0C00` e `INSEQ` de 1024 (los sprites, sección 11.4) y el
-   puntero a 2100 e `INSEQ` de 1 (el sprite elegido). La sombra guarda lo
+   el puntero a `$0C00` e `INSEQ` de 1024 (los sprites 0-31), el puntero a
+   `$1800` e `INSEQ` de 1024 (los sprites 32-63, sección 11.4) y el puntero
+   a 2100 e `INSEQ` de 1 (el sprite elegido). La sombra guarda lo
    último que escribió la CPU en cada dirección. Si un POKE vale el byte de
    la ROM en esa dirección, se toma como **nunca escrito**: la sombra se
    carga con la ROM al arrancar;
@@ -731,8 +734,8 @@ suyo: `VV ` o `*NNNN VV `, 16 tokens por línea.
     `MCUSTATE.cpp`. Las rutas son absolutas en la SD; una ruta con
     espacios no se guarda;
   - `SPRITE_SEL` y `SPRITE n en x y c0..c7 p0..p7 m0..m7` (solo los
-    sprites que no están todos a cero): de la copia de los sprites en la
-    sombra (sección 11.4). Un sprite cuyos 28 bytes siguen siendo los de la
+    sprites que no están todos a cero, `n` de 00 a 3F, los 64 sprites): de la
+    copia de los sprites en la sombra (sección 11.4). Un sprite cuyos 28 bytes siguen siendo los de la
     ROM en esa posición no se ha escrito nunca (una ROM sin la limpieza del
     reset) y no se guarda; tampoco `SPRITE_SEL` si es el byte de la ROM
     en 2100 (se guarda 00).
@@ -756,25 +759,34 @@ suyo: `VV ` o `*NNNN VV `, 16 tokens por línea.
 
 ### 11.4 Los sprites en la sombra
 
-Los POKEs 2101-2128 son los mismos para los 32 sprites (el 2100 elige
+Los POKEs 2101-2128 son los mismos para los 64 sprites (el 2100 elige
 cuál), así que la sombra, que guarda lo último escrito en cada dirección,
 no servía para reconstruirlos. Ahora la FPGA no escribe esos POKEs en su
-dirección de la sombra, sino en la **copia**:
+dirección de la sombra, sino en la **copia**, en dos tablas:
 
 ```
-$0C00 + sprite * 32 + campo        (campo = dirección - 2101, de 0 a 27)
+sprites  0-31:  $0C00 + sprite * 32 + campo        (campo = dirección - 2101, de 0 a 27)
+sprites 32-63:  $1800 + (sprite - 32) * 32 + campo
 ```
 
-32 sprites × 32 bytes = `$0C00`-`$0FFF` (los bytes 28-31 de cada uno no se
-usan). Son bytes de la sombra del bloque 0 que el vídeo no lee. El POKE
-2100 sí va a su dirección. Solo cuenta cuando el POKE llega a los sprites
-(no con ROMLOCK ni con el bloque 0 escribible).
+32 sprites × 32 bytes = 1 KB cada tabla (`$0C00`-`$0FFF` y `$1800`-`$1BFF`; los
+bytes 28-31 de cada sprite no se usan). Son bytes de la sombra del bloque 0
+que el vídeo no lee. Entre las dos tablas, `$1000`-`$17FF`, está la traza
+(sección 13.9). El POKE 2100 sí va a su dirección. Solo cuenta cuando el
+POKE llega a los sprites (no con ROMLOCK ni con el bloque 0 escribible).
+Un `POKE 2100,n` con `n >= 64` no elige ningún sprite: sus POKEs 2101-2128 no
+se copian ni cambian nada.
+
+La FPGA lee estas tablas para dibujar los sprites (ver
+`sprites_por_linea_emulador.md`). El bit de "activo" de cada sprite no se lee
+de la sombra: la FPGA lo guarda aparte y lo borra con el reset (la sombra
+conserva lo de antes del reset).
 
 Campos: 0 enable (bit 0), 1 X bajo, 2 X alto (bit 0), 3 Y, 4-11 color por
 fila, 12-19 píxeles, 20-27 máscara. En la clave `SPRITE`, `x` es
 `X bajo | (X alto & 1) << 8`.
 
-**La ROM pone los 32 sprites a cero en cada reset** (`SD_RESET`, después
+**La ROM pone los 64 sprites a cero en cada reset** (`SD_RESET`, después
 de copiar los juegos de caracteres): el reset de la FPGA solo los apaga, y
 así la copia empieza limpia. El emulador tiene que hacer lo mismo: o
 ejecuta esa ROM, o al reset pone sus sprites y la copia a cero.
@@ -956,7 +968,7 @@ En este orden:
    3. 2038-2039 y 2040 (interrupciones simuladas);
    4. 2056 el último.
 
-   Después, **los 32 sprites**: para cada uno, POKE 2100 = n y sus 28
+   Después, **los 64 sprites**: para cada uno, POKE 2100 = n y sus 28
    campos (2101-2128) con los de su línea `SPRITE`, o a cero si no viene.
    Al final, 2100 = `SPRITE_SEL`. Con la orden 10 encendida, todo esto
    también deja la copia de los sprites en la sombra.
@@ -983,7 +995,7 @@ En este orden:
      lo de 2038-2098: el bloque 0 viene tal cual.
 
    La página del bloque 0 (CP/M) no pisa la copia de los sprites
-   (`$0C00`-`$0FFF`).
+   (`$0C00`-`$0FFF` y `$1800`-`$1BFF`).
 5. **El final:**
    - el mapper con `OUT` (con FULLPAG, la página en el byte alto del
      puerto);

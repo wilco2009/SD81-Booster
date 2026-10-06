@@ -288,7 +288,9 @@ calculé. La memoria distribuida de los sprites desaparece, tal como se esperaba
 El motor (`sprite_engine.v`) se comprobó en ModelSim contra los 32 `sprite_slot` de la
 v1.6.0: idéntico, píxel a píxel, con tablas al azar de hasta 8 sprites por línea, y igual a
 la especificación (los 8 de índice más alto de cada línea) con tablas sin límite, en modo de
-32 y de 70/80 columnas (más de 2 millones de píxeles comparados, 0 diferencias; un banco que
+32 y de 70/80 columnas (más de 2 millones de píxeles comparados, 0 diferencias; los sprites
+no están implementados en 70/80 columnas, esas pruebas solo confirman que el motor da lo mismo
+que los slots antiguos allí; un banco que
 falla si se altera el motor a propósito). El caso peor (32 sprites activos y los 8 que cortan
 la línea siendo los últimos en recorrerse) termina en el píxel 109 (32 columnas) o 99 (80);
 el motor se corta en el 120.
@@ -317,8 +319,8 @@ contadores), tal como se estimó. Temporización cumplida.
 
 Margen de tiempo del motor (caso peor: 64 sprites activos y los 8 que cortan la línea son los
 últimos que recorre): en 32 columnas basta un límite de lectura en el píxel 90 y el hardware
-usa el 120; en 80 columnas hace falta entre 120 y 150 y el hardware usa el 195 (el vídeo no lee
-la sombra hasta el 206). Comprobado en ModelSim con 64 sprites contra los slots antiguos (0
+usa el 120; en 80 columnas (donde los sprites no están implementados) hace falta entre 120 y 150
+y el hardware usa el 195 (el vídeo no lee la sombra hasta el 206). Comprobado en ModelSim con 64 sprites contra los slots antiguos (0
 diferencias con hasta 8 por línea y contra la especificación con más) en los dos modos.
 
 Fuera de la FPGA: la ROM acepta sprites 0-63 y pone a cero los 64 en el arranque (`SPR_COUNT`),
@@ -327,6 +329,23 @@ una prueba en el banco del depurador) y el manual (Apéndice H) y la especificac
 (`sprites_por_linea_emulador.md`) lo recogen. Hace falta actualizar la FPGA, el MCU y la ROM a la
 vez: con la FPGA de 32 sprites, un snapshot con sprites 32-63 los escribiría sobre la copia de
 los 0-31.
+
+## 7. Sprites por línea (K): 8, 12 y 16, con 64 sprites: medido
+
+Mismo diseño de 64 sprites, solo cambia K (los slots de línea). Síntesis completa de cada
+uno, temporización cumplida en los tres.
+
+| | K = 8 | **K = 12** | K = 16 |
+|---|---:|---:|---:|
+| Slice LUTs | 2.852 (49 %) | **3.082 (53 %)** | 3.306 (57 %) |
+| Registros | 1.911 | 2.046 | 2.183 |
+| Slices ocupados | 1.027 (72 %) | **1.045 (73 %)** | 1.144 (80 %) |
+| Ventana de lectura necesaria en el peor caso (32 columnas) | ~90 | ~100 | ~110 |
+| Margen frente a los 120 del hardware | ~30 | ~20 | ~10 |
+
+Cada slot de línea extra cuesta unas 57 LUTs. K no tiene que ser potencia de 2. Se eligió
+**K = 12** porque el Mario del usuario se quedaba justo con 8 sprites por línea. (En 80 columnas
+los sprites no están implementados; con K = 16 el peor caso no cabría allí.)
 
 ## Cómo repetir las medidas
 

@@ -23,7 +23,7 @@ module tb_sprite_engine;
 	parameter LIM32 = 120;		// pixel_cnt a partir del cual el motor deja de leer (32 col)
 	parameter LIM80 = 195;		// idem en 80 columnas
 	parameter NSPR  = 64;
-	parameter K     = 8;
+	parameter K     = 12;
 
 	integer mode80 = 0;
 	integer dense  = 0;

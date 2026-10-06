@@ -58,6 +58,35 @@ void send_bit_config(uint8_t command, uint8_t value){
   rst_config();
 }
 
+// ---- teclado virtual (FPGA: vkeys.v) ----
+static uint8_t vk_rows[8];                    // lo que la FPGA tiene ahora
+static uint32_t vk_t = 0;                     // cuando lo puso la web por ultima vez
+
+static void vkeys_send_row(uint8_t r){
+  uint8_t v = ((vk_rows[r] & 31) << 3) | (r & 7);   // la fila en los 3 bits bajos, las columnas encima
+  send_cmd_code(cfgcmd_KEYS);
+  for (int j = 0; j < 8; j++) sendBit(bitRead(v, j));
+  rst_config();
+}
+
+void vkeys_set(const uint8_t* rows){
+  for (uint8_t r = 0; r < 8; r++) {
+    uint8_t n = rows[r] & 31;
+    if (n != vk_rows[r]) { vk_rows[r] = n; vkeys_send_row(r); }
+  }
+  vk_t = millis();
+}
+
+void vkeys_clear(void){                       // al arrancar: la FPGA puede venir con algo pulsado
+  for (uint8_t r = 0; r < 8; r++) { vk_rows[r] = 0; vkeys_send_row(r); }
+}
+
+void vkeys_poll(void){
+  bool any = false;
+  for (uint8_t r = 0; r < 8; r++) if (vk_rows[r]) any = true;
+  if (any && millis() - vk_t > 1500) vkeys_clear();   // la web ya no esta: que no quede nada pulsado
+}
+
 uint8_t keyb_coords[64][2] = {
 	/* */{7,0},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},  //0..7
 	/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},  //8..15
@@ -104,6 +133,7 @@ void send_config(void){
   rst_config();
 
   send_joycfg();
+  vkeys_clear();
 }
 
 void write_LATCH_O(uint8_t d){
@@ -117,6 +147,7 @@ uint8_t read_LATCH_B(void){
 }
 
 void idle_tasks(){
+  vkeys_poll();
   if (playing_wav){ 
     if (load_wav_buffer_pending >= 0) load_wav_buffer(load_wav_buffer_pending);
   }

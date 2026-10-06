@@ -47,6 +47,13 @@ td.hx{color:var(--mu)}
 #cmd{width:100%;box-sizing:border-box;font:14px monospace;padding:5px;border:0;border-top:1px solid var(--bd)}
 .dim{opacity:.45}
 .full{grid-column:1/-1}
+#kbd{padding:8px;display:flex;flex-direction:column;gap:4px;align-items:center;user-select:none}
+#kbd .kr{display:flex;gap:4px}
+#kbd button{min-width:46px;height:40px;font:bold 14px monospace;border:1px solid #999;border-radius:5px;background:#f4f4f2;cursor:pointer;line-height:1.1;padding:0 4px}
+#kbd button small{display:block;font:10px monospace;color:#c33}
+#kbd button.dn{background:#ffd54a}
+#kbd button.w2{min-width:70px}
+#kbd button.w5{min-width:200px}
 </style></head><body>
 <header>
 <h1>SD81 debugger</h1><span id="st" class="off">...</span>
@@ -84,6 +91,10 @@ td.hx{color:var(--mu)}
 <label title="unchecked before capturing: faster (the sprites are not read)"><input type="checkbox" id="capspr" checked> sprites</label><button id="capgo">Capture</button><small id="capmsg"></small></h2>
 <div style="padding:8px;text-align:center;background:#222"><canvas id="capcv" width="288" height="224" style="image-rendering:pixelated;width:576px;max-width:100%;background:#000"></canvas></div>
 </section>
+<section class="pn full" id="pkb"><h2><span>ZX81 keyboard</span>
+<label title="the keys of your keyboard go to the ZX81 (not while you type in a box of this page)"><input type="checkbox" id="kbcap"> use my keyboard</label>
+<small id="kbmsg"></small></h2>
+<div id="kbd"></div></section>
 <section class="pn full"><h2><span>Console</span>
 <button data-c="th 20">History</button><button data-c="t 100">Trace 100</button><button data-c="sym">Symbols</button>
 <button data-c="h">Help</button><button id="clr">Clear</button></h2>
@@ -372,6 +383,96 @@ function drawCap(d){
   }
   ctx.putImageData(img,B,B);
 }
+
+// ---- teclado virtual: la matriz de 8 filas x 5 columnas del ZX81 (FPGA vkeys.v), por /debug/keys ----
+// Fila i = linea de direccion A(8+i) a 0; columna j = D(j). Las teclas con su SHIFT salen de las tablas de la ROM del ZX81.
+const ZXROWS=[['SHIFT','Z','X','C','V'],['A','S','D','F','G'],['Q','W','E','R','T'],['1','2','3','4','5'],['0','9','8','7','6'],
+  ['P','O','I','U','Y'],['ENTER','L','K','J','H'],['SPACE','.','M','N','B']];
+const ZXSH={Z:':',X:';',C:'?',V:'/',P:'"',O:')',I:'(',U:'$',L:'=',K:'+',J:'-','.':',',M:'>',N:'<',B:'*','1':'EDIT','0':'RUB','5':'\u2190','6':'\u2193','7':'\u2191','8':'\u2192','9':'GR',SPACE:'BRK'};
+const ZXPOS={};ZXROWS.forEach((r,i)=>r.forEach((k,j)=>ZXPOS[k]=[i,j]));
+// caracter del PC -> teclas del ZX81 (SHIFT incluido cuando hace falta)
+const ZXCH={':':['SHIFT','Z'],';':['SHIFT','X'],'?':['SHIFT','C'],'/':['SHIFT','V'],'"':['SHIFT','P'],')':['SHIFT','O'],'(':['SHIFT','I'],
+  '$':['SHIFT','U'],'=':['SHIFT','L'],'+':['SHIFT','K'],'-':['SHIFT','J'],',':['SHIFT','.'],'>':['SHIFT','M'],'<':['SHIFT','N'],'*':['SHIFT','B']};
+const ZXNAMED={Enter:['ENTER'],Backspace:['SHIFT','0'],ArrowLeft:['SHIFT','5'],ArrowDown:['SHIFT','6'],ArrowUp:['SHIFT','7'],ArrowRight:['SHIFT','8'],
+  Escape:['SHIFT','SPACE'],Home:['SHIFT','1']};
+function zxKeysFor(k){                                // e.key de una tecla del PC -> lista de teclas del ZX81, o null
+  if(ZXNAMED[k])return ZXNAMED[k];
+  if(k===' ')return ['SPACE'];
+  if(k.length===1){
+    const u=k.toUpperCase();
+    if(ZXPOS[u]&&u!=='SHIFT')return [u];              // letras, cifras y el punto
+    if(ZXCH[k])return ZXCH[k];
+  }
+  return null;
+}
+function zxMatrix(sets){                              // varias listas de teclas -> las 8 filas
+  const m=new Array(8).fill(0);
+  for(const ks of sets)for(const k of ks){const p=ZXPOS[k];if(p)m[p[0]]|=1<<p[1];}
+  return m;
+}
+const kbHeld=new Map();                               // origen (tecla fisica o boton) -> sus teclas del ZX81
+let kbSent='',kbBusy=false,vshift=false;
+const kbHex=m=>m.map(b=>hx(b,2)).join('');
+function kbSend(){
+  if(kbBusy)return;
+  const sets=[...kbHeld.values()];
+  if(vshift)sets.push(['SHIFT']);
+  const h=kbHex(zxMatrix(sets));
+  kbBusy=true;
+  fetch('/debug/keys?m='+h).then(()=>{kbSent=h;}).catch(()=>{}).then(()=>{
+    kbBusy=false;
+    const s2=[...kbHeld.values()];if(vshift)s2.push(['SHIFT']);
+    if(kbHex(zxMatrix(s2))!==kbSent)kbSend();
+  });
+}
+function kbDraw(){
+  for(const b of document.querySelectorAll('#kbd button')){
+    const k=b.dataset.k;
+    let on=false;
+    for(const ks of kbHeld.values())if(ks.includes(k))on=true;
+    if(k==='SHIFT'&&vshift)on=true;
+    b.classList.toggle('dn',on);
+  }
+}
+(function(){
+  const kb=$('kbd');
+  const layout=[['1','2','3','4','5','6','7','8','9','0'],['Q','W','E','R','T','Y','U','I','O','P'],
+    ['A','S','D','F','G','H','J','K','L','ENTER'],['SHIFT','Z','X','C','V','B','N','M','.','SPACE']];
+  for(const row of layout){
+    const d=document.createElement('div');d.className='kr';
+    for(const k of row){
+      const b=document.createElement('button');b.dataset.k=k;
+      b.className=k==='ENTER'||k==='SHIFT'?'w2':k==='SPACE'?'w2':'';
+      b.innerHTML=k+(ZXSH[k]?'<small>'+ZXSH[k]+'</small>':'<small>&nbsp;</small>');
+      d.appendChild(b);
+    }
+    kb.appendChild(d);
+  }
+  const down=(b,e)=>{e.preventDefault();const k=b.dataset.k;
+    if(k==='SHIFT'){vshift=!vshift;kbDraw();kbSend();return;}
+    kbHeld.set('v:'+k,[k]);b.dataset.t=Date.now();kbDraw();kbSend();};
+  const up=(b)=>{const k=b.dataset.k;if(k==='SHIFT'||!kbHeld.has('v:'+k))return;
+    const wait=Math.max(0,120-(Date.now()-(+b.dataset.t||0)));            // la ROM mira el teclado una vez por imagen: pulsacion de 120 ms como minimo
+    setTimeout(()=>{kbHeld.delete('v:'+k);if(![...kbHeld.keys()].some(x=>x.startsWith('v:')))vshift=false;kbDraw();kbSend();},wait);};
+  kb.addEventListener('pointerdown',e=>{const b=e.target.closest('button');if(b)down(b,e);});
+  kb.addEventListener('pointerup',e=>{const b=e.target.closest('button');if(b)up(b);});
+  kb.addEventListener('pointerleave',e=>{for(const b of kb.querySelectorAll('button.dn'))up(b);},true);
+  const typing=e=>{const t=e.target&&e.target.tagName;return t==='INPUT'&&e.target.type!=='checkbox'||t==='TEXTAREA'||t==='SELECT';};
+  document.addEventListener('keydown',e=>{
+    if(!$('kbcap').checked||typing(e)||e.ctrlKey||e.altKey||e.metaKey)return;
+    const ks=zxKeysFor(e.key);
+    if(!ks)return;
+    e.preventDefault();
+    if(e.repeat)return;
+    kbHeld.set('k:'+e.code,ks);kbDraw();kbSend();
+  });
+  document.addEventListener('keyup',e=>{
+    if(kbHeld.delete('k:'+e.code)){kbDraw();kbSend();}
+  });
+  window.addEventListener('blur',()=>{for(const k of [...kbHeld.keys()])kbHeld.delete(k);vshift=false;kbDraw();kbSend();});
+  $('kbcap').onchange=e=>e.target.blur();                        // (que la barra espaciadora no marque y desmarque la casilla)
+  setInterval(()=>{if(kbHeld.size||vshift)kbSend();},400);       // el latido: el STM32 suelta todo si en 1,5 s no llega nada
+})();
 $('capbtn').onclick=$('capgo').onclick=capture;
 $('capalt').onchange=$('capspr').onchange=()=>{if(lastCap)drawCap(lastCap);};
 setInterval(()=>{if(!document.hidden)poll();},400);

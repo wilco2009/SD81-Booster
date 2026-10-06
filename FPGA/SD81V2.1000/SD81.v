@@ -2356,6 +2356,16 @@ assign DEBUG_RDY = 1'b0;
 		wire [15:8] A = {A15,A14,A13,A12,A11,A10,A9,A8};
 		reg [4:0] kbd_data = 5'b11111;
 		
+		// teclado virtual: las teclas que pulsa el MCU (vkeys.v), sumadas a las del joystick
+		wire [4:0] vk_pressed;
+		vkeys vkeys_inst (
+			.cfg_rst_n(CFG_RESET),
+			.cmd(comm_cmd),
+			.data(cfg_reg[CMD_BITS+7:CMD_BITS]),
+			.a_hi(A),
+			.pressed(vk_pressed)
+		);
+
 		integer i;
 		always@(posedge kbdint) begin
 			kbd_data = 5'b11111;
@@ -2373,6 +2383,7 @@ assign DEBUG_RDY = 1'b0;
 					if (!FIRE && (row_FIRE==i)) kbd_data = kbd_data & ~(1'b1 << col_FIRE);
 				end
 			end
+			kbd_data = kbd_data & ~vk_pressed;
 		end
 
 		assign LE_OL = DATA_out; 

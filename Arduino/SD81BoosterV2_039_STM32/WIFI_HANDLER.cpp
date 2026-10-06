@@ -652,6 +652,14 @@ static void handle_dbg_cap(const uint8_t* payload, uint16_t len) {
   wifi_send_frame(CMD_DBG_CAP, tx_payload, 7 + n);
 }
 
+// CMD_DBG_KEYS: el teclado virtual de la web (ver WIFI_PROTOCOL.h)
+static void handle_dbg_keys(const uint8_t* payload, uint16_t len) {
+  if (len < 8) return;
+  vkeys_set(payload);
+  tx_payload[0] = ST_OK;
+  wifi_send_frame(CMD_DBG_KEYS, tx_payload, 1);
+}
+
 void wifi_handler_poll() {
 #if NET_BRIDGE_TEST
   net_bridge_test_tick();
@@ -689,6 +697,7 @@ void wifi_handler_poll() {
     case CMD_DBG:          handle_dbg(rx_payload, len); break;
     case CMD_DBG_VIEW:     handle_dbg_view(rx_payload, len); break;
     case CMD_DBG_CAP:      handle_dbg_cap(rx_payload, len); break;
+    case CMD_DBG_KEYS:     handle_dbg_keys(rx_payload, len); break;
     default: break;   // comando desconocido: se ignora
   }
 }

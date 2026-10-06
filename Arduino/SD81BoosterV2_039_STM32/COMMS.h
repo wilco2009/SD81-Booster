@@ -34,12 +34,18 @@ void jmpfar();
 #define cfgcmd_DBGPOKE    10  // depurador: el monitor escribe como el programa (POKEs y BRAM)
 #define cfgcmd_DBGDIRTY   11  // depurador: borrar las paginas escritas (1 y despues 0)
 #define cfgcmd_DBGTRACE   12  // depurador: la traza de la FPGA (historial, sim_int 0.13)
+#define cfgcmd_KEYS       13  // teclado virtual: una fila de la matriz (vkeys.v), 3 bits de fila y 5 de columnas
 
 
 void send_debug_params(uint16_t pixel_cnt, uint16_t line_cnt);
 void send_config(void);
 bool send_joycfg(char* config);// UP DOWN LEFT RIGHT FIRE
 void send_bit_config(uint8_t command, uint8_t value);
+// Teclado virtual: la matriz de 8 filas x 5 columnas que se "pulsa" desde fuera (la web del depurador).
+// Solo se manda a la FPGA lo que cambia; si nadie lo refresca en 1,5 s, se suelta todo
+void vkeys_set(const uint8_t* rows);
+void vkeys_poll(void);
+void vkeys_clear(void);
 void rst_config(void);
 uint8_t cfg_value(uint8_t command);   // ultimo valor mandado con send_bit_config
 

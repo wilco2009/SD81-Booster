@@ -16,7 +16,7 @@ function el(id) {
     els[id] = {
       id, textContent: '', value: '', checked: true, dataset: {}, classList: { toggle() {}, add() {}, remove() {} },
       innerHTML: '', style: {}, width: 0, height: 0, scrollTop: 0, clientHeight: 0, scrollHeight: 0,
-      addEventListener() {}, set onclick(f) {}, set onchange(f) {}, set onkeydown(f) {},
+      addEventListener() {}, appendChild() {}, querySelectorAll() { return []; }, blur() {}, set onclick(f) {}, set onchange(f) {}, set onkeydown(f) {},
       getContext() {
         const self = this;
         return {
@@ -29,12 +29,16 @@ function el(id) {
   }
   return els[id];
 }
-global.document = { getElementById: el, addEventListener() {}, hidden: true };
+global.document = {
+  getElementById: el, addEventListener() {}, hidden: true, querySelectorAll() { return []; },
+  createElement() { return { dataset: {}, className: '', innerHTML: '', appendChild() {}, classList: { toggle() {} } }; },
+};
+global.window = { addEventListener() {} };
 global.fetch = () => Promise.reject('sin red');
 global.setInterval = () => 0;
 global.prompt = () => null;
-new Function(js + '\nglobalThis.__drawCap = drawCap;')();
-const drawCap = globalThis.__drawCap;
+new Function(js + '\nglobalThis.__drawCap = drawCap; globalThis.__zxKeysFor = zxKeysFor; globalThis.__zxMatrix = zxMatrix;')();
+const drawCap = globalThis.__drawCap, zxKeysFor = globalThis.__zxKeysFor, zxMatrix = globalThis.__zxMatrix;
 
 // ---- documentos
 function doc({ mode, chroma = 0x20, flags = 0, I = 0x1E, hs = 0, dfile = 0, abase = 0, fbase = 0x1E00, vbase = 0, masks = [0xFF, 0xFF, 0xFF], regions }) {
@@ -132,6 +136,37 @@ function pal2() { return [205, 0, 0]; }
   const df = new Array(1 + 24 * 71).fill(0);
   drawCap(doc({ mode: 2, chroma: 0x20, flags: 8, dfile: 0x6000, regions: [[0x6000, df], [0xC000, new Array(2048).fill(0x70)], [0x1E00, new Array(512).fill(0)], [0x0C00, spr]] }));
   check(last.w === 560 && last.h === 192 && !eq(px(8, 8), GREEN), 'modo de 70 columnas: 560x192 y sin sprites');
+}
+
+// 7. El teclado: de la tecla del PC a la matriz del ZX81 (fila = A(8+i), columna = D(j), como en la ROM)
+{
+  const m = (...ks) => zxMatrix([ks]).map(b => b.toString(2).padStart(5, '0')).join(' ');
+  const row = (i, bits) => { const a = new Array(8).fill(0); a[i] = bits; return a; };
+  const eqm = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  check(eqm(zxMatrix([zxKeysFor('a')]), row(1, 1)), 'teclado: A = fila 1, columna 0');
+  check(eqm(zxMatrix([zxKeysFor('A')]), row(1, 1)), 'teclado: A mayuscula igual');
+  check(eqm(zxMatrix([zxKeysFor('z')]), row(0, 2)), 'teclado: Z = fila 0, columna 1');
+  check(eqm(zxMatrix([zxKeysFor('b')]), row(7, 16)), 'teclado: B = fila 7, columna 4');
+  check(eqm(zxMatrix([zxKeysFor('0')]), row(4, 1)) && eqm(zxMatrix([zxKeysFor('6')]), row(4, 16)), 'teclado: 0 y 6 en la fila 4');
+  check(eqm(zxMatrix([zxKeysFor('Enter')]), row(6, 1)) && eqm(zxMatrix([zxKeysFor(' ')]), row(7, 1)), 'teclado: ENTER y SPACE');
+  check(eqm(zxMatrix([zxKeysFor('.')]), row(7, 2)), 'teclado: el punto');
+  const q = zxMatrix([zxKeysFor('"')]);                                    // SHIFT + P
+  check(q[0] === 1 && q[5] === 1 && q.filter(x => x).length === 2, 'teclado: " = SHIFT + P');
+  const par = zxMatrix([zxKeysFor('(')]);                                  // SHIFT + I
+  check(par[0] === 1 && par[5] === 4, 'teclado: ( = SHIFT + I');
+  const bs = zxMatrix([zxKeysFor('Backspace')]);                           // SHIFT + 0 (RUBOUT)
+  check(bs[0] === 1 && bs[4] === 1, 'teclado: Backspace = SHIFT + 0');
+  const lf = zxMatrix([zxKeysFor('ArrowLeft')]), up = zxMatrix([zxKeysFor('ArrowUp')]);
+  check(lf[0] === 1 && lf[3] === 16 && up[0] === 1 && up[4] === 8, 'teclado: flechas = SHIFT + 5 / SHIFT + 7');
+  const brk = zxMatrix([zxKeysFor('Escape')]);
+  check(brk[0] === 1 && brk[7] === 1, 'teclado: Escape = BREAK (SHIFT + SPACE)');
+  check(zxKeysFor('F5') === null && zxKeysFor('Shift') === null && zxKeysFor('@') === null, 'teclado: lo que no existe en el ZX81 no se manda');
+  // dos teclas a la vez (A y S) y la misma fila con dos columnas
+  const two = zxMatrix([['A'], ['S']]);
+  check(two[1] === 3, 'teclado: A y S a la vez, en la misma fila');
+  // SHIFT sumado a una tecla que ya lo lleva no cambia nada
+  const sh = zxMatrix([['SHIFT'], ['SHIFT', 'P']]);
+  check(sh[0] === 1 && sh[5] === 1, 'teclado: SHIFT repetido no se duplica');
 }
 
 console.log(errors ? errors + ' ERRORES' : 'TODO OK');

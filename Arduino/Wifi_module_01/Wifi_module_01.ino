@@ -475,6 +475,19 @@ void handleDebugCap() {
   server.send(200, "application/octet-stream", body);
 }
 
+// /debug/keys?m=<16 cifras hex>: el teclado virtual, las 8 filas de la matriz (el STM32 solo manda a la
+// FPGA lo que cambia y suelta todo si en 1,5 s no llega nada)
+void handleDebugKeys() {
+  String m = server.hasArg("m") ? server.arg("m") : "";
+  if (m.length() != 16) { server.send(400, "text/plain", ""); return; }
+  uint8_t rows[8];
+  for (int i = 0; i < 8; i++) {
+    char h[3] = { m[2 * i], m[2 * i + 1], 0 };
+    rows[i] = (uint8_t)strtoul(h, nullptr, 16);
+  }
+  server.send(wifi_client_dbg_keys(rows) ? 200 : 503, "text/plain", "");
+}
+
 void handleTelnetPage() {
   String html = "<style>"
                 "body{font-family:sans-serif;max-width:600px;margin:0 auto;padding:0 10px}"
@@ -1134,6 +1147,7 @@ void setup() {
   server.on("/debug/poll", HTTP_GET, handleDebugPoll);
   server.on("/debug/view", HTTP_GET, handleDebugView);
   server.on("/debug/cap", HTTP_GET, handleDebugCap);
+  server.on("/debug/keys", HTTP_GET, handleDebugKeys);
   server.on("/update", HTTP_GET, handleUpdatePage);
   server.on("/update/check", HTTP_POST, handleUpdateCheck);
   server.on("/update/finish", HTTP_POST, handleUpdateFinish);

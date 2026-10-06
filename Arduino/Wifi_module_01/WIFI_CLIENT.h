@@ -112,6 +112,8 @@ bool wifi_client_dbg(uint8_t id, uint32_t seq, const char* cmd,
 
 // Depurador (CMD_DBG_VIEW): el trozo part de la vista estructurada (hasta
 // WIFI_PROTO_DBG_OUT bytes), su version y su largo total
+// El teclado virtual (CMD_DBG_KEYS): las 8 filas de la matriz
+bool wifi_client_dbg_keys(const uint8_t* rows);
 // La captura de pantalla (CMD_DBG_CAP): op 0 = leer desde off, op 1 = empezar (off = banderas)
 bool wifi_client_dbg_cap(uint8_t op, uint16_t arg, uint8_t* out_state, uint16_t* out_total,
                          uint16_t* out_off, uint8_t* out_data, uint16_t* out_len);

@@ -410,6 +410,11 @@ bool wifi_client_dbg(uint8_t id, uint32_t seq, const char* cmd,
   return true;
 }
 
+bool wifi_client_dbg_keys(const uint8_t* rows) {
+  WifiProtoResp r = wifi_client_request(CMD_DBG_KEYS, rows, 8);
+  return r.ok && r.len >= 1 && r.payload[0] == ST_OK;
+}
+
 bool wifi_client_dbg_cap(uint8_t op, uint16_t arg, uint8_t* out_state, uint16_t* out_total,
                          uint16_t* out_off, uint8_t* out_data, uint16_t* out_len) {
   *out_len = 0;

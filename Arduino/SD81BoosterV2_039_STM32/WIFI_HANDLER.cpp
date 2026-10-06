@@ -4,6 +4,7 @@
 #include "GLOBALS.h"
 #include "RTC.h"
 #include "DEBUGGER.h"
+#include "COMMS.h"                         // vkeys_set (el teclado virtual de la web)
 
 // Todas las peticiones las inicia el ESP32; el STM32 solo responde. Handles
 // propios (independientes de f_handle[]/f_opened[], que usa el interprete de

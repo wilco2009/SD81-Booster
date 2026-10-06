@@ -32,6 +32,12 @@
 // Depurador (CMD_DBG): la orden y la salida, por trama
 #define WIFI_PROTO_DBG_CMD      120
 #define WIFI_PROTO_DBG_OUT      240
+// Captura de pantalla (CMD_DBG_CAP): trozos del documento, por trama. Peticion:
+// op (0 = leer, 1 = empezar), arg (leer: desplazamiento de 16 bits; empezar:
+// banderas, bit 0 = con sprites). Respuesta: estado (ST_OK), estado de la
+// captura (0 ninguna, 1 en curso, 2 lista, 3 error, 4 el depurador no esta),
+// total (16 bits), desplazamiento (16 bits), n, datos
+#define WIFI_PROTO_CAP_CHUNK    240
 
 // Tamano maximo de PAYLOAD de una trama (CMD+LEN no cuentan) - dimensiona los buffers
 // fijos en ambos lados, deben usar la MISMA constante para no desbordar el lado contrario.
@@ -57,6 +63,7 @@ enum WifiProtoCmd : uint8_t {
   CMD_NET_POLL     = 0x0F,  // puente de datos de red (BBS/telnet) - ver mas abajo
   CMD_DBG          = 0x10,  // depurador: una orden de la consola y su salida - ver mas abajo
   CMD_DBG_VIEW     = 0x11,  // depurador: un trozo de la vista estructurada - ver mas abajo
+  CMD_DBG_CAP      = 0x12,  // depurador: la captura de la pantalla del programa - ver arriba (WIFI_PROTO_CAP_CHUNK)
   // 0x0B (antiguo CMD_GET_WIFI_CFG) retirado - ver nota mas abajo sobre WIFI.CFG
 };
 

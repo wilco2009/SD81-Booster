@@ -410,6 +410,22 @@ bool wifi_client_dbg(uint8_t id, uint32_t seq, const char* cmd,
   return true;
 }
 
+bool wifi_client_dbg_cap(uint8_t op, uint16_t arg, uint8_t* out_state, uint16_t* out_total,
+                         uint16_t* out_off, uint8_t* out_data, uint16_t* out_len) {
+  *out_len = 0;
+  uint8_t req[3] = { op, (uint8_t)(arg & 0xFF), (uint8_t)(arg >> 8) };
+  WifiProtoResp r = wifi_client_request(CMD_DBG_CAP, req, 3);
+  if (!r.ok || r.len < 7 || r.payload[0] != ST_OK) return false;
+  *out_state = r.payload[1];
+  memcpy(out_total, &r.payload[2], 2);
+  memcpy(out_off, &r.payload[4], 2);
+  uint16_t n = r.payload[6];
+  if (n > WIFI_PROTO_CAP_CHUNK || (uint16_t)(7 + n) > r.len) return false;
+  memcpy(out_data, &r.payload[7], n);
+  *out_len = n;
+  return true;
+}
+
 bool wifi_client_dbg_view(uint8_t part, uint16_t* out_ver, uint16_t* out_total,
                           uint8_t* out_data, uint16_t* out_len) {
   *out_len = 0;

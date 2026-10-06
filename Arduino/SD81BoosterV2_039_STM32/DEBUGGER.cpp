@@ -128,7 +128,9 @@ enum {
   TAG_FT_OP,        // historial: los bytes de una instruccion (arg = cual)
   TAG_WEB_DIS,      // web: los bytes del desensamblado
   TAG_WEB_STK,      // web: la pila
-  TAG_WEB_MEM       // web: el volcado
+  TAG_WEB_MEM,      // web: el volcado
+  TAG_CAP_INFO,     // captura: lo de partida (arg = 0 Chroma, 1 POKEs, 2 D_FILE)
+  TAG_CAP_DATA      // captura: un trozo de una region
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -632,6 +634,11 @@ static void dirty_clear();
 static uint8_t ld_prepare(const char* path, uint8_t* im);
 static bool snap_pending = false;
 static bool snap_busy();
+static bool cap_pending = false;            // captura pedida: empieza al parar
+static bool cap_active();                    // leyendo la sombra
+static void cap_begin();
+static void cap_result(uint8_t tag, uint8_t arg, uint8_t* d, uint16_t n);
+static void cap_feed();
 static void snap_begin();
 static void snap_result(uint8_t tag, uint8_t* data, uint16_t n);
 static void snap_feed();
@@ -761,6 +768,7 @@ static void on_stopped(bool reached){
   free_temp_bps();
   queue_show();
   if (snap_pending) { snap_pending = false; snap_begin(); }
+  else if (cap_pending) { cap_pending = false; cap_begin(); }   // la captura de la web
   else ui_on_stop();                          // la pantalla del depurador, si se pidio
   web_refresh();                              // y la vista de la web, si hay alguien mirando
 }
@@ -791,6 +799,9 @@ static void on_result(uint8_t* data, uint16_t n){
     case TAG_IN:
       snprintf(b, sizeof(b), "IN (%04X) = %02X", last.addr, n ? data[0] : 0);
       Serial.println(b);
+      break;
+    case TAG_CAP_INFO: case TAG_CAP_DATA:
+      cap_result(last.tag, last.arg, data, n);
       break;
     case TAG_SNAP_MAP: case TAG_SNAP_CHROMA: case TAG_SNAP_POKES:
     case TAG_SNAP_MEM: case TAG_SNAP_COLOUR: case TAG_SNAP_PAGE:
@@ -863,6 +874,7 @@ void cmd_dbg_poll(void){
     poll_state = 1;
   }
   snap_feed();                                // un snapshot en curso pide lo siguiente
+  cap_feed();                                 // y una captura de pantalla
   ui_kbd_feed();                              // el teclado: pausa del boton QS y pantalla del depurador
   if (web_wake && poll_state == 1) { web_wake = false; web_refresh(); }   // la web acaba de abrirse
   ld_feed();                                  // y una carga
@@ -945,6 +957,7 @@ static void help(){
   Serial.println("  x reg=val      set a register (af bc de hl ix iy af' bc' de' hl' sp pc i r)");
   Serial.println("  io port [val]  read (or write) an I/O port");
   Serial.println("  snap [-a] [f]  snapshot (.Z81): mapped pages, -a all pages; name: last LOADed file");
+  Serial.println("  cap            screen capture for the web page (stops the program for a moment)");
   Serial.println("  sym [f | -]    symbols (pasmo .sym): load f, - clears, none: show; LOAD reads <name>.SYM");
   Serial.println("  DBG_RELOAD     reload /SYS/DEBUG.BIN (like a reset)");
 }
@@ -982,11 +995,16 @@ bool dbg_console(const char* line){
 
   if (!strcmp(cmd, "h") || !strcmp(cmd, "?")) { help(); return true; }
   if (trace_on) { trace_stop_req(); return true; }   // mientras traza, cualquier orden la para
-  if (snap_busy()) { Serial.println("Snapshot in progress"); return true; }
+  if (snap_busy()) { Serial.println(cap_active() ? "Screen capture in progress" : "Snapshot in progress"); return true; }
   if (ld_busy()) { Serial.println("Loading a snapshot"); return true; }
   if (view_busy()) { Serial.println("Video: copying the bitmap"); return true; }
   if (ui_entering_now()) { Serial.println("Debugger screen: starting"); return true; }
   if (!strcmp(cmd, "p")) { if (stopped) Serial.println("Already stopped"); else dbg_pause(); return true; }
+  if (!strcmp(cmd, "cap")) {                  // la captura de pantalla de la web, sin web: solo para probar
+    uint8_t r = dbg_cap_start(1);
+    Serial.println(r == 0 ? "Screen capture started" : r == 1 ? "No debug monitor loaded" : "Busy");
+    return true;
+  }
   if (!strcmp(cmd, "snap")) {
     while (*p == ' ') p++;
     bool all = false;
@@ -1267,7 +1285,41 @@ void dbg_note_loaded(const char* name){
   last_name[i] = 0;
 }
 
-static bool snap_busy(){ return sn.stage != SN_OFF; }
+// ---------------------------------------------------------------------
+// Captura de la pantalla para la web (CMD_DBG_CAP). La FPGA saca el video de
+// la BRAM de sombra, asi que se lee de ahi (indice 2) lo que hace falta para
+// dibujar el modo en que esta el programa: sin FPGA nueva. El programa se
+// para un momento (o se aprovecha que ya esta parado) y sigue al acabar.
+// El navegador dibuja la imagen con el documento que sale de aqui:
+//   cabecera de 24 bytes:
+//     0 version (1)   1 modo (0 ZX81 nativo, 1 Superfast texto de 32 columnas,
+//     2 de 70, 3 de 80, 4 HiRes, 5 Spectrum, 6 otro: no se dibuja)
+//     2 registro de Chroma   3 banderas: b0 128 caracteres, b1 256, b2 doble
+//     buffer, b3 con sprites, b4 D_FILE alternativo, b5 atributos alternativos
+//     4 el registro I   5 scroll fino horizontal (POKE 2090, 0-7)
+//     6 D_FILE (16 bits)   8 base de los atributos alternativos (ya con el +1)
+//     10 base de la fuente   12 bloque de video (vpage << 13)   14 regiones
+//     16-18 filas con scroll fino (POKE 2091-2093; bit 0 de 16 = fila 0)
+//   y las regiones: direccion (16), longitud (16) y los bytes de la sombra
+// ---------------------------------------------------------------------
+#define CAP_MAX 15000
+#define CAP_NRG 8
+enum { CAP_IDLE, CAP_WAIT, CAP_INFO, CAP_DATA, CAP_READY };
+static struct {
+  uint8_t stage;
+  bool resume, sprites, err;
+  uint8_t info;                             // lo de partida que ha llegado (bits)
+  uint8_t chroma, pk[POKE_N], df[2];
+  uint8_t nrg, qr, rr;                      // regiones; la que se pide y la que llega
+  uint16_t qo, ro;                          // y por donde van
+  uint16_t rg_addr[CAP_NRG], rg_len[CAP_NRG], rg_off[CAP_NRG];
+  uint16_t len;                             // longitud del documento
+  uint32_t t0;
+  uint8_t buf[CAP_MAX];
+} cap;
+static bool cap_active(){ return cap.stage == CAP_INFO || cap.stage == CAP_DATA; }
+
+static bool snap_busy(){ return sn.stage != SN_OFF || cap_active(); }
 
 // --- escritura con buffer ---
 static void sflush(){
@@ -3396,6 +3448,177 @@ uint16_t dbg_view_read(uint8_t part, uint8_t* buf, uint16_t max, uint16_t* ver, 
 }
 
 uint16_t dbg_view_ver(void){ return web_ver; }
+
+// ---------------------------------------------------------------------
+// Captura de pantalla (ver la cabecera de la estructura cap, mas arriba)
+// ---------------------------------------------------------------------
+static void cap_ptr(uint16_t a){              // el puntero de la sombra y el indice 2
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, a & 0xFF);
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, a >> 8);
+  q_out(DBG_PORT, 0x02);
+}
+
+uint8_t dbg_cap_start(uint8_t flags){
+  if (!debug_monitor_loaded) return 1;
+  if (snap_busy() || ld_busy() || view_busy() || ui_entering_now() || cap_pending) return 2;
+  cap.sprites = flags & 1;
+  cap.err = false; cap.resume = false; cap.len = 0;
+  cap.stage = CAP_WAIT; cap.t0 = millis();
+  view_off();                                 // lo que se ve es el video del programa
+  ui_hide();
+  if (stopped) cap_begin();
+  else {                                      // al parar empieza (on_stopped)
+    cap_pending = true;
+    cap.resume = true;
+    dbg_pause();
+  }
+  return 0;
+}
+
+static void cap_begin(){
+  cap.stage = CAP_INFO;
+  cap.info = 0;
+  q_out(DBG_PORT, 0x03);
+  q_push(OP_IN, DBG_PORT, 0, TAG_CAP_INFO, 0);
+  cap_ptr(POKE_FIRST);
+  q_push(OP_INSEQ, DBG_PORT, POKE_N, TAG_CAP_INFO, 1);
+  cap_ptr(0x400C);                            // D_FILE, la variable de sistema
+  q_push(OP_INSEQ, DBG_PORT, 2, TAG_CAP_INFO, 2);
+}
+
+// Con lo de partida, que hay que leer y como queda el documento
+static void cap_plan(){
+  uint8_t rom[POKE_N];
+  bool rom_ok = rom_file_read(POKE_FIRST, rom, POKE_N) == POKE_N;
+  // el valor de un POKE, o def si no se ha escrito nunca (en la sombra sigue el byte de la ROM)
+  auto pkv = [&](int a, int def) -> int {
+    int i = a - POKE_FIRST;
+    return (rom_ok && cap.pk[i] == rom[i]) ? def : cap.pk[i];
+  };
+  int m = pkv(2045, 85);
+  uint8_t mode = m == 85 ? 0 : m == 170 ? 1 : m == 173 ? 2 : m == 174 ? 3 : m == 171 ? 4 : m == 172 ? 5 : 6;
+  bool wide = mode == 2 || mode == 3;
+  bool text = mode <= 3;
+  uint16_t sysdf = cap.df[0] | (cap.df[1] << 8);
+  bool dov = mode >= 1 && mode <= 3 && pkv(2098, 85) == 170;
+  uint16_t dfile = dov ? (uint16_t)(pkv(2096, 0) | (pkv(2097, 0) << 8)) : sysdf;
+  bool aov = mode >= 1 && mode <= 5 && pkv(2061, 85) == 170;
+  uint16_t abase = (uint16_t)(pkv(2059, 0) | (pkv(2060, 0) << 8)) + 1;
+  int dv = pkv(2057, 85);
+  bool dbuf = (dv & 0xF8) == 168;
+  uint16_t hfile = (uint16_t)(pkv(2043, 0) | (pkv(2044, 0) << 8));
+  uint8_t vpage = dbuf ? (dv & 7) : (hfile >> 13);
+  bool col = cap.chroma & 0x20, a1 = cap.chroma & 0x10;
+  uint8_t I = regs[R_I];
+  bool s256 = cfg_value(cfgcmd_256CHARS), s128 = cfg_value(cfgcmd_128CHARS);
+  uint16_t fbase, flen;
+  if (s256) { fbase = (uint16_t)(I & 0xF8) << 8; flen = 2048; }
+  else if (s128) { fbase = (uint16_t)(I & 0xFC) << 8; flen = 1024; }
+  else { fbase = (uint16_t)(I & 0xFE) << 8; flen = 512; }
+  bool spr = cap.sprites && mode != 6 && !wide;
+  uint16_t stride = mode == 2 ? 71 : mode == 3 ? 81 : 33;
+
+  cap.nrg = 0;
+  auto add = [&](uint16_t addr, uint32_t len){
+    if (cap.nrg >= CAP_NRG) return;
+    if ((uint32_t)addr + len > 0x10000) len = 0x10000 - addr;
+    cap.rg_addr[cap.nrg] = addr; cap.rg_len[cap.nrg] = (uint16_t)len; cap.nrg++;
+  };
+  add(POKE_FIRST, POKE_N);
+  if (spr) { add(SPR_MIRROR, 1024); add(SPR_MIRROR2, 1024); }
+  if (text) {
+    add(dfile, mode == 0 ? 793 : 1 + 24 * stride);
+    if (col) {
+      if (a1) {
+        if (mode == 0) add(dfile | 0x8000, 793);
+        else add(aov ? abase : (uint16_t)(0x8000 | ((dfile + 1) & 0x7FFF)), 24 * stride);
+      } else add(0xC000, s256 ? 2048 : 1024);
+    }
+    add(fbase, flen);
+  } else if (mode == 4) {
+    add((uint16_t)vpage << 13, 6144);
+    if (col) {
+      if (a1) add(aov ? abase : (uint16_t)(0x8000 | ((dfile + 1) & 0x7FFF)), 24 * 33);
+      else add(0xC000, 6144);
+    }
+  } else if (mode == 5) add((uint16_t)vpage << 13, 6912);
+
+  uint8_t* b = cap.buf;
+  memset(b, 0, 24);
+  b[0] = 1; b[1] = mode; b[2] = cap.chroma;
+  b[3] = (s128 ? 1 : 0) | (s256 ? 2 : 0) | (dbuf ? 4 : 0) | (spr ? 8 : 0) | (dov ? 16 : 0) | (aov ? 32 : 0);
+  b[4] = I;
+  b[5] = pkv(2090, 0) & 7;
+  b[16] = pkv(2091, 0xFF); b[17] = pkv(2092, 0xFF); b[18] = pkv(2093, 0xFF);
+  b[6] = dfile & 0xFF; b[7] = dfile >> 8;
+  b[8] = abase & 0xFF; b[9] = abase >> 8;
+  b[10] = fbase & 0xFF; b[11] = fbase >> 8;
+  b[12] = 0; b[13] = vpage << 5;
+  b[14] = cap.nrg; b[15] = 0;
+  uint32_t pos = 24;
+  for (uint8_t i = 0; i < cap.nrg; i++) {
+    if (pos + 4 + cap.rg_len[i] > CAP_MAX) { cap.nrg = i; break; }   // (no deberia pasar)
+    b[pos] = cap.rg_addr[i] & 0xFF; b[pos + 1] = cap.rg_addr[i] >> 8;
+    b[pos + 2] = cap.rg_len[i] & 0xFF; b[pos + 3] = cap.rg_len[i] >> 8;
+    cap.rg_off[i] = pos + 4;
+    pos += 4 + cap.rg_len[i];
+  }
+  b[14] = cap.nrg;
+  cap.len = pos;
+  cap.qr = cap.rr = 0; cap.qo = cap.ro = 0;
+  cap.stage = CAP_DATA;
+}
+
+static void cap_done(){
+  cap.stage = CAP_READY;
+  Serial.printf("Screen capture: %u bytes, %u regions, mode %u\r\n", cap.len, cap.nrg, cap.buf[1]);
+  if (cap.resume) { cap.resume = false; dbg_continue(); }
+  else ui_on_stop();                          // la pantalla del depurador, si estaba
+}
+
+static void cap_result(uint8_t tag, uint8_t arg, uint8_t* d, uint16_t n){
+  if (tag == TAG_CAP_INFO) {
+    if (arg == 0) cap.chroma = n ? d[0] : 0;
+    else if (arg == 1) memcpy(cap.pk, d, n < POKE_N ? n : POKE_N);
+    else memcpy(cap.df, d, n < 2 ? n : 2);
+    cap.info |= 1 << arg;
+    if (cap.info == 7) cap_plan();
+    if (cap.stage == CAP_DATA && cap.nrg == 0) cap_done();
+    return;
+  }
+  if (cap.stage != CAP_DATA || cap.rr >= cap.nrg) return;
+  uint16_t room = cap.rg_len[cap.rr] - cap.ro;
+  if (n > room) n = room;
+  memcpy(cap.buf + cap.rg_off[cap.rr] + cap.ro, d, n);
+  cap.ro += n;
+  if (cap.ro >= cap.rg_len[cap.rr] || n == 0) { cap.rr++; cap.ro = 0; }
+  if (cap.rr >= cap.nrg) cap_done();
+}
+
+static void cap_feed(){
+  if (cap.stage == CAP_WAIT && millis() - cap.t0 > 8000) {       // no ha parado
+    cap.stage = CAP_IDLE; cap.err = true; cap_pending = false;
+    return;
+  }
+  if (cap.stage != CAP_DATA) return;
+  while (q_count < 6 && cap.qr < cap.nrg) {
+    if (cap.qo == 0) cap_ptr(cap.rg_addr[cap.qr]);
+    uint16_t n = cap.rg_len[cap.qr] - cap.qo;
+    if (n > 256) n = 256;
+    if (!q_push(OP_INSEQ, DBG_PORT, n, TAG_CAP_DATA)) break;
+    cap.qo += n;
+    if (cap.qo >= cap.rg_len[cap.qr]) { cap.qr++; cap.qo = 0; }
+  }
+}
+
+uint16_t dbg_cap_read(uint16_t off, uint8_t* out, uint16_t max, uint8_t* state, uint16_t* total){
+  *state = cap.stage == CAP_READY ? 2 : cap.err ? 3 : cap.stage == CAP_IDLE ? 0 : 1;
+  *total = cap.stage == CAP_READY ? cap.len : 0;
+  if (cap.stage != CAP_READY || off >= cap.len) return 0;
+  uint16_t n = cap.len - off < max ? cap.len - off : max;
+  memcpy(out, cap.buf + off, n);
+  return n;
+}
 
 // ---------------------------------------------------------------------
 // Interfaz web (ESP32): CMD_DBG trae una orden de la consola (con un numero:

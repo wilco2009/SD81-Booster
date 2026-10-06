@@ -631,6 +631,27 @@ static void handle_dbg_view(const uint8_t* payload, uint16_t len) {
   wifi_send_frame(CMD_DBG_VIEW, tx_payload, 6 + n);
 }
 
+// CMD_DBG_CAP: la captura de la pantalla del programa (ver WIFI_PROTOCOL.h)
+static void handle_dbg_cap(const uint8_t* payload, uint16_t len) {
+  if (len < 3) return;
+  uint16_t arg = payload[1] | (payload[2] << 8);
+  uint8_t state = 0;
+  uint16_t total = 0, n = 0;
+  if (payload[0] == 1) {
+    uint8_t r = dbg_cap_start((uint8_t)arg);
+    state = r == 0 ? 1 : (r == 1 ? 4 : 1);   // ocupado: ya hay una en curso
+    arg = 0;
+  } else {
+    n = dbg_cap_read(arg, &tx_payload[7], WIFI_PROTO_CAP_CHUNK, &state, &total);
+  }
+  tx_payload[0] = ST_OK;
+  tx_payload[1] = state;
+  memcpy(&tx_payload[2], &total, 2);
+  memcpy(&tx_payload[4], &arg, 2);
+  tx_payload[6] = (uint8_t)n;
+  wifi_send_frame(CMD_DBG_CAP, tx_payload, 7 + n);
+}
+
 void wifi_handler_poll() {
 #if NET_BRIDGE_TEST
   net_bridge_test_tick();
@@ -667,6 +688,7 @@ void wifi_handler_poll() {
     case CMD_NET_POLL:     handle_net_poll(rx_payload, len); break;
     case CMD_DBG:          handle_dbg(rx_payload, len); break;
     case CMD_DBG_VIEW:     handle_dbg_view(rx_payload, len); break;
+    case CMD_DBG_CAP:      handle_dbg_cap(rx_payload, len); break;
     default: break;   // comando desconocido: se ignora
   }
 }

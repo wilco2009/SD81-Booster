@@ -46,5 +46,10 @@ uint16_t dbg_out_read(uint32_t seq, uint8_t* buf, uint16_t max, uint32_t* from);
 uint8_t dbg_web_state(void);
 uint16_t dbg_view_read(uint8_t part, uint8_t* buf, uint16_t max, uint16_t* ver, uint16_t* total);
 uint16_t dbg_view_ver(void);
+// Captura de la pantalla del programa (la web): 0 empezada, 1 no hay monitor, 2 ocupado.
+// dbg_cap_read: trozo del documento desde off (hasta max bytes); state: 0 ninguna,
+// 1 en curso, 2 lista, 3 error; total: bytes del documento (solo si esta lista)
+uint8_t dbg_cap_start(uint8_t flags);
+uint16_t dbg_cap_read(uint16_t off, uint8_t* out, uint16_t max, uint8_t* state, uint16_t* total);
 
 #endif

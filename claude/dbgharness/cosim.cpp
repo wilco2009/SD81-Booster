@@ -150,6 +150,7 @@ static uint8_t ay_reg[2][16], ay_sel[2];  // los AY de la FPGA: [0] el A (A3=1),
 static uint8_t sprreg[64][28], spr_sel = 0;   // los sprites (2100-2128)
 static int spr_tbl(int n){ return n < 32 ? 0x0C00 + n * 32 : 0x1800 + (n - 32) * 32; }   // su copia en la sombra
 static int chroma_reg = -1;
+static int chroma_in = 0x2C;                   // lo que da el IN del indice 3
 static uint8_t* ptr(int a){ a &= 0xFFFF; int b = a >> 13; int pg = (mon && b == 1) ? 63 : blk[b]; return &ram[pg][a & 0x1FFF]; }
 static uint8_t* pptr(int a){ a &= 0xFFFF; return &ram[blk[a >> 13]][a & 0x1FFF]; }   // como lo ve el programa
 static int cur_page(int a){ int b = (a & 0xFFFF) >> 13; return (mon && b == 1) ? 63 : blk[b]; }
@@ -235,7 +236,7 @@ BYTE z80_readport_wrapper(int port, int*){
   if ((lo & 0x26) == 0x06 && (lo & 0x80)) { int c = (lo & 8) ? 0 : 1; return ay_sel[c] < 16 ? ay_reg[c][ay_sel[c]] : 0xFF; }
   if ((port & 0xFFFF) == 0x3FEF) {
     if (ridx == 2) return bram[bptr++];
-    if (ridx == 3) return 0x2C;                 // registro de Chroma
+    if (ridx == 3) return chroma_in;            // registro de Chroma
     if (ridx == 4) return ay_sel[0];
     if (ridx == 5) return ay_sel[1];
     if (ridx == 6) return (uint8_t)((dirty >> (dptr++ & 63)) & 1);
@@ -1222,6 +1223,139 @@ int main(int argc, char** argv){
   CHECK(chroma_reg == 0x31 && opened_dir == "*" && !strcmp(current_dir, "/JUEGOS/"), "EightyOne: Chroma, DIR_OPEN, CUR_DIR");
   strcpy(current_dir, "/");
   { uint8_t im2; CHECK(dbg_z81_prepare("/no_existe.Z81", &im2) == 1, "LOAD *Z81: sin fichero, error 1"); }
+
+  // 14. La captura de pantalla de la web (dbg_cap_start / dbg_cap_read): el documento con
+  //     lo que hay que dibujar del modo en que esta el programa
+  {
+    scramble();
+    con("c");
+    run_program(1000);
+    auto setpk = [&](int a, int v){ bram[a] = v; };   // (un POKE igual que la ROM cuenta como "no escrito": vale su valor por defecto)
+    auto capture = [&](std::vector<uint8_t>& doc, const char* what) -> bool {
+      doc.clear();
+      con("cap");                                 // por la consola: el MCU corre en su hilo
+      while (processed != posted) step_cpu();     // (hasta que la haya atendido: la anterior sigue "lista")
+      uint8_t st = 0; uint16_t total = 0; uint8_t tmp[240];
+      bool ready = false;
+      for (long k = 0; k < 60000000 && !ready; k++) {
+        step_cpu();
+        if ((k & 1023) == 0) { dbg_cap_read(0, tmp, 1, &st, &total); ready = st == 2; }
+      }
+      if (!ready) { printf("  %s: la captura no acaba (estado %u)\n", what, st); return false; }
+      for (uint16_t off = 0; off < total; ) {
+        uint16_t n = dbg_cap_read(off, tmp, sizeof(tmp), &st, &total);
+        if (!n) break;
+        doc.insert(doc.end(), tmp, tmp + n);
+        off += n;
+      }
+      if (doc.size() != total) { printf("  %s: documento incompleto %zu/%u\n", what, doc.size(), total); return false; }
+      return true;
+    };
+    // las regiones del documento, comparadas con la sombra
+    auto regions_ok = [&](const std::vector<uint8_t>& d, std::vector<std::pair<int, int>>& rg, const char* what) -> bool {
+      rg.clear();
+      size_t pos = 24;
+      for (int i = 0; i < d[14]; i++) {
+        if (pos + 4 > d.size()) { printf("  %s: region %d fuera del documento\n", what, i); return false; }
+        int a = d[pos] | (d[pos + 1] << 8), l = d[pos + 2] | (d[pos + 3] << 8);
+        pos += 4;
+        if (pos + l > d.size()) { printf("  %s: datos de la region %d fuera del documento\n", what, i); return false; }
+        for (int k = 0; k < l; k++)
+          if (d[pos + k] != bram[(a + k) & 0xFFFF]) { printf("  %s: region %04X+%d difiere en %d (%02X/%02X)\n", what, a, l, k, d[pos + k], bram[(a + k) & 0xFFFF]); return false; }
+        rg.push_back({a, l});
+        pos += l;
+      }
+      if (pos != d.size()) { printf("  %s: sobran bytes (%zu/%zu)\n", what, pos, d.size()); return false; }
+      return true;
+    };
+    auto has = [&](const std::vector<std::pair<int, int>>& rg, int a, int l){ for (auto& r : rg) if (r.first == a && r.second == l) return true; return false; };
+
+    // a) Superfast texto de 32 columnas, con color por codigo de caracter
+    for (int i = 0; i < 61; i++) bram[2038 + i] = romfile[2038 + i];
+    setpk(2045, 170);
+    bram[0x400C] = 0x00; bram[0x400D] = 0x50;
+    for (int i = 0; i < 800; i++) bram[0x5000 + i] = (i * 5 + 3) & 0xFF;
+    for (int i = 0; i < 2048; i++) bram[0xC000 + i] = (i * 3 + 1) & 0xFF;
+    chroma_in = 0x2C;
+    cfgs[cfgcmd_128CHARS] = cfgs[cfgcmd_256CHARS] = 0;
+    std::vector<uint8_t> d; std::vector<std::pair<int, int>> rg;
+    bool ok = capture(d, "texto");
+    CHECK(ok && d[0] == 1 && d[1] == 1 && d[2] == 0x2C && d[6] == 0x00 && d[7] == 0x50, "captura texto: cabecera (modo 1, Chroma, D_FILE del sistema)");
+    ok = ok && regions_ok(d, rg, "texto");
+    int fb = ((d[4] & 0xFE) << 8);
+    CHECK(ok && (d[10] | (d[11] << 8)) == fb && has(rg, 2038, 61) && has(rg, 0x0C00, 1024) && has(rg, 0x1800, 1024) &&
+          has(rg, 0x5000, 1 + 24 * 33) && has(rg, 0xC000, 1024) && has(rg, fb, 512),
+          "captura texto: POKEs, los dos bloques de sprites, D_FILE, tabla de color y fuente de 64 caracteres, con los bytes de la sombra");
+    run_program(1000);
+    CHECK(!mon && !dbg_is_stopped(), "captura: el programa vuelve a correr al acabar");
+
+    // b) 70 columnas con D_FILE alternativo y color por atributos de posicion; 256 caracteres
+    setpk(2045, 173); setpk(2096, 0x00); setpk(2097, 0x60); setpk(2098, 170);
+    for (int i = 0; i < 1800; i++) bram[0x6000 + i] = (i * 7 + 1) & 0xFF;
+    for (int i = 0; i < 1800; i++) bram[0xE001 + i] = (i * 11 + 5) & 0xFF;     // 0x8000 | (0x6000 + 1)
+    chroma_in = 0x3C;                                                            // atributos por posicion
+    cfgs[cfgcmd_256CHARS] = 1;
+    ok = capture(d, "70 columnas");
+    ok = ok && regions_ok(d, rg, "70 columnas");
+    fb = ((d[4] & 0xF8) << 8);
+    CHECK(ok && d[1] == 2 && (d[6] | (d[7] << 8)) == 0x6000 && (d[3] & 0x12) == 0x12 && has(rg, 0x6000, 1 + 24 * 71) &&
+          has(rg, 0xE001, 24 * 71) && has(rg, fb, 2048) && !has(rg, 0x0C00, 1024),
+          "captura 70 columnas: D_FILE alternativo, atributos de posicion, fuente de 256 y sin sprites (modo ancho)");
+
+    // c) Spectrum: el bloque de video sale de HFILE
+    setpk(2045, 172); setpk(2043, 0x00); setpk(2044, 0x80); setpk(2098, 85);
+    for (int i = 0; i < 6912; i++) bram[0x8000 + i] = (i * 13 + 7) & 0xFF;
+    chroma_in = 0x2C;
+    cfgs[cfgcmd_256CHARS] = 0;
+    ok = capture(d, "Spectrum");
+    ok = ok && regions_ok(d, rg, "Spectrum");
+    CHECK(ok && d[1] == 5 && d[13] == 0x80 && has(rg, 0x8000, 6912), "captura Spectrum: el bloque de video de HFILE ($8000, 6912 bytes)");
+
+    // d) Spectrum con el doble buffer: el bloque de video es el de delante
+    setpk(2057, 168 + 5);
+    for (int i = 0; i < 6912; i++) bram[0xA000 + i] = (i * 3 + 9) & 0xFF;
+    ok = capture(d, "Spectrum con doble buffer");
+    ok = ok && regions_ok(d, rg, "Spectrum con doble buffer");
+    CHECK(ok && d[1] == 5 && (d[3] & 4) && d[13] == 0xA0 && has(rg, 0xA000, 6912), "captura Spectrum con doble buffer: el bloque de delante ($A000)");
+
+    // e) HiRes con color por 8 pixeles
+    setpk(2045, 171); setpk(2057, 85);
+    for (int i = 0; i < 6144; i++) bram[0x8000 + i] = (i * 5 + 2) & 0xFF;
+    for (int i = 0; i < 6144; i++) bram[0xC000 + i] = (i * 9 + 4) & 0xFF;
+    ok = capture(d, "HiRes");
+    ok = ok && regions_ok(d, rg, "HiRes");
+    CHECK(ok && d[1] == 4 && has(rg, 0x8000, 6144) && has(rg, 0xC000, 6144), "captura HiRes: mapa de bits y color por byte");
+
+    // f) ZX81 nativo, sin color: D_FILE del sistema, sin tabla de color
+    setpk(2045, 85);
+    chroma_in = 0x0C;
+    ok = capture(d, "nativo");
+    ok = ok && regions_ok(d, rg, "nativo");
+    CHECK(ok && d[1] == 0 && has(rg, 0x5000, 793) && !has(rg, 0xC000, 1024) && !has(rg, 0xC000, 2048), "captura nativo: D_FILE y fuente, sin color");
+
+    // g) un modo que no se dibuja
+    setpk(2045, 99);
+    ok = capture(d, "otro modo");
+    CHECK(ok && d[1] == 6 && d[14] == 1, "captura: un modo desconocido solo trae los POKEs");
+
+    // h) con el programa ya parado se queda parado; y ocupado si ya hay una en curso
+    run_program(100);
+    pause_pend = true;
+    CHECK(run_until_waiting(5000000), "captura: pausa para la prueba");
+    ok = capture(d, "parado");
+    if (!(ok && d[1] == 6 && mon && dbg_is_stopped())) printf("  DEBUG ok=%d mode=%d mon=%d stopped=%d\n", (int)ok, ok ? d[1] : -1, (int)mon, (int)dbg_is_stopped()); CHECK(ok && d[1] == 6 && mon && dbg_is_stopped(), "captura: ya estaba parado, se queda parado");
+    chroma_in = 0x2C;
+    con("c");
+    run_program(100);
+    { std::lock_guard<std::mutex> l(out_mx); out_log.clear(); }
+    con("cap"); con("cap");
+    while (processed != posted) step_cpu();       // las dos atendidas (la anterior sigue "lista" hasta entonces)
+    for (long k = 0; k < 60000000; k++) { step_cpu(); uint8_t st2, t2[2]; uint16_t tt; dbg_cap_read(0, t2, 1, &st2, &tt); if (st2 == 2) break; }
+    { std::lock_guard<std::mutex> l(out_mx); CHECK(out_log.find("Screen capture started") != std::string::npos && (out_log.find("Busy") != std::string::npos || out_log.find("Screen capture in progress") != std::string::npos), "captura: otra mientras hay una en curso, ocupado"); }
+    ok = false; { uint8_t st2, t2[2]; uint16_t tt; dbg_cap_read(0, t2, 1, &st2, &tt); ok = st2 == 2; }
+    CHECK(ok, "captura: la que estaba en curso acaba");
+    run_program(1000);
+  }
 
   quit = true; mcu.join();
   printf(errors ? "%d ERRORES\n" : "TODO OK\n", errors);

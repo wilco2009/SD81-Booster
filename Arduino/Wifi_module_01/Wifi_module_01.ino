@@ -450,6 +450,31 @@ void handleDebugView() {
   server.send(503, "text/plain", "");
 }
 
+// /debug/cap?go=1[&s=0]: pide una captura de la pantalla (para el programa un
+// momento y lo deja seguir). /debug/cap?off=N: el trozo que empieza en N, en
+// binario: estado, total (16 bits), desplazamiento (16 bits), n y los datos.
+// La pagina repite hasta tener los `total` bytes
+void handleDebugCap() {
+  uint8_t buf[WIFI_PROTO_CAP_CHUNK];
+  uint8_t state = 0;
+  uint16_t total = 0, off = 0, n = 0;
+  bool ok;
+  if (server.hasArg("go")) {
+    uint16_t flags = (server.hasArg("s") && server.arg("s") == "0") ? 0 : 1;
+    ok = wifi_client_dbg_cap(1, flags, &state, &total, &off, buf, &n);
+  } else {
+    uint16_t want = server.hasArg("off") ? (uint16_t)strtoul(server.arg("off").c_str(), nullptr, 10) : 0;
+    ok = wifi_client_dbg_cap(0, want, &state, &total, &off, buf, &n);
+  }
+  if (!ok) { server.send(503, "text/plain", ""); return; }
+  uint8_t head[6] = { state, (uint8_t)(total & 0xFF), (uint8_t)(total >> 8), (uint8_t)(off & 0xFF), (uint8_t)(off >> 8), (uint8_t)n };
+  String body;
+  body.reserve(6 + n);
+  for (int i = 0; i < 6; i++) body += (char)head[i];
+  for (uint16_t i = 0; i < n; i++) body += (char)buf[i];
+  server.send(200, "application/octet-stream", body);
+}
+
 void handleTelnetPage() {
   String html = "<style>"
                 "body{font-family:sans-serif;max-width:600px;margin:0 auto;padding:0 10px}"
@@ -1108,6 +1133,7 @@ void setup() {
   server.on("/debug", HTTP_GET, handleDebugPage);
   server.on("/debug/poll", HTTP_GET, handleDebugPoll);
   server.on("/debug/view", HTTP_GET, handleDebugView);
+  server.on("/debug/cap", HTTP_GET, handleDebugCap);
   server.on("/update", HTTP_GET, handleUpdatePage);
   server.on("/update/check", HTTP_POST, handleUpdateCheck);
   server.on("/update/finish", HTTP_POST, handleUpdateFinish);

@@ -32,6 +32,8 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 37e12d5 | Fase 4: programas en SLOW (la FPGA para en la entrada de la NMI, el monitor la apaga, el MCU la deshace); teclas al soltarlas | 3, 13 |
 | 12f5c16 | Carga de snapshots: el sonido callado mientras carga; el estado del MCU (VGM, AY, PEG, ficheros) al final, al seguir. Solo el MCU | 12.4 |
 | ac01f7c, fa0dd12 (ramas `fpga-camino-b` y `fpga-sprites64`) | Los sprites se leen por línea de la copia de la sombra (máximo 8 por línea) y pasan de 32 a **64**: segunda tabla en `$1800-$1BFF`, `LOAD *SPRITE` hasta 63, snapshots con `SPRITE n` hasta `3F`. Descripción para el emulador: `sprites_por_linea_emulador.md` | 11.4 |
+| bfd90d2, af0d52e, 2c7a39b (rama `captura-pantalla`) | La captura de pantalla del programa en la web (orden `cap` de la consola; `CMD_DBG_CAP` 0x12 del protocolo). **FPGA 0.14**: estado del vídeo legible, índices 9, 10 y 11 de `$3FEF` | 13.11, y la tabla de índices (9-11) |
+| 5e3373f (rama `teclado-remoto`) | Teclado virtual desde la web: FPGA nueva `vkeys.v` (orden 13 del canal de configuración) y `CMD_DBG_KEYS` 0x13. Solo la parte de la FPGA afecta al emulador | `teclado_remoto_emulador.md` |
 | 8ba74cf | La web, con paneles: desensamblado, registros, pila, breakpoints, memoria y consola (`CMD_DBG_VIEW`, la vista estructurada que compone el MCU). STM32 y ESP32 | 13.10 |
 | 6300e3a | Fase 5: la consola del depurador en la web del ESP32 (`/debug`, `CMD_DBG` en el protocolo UART). STM32 y ESP32 | 13.10 |
 | 5823b2e | Historial: la traza de la FPGA (sim_int 0.13, orden 12, índices 7/8), el PC de cada instrucción en `$1000-$17FF`; la pantalla del depurador pasa a `$0000`; `th`/`H` lo enseñan, `tron`/`troff` | 3, 13.6, 13.9 |
@@ -1462,3 +1464,40 @@ texto que compone el MCU:
 - **Órdenes de la vista:** `@d dir` (desensamblar desde ahí, deja de seguir
   al PC), `@d` (seguir al PC) y `@m dir` (el volcado), sin eco en el
   terminal.
+
+### 13.11 La captura de pantalla (`cap`) y el estado del vídeo
+
+La web (y la orden `cap` de la consola, que el emulador ya pasa al firmware) pide al MCU una
+foto del vídeo del programa: lo para un momento, lee de la **sombra de la BRAM** lo que pide el
+modo en que está, y lo deja seguir (o se queda parado si ya lo estaba). **El `DEBUGGER.cpp` del
+firmware lo hace todo**; al emulador solo le hace falta lo que ya hace para los snapshots más
+tres cosas:
+
+1. **Los índices 9, 10 y 11 del puerto `$3FEF`** (tabla de índices, arriba): el estado del vídeo
+   (qué modo Superfast hay y si el D_FILE alternativo, los atributos alternativos y el doble
+   buffer están realmente activos), el bloque de delante del doble buffer y `C4h`. Sin el 11 el
+   firmware cree que la FPGA es anterior y deduce el estado de los POKEs de la sombra; eso
+   falla cuando la FPGA ha ignorado un valor o apagado el D_FILE alternativo (un `POKE 2045,85`
+   lo apaga y un `POKE 2045,170` posterior no lo vuelve a encender).
+2. **La sombra legible** por los índices 2 (con el puntero de los registros 5 y 6) y el 3 (el
+   registro de Chroma81): ya los usan `snap` y `v`.
+3. Nada más: no hay órdenes de la FPGA nuevas.
+
+Lo que se lee, por modo (el firmware lo decide; el emulador solo sirve los bytes):
+
+| Modo (POKE 2045) | De la sombra |
+|---|---|
+| 85 (nativo), 170 / 173 / 174 (texto de 32 / 70 / 80 columnas) | el D_FILE (`1 + 24 * paso` bytes; paso 33, 71 u 81; en nativo 793), la fuente (512, 1024 o 2048 bytes según los 64, 128 o 256 caracteres, desde `(I & máscara) << 8`), y con Chroma la tabla por carácter (`$C000`, 1 o 2 KB) o los atributos por posición |
+| 171 (HiRes) | los 6144 bytes del mapa de bits en el bloque `vpage << 13` y los atributos (`$C000-$D7FF`, o por posición) |
+| 172 (Spectrum) | 6912 bytes (mapa de bits y atributos) desde `vpage << 13` |
+| cualquier modo | los POKEs 2038-2098, y las dos tablas de sprites (`$0C00` y `$1800`, 1 KB cada una) salvo en 70/80 columnas |
+
+`vpage` es el bloque de delante del doble buffer (índice 10) si está activo y, si no, `HFILE >> 13`.
+
+El documento sale en binario por `CMD_DBG_CAP` (trozos de 240 bytes) y la página lo dibuja en un
+`<canvas>`. El formato (cabecera de 24 bytes y las regiones) está comentado en `DEBUGGER.cpp`
+(estructura `cap`) y la prueba del dibujado es `claude/dbgharness/page_test.js`. El emulador no
+tiene web, así que el protocolo `CMD_DBG_CAP` y la página no son cosa suya.
+
+**Teclado virtual (`CMD_DBG_KEYS`).** Ver `teclado_remoto_emulador.md`: una matriz de teclas
+pulsadas por orden 13 que se suma a las lecturas del puerto `$FE`.

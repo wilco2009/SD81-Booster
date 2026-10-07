@@ -1483,6 +1483,12 @@ tres cosas:
    registro de Chroma81): ya los usan `snap` y `v`.
 3. Nada más: no hay órdenes de la FPGA nuevas.
 
+**Los snapshots (`snap`) usan los mismos índices.** Con el índice 11 = `C4h`, `snap` lee el 9 y el
+10 y decide `DISPLAY_MODE`, `WIDE_COLS`, `DISP_ADDR`, `ATTR_ADDR` y `DBUF` por el estado real, no
+por los últimos POKEs de la sombra (que se quedan desfasados: un `POKE 2045,85` apaga el D_FILE y
+los atributos alternativos y un `2045,170` posterior no los enciende). Ver
+`snapshots_cambios_emulador.md`, sección 2.
+
 Lo que se lee, por modo (el firmware lo decide; el emulador solo sirve los bytes):
 
 | Modo (POKE 2045) | De la sombra |

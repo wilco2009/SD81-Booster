@@ -72,6 +72,25 @@ Si alguno de los POKEs nunca se escribió (`--`), el override no está activo.
 El estado se pierde también con `POKE 2045,85` (pasa a D_FILE normal), así
 que si el último modo escrito en 2045 fue 85, tampoco se escriben.
 
+**Con FPGA 0.14 (índices 9-11 de `$3FEF`) manda el estado real, no el último
+POKE.** Lo último escrito en la sombra puede estar desfasado: `POKE 2045,85`
+apaga en la FPGA el D_FILE y los atributos alternativos, y un `POKE 2045,170`
+posterior no los vuelve a encender, pero la sombra de 2098 / 2061 sigue
+guardando el 170 anterior. Por eso, si el índice 11 devuelve `C4h`, el `snap`
+lee el índice 9 (y el 10) y deduce:
+
+| Clave | Sale de (índice 9) |
+|---|---|
+| modo (`DISPLAY_MODE`, `WIDE_COLS`) | bit 0 = 0 → 85; bit 1 → 171 HiRes; bit 2 → 172 Spectrum; bit 3 → 173 (70 col) o, con el bit 4, 174 (80 col); si no, 170 |
+| `DISP_ADDR` | bit 5 (D_FILE alternativo activo) |
+| `ATTR_ADDR` | bit 6 (atributos alternativos activos) |
+| `DBUF` | bit 7 (doble buffer); el bloque de delante es el índice 10. Si la sombra de 2057 ya tiene un código de doble buffer (168-175 automático, 200-207 manual) se conserva |
+
+Las direcciones (2096/2097 y 2059/2060) y el resto de POKEs siguen saliendo de
+la sombra. Si la FPGA es anterior (el índice 11 no da `C4h`), se usa lo de
+arriba. El emulador, que sabe su estado real, debe dar este mismo resultado: el
+fichero describe lo que se ve, no el historial de POKEs.
+
 **Para la carga:** escribir 2096/2097 (o 2059/2060) con la dirección y luego
 2098 (o 2061) con 170, en este orden y después de fijar el modo con `POKE
 2045` (que los apaga si recibe 85, y no los toca con 170-174).

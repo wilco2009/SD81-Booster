@@ -130,7 +130,8 @@ enum {
   TAG_WEB_STK,      // web: la pila
   TAG_WEB_MEM,      // web: el volcado
   TAG_CAP_INFO,     // captura: lo de partida (arg = 0 Chroma, 1 POKEs, 2 D_FILE)
-  TAG_CAP_DATA      // captura: un trozo de una region
+  TAG_CAP_DATA,     // captura: un trozo de una region
+  TAG_SNAP_VID      // snapshot: el estado del video de la FPGA (arg = 0 indice 9, 1 indice 10, 2 indice 11)
 };
 
 // Bloque de registros (ver debugmon.asm)
@@ -641,6 +642,7 @@ static void cap_result(uint8_t tag, uint8_t arg, uint8_t* d, uint16_t n);
 static void cap_feed();
 static void snap_begin();
 static void snap_result(uint8_t tag, uint8_t* data, uint16_t n);
+static void snap_vid(uint8_t arg, uint8_t* data, uint16_t n);
 static void snap_feed();
 // Carga de snapshots (mas abajo)
 static bool ld_busy();
@@ -802,6 +804,9 @@ static void on_result(uint8_t* data, uint16_t n){
       break;
     case TAG_CAP_INFO: case TAG_CAP_DATA:
       cap_result(last.tag, last.arg, data, n);
+      break;
+    case TAG_SNAP_VID:
+      snap_vid(last.arg, data, n);
       break;
     case TAG_SNAP_MAP: case TAG_SNAP_CHROMA: case TAG_SNAP_POKES:
     case TAG_SNAP_MEM: case TAG_SNAP_COLOUR: case TAG_SNAP_PAGE:
@@ -1244,6 +1249,7 @@ static struct {
   char user_name[40];
   char path[96];
   uint8_t mapper[8], chroma, pokes[POKE_N], rom[POKE_N];
+  uint8_t vs, vfront, vmagic;                 // el estado del video que da la FPGA (indices 9, 10 y 11)
   bool rom_ok;
   uint32_t req, got, end;                     // [MEMORY] / [COLOUR]
   uint8_t pages[64], npages, pidx;
@@ -1433,6 +1439,10 @@ static void snap_begin(){
   for (int b = 0; b < 8; b++) q_push(OP_IN, (b << 8) | 0xE7, 0, TAG_SNAP_MAP, b);
   q_out(DBG_PORT, 0x03);
   q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_CHROMA);
+  sn.vs = sn.vfront = sn.vmagic = 0;
+  q_out(DBG_PORT, 0x09); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_VID, 0);   // modo, D_FILE y atributos alternativos, doble buffer
+  q_out(DBG_PORT, 0x0A); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_VID, 1);   // el bloque de delante del doble buffer
+  q_out(DBG_PORT, 0x0B); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_VID, 2);   // $C4: la FPGA tiene los tres
   // los AY de la FPGA: el registro elegido (indices 4 y 5) y los 16
   q_out(DBG_PORT, 0x04); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_AYSEL, 0);
   q_out(DBG_PORT, 0x05); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_AYSEL, 1);
@@ -1503,7 +1513,23 @@ static bool page_is_rom(uint8_t p){
   return same;
 }
 
+// Con una FPGA que dice su estado del video (indices 9-11), manda ella sobre lo ultimo que se escribio en los
+// POKEs: un POKE 2045,85 apaga el D_FILE y los atributos alternativos y un 2045,170 posterior no los
+// enciende, y la FPGA ignora los valores de 2045 y 2057 que no conoce. Sin esto, el snapshot dejaria
+// activo un D_FILE que la FPGA no usa y al cargarlo se veria otra pantalla
+static void snap_fix_pokes(){
+  if (sn.vmagic != 0xC4) return;
+  uint8_t v = sn.vs;
+  sn.pokes[2045 - POKE_FIRST] = !(v & 1) ? 85 : (v & 2) ? 171 : (v & 4) ? 172 : (v & 8) ? ((v & 16) ? 174 : 173) : 170;
+  sn.pokes[2098 - POKE_FIRST] = (v & 32) ? 170 : 85;
+  sn.pokes[2061 - POKE_FIRST] = (v & 64) ? 170 : 85;
+  uint8_t d = sn.pokes[2057 - POKE_FIRST];    // doble buffer: 168-175 automatico, 200-207 manual
+  if (v & 128) { if ((d & 0xF8) != 0xA8 && (d & 0xF8) != 0xC8) sn.pokes[2057 - POKE_FIRST] = 0xA8 | (sn.vfront & 7); }
+  else sn.pokes[2057 - POKE_FIRST] = 85;
+}
+
 static void snap_write_sd81(){
+  snap_fix_pokes();
   sw("\n[SD81BOOSTER]\n");
   swf("CUR_DIR %s\n", current_dir);
   sw("MAPPER");
@@ -1637,6 +1663,13 @@ static bool shadow0_is_rom(){
 static void snap_next_page(){
   sn.preq = sn.pgot = 0;
   if (sn.pidx >= sn.npages) { sn.shblk = 0; snap_shadow_next(); }
+}
+
+static void snap_vid(uint8_t arg, uint8_t* data, uint16_t n){
+  uint8_t v = n ? data[0] : 0;
+  if (arg == 0) sn.vs = v;
+  else if (arg == 1) sn.vfront = v;
+  else sn.vmagic = v;
 }
 
 static void snap_result(uint8_t tag, uint8_t* data, uint16_t n){

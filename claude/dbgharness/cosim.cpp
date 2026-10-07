@@ -561,6 +561,32 @@ int main(int argc, char** argv){
   CHECK(f3 != nullptr, "nombre automatico NONAME001.Z81");
   if (f3) fclose(f3);
 
+  // 7b. El estado del video de la FPGA (indices 9-11) manda sobre los POKEs de la sombra: aqui
+  //     2098 y 2061 siguen en 170 (D_FILE y atributos alternativos), pero la FPGA los tiene apagados
+  {
+    auto vsnap = [&](int vs, int front, const char* name){
+      vid_vs = vs; vid_front = front;
+      con("c"); run_program(1000);
+      con((std::string("snap ") + name).c_str());
+      CHECK(run_until_waiting(80000000), "snap con el estado del video acaba");
+      con("c"); run_program(1000);
+      load_tokens((std::string("sd_") + name + ".Z81").c_str());
+    };
+    vsnap(1, 0, "vidfix1");                                   // texto 32, sin alternativos
+    tp = 0; CHECK(seek_tok("DISPLAY_MODE") && toks[tp] == "01", "FPGA: DISPLAY_MODE 01 (texto 32)");
+    tp = 0; CHECK(!seek_tok("DISP_ADDR"), "FPGA: sin DISP_ADDR aunque 2098 siga en 170");
+    tp = 0; CHECK(!seek_tok("ATTR_ADDR"), "FPGA: sin ATTR_ADDR aunque 2061 siga en 170");
+    tp = 0; CHECK(seek_tok("DBUF") && toks[tp] == "00", "FPGA: sin doble buffer");
+    vsnap(1 | 32 | 64, 0, "vidfix2");                         // con los dos alternativos
+    tp = 0; CHECK(seek_tok("DISP_ADDR") && toks[tp] == "E000" && toks[tp + 1] == "01", "FPGA: DISP_ADDR activo");
+    tp = 0; CHECK(seek_tok("ATTR_ADDR") && toks[tp] == "E800", "FPGA: ATTR_ADDR activo");
+    vsnap(1 | 4 | 128, 5, "vidfix3");                         // Spectrum con doble buffer, delante el 5
+    tp = 0; CHECK(seek_tok("DISPLAY_MODE") && toks[tp] == "05", "FPGA: DISPLAY_MODE 05 (Spectrum)");
+    tp = 0; CHECK(seek_tok("DBUF") && toks[tp] == "C5", "FPGA: doble buffer automatico con el 5 delante");
+    vsnap(-1, 0, "vidfix4");                                  // una FPGA sin los indices: como antes
+    tp = 0; CHECK(seek_tok("DISP_ADDR") && toks[tp] == "E000", "sin indices: se fia de los POKEs");
+  }
+
   // 8. LOAD *Z81 con el monitor: se desordena todo y se carga prueba1. La
   //    ROM llamaria al comando 75 y lanzaria la trampa; aqui, directamente.
   auto scramble = [&](){

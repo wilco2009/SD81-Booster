@@ -809,10 +809,13 @@ seguidos (el MCU usa INSEQ), uno por página, en el bit 0.
 La **orden 11** del canal de configuración las borra: al pasar a 1, un
 contador recorre las 64 posiciones (64 ciclos del Z80). El MCU manda 1 y
 después 0. El MCU las borra:
-- al cargar un programa (`LOAD`, en `dbg_note_loaded`);
 - al empezar a cargar un snapshot (las escritas pasan a ser las de la
   carga);
 - en el reset del Z80.
+
+Un `LOAD` de un programa **no** las borra: los programas de varias cargas
+(los datos vienen de la SD) van sumando páginas, y el snapshot tiene que
+guardarlas todas. Solo el reset de la máquina empieza la cuenta de cero.
 
 El snapshot guarda las mapeadas más las escritas (menos la 63). Con una FPGA
 anterior los índices dan 0 y quedan solo las mapeadas.

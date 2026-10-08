@@ -1019,7 +1019,9 @@ int main(int argc, char** argv){
       con("s");
       CHECK(run_until_waiting(5000000) && logged("STOP at 6212 (SUB1+2)"), "sym: SUB1+2");
       clear();
+      dirty = dirty | (1ull << 33);
       dbg_note_loaded("TEST.P");                              // LOAD "TEST.P": en la parada siguiente, TEST.SYM
+      CHECK(dirty & (1ull << 33), "LOAD no borra las paginas escritas (programas de varias cargas)");
       con("sym -"); con("s");
       CHECK(run_until_waiting(5000000) && logged("Symbols cleared") && logged("Symbols: 6 from /TEST.SYM"),
             "sym: al cargar un programa, su .SYM");

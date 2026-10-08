@@ -1278,7 +1278,8 @@ void dbg_note_opendir(const char* arg, bool ok){
 }
 
 void dbg_note_loaded(const char* name){
-  dirty_clear();                              // programa nuevo: sus paginas, desde cero
+  // Las paginas escritas NO se borran aqui: un programa de varias cargas (los datos vienen
+  // de la SD) las va sumando, y solo el reset de la maquina (dbg_reset) las pone a cero
   const char* dot = strrchr(name, '.');       // sus simbolos: el mismo nombre con .SYM
   const char* sl = strrchr(name, '/');
   int base = (dot && (!sl || dot > sl)) ? dot - name : strlen(name);

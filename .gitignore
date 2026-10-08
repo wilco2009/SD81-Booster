@@ -152,3 +152,20 @@ __pycache__/
 /EXAMPLES/EXPLORER/compila.bat
 /EXAMPLES/EXPLORER/traza.txt
 ~$*
+
+# ── Salidas de ISE que se regeneran en cada sintesis ───────
+# Los binarios (bitstream y .mcs) van adjuntos a cada release, no en el repo.
+/FPGA/**/*.bit
+/FPGA/**/*.mcs
+/FPGA/SD81V2.1000/SD81.prj
+/FPGA/SD81V2.1000/SD81.unroutes
+/FPGA/SD81V2.1000/SD81.xst
+/FPGA/SD81V2.1000/SD81_envsettings.html
+/FPGA/SD81V2.1000/SD81_pad.csv
+/FPGA/SD81V2.1000/SD81_pad.txt
+/FPGA/SD81V2.1000/SD81_summary.html
+/FPGA/SD81V2.1000/SD81_summary.xml
+/FPGA/SD81V2.1000/SD81_usage.xml
+/FPGA/SD81V2.1000/par_usage_statistics.html
+/FPGA/SD81V2.1000/webtalk_pn.xml
+/FPGA/SD81V2.1000/Xilinx Design Summary.html

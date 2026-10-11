@@ -901,6 +901,7 @@ uint16_t voice_synthesizer_isr(){
       // Normalizar la muestra de voz (rango original +/-1524) a un rango más pequeño (e.g. +/- 1000)
       const float VOICE_OUTPUT_SCALING = 1000.0f / (VOICE_NORMALIZATION_FACTOR * 127.0f); // Scale voice to +/- 1000
       int16_t scaled_voice_sample = (int16_t)(voice_sample * VOICE_OUTPUT_SCALING);
+      return (uint16_t)scaled_voice_sample;   // antes no devolvia nada (comportamiento indefinido)
     }
     else return 0;
 }

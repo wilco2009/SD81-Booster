@@ -172,7 +172,7 @@ int convert_sample(){
         current_data_ptr += 3;
     } else if (bytes_per_sample_channel == 4) { // 32-bit PCM (firmado, Little-Endian)
         // Escalar a 8 bits y centrar en 128
-        left_channel_sample = (*(int32_t*)current_data_ptr)>> 24 + 128;
+        left_channel_sample = ((*(int32_t*)current_data_ptr) >> 24) + 128;
         current_data_ptr += 4;
     }
 
@@ -189,7 +189,7 @@ int convert_sample(){
                                    ((int32_t)current_data_ptr[2] << 16);
             right_channel_sample = (right_channel_sample+16777216) >> 16;
         } else if (bytes_per_sample_channel == 4) {
-            right_channel_sample = (*(int32_t*)current_data_ptr)>> 24 + 128;
+            right_channel_sample = ((*(int32_t*)current_data_ptr) >> 24) + 128;
         }
         current_data_ptr += bytes_per_sample_channel; // Avanzar el puntero
 

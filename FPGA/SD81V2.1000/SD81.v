@@ -934,7 +934,12 @@ Port $7FEF (01111111 11101111) - IN:
 	// dbg_poke) ni la carga de DEBUG.BIN que hace el MCU en $E000-$FFFF
 	// (pagina 63); el registro 7 de $3FEF escribe la BRAM directamente
 	wire dbg_load_blk = dbg_loaded & A15x & A14x & A13x;
-	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): tr_we?1'b1: blit_we?1'b1: dbg_bram_wr?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon_ram & ~spr_oob_wr)? ~nWR:1'b0;
+	// Con el bloque 0 en RAM (CP/M, POKE 2056), lo que escribe la CPU en $0000-$1FFF es memoria de verdad y
+	// no va a la sombra: ahi estan la fuente de la ROM (I = $1E, la pantalla del depurador), los POKEs de
+	// control y las tablas de sprites, y CP/M los pisaria. La traza, el MCU (BRAMW) y el doble buffer
+	// escriben por sus ramas y no se ven afectados.
+	wire cpu_blk0_ram_wr = block0Writable & ~Addr[15] & ~Addr[14] & ~Addr[13];
+	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): tr_we?1'b1: blit_we?1'b1: dbg_bram_wr?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon_ram & ~spr_oob_wr & ~cpu_blk0_ram_wr)? ~nWR:1'b0;
 	// Sprites: los POKEs 2101-2128 son los mismos para los 32 (2100 elige
 	// cual), asi que en la sombra no se guardan en su direccion sino en
 	// $0C00 + sprite*32 + campo: la copia de los 32 sprites, que la FPGA no
@@ -1851,6 +1856,7 @@ assign DEBUG_RDY = 1'b0;
 		.tr_ptr(tr_ptr),
 		.vid_status({dbuf_en, attr_ovr_en, dfile_ovr_en, sf80_char7, sf80_en, sfSP_en, sfHR_en, sfast_mode_en}),
 		.vid_front(front_blk),
+		.blk0_w(block0Writable),
 		.tr_go(tr_go),
 		.tr_pc(tr_pc)
 	);

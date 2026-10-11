@@ -150,6 +150,7 @@ static uint8_t ay_reg[2][16], ay_sel[2];  // los AY de la FPGA: [0] el A (A3=1),
 static uint8_t sprreg[64][28], spr_sel = 0;   // los sprites (2100-2128)
 static int spr_tbl(int n){ return n < 32 ? 0x0C00 + n * 32 : 0x1800 + (n - 32) * 32; }   // su copia en la sombra
 static int chroma_reg = -1;
+static bool block0w = false;                   // POKE 2056: el bloque 0 es RAM (CP/M); el indice 12 lo dice
 static int vid_vs = -1, vid_front = 0;         // el estado del video que da la FPGA (indices 9-11); -1: una FPGA sin ellos
 static int chroma_in = 0x2C;                   // lo que da el IN del indice 3
 static uint8_t* ptr(int a){ a &= 0xFFFF; int b = a >> 13; int pg = (mon && b == 1) ? 63 : blk[b]; return &ram[pg][a & 0x1FFF]; }
@@ -169,9 +170,11 @@ BYTE z80_opcode_fetch_wrapper(int a){ z80_fetch_is_m1 = 0; return *ptr(a); }
 void z80_writebyte_wrapper(int a, int d){
   watch(3, a);
   bool mon_ram = mon && !cfgs[cfgcmd_DBGPOKE];  // el monitor, sin la orden 10
-  if (!mon_ram) bram[a & 0xFFFF] = d;           // la sombra copia lo que escribe la CPU
   int b = (a & 0xFFFF) >> 13;
-  if (b == 0 && !mon_ram) {                     // ROM protegida: los POKEs de control
+  bool b0ram = block0w && b == 0;               // CP/M: memoria de verdad; ni puertos ni sombra
+  if (!mon_ram && !b0ram) bram[a & 0xFFFF] = d; // la sombra copia lo que escribe la CPU
+  if (b == 0 && !mon_ram && !b0ram) {           // ROM protegida: los POKEs de control
+    if (a == 2056) block0w = true;
     if (a >= 2038 && a <= 2098) { pokereg[a] = d; poke_log.push_back(a); }
     if (a == 2100) spr_sel = d;
     if (a >= 2101 && a <= 2128) {               // un campo del sprite elegido; su sombra, en la copia
@@ -241,6 +244,7 @@ BYTE z80_readport_wrapper(int port, int*){
     if (ridx == 9) return vid_vs < 0 ? 0 : vid_vs;
     if (ridx == 10) return vid_front;
     if (ridx == 11) return vid_vs < 0 ? 0 : 0xC4;
+    if (ridx == 12) return vid_vs < 0 ? 0 : (0xA8 | (block0w ? 1 : 0));
     if (ridx == 4) return ay_sel[0];
     if (ridx == 5) return ay_sel[1];
     if (ridx == 6) return (uint8_t)((dirty >> (dptr++ & 63)) & 1);
@@ -585,6 +589,44 @@ int main(int argc, char** argv){
     tp = 0; CHECK(seek_tok("DBUF") && toks[tp] == "C5", "FPGA: doble buffer automatico con el 5 delante");
     vsnap(-1, 0, "vidfix4");                                  // una FPGA sin los indices: como antes
     tp = 0; CHECK(seek_tok("DISP_ADDR") && toks[tp] == "E000", "sin indices: se fia de los POKEs");
+
+    // 7c. El bloque 0 en RAM (CP/M, POKE 2056): lo que escribe la CPU en $0000-$1FFF es memoria y
+    //     no va a la sombra ni a los puertos; el snapshot guarda el POKE 2056 aunque la sombra
+    //     coincida con la ROM, y no lo guarda si el bloque 0 no es RAM
+    {
+      uint8_t sh_font = bram[0x1E10], sh_2056 = bram[2056], sh_2045 = bram[2045], pk45 = pokereg[2045], pr2056 = pokereg[2056];
+      uint8_t ram_font = *pptr(0x1E10), ram_2045 = *pptr(2045);
+      size_t plog = poke_log.size();
+      // 1. el programa escribe (sin correr el Z80: se llama a la escritura del modelo)
+      bram[0x1E10] = 0x3C;
+      z80_writebyte_wrapper(2056, 0x99);                           // POKE 2056: desprotege el bloque 0
+      CHECK(block0w, "POKE 2056 pone el bloque 0 en RAM");
+      z80_writebyte_wrapper(0x1E10, 0x77);
+      CHECK(bram[0x1E10] == 0x3C && *pptr(0x1E10) == 0x77, "bloque 0 en RAM: la memoria cambia, la sombra (la fuente de la ROM) no");
+      z80_writebyte_wrapper(2045, 0x55);
+      CHECK(pokereg[2045] == pk45 && bram[2045] == sh_2045 && *pptr(2045) == 0x55, "bloque 0 en RAM: 2045 es memoria, ni puerto ni sombra");
+      block0w = false;
+      // 2. el snapshot, con el programa parado
+      pause_pend = true;
+      CHECK(run_until_waiting(5000000), "pausa para el bloque 0 en RAM");
+      auto snapstopped = [&](const char* name){
+        con((std::string("snap ") + name).c_str());
+        CHECK(run_until_waiting(80000000), "snap con el bloque 0 acaba");
+        load_tokens((std::string("sd_") + name + ".Z81").c_str());
+      };
+      vid_vs = 1; vid_front = 0;
+      block0w = true; bram[2056] = romfile[2056];                  // la sombra de 2056 coincide con la ROM
+      snapstopped("blkzero1");
+      tp = 0; CHECK(seek_tok("HW_POKES") && toks[tp + (2056 - 2038)] != "--", "bloque 0 en RAM: HW_POKES guarda 2056 aunque coincida con la ROM");
+      block0w = false;                                             // reset: ROM otra vez
+      bram[2056] = (uint8_t)(romfile[2056] ^ 0x5A);                // una sombra vieja
+      snapstopped("blkzero2");
+      tp = 0; CHECK(seek_tok("HW_POKES") && toks[tp + (2056 - 2038)] == "--", "bloque 0 en ROM: 2056 sin escribir");
+      bram[0x1E10] = sh_font; bram[2056] = sh_2056; bram[2045] = sh_2045;
+      *pptr(0x1E10) = ram_font; *pptr(2045) = ram_2045; pokereg[2056] = pr2056; poke_log.resize(plog);
+      vid_vs = -1;
+      con("c"); run_program(1000);
+    }
   }
 
   // 8. LOAD *Z81 con el monitor: se desordena todo y se carga prueba1. La

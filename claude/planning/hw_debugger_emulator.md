@@ -33,6 +33,7 @@ Todo lo de este documento está hecho y probado en el hardware. Versiones:
 | 12f5c16 | Carga de snapshots: el sonido callado mientras carga; el estado del MCU (VGM, AY, PEG, ficheros) al final, al seguir. Solo el MCU | 12.4 |
 | ac01f7c, fa0dd12 (ramas `fpga-camino-b` y `fpga-sprites64`) | Los sprites se leen por línea de la copia de la sombra (máximo 8 por línea) y pasan de 32 a **64**: segunda tabla en `$1800-$1BFF`, `LOAD *SPRITE` hasta 63, snapshots con `SPRITE n` hasta `3F`. Descripción para el emulador: `sprites_por_linea_emulador.md` | 11.4 |
 | bfd90d2, af0d52e, 2c7a39b (rama `captura-pantalla`) | La captura de pantalla del programa en la web (orden `cap` de la consola; `CMD_DBG_CAP` 0x12 del protocolo). **FPGA 0.14**: estado del vídeo legible, índices 9, 10 y 11 de `$3FEF` | 13.11, y la tabla de índices (9-11) |
+| (rama `master`, tras 0.14) | **FPGA 0.15**: con el bloque 0 en RAM (CP/M), la CPU no escribe en la sombra de `$0000`-`$1FFF`; índice 12 = `A8h` \| bloque 0 en RAM | 13.12 |
 | 5e3373f (rama `teclado-remoto`) | Teclado virtual desde la web: FPGA nueva `vkeys.v` (orden 13 del canal de configuración) y `CMD_DBG_KEYS` 0x13. Solo la parte de la FPGA afecta al emulador | `teclado_remoto_emulador.md` |
 | 8ba74cf | La web, con paneles: desensamblado, registros, pila, breakpoints, memoria y consola (`CMD_DBG_VIEW`, la vista estructurada que compone el MCU). STM32 y ESP32 | 13.10 |
 | 6300e3a | Fase 5: la consola del depurador en la web del ESP32 (`/debug`, `CMD_DBG` en el protocolo UART). STM32 y ESP32 | 13.10 |
@@ -310,6 +311,7 @@ Z80 no hace falta estar en el monitor.
 | 9 | el estado del video (rev 0.14), para la captura de pantalla: bit 0 Superfast (`sfast_mode_en`), 1 HiRes, 2 Spectrum, 3 ancho (70 u 80 columnas), 4 caracteres de 7 pixeles (80), 5 D_FILE alternativo activo, 6 atributos alternativos activos, 7 doble buffer. Son los registros que fijan los POKE 2045, 2098, 2061 y 2057. **Lo que dejan los POKEs en la sombra no basta**: un `POKE 2045,85` apaga el D_FILE y los atributos alternativos y un `POKE 2045,170` posterior no los enciende, y la FPGA ignora los valores de 2045 que no conoce |
 | 10 | el bloque de delante del doble buffer (bits 2-0, `front_blk`) |
 | 11 | `C4h`: esta FPGA tiene los indices 9 y 10 (una anterior da 0). El firmware, si no lo ve, deduce el estado de los POKEs de la sombra |
+| 12 | `A8h` \| 1 si el bloque 0 es RAM (rev 0.15: `POKE 2056`, CP/M; el reset lo borra). El patrón `A8h` dice que existe (una anterior da 0). El snapshot lo usa para guardar el `POKE 2056` (sección 13.12) |
 | 15 | firma `52h` |
 | otros | 0 |
 
@@ -1510,3 +1512,20 @@ tiene web, así que el protocolo `CMD_DBG_CAP` y la página no son cosa suya.
 
 **Teclado virtual (`CMD_DBG_KEYS`).** Ver `teclado_remoto_emulador.md`: una matriz de teclas
 pulsadas por orden 13 que se suma a las lecturas del puerto `$FE`.
+
+### 13.12 El bloque 0 en RAM (CP/M) y la sombra
+
+`POKE 2056` pone el bloque 0 (`$0000`-`$1FFF`) en RAM (CP/M); el reset lo vuelve a ROM. Con el
+bloque 0 en RAM los puertos POKE (2038-2098, las tablas de sprites) están apagados y lo que escribe
+la CPU ahí es memoria de verdad. Desde la FPGA 0.15 **tampoco va a la sombra**: ahí están la fuente de
+la ROM (`I = $1E`, la que usa la pantalla del depurador), los POKEs de control y las tablas de
+sprites, y CP/M los pisaba (la pantalla del depurador salía con los caracteres cambiados). La
+traza, `BRAMW` (el MCU) y el doble buffer escriben la sombra por sus ramas y no cambian.
+
+- En el emulador: con el bloque 0 en RAM, las escrituras de la CPU en `$0000`-`$1FFF` no tocan la
+  copia de sombra (solo la memoria); el resto de escrituras en la sombra, igual.
+- **Índice 12** (`A8h` | bit 0): `snap` lo lee y, si el bloque 0 es RAM, escribe `HW_POKES` con el
+  `POKE 2056` puesto aunque la sombra coincida con la ROM (el MCU toma por "nunca escrito" lo que
+  iguala a la ROM). Sin el índice 12 (FPGA anterior), se fía de la sombra de 2056 como antes.
+- Efecto en el vídeo de CP/M: el vídeo no ve lo que CP/M escribe en `$0000`-`$1FFF` (una fuente,
+  un D_FILE o una tabla de atributos ahí no se vería). Los de CP/M están en `$8000` y `$9000`.

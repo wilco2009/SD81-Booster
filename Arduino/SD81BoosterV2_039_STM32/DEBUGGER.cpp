@@ -1249,7 +1249,7 @@ static struct {
   char user_name[40];
   char path[96];
   uint8_t mapper[8], chroma, pokes[POKE_N], rom[POKE_N];
-  uint8_t vs, vfront, vmagic;                 // el estado del video que da la FPGA (indices 9, 10 y 11)
+  uint8_t vs, vfront, vmagic, b0;             // el estado del video que da la FPGA (indices 9, 10 y 11) y el bloque 0 (12)
   bool rom_ok;
   uint32_t req, got, end;                     // [MEMORY] / [COLOUR]
   uint8_t pages[64], npages, pidx;
@@ -1440,10 +1440,11 @@ static void snap_begin(){
   for (int b = 0; b < 8; b++) q_push(OP_IN, (b << 8) | 0xE7, 0, TAG_SNAP_MAP, b);
   q_out(DBG_PORT, 0x03);
   q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_CHROMA);
-  sn.vs = sn.vfront = sn.vmagic = 0;
+  sn.vs = sn.vfront = sn.vmagic = sn.b0 = 0;
   q_out(DBG_PORT, 0x09); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_VID, 0);   // modo, D_FILE y atributos alternativos, doble buffer
   q_out(DBG_PORT, 0x0A); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_VID, 1);   // el bloque de delante del doble buffer
   q_out(DBG_PORT, 0x0B); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_VID, 2);   // $C4: la FPGA tiene los tres
+  q_out(DBG_PORT, 0x0C); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_VID, 3);   // $A8 | 1 si el bloque 0 es RAM (CP/M)
   // los AY de la FPGA: el registro elegido (indices 4 y 5) y los 16
   q_out(DBG_PORT, 0x04); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_AYSEL, 0);
   q_out(DBG_PORT, 0x05); q_push(OP_IN, DBG_PORT, 0, TAG_SNAP_AYSEL, 1);
@@ -1519,6 +1520,14 @@ static bool page_is_rom(uint8_t p){
 // enciende, y la FPGA ignora los valores de 2045 y 2057 que no conoce. Sin esto, el snapshot dejaria
 // activo un D_FILE que la FPGA no usa y al cargarlo se veria otra pantalla
 static void snap_fix_pokes(){
+  // El bloque 0 en RAM (CP/M) se guarda con el POKE 2056 de HW_POKES: el cargador lo escribe el
+  // ultimo. La sombra de 2056 puede coincidir con la ROM (y entonces pk() lo toma por "nunca
+  // escrito") o quedar de antes; la FPGA (indice 12, $A8 | bit 0) dice el estado de verdad
+  if ((sn.b0 & 0xFE) == 0xA8) {
+    int i = 2056 - POKE_FIRST;
+    if (sn.b0 & 1) sn.pokes[i] = (sn.rom_ok && sn.rom[i] == 1) ? 2 : 1;
+    else if (sn.rom_ok) sn.pokes[i] = sn.rom[i];
+  }
   if (sn.vmagic != 0xC4) return;
   uint8_t v = sn.vs;
   sn.pokes[2045 - POKE_FIRST] = !(v & 1) ? 85 : (v & 2) ? 171 : (v & 4) ? 172 : (v & 8) ? ((v & 16) ? 174 : 173) : 170;
@@ -1670,7 +1679,8 @@ static void snap_vid(uint8_t arg, uint8_t* data, uint16_t n){
   uint8_t v = n ? data[0] : 0;
   if (arg == 0) sn.vs = v;
   else if (arg == 1) sn.vfront = v;
-  else sn.vmagic = v;
+  else if (arg == 2) sn.vmagic = v;
+  else sn.b0 = v;
 }
 
 static void snap_result(uint8_t tag, uint8_t* data, uint16_t n){

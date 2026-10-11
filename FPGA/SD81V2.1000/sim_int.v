@@ -117,6 +117,11 @@
 //  system_clk, con tr_go sincronizado. El puntero (la entrada siguiente)
 //  se lee con los indices 7/8: el MCU lee el anillo al parar
 //
+// Revision 0.15 - Indice 12 = $A8 | bloque 0 en RAM (CP/M, POKE 2056): el MCU sabe que el
+//                 bloque 0 es memoria del programa. SD81.v ya no apunta en la sombra lo que la
+//                 CPU escribe en $0000-$1FFF con el bloque 0 en RAM (CP/M pisaba la fuente de
+//                 la ROM, que la pantalla del depurador lee de la sombra, y los POKEs y los
+//                 sprites); la traza, BRAMW y el doble buffer siguen escribiendo
 // Revision 0.14 - Estado del video, para la captura de pantalla del depurador:
 //                 indice 9 = {doble buffer, atributos alternativos, D_FILE
 //                 alternativo, 7 caracteres, ancho, Spectrum, HiRes, Superfast},
@@ -204,6 +209,7 @@ module sim_int(
 	input wire [9:0] tr_ptr,			// trace_wr: la entrada siguiente
 	input wire [7:0] vid_status,		// estado del video (indice 9, ver la revision 0.14)
 	input wire [2:0] vid_front,			// bloque de delante del doble buffer (indice 10)
+	input wire blk0_w,					// el bloque 0 es RAM (CP/M, POKE 2056): indice 12
 	output reg tr_go = 1'b0,			// esta M1 se apunta (desde la subida de T2 hasta su final)
 	output wire [15:0] tr_pc			// su direccion
     );
@@ -452,6 +458,7 @@ module sim_int(
 			4'd9:  port_out = vid_status;
 			4'd10: port_out = {5'd0, vid_front};
 			4'd11: port_out = 8'hC4;				// esta FPGA tiene los indices 9 y 10
+			4'd12: port_out = {7'b1010100, blk0_w};	// $A8 | bloque 0 en RAM (el patron dice que existe)
 			4'd15: port_out = 8'h52;
 			default: port_out = 8'h00;
 		endcase

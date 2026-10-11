@@ -28,6 +28,19 @@ void net_bridge_loop();
 bool net_bridge_connect(const char* host, uint16_t port);
 void net_bridge_disconnect();
 
+// Para NET_MQTT.cpp: respuestas a comandos AT y datos crudos del Z80.
+// La cola de salida es la misma que usa el interprete AT.
+void     net_bridge_txq_push_str(const char* s);
+void     net_bridge_txq_push_bytes(const uint8_t* b, uint16_t n);
+uint16_t net_bridge_txq_free();
+
+// Recibir `len` bytes (1..256) del Z80 sin interpretarlos ni hacerles eco, tras
+// mandarle ">". Al completarse llama a done(datos, len, true); si el Z80 no los
+// manda en 5 s, done(NULL, 0, false). Devuelve false si ya habia una recepcion
+// en curso o len no vale (en ese caso done no se llama).
+typedef void (*net_raw_done_t)(const uint8_t* data, uint16_t len, bool ok);
+bool net_bridge_begin_raw(uint16_t len, net_raw_done_t done);
+
 uint8_t     net_bridge_state();       // WifiProtoNetStatus
 const char* net_bridge_host();        // ultimo destino, "" si nunca hubo
 uint16_t    net_bridge_port();

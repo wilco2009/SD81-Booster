@@ -1,6 +1,7 @@
 # Juegos por turnos en red (sin servidor propio): diseño
 
-Estado: **propuesta**, sin implementar. Punto de partida: el puente de red del módulo WiFi
+Estado: **capa A implementada en el ESP32 (§3.5), probada en el PC contra un broker falso y sin
+probar en hardware**; capas B y C sin empezar. Punto de partida: el puente de red del módulo WiFi
 (`NET_BRIDGE.cpp`, `NET_READ` / `NET_WRITE`, el intérprete AT) y el terminal `EXAMPLES/TELNET`.
 
 ## 1. Objetivo y límites
@@ -104,6 +105,71 @@ Brokers candidatos (a medir, ver §7): `test.mosquitto.org`, `broker.emqx.io`, `
 `mqtt.eclipseprojects.io`. Ninguno da garantías de servicio ni publica límites claros. Como
 reserva, ntfy.sh (HTTP en streaming, nunca sondeando por su límite de peticiones) sería un backend
 distinto con la misma interfaz AT.
+
+### 3.5 Implementación (ESP32)
+
+Ficheros en `Arduino/Wifi_module_01/`:
+
+| Fichero | Qué es |
+|---|---|
+| `mqtt_codec.h` | codificador y analizador de paquetes MQTT 3.1.1, sin dependencias (CONNECT con will / usuario / clave, PUBLISH QoS 0 y 1, SUBSCRIBE, UNSUBSCRIBE, PUBACK, PINGREQ, DISCONNECT) |
+| `NET_MQTT.h/.cpp` | la sesión, la cola de recibidos, la reconexión y los comandos AT de §3 |
+| `NET_BRIDGE.cpp/.h` | despacha `AT+...` a `net_mqtt_at()`, conserva las mayúsculas del comando original (el intérprete pasaba la línea a mayúsculas), recibe los datos crudos tras `>` y llama a `net_mqtt_loop()` |
+
+Cliente MQTT propio, sin librería: así no hay dependencia que instalar y el comportamiento es
+el que se ha especificado. Decisiones que no estaban en §3:
+
+- **Códigos de error** (último campo de `AT+MQTT?`): 0 ninguno, 1 sin WiFi, 2 no abre el TCP,
+  3 el broker rechaza (CONNACK ≠ 0), 4 tiempo agotado, 5 argumentos malos, 6 cola o búfer lleno,
+  7 sin sesión, 8 sin PUBACK. Es el **último** error: se borra al conectar con éxito, no al
+  acertar otro comando.
+- **Estados** (primer campo): 0 apagado, 1 conectando, 2 conectado, 3 reconectando.
+- **Conectar bloquea** hasta ~8 s por broker (4 s el TCP y 4 s el CONNACK), como `ATDT`. Con la
+  lista por defecto y todos caídos, hasta ~24 s hasta el `ERROR`. El Z80 debe esperar la
+  respuesta sin tiempo límite corto.
+- **`AT+MQTTSUB`** espera el SUBACK (3 s). Si el broker lo rechaza (`0x80`), `ERROR` y no se guarda.
+  El `qos` por defecto es 0. Si se pide durante una reconexión, se guarda y se suscribe al volver.
+- **`AT+MQTTPUB` QoS 1** espera el PUBACK (3 s) y reintenta una vez con DUP; si no llega, `ERROR 8`.
+  Con `len` = 0 publica un mensaje vacío sin pedir datos (borra el retenido).
+- **Reconexión:** reintenta a los 2 s y luego con espera creciente (4, 8, 16 s, máximo 30 s),
+  pasando al siguiente broker de la lista en cada fallo. Cada intento puede bloquear el puente
+  hasta ~8 s.
+- **Ping:** `PINGREQ` a los 30 s sin tráfico (keepalive de 60 s); si no hay `PINGRESP` en 15 s,
+  se considera caída.
+- **`AT+MQTTCLOSE` y `ATZ`** cierran la sesión y olvidan suscripciones, mensajes, will, clientid y
+  usuario. Volver a conectar con `AT+MQTT` sin cerrar antes conserva el will, el clientid y el
+  usuario puestos.
+- **Mensajes recibidos** mayores de 120 bytes o con topic de más de 64 se descartan y cuentan en
+  `perdidos`.
+- **Clientid por defecto:** `sd81-` y 8 caracteres hexadecimales aleatorios.
+- **`/SYS/NET.CFG`:** líneas `broker host puerto [tls]`; se ignoran las vacías, las que empiezan por
+  `#` y las mal formadas. Sin fichero, o sin ningún broker válido, se usan los tres de §3.4.
+  Máximo 6.
+
+**Pruebas** (`claude/mqtttest/`, `sh build.sh`, sin hardware):
+
+1. `test_codec.cpp`: los paquetes con los bytes de la especificación, el analizador byte a byte, un
+   PUBLISH enorme que se descarta sin perder el hilo, y una longitud inválida.
+2. `test_net_mqtt.cpp`: compila `NET_MQTT.cpp` tal cual contra Arduino / WiFi / mbedTLS falsos y un
+   broker falso: comandos y argumentos malos, will, clientid y topics con mayúsculas, SUB, recibir
+   QoS 1 retenido, datos binarios, cola llena (8 + 2 perdidos), falta de sitio en la cola del puente,
+   PUB QoS 1 con y sin PUBACK (dos intentos, DUP), mensaje vacío, ping, caída y reconexión con
+   resuscripción, CLOSE, CONNACK rechazado, lista por defecto, `NET.CFG`, usuario y clave, SHA-256,
+   HMAC (separación de clave y datos) y RAND.
+
+No cubren: las clases reales de `WiFiClient` / `WiFiClientSecure`, mbedTLS ni el tiempo real
+(comprobar en hardware, ver §7 fase 1).
+
+**Primera prueba en hardware** (con `EXAMPLES/TELNET`, que ya es un terminal de módem):
+
+```
+AT+MQTT=test.mosquitto.org,1883
+AT+MQTTSUB=sd81test/hola,1
+AT+MQTTPUB=sd81test/hola,1,0,5
+>hello
+AT+MQTTRX
+AT+MQTT?
+```
 
 ## 4. Capa B: la librería del Z80 (`net.inc`)
 

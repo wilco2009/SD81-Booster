@@ -1,4 +1,5 @@
 #include "NET_BRIDGE.h"
+#include "NET_MQTT.h"
 #include "WIFI_CLIENT.h"
 #include "WIFI_PROTOCOL.h"
 #include <WiFi.h>
@@ -48,6 +49,37 @@ static void txq_push(uint8_t b) {
 }
 static void txq_push_str(const char* s) { while (*s) txq_push((uint8_t)*s++); }
 
+void     net_bridge_txq_push_str(const char* s)                { txq_push_str(s); }
+void     net_bridge_txq_push_bytes(const uint8_t* b, uint16_t n) { for (uint16_t i = 0; i < n; i++) txq_push(b[i]); }
+uint16_t net_bridge_txq_free()                                 { return txq_free(); }
+
+// --- Datos crudos tras un comando AT (AT+MQTTPUB, AT+SHA256...) -------------
+// Mientras dura, los bytes del Z80 no se interpretan ni se les hace eco.
+#define RAW_MAX        256
+#define RAW_TIMEOUT_MS 5000
+static uint8_t        raw_buf[RAW_MAX];
+static uint16_t       raw_len = 0, raw_got = 0;
+static net_raw_done_t raw_done = nullptr;
+static uint32_t       raw_last_ms = 0;
+
+bool net_bridge_begin_raw(uint16_t len, net_raw_done_t done) {
+  if (raw_done || len == 0 || len > RAW_MAX) return false;
+  raw_len = len; raw_got = 0; raw_done = done; raw_last_ms = millis();
+  txq_push('>');
+  return true;
+}
+
+static void raw_finish(bool good) {
+  net_raw_done_t cb = raw_done;
+  uint16_t n = raw_got;
+  raw_done = nullptr; raw_got = 0;      // antes de llamar: el callback puede pedir otra
+  if (cb) cb(good ? raw_buf : nullptr, good ? n : 0, good);
+}
+
+static void raw_check_timeout() {
+  if (raw_done && (uint32_t)(millis() - raw_last_ms) > RAW_TIMEOUT_MS) raw_finish(false);
+}
+
 // --- Interprete de comandos AT (fase 2.5) -----------------------------------
 // Modelo Hayes de toda la vida: MODO COMANDO (lo que el Z80 escribe se
 // interpreta como texto AT) o MODO DATOS (va directo al socket). Por
@@ -63,6 +95,7 @@ static bool at_command_mode = true;
 static bool at_echo         = true;    // ATE1 por defecto, como un modem real
 
 static char    at_cmdbuf[80];
+static char    at_cmdorig[80];          // la linea tal cual (at_cmdbuf se pasa a mayusculas)
 static uint8_t at_cmdlen = 0;
 
 // Deteccion de "+++": necesita silencio de verdad antes Y despues (guard
@@ -133,6 +166,12 @@ static void at_feed_data_byte(uint8_t b) {
 
 static void at_process_from_z80(const uint8_t* data, uint16_t len) {
   for (uint16_t i = 0; i < len; i++) {
+    if (raw_done) {                      // datos crudos de un comando AT: tal cual, sin eco
+      raw_buf[raw_got++] = data[i];
+      raw_last_ms = millis();
+      if (raw_got >= raw_len) raw_finish(true);
+      continue;
+    }
     if (at_command_mode) at_feed_command_byte(data[i]);
     else                 at_feed_data_byte(data[i]);
   }
@@ -205,7 +244,9 @@ static void at_execute_command() {
 
   // Normalizar a mayusculas para comparar -- un modem de verdad es
   // insensible a mayusculas/minusculas, y esto no afecta al host de ATDT
-  // (DNS tampoco distingue mayusculas).
+  // (DNS tampoco distingue mayusculas). Los comandos AT+ (MQTT: topics,
+  // usuarios, claves) si distinguen, y usan la copia original.
+  memcpy(at_cmdorig, at_cmdbuf, at_cmdlen);
   for (uint8_t i = 0; i < at_cmdlen; i++) {
     if (at_cmdbuf[i] >= 'a' && at_cmdbuf[i] <= 'z') at_cmdbuf[i] -= 32;
   }
@@ -222,6 +263,10 @@ static void at_execute_command() {
   const char* args = at_cmdbuf + 2;
   uint8_t alen = (uint8_t)(at_cmdlen - 2);
 
+  if (args[0] == '+') {                    // AT+MQTT..., AT+SHA256, AT+HMAC, AT+RAND (NET_MQTT.cpp)
+    if (!net_mqtt_at(at_cmdorig + 2, alen)) txq_push_str("ERROR\r\n");
+    return;
+  }
   if (alen >= 2 && args[0] == 'D' && args[1] == 'T') {
     const char* hp = args + 2;
     uint8_t     hplen = (uint8_t)(alen - 2);
@@ -271,6 +316,7 @@ static void at_execute_command() {
   }
   if (alen == 1 && args[0] == 'Z') {       // ATZ -- reset a estado inicial
     net_bridge_disconnect();
+    net_mqtt_close();
     at_echo = true;
     txq_push_str("OK\r\n");
     return;
@@ -282,6 +328,8 @@ static void at_execute_command() {
 // -----------------------------------------------------------------------
 
 void net_bridge_init() {
+  net_mqtt_init();
+  raw_done = nullptr;
   state = NET_ST_IDLE;
   pending_len = 0;
   last_poll = millis();
@@ -330,9 +378,11 @@ uint16_t    net_bridge_port()  { return port_num; }
 
 void net_bridge_loop() {
   at_check_escape_timeout();     // vencimiento del guard time de "+++", no depende de que llegue nada
+  raw_check_timeout();
+  net_mqtt_loop();               // atiende el socket MQTT, el ping y la reconexion
 
   uint32_t now = millis();
-  uint32_t interval = (state == NET_ST_CONNECTED) ? NET_POLL_ACTIVE_MS : NET_POLL_IDLE_MS;
+  uint32_t interval = (state == NET_ST_CONNECTED || net_mqtt_active() || raw_done) ? NET_POLL_ACTIVE_MS : NET_POLL_IDLE_MS;
   if ((uint32_t)(now - last_poll) < interval) return;
   last_poll = now;
 

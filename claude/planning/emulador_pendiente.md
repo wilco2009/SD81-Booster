@@ -1,0 +1,114 @@
+# Lo que queda para el emulador (12 de octubre de 2026)
+
+Resumen de todo lo que ha cambiado en el SD81 Booster desde `hw_debugger_emulator.md` (4 de octubre,
+FPGA 0.13) y que el emulador tiene que imitar. El detalle de cada punto está en la sección o el
+documento que se indica; la referencia de cómo encaja todo es `claude/dbgharness/cosim.cpp`
+(`sh build.sh`), que tiene un modelo de la FPGA con todos estos cambios.
+
+Lo que no está probado todavía en el hardware se marca con **(sin probar)**.
+
+## Estado (12 de octubre de 2026)
+
+**El emulador ya tiene todo lo de este documento excepto el teclado virtual (punto 5).** Queda
+pendiente solo eso, hasta que se pruebe en el hardware.
+
+El emulador no tiene acceso al hardware real, así que su fuente se ha migrado para que **use los
+fuentes del hardware real en la medida de lo posible** (el firmware tal cual, no una copia
+reescrita). Con eso se han probado, con cierta fidelidad, `NET_MQTT.cpp` (los comandos AT de la red,
+sección 5) y la corrección de los snapshots con CP/M (puntos 4, 7 y 8). Es una prueba en el
+emulador, **no en el hardware**: la FPGA 0.15 y el firmware nuevos siguen sin probarse en la placa
+(el depurador dentro de CP/M, el snapshot de CP/M y la red con un broker real desde el ESP32).
+
+Lo que sigue es la lista completa, para consulta.
+
+## 1. FPGA: lo que el emulador tiene que emular
+
+| # | Qué | Dónde está descrito | Cómo se comprueba |
+|---|---|---|---|
+| 1 | **Sprites por línea y 64 sprites.** Los sprites se leen por línea de la copia de la sombra (no de registros). Máximo **12 por línea**; si hay más, se pierden los de índice más bajo. Segunda tabla de 32 sprites en `$1800-$19FF` de la sombra (la primera, `$0C00-$0FFF`). `LOAD *SPRITE` hasta el 63. No hay sprites en los modos de 70 y 80 columnas | `sprites_por_linea_emulador.md`; `hw_debugger_emulator.md` 11.4 | prueba de sprites del arnés; `EXAMPLES/SPRDBUF` |
+| 2 | **Índices 9, 10 y 11 de `$3FEF`** (FPGA 0.14): estado del vídeo (bit 0 Superfast, 1 HiRes, 2 Spectrum, 3 ancho, 4 caracteres de 7 píxeles, 5 D_FILE alternativo activo, 6 atributos alternativos activos, 7 doble buffer), bloque de delante del doble buffer, y `C4h` como marca. Hay que dar lo que de verdad hay activo, no lo último que dejó un POKE | `hw_debugger_emulator.md` tabla de índices y 13.11 | `tb_dbg.v`, arnés (`vid_vs`) |
+| 3 | **Índice 12 de `$3FEF`** (FPGA 0.15): `A8h` \| 1 si el bloque 0 es RAM (`POKE 2056`, CP/M; el reset lo borra) | `hw_debugger_emulator.md` 13.12 | `tb_dbg.v` |
+| 4 | **Con el bloque 0 en RAM, la CPU no escribe en la sombra de `$0000`-`$1FFF`** (FPGA 0.15). La memoria sí cambia. La traza, `BRAMW` y el doble buffer siguen escribiendo la sombra. Antes CP/M pisaba ahí la fuente de la ROM (la que lee la pantalla del depurador), los POKEs y los sprites | `hw_debugger_emulator.md` 13.12 | arnés (bloque 7c) |
+| 5 | **Teclado virtual**: orden 13 del canal de configuración, 8 filas × 5 bits que se suman (a 0) a las lecturas del puerto `$FE` junto con el teclado real y el joystick | `teclado_remoto_emulador.md` | `tb_vkeys.v` **(sin probar en hardware)** |
+
+## 2. MCU: lo que el emulador imita de `DEBUGGER.cpp`
+
+| # | Qué | Dónde |
+|---|---|---|
+| 6 | **`LOAD` ya no borra las páginas escritas** (antes lo hacía en `dbg_note_loaded`). Un programa de varias cargas (datos desde la SD) va sumando páginas y el snapshot tiene que guardarlas todas. Solo las borran el reset de la máquina y el empezar a cargar un snapshot | `hw_debugger_emulator.md` 11.5 |
+| 7 | **El snapshot describe lo que se ve, no el historial de POKEs**: con los índices 9-11, `DISPLAY_MODE`, `WIDE_COLS`, `DISP_ADDR`, `ATTR_ADDR` y `DBUF` salen del estado real. Un `POKE 2045,85` apaga el D_FILE y los atributos alternativos, y un `2045,170` posterior no los enciende; la sombra de 2098 y 2061 sigue con el 170 viejo | `snapshots_cambios_emulador.md` sección 2 |
+| 8 | **Bloque 0 en RAM en el snapshot**: si el índice 12 dice RAM, `HW_POKES` lleva el `POKE 2056` puesto aunque el valor de la sombra coincida con la ROM (el MCU toma por "nunca escrito" lo que iguala a la ROM). Sin el índice 12, como antes | `hw_debugger_emulator.md` 13.12 |
+
+La captura de pantalla de la web (`cap`, `CMD_DBG_CAP`), el teclado de la web (`CMD_DBG_KEYS`) y el
+la web del módulo WiFi **no son cosa del emulador** (el módem de red, sí: sección 5).
+
+## 3. Ficheros que hay que volver a sincronizar
+
+El emulador mantiene copias del firmware. Desde la última sincronización han cambiado en el firmware:
+
+| Fichero | Cambio |
+|---|---|
+| `voice_synthesizer.cpp` | `voice_synthesizer_isr()` devuelve la muestra mientras suena. Antes no tenía `return` (comportamiento indefinido): en ARM funcionaba por casualidad y en el PC se desbocaba. **Es lo que bloquea probar `SAY`** |
+| `WAV.cpp` | las muestras de 32 bits por muestra usaban `x >> 24 + 128` (se evalúa como `x >> 152`); ahora `(x >> 24) + 128`. Solo afecta a WAV de 32 bits |
+| `DEBUGGER.cpp` | los puntos 6, 7 y 8 |
+| ROM (`z80rom`) | los sprites se ponen a cero en el reset (ahora 64) y PLOT/TAB funcionan en 70/80 columnas (ROM 1.7). La ROM sale de `/SYS/SDBOOST.ROM` de la SD |
+
+## 4. Lo que el emulador ya había anunciado como suyo
+
+- **Commit del sonido en el hilo de la MCU.** `PLAY`, VGM y PEG están probados. Falta `SAY`, que
+  depende del arreglo de `voice_synthesizer.cpp` de arriba. Se puede commitear ya con `SAY` pendiente
+  o esperar a probarlo.
+- **Retardo del audio**: los ~30 ms de la cola del `PLAY` se pueden bajar si se nota en efectos sueltos.
+
+## 5. La red: comandos AT nuevos del módem
+
+Son parte de lo que el emulador tiene que ofrecer: los programas de red (el juego por turnos y
+cualquier otro de publicar / suscribir) los usan por el mismo canal del módem que `EXAMPLES/TELNET`
+(`NET_READ` / `NET_WRITE`, el intérprete AT de `NET_BRIDGE.cpp`). Sintaxis completa, errores y
+decisiones: `juego_en_red.md` §3. Implementación de referencia: `Arduino/Wifi_module_01/NET_MQTT.cpp`
+y `mqtt_codec.h` (un cliente MQTT 3.1.1 sin librerías). Pruebas de referencia con un broker falso:
+`claude/mqtttest` (`sh build.sh`).
+
+| Comando | Qué hace |
+|---|---|
+| `AT+MQTT=host,puerto[,tls[,usuario,clave]]` | conecta a ese broker |
+| `AT+MQTT` | conecta al primero que funcione de `/SYS/NET.CFG` (líneas `broker host puerto [tls]`; si falta, `test.mosquitto.org`, `broker.emqx.io` y `broker.hivemq.com`, puerto 1883) |
+| `AT+MQTTID=cadena` | clientid (por defecto `sd81-` y 8 hexadecimales aleatorios) |
+| `AT+MQTTWILL=topic,retain,texto` | *last will*; antes de conectar |
+| `AT+MQTTSUB=topic[,qos]` / `AT+MQTTUNSUB=topic` | suscribe (espera el SUBACK; `ERROR` si el broker lo rechaza) o cancela; admite `+` y `#` |
+| `AT+MQTTPUB=topic,qos,retain,len` | contesta `>` y a continuación el Z80 manda `len` bytes crudos (1-120); con `len` 0 publica vacío sin pedir datos. QoS 1 espera el PUBACK |
+| `AT+MQTTRX` | saca un mensaje de la cola: `+MQTTRX:topic,len`, los bytes, CR LF y `OK`; `OK` solo si no hay |
+| `AT+MQTT?` | `+MQTT:estado,broker,en_cola,perdidos,error` (estado: 0 apagado, 1 conectando, 2 conectado, 3 reconectando) |
+| `AT+MQTTCLOSE` | cierra la sesión y olvida suscripciones, cola, will, clientid y usuario |
+| `AT+SHA256=len` | tras `>` y `len` bytes: `+SHA256:` y 64 caracteres hexadecimales, `OK` |
+| `AT+HMAC=keylen,datalen` | tras `>` y la clave seguida de los datos: `+HMAC:` y 64 caracteres hexadecimales (HMAC-SHA256), `OK` |
+| `AT+RAND=n` | `+RAND:` y `n` bytes (1-32) en hexadecimal, `OK` |
+
+Reglas que el emulador tiene que respetar:
+
+- **Las mayúsculas se conservan** en los comandos `AT+`: el intérprete pasaba toda la línea a
+  mayúsculas, y los topics, las claves y los nombres distinguen. El resto (`ATDT`, `ATH`...) sigue igual.
+- **Datos crudos tras `>`:** sin eco y sin interpretar, `len` bytes exactos; si el Z80 no los manda en
+  5 s, `ERROR`. Hasta 256 bytes en `SHA256` y `HMAC`.
+- **Recepción por sondeo** (`AT+MQTTRX`), nunca mensajes no solicitados. Cola de **8** mensajes de
+  hasta 120 bytes y topic de hasta 64; si se llena, se pierde el **más antiguo** y suma a `perdidos`.
+  Un mensaje mayor se descarta y suma a `perdidos`. Si en la cola de salida del módem (256 bytes) no
+  cabe la respuesta, `ERROR` y el mensaje sigue en la cola.
+- **Una sesión MQTT a la vez,** independiente del socket TCP de `ATDT`. `ATH` cuelga el TCP,
+  `AT+MQTTCLOSE` el MQTT y `ATZ` los dos.
+- **Reconexión automática** con las suscripciones (estado 3 mientras reintenta). QoS 0 y 1;
+  retained; *last will*.
+- **Errores** (último campo de `AT+MQTT?`, el último que ocurrió; se borra al conectar): 1 sin red,
+  2 no abre el TCP, 3 el broker rechaza, 4 tiempo agotado, 5 argumentos malos, 6 cola o búfer lleno,
+  7 sin sesión, 8 sin PUBACK.
+- El emulador puede hablar MQTT de verdad por los sockets del PC, o contra un broker simulado. Lo
+  que tiene que ver el Z80 es lo mismo.
+
+## Orden sugerido (hecho, salvo el último)
+
+1. Sincronizar `voice_synthesizer.cpp`, `WAV.cpp` y la ROM, y probar `SAY` (desbloquea el commit del sonido).
+2. Puntos 2-4 (índices 9-12 y la regla del bloque 0): son pocas líneas y los usa el snapshot.
+3. Puntos 6-8 (el snapshot).
+4. Punto 1 (los 12 sprites por línea y los 64): es lo más grande.
+5. La red (§5): los comandos del módem, que necesita cualquier programa de red.
+6. Punto 5 (el teclado virtual), cuando se haya probado en el hardware.

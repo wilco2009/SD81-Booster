@@ -9,13 +9,17 @@ bloque 1 enseña la página 63. Con él se depura desde la consola del MCU, se
 hacen snapshots `.Z81` (consola, botón QuickSilva y teclado del ZX81) y se
 cargan con `LOAD *Z81`, también de programas en SLOW.
 
-## Estado (4 de octubre de 2026)
+## Estado (11 de octubre de 2026)
 
-Todo lo de este documento está hecho y probado en el hardware. Versiones:
+**Lo que falta por hacer en el emulador está en `emulador_pendiente.md`** (los cambios desde la FPGA
+0.13, el MCU, los ficheros que hay que volver a sincronizar y el orden sugerido).
+
+Todo lo de este documento está hecho y probado en el hardware, salvo el teclado virtual y la FPGA
+0.15 (índice 12 y la regla del bloque 0), que están sintetizados y sin probar. Versiones:
 
 | Pieza | Versión | Dónde |
 |---|---|---|
-| FPGA | `sim_int.v` rev **0.13** (traza) | `FPGA/SD81V2.1000/sim_int.v`, `SD81.v`, `ay38912.v` |
+| FPGA | `sim_int.v` rev **0.15** (0.13 traza; 0.14 estado del vídeo; 0.15 bloque 0 en RAM) | `FPGA/SD81V2.1000/sim_int.v`, `SD81.v`, `ay38912.v` |
 | Monitor | versión **4** (`"SD81DBG",4` en `$2003`), **1287 bytes** | `z80rom/debugmon.asm` → `/SYS/DEBUG.BIN` |
 | ROM | `LOAD *Z81` con el comando 75; sprites a cero en el reset | `z80rom/sdhandler.inc.asm` → `/SYS/SDBOOST.ROM` |
 | MCU | comandos 73, 74 y 75 (`LAST_COMMAND 75`); órdenes de configuración 8-12 (pausa, monitor cargado, POKEs del monitor, páginas escritas, traza) | `DEBUGGER.cpp`, `MCUSTATE.cpp`, `COMMANDS.cpp`, `SD_handle.cpp` |

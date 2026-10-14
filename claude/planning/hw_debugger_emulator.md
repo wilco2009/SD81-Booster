@@ -14,12 +14,17 @@ cargan con `LOAD *Z81`, también de programas en SLOW.
 **Lo que falta por hacer en el emulador está en `emulador_pendiente.md`** (los cambios desde la FPGA
 0.13, el MCU, los ficheros que hay que volver a sincronizar y el orden sugerido).
 
-Todo lo de este documento está hecho y probado en el hardware, salvo el teclado virtual y la FPGA
-0.15 (índice 12 y la regla del bloque 0), que están sintetizados y sin probar. Versiones:
+Todo lo de este documento está hecho y probado en el hardware, salvo el teclado virtual y las
+revisiones 0.15 y 0.16 de `sim_int` (índice 12 y las reglas del bloque 0 con CP/M), que están sin probar
+(la 0.16 ni sintetizada).
+
+**Los números "0.NN"** ("FPGA 0.14", "rev 0.16"...) son la revisión interna del módulo del depurador
+(`sim_int.v`), no la versión de la FPGA que ve el usuario: esa está en `FPGAVERSION.TXT` (hoy 1.5, la de
+la release v1.6.0). Versiones:
 
 | Pieza | Versión | Dónde |
 |---|---|---|
-| FPGA | `sim_int.v` rev **0.15** (0.13 traza; 0.14 estado del vídeo; 0.15 bloque 0 en RAM) | `FPGA/SD81V2.1000/sim_int.v`, `SD81.v`, `ay38912.v` |
+| FPGA | `sim_int.v` rev **0.16** (0.13 traza; 0.14 estado del vídeo; 0.15 bloque 0 en RAM; 0.16 la orden 10 con CP/M) | `FPGA/SD81V2.1000/sim_int.v`, `SD81.v`, `ay38912.v` |
 | Monitor | versión **4** (`"SD81DBG",4` en `$2003`), **1287 bytes** | `z80rom/debugmon.asm` → `/SYS/DEBUG.BIN` |
 | ROM | `LOAD *Z81` con el comando 75; sprites a cero en el reset | `z80rom/sdhandler.inc.asm` → `/SYS/SDBOOST.ROM` |
 | MCU | comandos 73, 74 y 75 (`LAST_COMMAND 75`); órdenes de configuración 8-12 (pausa, monitor cargado, POKEs del monitor, páginas escritas, traza) | `DEBUGGER.cpp`, `MCUSTATE.cpp`, `COMMANDS.cpp`, `SD_handle.cpp` |
@@ -38,6 +43,7 @@ Todo lo de este documento está hecho y probado en el hardware, salvo el teclado
 | ac01f7c, fa0dd12 (ramas `fpga-camino-b` y `fpga-sprites64`) | Los sprites se leen por línea de la copia de la sombra (máximo 8 por línea) y pasan de 32 a **64**: segunda tabla en `$1800-$1BFF`, `LOAD *SPRITE` hasta 63, snapshots con `SPRITE n` hasta `3F`. Descripción para el emulador: `sprites_por_linea_emulador.md` | 11.4 |
 | bfd90d2, af0d52e, 2c7a39b (rama `captura-pantalla`) | La captura de pantalla del programa en la web (orden `cap` de la consola; `CMD_DBG_CAP` 0x12 del protocolo). **FPGA 0.14**: estado del vídeo legible, índices 9, 10 y 11 de `$3FEF` | 13.11, y la tabla de índices (9-11) |
 | (rama `master`, tras 0.14) | **FPGA 0.15**: con el bloque 0 en RAM (CP/M), la CPU no escribe en la sombra de `$0000`-`$1FFF`; índice 12 = `A8h` \| bloque 0 en RAM | 13.12 |
+| (rama `master`, tras 0.15) | **FPGA 0.16**: la orden 10 (`dbg_poke`) devuelve el comportamiento de ROM al bloque 0 aunque CP/M lo haya puesto en RAM. Lo encontró la sesión del emulador: con CP/M, los POKEs de la pantalla del depurador no actuaban y caían en la RAM de CP/M | 13.12 |
 | 5e3373f (rama `teclado-remoto`) | Teclado virtual desde la web: FPGA nueva `vkeys.v` (orden 13 del canal de configuración) y `CMD_DBG_KEYS` 0x13. Solo la parte de la FPGA afecta al emulador | `teclado_remoto_emulador.md` |
 | 8ba74cf | La web, con paneles: desensamblado, registros, pila, breakpoints, memoria y consola (`CMD_DBG_VIEW`, la vista estructurada que compone el MCU). STM32 y ESP32 | 13.10 |
 | 6300e3a | Fase 5: la consola del depurador en la web del ESP32 (`/debug`, `CMD_DBG` en el protocolo UART). STM32 y ESP32 | 13.10 |
@@ -1531,5 +1537,11 @@ traza, `BRAMW` (el MCU) y el doble buffer escriben la sombra por sus ramas y no 
 - **Índice 12** (`A8h` | bit 0): `snap` lo lee y, si el bloque 0 es RAM, escribe `HW_POKES` con el
   `POKE 2056` puesto aunque la sombra coincida con la ROM (el MCU toma por "nunca escrito" lo que
   iguala a la ROM). Sin el índice 12 (FPGA anterior), se fía de la sombra de 2056 como antes.
+- **Con la orden 10 (`dbg_poke`: el monitor escribe como el programa) el bloque 0 vuelve a ser ROM
+  aunque CP/M lo haya puesto en RAM** (FPGA 0.16): `blk0_ram = (block0Writable & ~dbg_poke) | dbg_mon_ram`.
+  La pantalla del depurador (`ui_apply_video`: 2045 y 2096-2098) y la carga de un snapshot escriben POKEs
+  de control con esa orden; sin esto caían en la RAM de CP/M (y la pantalla salía con basura). Mientras
+  dura, los POKEs actúan como puertos, la sombra los apunta y el bloque 0 queda protegido: la memoria de
+  CP/M no se toca. `block0Writable` sigue siendo el estado de verdad (índice 12).
 - Efecto en el vídeo de CP/M: el vídeo no ve lo que CP/M escribe en `$0000`-`$1FFF` (una fuente,
   un D_FILE o una tabla de atributos ahí no se vería). Los de CP/M están en `$8000` y `$9000`.

@@ -117,6 +117,10 @@
 //  system_clk, con tr_go sincronizado. El puntero (la entrada siguiente)
 //  se lee con los indices 7/8: el MCU lee el anillo al parar
 //
+// Revision 0.16 - (solo SD81.v) la orden 10 (el monitor escribe como el programa) devuelve el
+//                 comportamiento de ROM al bloque 0 aunque CP/M lo haya puesto en RAM: los POKEs de
+//                 la pantalla del depurador y de la carga de un snapshot actuan como puertos y no
+//                 escriben en la RAM de CP/M; la sombra los sigue apuntando (0.15 los filtraba)
 // Revision 0.15 - Indice 12 = $A8 | bloque 0 en RAM (CP/M, POKE 2056): el MCU sabe que el
 //                 bloque 0 es memoria del programa. SD81.v ya no apunta en la sombra lo que la
 //                 CPU escribe en $0000-$1FFF con el bloque 0 en RAM (CP/M pisaba la fuente de

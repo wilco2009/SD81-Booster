@@ -171,7 +171,7 @@ void z80_writebyte_wrapper(int a, int d){
   watch(3, a);
   bool mon_ram = mon && !cfgs[cfgcmd_DBGPOKE];  // el monitor, sin la orden 10
   int b = (a & 0xFFFF) >> 13;
-  bool b0ram = block0w && b == 0;               // CP/M: memoria de verdad; ni puertos ni sombra
+  bool b0ram = block0w && b == 0 && !cfgs[cfgcmd_DBGPOKE];   // CP/M: memoria de verdad; ni puertos ni sombra (la orden 10 devuelve el comportamiento de ROM)
   if (!mon_ram && !b0ram) bram[a & 0xFFFF] = d; // la sombra copia lo que escribe la CPU
   if (b == 0 && !mon_ram && !b0ram) {           // ROM protegida: los POKEs de control
     if (a == 2056) block0w = true;
@@ -605,6 +605,16 @@ int main(int argc, char** argv){
       CHECK(bram[0x1E10] == 0x3C && *pptr(0x1E10) == 0x77, "bloque 0 en RAM: la memoria cambia, la sombra (la fuente de la ROM) no");
       z80_writebyte_wrapper(2045, 0x55);
       CHECK(pokereg[2045] == pk45 && bram[2045] == sh_2045 && *pptr(2045) == 0x55, "bloque 0 en RAM: 2045 es memoria, ni puerto ni sombra");
+      // con la orden 10 (el monitor escribe como el programa: la pantalla del depurador, la carga de un
+      // snapshot) el bloque 0 vuelve a ser ROM aunque CP/M lo haya puesto en RAM: 2045 es un puerto, se
+      // apunta en la sombra y la memoria de CP/M no se toca
+      cfgs[cfgcmd_DBGPOKE] = 1;
+      z80_writebyte_wrapper(2045, 0x66);
+      CHECK(pokereg[2045] == 0x66 && bram[2045] == 0x66 && *pptr(2045) == 0x55, "bloque 0 en RAM con la orden 10: 2045 es un puerto y la RAM de CP/M no cambia");
+      z80_writebyte_wrapper(0x1E10, 0x88);
+      CHECK(bram[0x1E10] == 0x88 && *pptr(0x1E10) == 0x77, "bloque 0 en RAM con la orden 10: lo que escribe el monitor en la ROM va a la sombra, no a la RAM");
+      cfgs[cfgcmd_DBGPOKE] = 0;
+      pokereg[2045] = pk45;
       block0w = false;
       // 2. el snapshot, con el programa parado
       pause_pend = true;

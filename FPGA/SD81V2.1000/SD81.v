@@ -351,7 +351,12 @@ module SD81(
 	// orden 10 (dbg_poke) el monitor escribe como el programa: el bloque 0
 	// protegido, los POKEs disparan sus registros y se copia a la BRAM.
 	wire dbg_mon_ram = dbg_mon & ~dbg_poke;
-	wire blk0_ram = block0Writable | dbg_mon_ram;
+	// CP/M (POKE 2056) pone el bloque 0 en RAM, pero con la orden 10 el monitor escribe como el programa
+	// antes de POKE 2056: ROM protegida y los POKEs de control activos. Sin esto, los POKEs de la pantalla
+	// del depurador (2045, 2096-2098...) y los de la carga de un snapshot iban a la RAM de CP/M en vez de a
+	// los registros.
+	wire blk0_w_eff = block0Writable & ~dbg_poke;
+	wire blk0_ram = blk0_w_eff | dbg_mon_ram;
 	
 		 
 // ***************************************************
@@ -938,7 +943,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// no va a la sombra: ahi estan la fuente de la ROM (I = $1E, la pantalla del depurador), los POKEs de
 	// control y las tablas de sprites, y CP/M los pisaria. La traza, el MCU (BRAMW) y el doble buffer
 	// escriben por sus ramas y no se ven afectados.
-	wire cpu_blk0_ram_wr = block0Writable & ~Addr[15] & ~Addr[14] & ~Addr[13];
+	wire cpu_blk0_ram_wr = blk0_w_eff & ~Addr[15] & ~Addr[14] & ~Addr[13];
 	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): tr_we?1'b1: blit_we?1'b1: dbg_bram_wr?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon_ram & ~spr_oob_wr & ~cpu_blk0_ram_wr)? ~nWR:1'b0;
 	// Sprites: los POKEs 2101-2128 son los mismos para los 32 (2100 elige
 	// cual), asi que en la sombra no se guardan en su direccion sino en

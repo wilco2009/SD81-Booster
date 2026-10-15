@@ -26,7 +26,8 @@
 ;      room_leave  avisa de que me voy y cierra la sesion.
 ;  Resultados de las demas (A): 0 bien, 1 el modem dijo ERROR, 2 plazo
 ;  agotado, 3 respuesta inesperada, 4 codigo de sala invalido, 5 mensaje
-;  demasiado largo.
+;  demasiado largo, 6 la sala esta llena (room_join: ya hay otro jugador en la
+;  ranura 1; no se llega a entrar y se cierra la sesion sin tocar su presencia).
 ;
 ;  REGLAS DEL MCU: C es el reloj del handshake y A no sobrevive a
 ;  mcu_send (claude/planning/net_bridge_emulator.md).
@@ -69,6 +70,7 @@ V_RXLEN     equ NB_BASE+315     ; longitud de lo que dijo AT+MQTTRX
 V_I         equ NB_BASE+316
 V_NETST     equ NB_BASE+317     ; estado de la conexion (NET_READ/WRITE)
 V_PEND      equ NB_BASE+318     ; 1 si hay un AT+MQTTRX pedido por room_poll_send
+V_CHK       equ NB_BASE+319     ; 1 mientras room_join mira si la ranura 1 esta ocupada
 V_RESP      equ NB_BASE+320     ; (96) primera linea '+' de la respuesta
 V_LINE      equ NB_BASE+416     ; (96) linea en curso
 V_TOPIC     equ NB_BASE+512     ; (48) topic recibido
@@ -729,7 +731,21 @@ room_go:    call derive
             ld   de,TMO_L
             call at_cmd
             ret  nz
-            ; suscribirme a todo lo de la sala
+            ; el segundo jugador mira antes que la ranura 1 no este ocupada
+            ld   a,(NB_SLOT)
+            or   a
+            jr   z,rg_suball
+            call room_check_free
+            or   a
+            jr   z,rg_suball
+            push af
+            ld   hl,s_close
+            ld   de,TMO_S
+            call at_cmd             ; cerrar bien: asi el last will (mi ranura) no sale
+            pop  af
+            or   a
+            ret
+rg_suball:  ; suscribirme a todo lo de la sala
             call cb_init
             ld   hl,s_sub
             call cb_puts
@@ -760,6 +776,43 @@ room_go:    call derive
 rg_noseq:   xor  a
             ld   (V_PSEQV),a
             ld   (NB_PEER),a
+            ret
+
+; Me suscribo solo a <sala>/p1: el broker manda la presencia retenida de esa ranura. Si dice '1',
+; hay otro jugador: A = 6. A = 0 si esta libre ('0' o nada). Luego me desuscribo
+room_check_free: call cb_init
+            ld   hl,s_sub
+            call cb_puts
+            ld   hl,V_BASE
+            call cb_puts
+            ld   hl,s_pone
+            call cb_puts
+            ld   hl,V_CMD
+            ld   de,TMO_S
+            call at_cmd
+            jr   nz,rcf_end         ; error (1, 2 o 3)
+            ld   e,6                ; los retenidos llegan justo detras del SUBACK: un momento
+rcf_w:      call delay20
+            dec  e
+            jr   nz,rcf_w
+            ld   a,1
+            ld   (V_CHK),a
+            call room_poll          ; 0 libre, 6 ocupada, 4 error
+            push af
+            xor  a
+            ld   (V_CHK),a
+            call cb_init
+            ld   hl,s_unsub
+            call cb_puts
+            ld   hl,V_BASE
+            call cb_puts
+            ld   hl,s_pone2
+            call cb_puts
+            ld   hl,V_CMD
+            ld   de,TMO_S
+            call at_cmd
+            pop  af
+rcf_end:    or   a
             ret
 
 ; A = '1' o '0': publica mi presencia retenida
@@ -981,7 +1034,18 @@ rc_pres:    inc  hl
             ld   a,(hl)
             sub  '0'
             ld   b,a
-            ld   a,(NB_SLOT)
+            ld   a,(V_CHK)
+            or   a
+            jr   z,rc_pres2
+            ld   a,b                ; mirando si la sala esta llena: solo importa la ranura 1
+            cp   1
+            jp   nz,room_poll
+            ld   a,(V_WK+64)
+            cp   '1'
+            jp   nz,room_poll       ; '0': libre, sigue leyendo
+            ld   a,6
+            jp   set_res            ; ocupada
+rc_pres2:   ld   a,(NB_SLOT)
             cp   b
             jp   z,room_poll        ; mi propia presencia
             ld   a,(V_WK+64)
@@ -1134,6 +1198,12 @@ s_will_t:   defm ",1,0"
 s_sub:      defm "AT+MQTTSUB="
             defb 0
 s_sub_t:    defm "/+,1"
+            defb 0
+s_pone:     defm "/p1,1"
+            defb 0
+s_pone2:    defm "/p1"
+            defb 0
+s_unsub:    defm "AT+MQTTUNSUB="
             defb 0
 s_pub:      defm "AT+MQTTPUB="
             defb 0

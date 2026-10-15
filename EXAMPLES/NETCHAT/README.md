@@ -37,6 +37,9 @@ NB_BASE     equ 7000h          ; RAM de trabajo de la librería (1,2 KB)
             include "net.inc"
 ```
 
+Resultados: 0 bien, 1 el módem dijo ERROR, 2 plazo agotado, 3 respuesta inesperada, 4 código inválido, 5 mensaje
+demasiado largo, 6 sala llena (ya hay otro jugador en la ranura 1: no entra y no toca su presencia).
+
 Rutinas (CALL; A = resultado, también en `NB_RES`): `net_init`, `room_new`, `room_join`, `room_send`,
 `room_poll`, `room_leave`, y `room_poll_send` / `room_poll_recv` (el sondeo en dos pasos: `_send` solo manda
 la pregunta y vuelve al momento, y `_recv` recoge la respuesta sin esperar si ya ha llegado; entre las dos el

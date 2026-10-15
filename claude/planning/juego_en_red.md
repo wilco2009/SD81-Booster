@@ -1,8 +1,8 @@
 # Juegos por turnos en red (sin servidor propio): diseño
 
-Estado: **capa A implementada en el ESP32 (§3.5) y capa B implementada en el Z80 (§4.4)**, las dos
-probadas de extremo a extremo en el PC (el Z80 de verdad contra el módem de verdad y un broker falso) y
-**sin probar en hardware**; capa C (el primer juego) sin empezar. Punto de partida: el puente de red del módulo WiFi
+Estado: **capa A en el ESP32 (§3.5), capa B en el Z80 (§4.4) y capa C con el primer juego, el 4 en raya
+(§5.1)**, todas probadas de extremo a extremo en el PC (el Z80 de verdad contra el módem de verdad y un broker
+falso) y **sin probar en el emulador ni en hardware**. Punto de partida: el puente de red del módulo WiFi
 (`NET_BRIDGE.cpp`, `NET_READ` / `NET_WRITE`, el intérprete AT) y el terminal `EXAMPLES/TELNET`.
 
 ## 1. Objetivo y límites
@@ -192,6 +192,15 @@ Los topics de un broker público los ve cualquiera que se suscriba a `#`. Por es
 - Esto protege de **travesuras**, no de un atacante dedicado (50 bits se pueden romper offline).
   El ajedrez no lo necesita más. Los datos van en claro; no mandar nada sensible.
 
+### 4.1b Sala llena (dos jugadores como mucho)
+
+Hay dos ranuras. Antes de entrar como la 1, `room_join` se suscribe solo a `<sala>/p1` y mira la presencia
+retenida: si dice `1`, ya hay otro jugador, devuelve el error 6 y cierra la sesión con `AT+MQTTCLOSE` (una
+desconexión limpia no dispara el *last will*, así que la presencia del otro no se toca). Si dice `0` o no hay
+nada, se desuscribe, entra y publica la suya. Límites: si el otro jugador se cae sin despedirse, su `1` dura
+hasta que el broker detecta la caída (~90 s con el keepalive de 60 s) y en ese tiempo la sala parece llena; y
+dos que entren a la vez pueden pasar los dos la comprobación (muy improbable).
+
 ### 4.2 Mensajes en el broker
 
 Cada jugador tiene su ranura (0 = quien creó la sala, 1 = quien se unió) y publica en su topic:
@@ -257,6 +266,19 @@ Reglas comunes a todos los juegos:
    se acepta si no es legal.
 4. Al entrar en una sala con partida empezada, el que llega pide el estado.
 
+### 5.1 Implementación (Z80): `EXAMPLES/NETGAME`
+
+`game.inc` es el controlador común (jugada, turno, hash del estado, estado completo, otra partida) y el
+juego pone seis rutinas (`g_reset`, `g_valid`, `g_apply`, `g_winner`, `g_save`, `g_load`). `connect4.inc` son
+las reglas del 4 en raya y `connect4.asm` el juego (Superfast texto de 32 columnas con la pantalla
+alternativa en `$8000`, teclado leído a mano). Mensajes: `1` jugada con el hash del estado resultante, `2`
+pido el estado, `3` estado completo, `4` otra partida. Cualquier desfase se arregla pidiendo el estado
+completo. Detalle y cómo añadir otro juego en `EXAMPLES/NETGAME/README.md`.
+
+Pruebas (`claude/mqtttest/build_z80.sh`): las reglas contra una referencia en C++ con ~11.000 jugadas al
+azar, el controlador contra un rival hecho en la prueba, y el juego entero con teclado y pantalla simulados.
+Salieron dos fallos de la propia pantalla que solo se veían así: `a2z` pisaba `HL` y `kbd_scan` pisa `BC`.
+
 ## 6. Cambios en el firmware
 
 ### ESP32 (nuevo `NET_MQTT.cpp`; `NET_BRIDGE.cpp` solo enruta)
@@ -284,7 +306,7 @@ Hecha: `EXAMPLES/NETCHAT/net.inc` (unos 2 KB, ver §4.4).
 | **0b. Prototipo sin firmware** (opcional) | Un MQTT mínimo en el Z80 sobre `ATDT broker:1883` (TCP crudo, ya existe): no hace falta tocar el ESP32 | un mensaje de ida y vuelta entre un SD81 y el script de Python |
 | **1. Capa A** | `NET_MQTT.cpp`, comandos de §3, `NET.CFG`, reconexión | desde el terminal (`EXAMPLES/TELNET`) se hace `AT+MQTT`, `AT+MQTTSUB`, `AT+MQTTPUB` y `AT+MQTTRX` a mano |
 | **2. Librería Z80** | `net.inc` y una pantalla de lobby (crear / unirse, mostrar el código). **Hecha en el PC**: `NETCHAT` (chat de prueba en BASIC con la librería por `USR`) | probada en el PC con un rival propio (`claude/mqtttest/build_z80.sh`); falta el emulador y el hardware |
-| **3. Primer juego** | Uno sencillo (reversi, 4 en raya o hundir la flota; este último luce la información oculta) | partida completa entre dos SD81 |
+| **3. Primer juego** (hecho en el PC: `EXAMPLES/NETGAME`, el 4 en raya) | Uno sencillo (reversi, 4 en raya o hundir la flota; este último luce la información oculta) | partida completa entre dos SD81 |
 | **4. Ajedrez** | Reglas desde cero (generador y validador de jugadas); motor opcional para jugar en solitario (§9) | partida con jugadas ilegales rechazadas, enroque y al paso |
 | **5. Gráficos** | Modo Spectrum / HiRes con Chroma; piezas como sprites (64 en total, 12 por línea) | se hace aparte con otra fuente de arte |
 

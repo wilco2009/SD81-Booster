@@ -1,7 +1,8 @@
 # Juegos por turnos en red (sin servidor propio): diseño
 
-Estado: **capa A implementada en el ESP32 (§3.5), probada en el PC contra un broker falso y sin
-probar en hardware**; capas B y C sin empezar. Punto de partida: el puente de red del módulo WiFi
+Estado: **capa A implementada en el ESP32 (§3.5) y capa B implementada en el Z80 (§4.4)**, las dos
+probadas de extremo a extremo en el PC (el Z80 de verdad contra el módem de verdad y un broker falso) y
+**sin probar en hardware**; capa C (el primer juego) sin empezar. Punto de partida: el puente de red del módulo WiFi
 (`NET_BRIDGE.cpp`, `NET_READ` / `NET_WRITE`, el intérprete AT) y el terminal `EXAMPLES/TELNET`.
 
 ## 1. Objetivo y límites
@@ -184,7 +185,8 @@ Los topics de un broker público los ve cualquiera que se suscriba a `#`. Por es
   La pantalla lo muestra al crear la sala (`K7QX-M2PD-9T`); es lo que el jugador le dice al rival.
 - **Topic:** `sd81/` + los primeros 12 hex de `SHA256("topic" + código)`. Quien ve el topic no
   obtiene el código.
-- **Clave:** `HMAC-SHA256("key" + código)` (no sale del Z80).
+- **Clave:** los 64 caracteres hexadecimales de `SHA256("key" + código)`, usados tal cual como los 64
+  bytes de la clave del HMAC (no sale del Z80).
 - **Cada mensaje** lleva un MAC de 8 bytes (HMAC truncado). El receptor descarta los que no
   verifican. Un intruso que no conoce el código no puede inyectar jugadas.
 - Esto protege de **travesuras**, no de un atacante dedicado (50 bits se pueden romper offline).
@@ -201,7 +203,9 @@ Cada jugador tiene su ranura (0 = quien creó la sala, 1 = quien se unió) y pub
 
 Formato: `ver(1) seq(2 LE) turno(2 LE) datos(0..100) mac(8)`.
 
-- `seq` crece por emisor: el receptor ignora repetidos y viejos.
+- `seq` crece por emisor, desde un valor aleatorio (`AT+RAND=2`) al entrar: el receptor descarta un
+  mensaje con la misma secuencia que el último (un QoS 1 repetido). No ordena: con un único mensaje
+  retenido por ranura no hace falta, y así un rival que reinicia no se queda bloqueado.
 - `turno` lo pone el juego (número de jugada).
 - Con *retained* + `seq`, si el rival vuelve tras varios turnos el juego ve que se ha saltado alguno
   y pide el estado completo (§5).
@@ -218,6 +222,28 @@ Formato: `ver(1) seq(2 LE) turno(2 LE) datos(0..100) mac(8)`.
 
 Si más adelante el coste de la firma en el Z80 molestara, se puede pasar a un comando que firme y
 verifique de una vez; no hace falta de partida.
+
+### 4.4 Implementación (Z80)
+
+`EXAMPLES/NETCHAT/net.inc` (la librería), `netchat.asm` (tabla de saltos para BASIC) y `NETCHAT.B81` (un
+chat de prueba). Rutinas: `net_init`, `room_new`, `room_join`, `room_send`, `room_poll`, `room_leave`;
+el buzón `NB_*` (resultado, ranura, rival, turno, longitud, código de sala, buffers de 100 bytes) está
+en una RAM de trabajo de ~1 KB que define el que la incluye (`NB_BASE`). Detalle en
+`EXAMPLES/NETCHAT/README.md`.
+
+Cosas que salieron al probarla:
+- **Plazos:** un bucle de ~20 ms. No sirve el contador de VSYNC del puerto `$AF`: leerlo lo pone a
+  cero y el handshake lo lee todo el rato.
+- `net_read` destruye `D` (el contador de `flush_rx` va en `E`).
+- La cabecera `+MQTTRX:topic,len` termina en CR LF y `rx_line` corta en el CR: hay que saltar el LF antes
+  de los datos, o el primer byte del mensaje sería el LF.
+- Cada `AT+...` tarda 0,25-0,5 s antes de que haya sesión MQTT (el puente sondea cada 250 ms en reposo)
+  y ~30 ms después. Entrar en una sala son ~5 s; mandar o recibir, ~0,1 s.
+- El broker devuelve a quien se suscribe con comodín lo suyo: se ignoran los mensajes de la propia ranura.
+- **Funciona en SLOW y en FAST.** Al probarla en el emulador se colgó en "INIT..." y se atribuyó a la NMI de
+  SLOW (que tocaría el reloj `C` del handshake); la NMI de la ROM no toca los registros principales y el
+  cuelgue era un `netchat.bin` viejo con el fallo de `flush_rx` ya arreglado. No hace falta `SET_FAST` (se
+  probó y se quitó: cambiar de modo en cada llamada hacía que la imagen diera vueltas).
 
 ## 5. Protocolo del juego (capa C)
 
@@ -248,8 +274,7 @@ Ninguno. La orden `NET_POLL` y su control de flujo ya sirven.
 
 ### Z80
 
-Una librería `net.inc` de ~1-2 KB: sala, topic, firma, `net_send(buf, n)` y `net_recv(buf)`. Usa
-`NET_READ` / `NET_WRITE` como `telnet.asm`.
+Hecha: `EXAMPLES/NETCHAT/net.inc` (unos 2 KB, ver §4.4).
 
 ## 7. Plan
 
@@ -258,7 +283,7 @@ Una librería `net.inc` de ~1-2 KB: sala, topic, firma, `net_send(buf, n)` y `ne
 | **0. Medidas** | Sketch para ESP32-C3 que se conecta a cada broker candidato: tiempo de conexión, latencia publicar→recibir, heap libre, comportamiento en 48 h de conexión permanente y al caerse el WiFi | tabla de resultados y lista de brokers elegida |
 | **0b. Prototipo sin firmware** (opcional) | Un MQTT mínimo en el Z80 sobre `ATDT broker:1883` (TCP crudo, ya existe): no hace falta tocar el ESP32 | un mensaje de ida y vuelta entre un SD81 y el script de Python |
 | **1. Capa A** | `NET_MQTT.cpp`, comandos de §3, `NET.CFG`, reconexión | desde el terminal (`EXAMPLES/TELNET`) se hace `AT+MQTT`, `AT+MQTTSUB`, `AT+MQTTPUB` y `AT+MQTTRX` a mano |
-| **2. Librería Z80** | `net.inc` y una pantalla de lobby (crear / unirse, mostrar el código) | prueba con el script de Python como rival |
+| **2. Librería Z80** | `net.inc` y una pantalla de lobby (crear / unirse, mostrar el código). **Hecha en el PC**: `NETCHAT` (chat de prueba en BASIC con la librería por `USR`) | probada en el PC con un rival propio (`claude/mqtttest/build_z80.sh`); falta el emulador y el hardware |
 | **3. Primer juego** | Uno sencillo (reversi, 4 en raya o hundir la flota; este último luce la información oculta) | partida completa entre dos SD81 |
 | **4. Ajedrez** | Reglas desde cero (generador y validador de jugadas); motor opcional para jugar en solitario (§9) | partida con jugadas ilegales rechazadas, enroque y al paso |
 | **5. Gráficos** | Modo Spectrum / HiRes con Chroma; piezas como sprites (64 en total, 12 por línea) | se hace aparte con otra fuente de arte |

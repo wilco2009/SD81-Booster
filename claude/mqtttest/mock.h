@@ -60,15 +60,35 @@ enum { WL_CONNECTED = 3, WL_DISCONNECTED = 6 };
 struct WiFiMock { int status() { return mock_wifi_ok ? WL_CONNECTED : WL_DISCONNECTED; } static bool mock_wifi_ok; };
 extern WiFiMock WiFi;
 
-// Broker falso: lo que escribe el cliente va a on_client_bytes()
+// Broker falso: lo que escribe el cliente va a mock_broker_rx() (lo define la prueba). Cada
+// objeto sabe si el abrio la conexion: el WiFiClient del puente (ATDT) nunca esta conectado.
+extern void mock_broker_rx(const uint8_t* b, size_t n);
+extern std::deque<uint8_t> mock_from_broker;
+extern bool mock_connected, mock_tcp_fail;
+extern bool mock_quiet;
 class WiFiClient : public Client {
 public:
-  int available() override;
-  int read(uint8_t* b, size_t n) override;
-  size_t write(const uint8_t* b, size_t n) override;
-  void stop() override;
-  uint8_t connected() override;
-  int connect(const char* host, uint16_t port, int32_t timeout);
+  bool conn = false;
+  int available() override { return conn ? (int)mock_from_broker.size() : 0; }
+  int read(uint8_t* b, size_t n) override {
+    size_t k = 0;
+    while (conn && k < n && !mock_from_broker.empty()) { b[k++] = mock_from_broker.front(); mock_from_broker.pop_front(); }
+    return (int)k;
+  }
+  size_t write(const uint8_t* b, size_t n) override {
+    if (!conn || !mock_connected) return 0;
+    mock_broker_rx(b, n);
+    return n;
+  }
+  void stop() override { if (conn) { conn = false; mock_connected = false; } }
+  uint8_t connected() override { return conn && mock_connected; }
+  int connect(const char* host, uint16_t port, int32_t timeout = 0) {
+    (void)timeout;
+    if (mock_tcp_fail) return 0;
+    conn = true; mock_connected = true; mock_from_broker.clear();
+    if (!mock_quiet) printf("    (tcp a %s:%u)\n", host, port);
+    return 1;
+  }
   void setNoDelay(bool) {}
 };
 class WiFiClientSecure : public WiFiClient {
@@ -80,11 +100,17 @@ public:
 static inline uint32_t esp_random() { static uint32_t x = 0x1234ABCD; x = x * 1664525u + 1013904223u; return x; }
 static inline void esp_fill_random(void* b, size_t n) { for (size_t i = 0; i < n; i++) ((uint8_t*)b)[i] = (uint8_t)(esp_random() >> 24); }
 
-// --- mbedtls (solo comprueba que se llama con los argumentos buenos) ---
+// --- mbedtls: por defecto solo comprueba que se llama con los argumentos buenos; con
+// MOCK_REAL_MD la prueba pone SHA-256 y HMAC de verdad ---
 typedef int mbedtls_md_type_t;
 typedef struct { int dummy; } mbedtls_md_info_t;
 #define MBEDTLS_MD_SHA256 6
 static inline const mbedtls_md_info_t* mbedtls_md_info_from_type(int) { static mbedtls_md_info_t i; return &i; }
+#ifdef MOCK_REAL_MD
+int mbedtls_md(const mbedtls_md_info_t*, const unsigned char* in, size_t n, unsigned char* out);
+int mbedtls_md_hmac(const mbedtls_md_info_t*, const unsigned char* key, size_t kl,
+                    const unsigned char* in, size_t n, unsigned char* out);
+#else
 extern std::vector<uint8_t> mock_md_in, mock_md_key;
 static inline int mbedtls_md(const mbedtls_md_info_t*, const unsigned char* in, size_t n, unsigned char* out) {
   mock_md_in.assign(in, in + n); mock_md_key.clear();
@@ -97,6 +123,7 @@ static inline int mbedtls_md_hmac(const mbedtls_md_info_t*, const unsigned char*
   for (int i = 0; i < 32; i++) out[i] = (uint8_t)(0x10 + i);
   return 0;
 }
+#endif
 
 // --- WIFI_CLIENT ---
 extern bool mock_cfg_present; extern std::string mock_cfg;
@@ -114,9 +141,5 @@ extern bool mock_raw_pending;
 typedef void (*net_raw_done_t)(const uint8_t* data, uint16_t len, bool ok);
 extern net_raw_done_t mock_raw_cb;
 
-// --- el broker falso (lo implementa test_net_mqtt.cpp) ---
-void mock_broker_rx(const uint8_t* b, size_t n);
-extern std::deque<uint8_t> mock_from_broker;
-extern bool mock_connected, mock_tcp_fail;
 
 #endif

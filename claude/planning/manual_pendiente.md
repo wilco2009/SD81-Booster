@@ -10,7 +10,7 @@ Lista viva (empezada el 14 de octubre de 2026). Se tacha lo que se hace en los d
 |---|---|---|---|
 | 1 | **Comandos AT genéricos de red** del módulo WiFi: `AT+MQTT`, `MQTTID`, `MQTTWILL`, `MQTTSUB`, `MQTTUNSUB`, `MQTTPUB` (datos crudos tras `>`), `MQTTRX`, `MQTT?`, `MQTTCLOSE`, `AT+SHA256`, `AT+HMAC`, `AT+RAND`, con la cola de 8 mensajes, los códigos de error y los estados. Fuente: `juego_en_red.md` §3 y `emulador_pendiente.md` §5 | Apéndice nuevo para programadores (junto al de la terminal telnet) y una línea en 9.7 (módulo WiFi); la tabla de comandos del puente (`NET_READ`/`NET_WRITE`, comandos 66/67) lo cita | probarlo en la placa con un broker real |
 | 2 | **`/SYS/NET.CFG`**: formato (`broker host puerto [tls]`, `#` comentarios, máximo 6) y los tres brokers por defecto | mismo apéndice; si se decide llevar un `NET.CFG` de ejemplo en SD Content, también 9.7 | decidir si va en SD Content (por ahora no hace falta: sin fichero se usan los de siempre) |
-| 3 | **Juegos por turnos en red** (salas, código de sala, qué se publica en el broker): cuando exista la librería del Z80 y el primer juego | apéndice nuevo o sección propia | capas B y C de `juego_en_red.md` |
+| 3 | **Juegos por turnos en red** (salas, código de sala, qué se publica en el broker) y la **librería `net.inc` / el chat `NETCHAT`** (EXAMPLES/NETCHAT, para quien programe juegos y para probar la red entre dos ZX81). La librería ya existe; falta el primer juego | apéndice nuevo o sección propia; `NETCHAT` en Software.zip (SD81/TOOLS) cuando se pruebe en la placa | probarlo en el emulador y en la placa; capa C de `juego_en_red.md` |
 
 ## Está, pero hay que corregirlo
 

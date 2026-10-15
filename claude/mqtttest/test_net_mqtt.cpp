@@ -31,21 +31,7 @@ static void feed_raw(const std::string& s) {
   mock_raw_cb((const uint8_t*)s.data(), (uint16_t)s.size(), true);
 }
 
-int WiFiClient::available() { return (int)mock_from_broker.size(); }
-int WiFiClient::read(uint8_t* b, size_t n) {
-  size_t k = 0;
-  while (k < n && !mock_from_broker.empty()) { b[k++] = mock_from_broker.front(); mock_from_broker.pop_front(); }
-  return (int)k;
-}
-size_t WiFiClient::write(const uint8_t* b, size_t n) { if (!mock_connected) return 0; mock_broker_rx(b, n); return n; }
-void WiFiClient::stop() { mock_connected = false; }
-uint8_t WiFiClient::connected() { return mock_connected; }
-int WiFiClient::connect(const char* host, uint16_t port, int32_t) {
-  if (mock_tcp_fail) return 0;
-  mock_connected = true; mock_from_broker.clear();
-  printf("    (tcp a %s:%u)\n", host, port);
-  return 1;
-}
+bool mock_quiet = false;
 
 // ---------------------------------------------------------------- broker falso
 static mqtt::Parser bparser;

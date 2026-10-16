@@ -74,8 +74,12 @@ void disableMem(){
       pinMode(ADDRESS_PINS[i], INPUT);
   }
 
-  pinMode(nMEM_OEb,INPUT); 
-  pinMode(nWRb,INPUT); 
+  // Con pull-up, no flotantes: mientras el Z80 sigue en reset la FPGA tambien
+  // suelta /WE de la SRAM (nWRx = z), y flotando cualquier flanco cercano (las
+  // ordenes del canal de configuracion de send_config) hacia escrituras
+  // espurias: ceros en $0000, $0004 y $2004 de la ROM ya cargada
+  pinMode(nMEM_OEb,INPUT_PULLUP);
+  pinMode(nWRb,INPUT_PULLUP);
 }
 
 void write_sram(uint16_t addr, uint8_t d){

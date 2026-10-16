@@ -9,6 +9,7 @@ GM_BASE     equ 7400h
 C4_BASE     equ 7440h
 G_STATE_LEN equ 42
 G_MOVE_LEN  equ 1
+G_CLOCK     equ 0
 MB          equ 7F00h
 
             org  24576

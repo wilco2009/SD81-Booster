@@ -7,6 +7,7 @@ GM_BASE     equ 8400h
 CH_BASE     equ 8500h
 G_STATE_LEN equ 67
 G_MOVE_LEN  equ 2
+G_CLOCK     equ 0
 MB          equ 8F00h
 
             org  24576

@@ -23,6 +23,7 @@
 ;      gprint_row        igual, borrando antes la fila
 ;      gclr_row          B = fila: la deja en blanco, con los atributos del texto
 ;      gattr_row         B = fila, A = atributo
+;      gattr_span        B = fila, C = columna, E = cuantas celdas, A = atributo
 ;      draw_square       A = pieza (0 vacia), UI_Y/UI_X = casilla en pantalla, UI_R/UI_F = rank y
 ;                        columna del tablero: la dibuja con su color (blancas: tinta blanca)
 ; =====================================================================
@@ -232,6 +233,18 @@ gc_l:       push hl
             jr   nz,gc_l
             pop  bc
             ld   a,ATTR_TEXT
+; B = fila, C = columna, E = cuantas celdas (1 o mas), A = atributo
+gattr_span: push de
+            push af
+            call gattr
+            pop  af
+            pop  de
+            ld   b,e
+gs_sp:      ld   (hl),a
+            inc  hl
+            djnz gs_sp
+            ret
+
 ; B = fila, A = atributo para sus 32 celdas
 gattr_row:  push bc
             ld   c,0

@@ -23,9 +23,12 @@
 ;  Reglas: todo el ajedrez salvo la triple repeticion (enroque, al paso, coronacion,
 ;  jaque, mate, ahogado, material insuficiente y las 50 jugadas).
 ;
-;  Memoria:   $6000-$87FF el programa;  $8800-$8B18 pantalla de texto del lobby;  $9000-$9A00 variables;
+;  Memoria:   $5000-$7FFF el programa;  $8800-$8B18 pantalla de texto del lobby;  $9000-$9A00 variables;
 ;             $A000-$BAFF pantalla de la partida (bitmap $A000, atributos $B800)
-;  Cargar:    CHESS.B81 (CLEAR 24575, LOAD FAST ... CODE 24576, RAND USR 24576).
+;  Cargar:    CHESS.B81 (CLEAR 20479, LOAD FAST ... CODE 20480, RAND USR 20480).
+;  OJO: todo el codigo tiene que quedar por DEBAJO de $8000: en los bloques 4-7 el ZX81 no ejecuta codigo
+;  (solo se pueden usar para datos), y el programa se colgaria al llegar a la primera rutina que caiga alli
+;  (compila.bat y build_z80.sh lo comprueban).
 ;  Ensamblar: pasmo chess.asm chess.bin chess.sym   (compila.bat)
 ; =====================================================================
 
@@ -35,6 +38,7 @@ UI_BASE     equ 9480h
 CH_BASE     equ 9500h           ; alineado a 256
 G_STATE_LEN equ 67
 G_MOVE_LEN  equ 2
+G_CLOCK     equ 1               ; con relojes (game.inc)
 DFILE       equ 8800h           ; pantalla: 1 + 24 filas de 33
 
 MSG         equ UI_BASE+5       ; el mensaje de la fila ROW_MSG (0 = ninguno)
@@ -46,6 +50,10 @@ MV_N        equ UI_BASE+10      ; teclas de la jugada tecleadas (0-5)
 MV_BUF      equ UI_BASE+11      ; (6) lo tecleado, ASCII
 MV_OUT      equ UI_BASE+17      ; (2) la jugada en el formato de game.inc
 LAST_BUF    equ UI_BASE+20      ; (20) texto de la ultima jugada
+CLKC        equ UI_BASE+58      ; vueltas desde el ultimo reloj
+CLK_BUF     equ UI_BASE+46      ; (12) "WHITE 05:00"
+CLK_P       equ UI_BASE+59      ; el jugador (1 o 2) al que se le pinta el reloj
+CLK_S       equ UI_BASE+60      ; (2) sus segundos
 
 ; La pantalla (gfx.inc: HiRes Spectrum, 32 x 24 celdas de 8x8): el titulo arriba, el tablero de 8 x 8
 ; casillas de 2 x 2 celdas, las coordenadas, un panel a la derecha y el estado abajo. Los colores
@@ -58,12 +66,15 @@ ROW_FILES   equ 17              ; A-H bajo el tablero
 ROW_STATUS  equ 18
 ROW_MSG     equ 19
 ROW_INPUT   equ 20
+ROW_CLOCK   equ 12              ; los dos relojes del panel (jugador 1, jugador 2)
 ATTR_TITLE  equ 070h            ; barra del titulo: papel amarillo brillante, tinta negra
 ATTR_STATUS equ 060h            ; caja del estado: papel verde brillante, tinta negra
 ATTR_MSG    equ 042h            ; rojo brillante
 ATTR_HELP   equ 005h            ; cian
+ATTR_CLOCK  equ 046h            ; el reloj del que mueve: amarillo brillante
+ATTR_LOW    equ 042h            ; ... y en rojo brillante con 30 s o menos
 
-            org  24576
+            org  20480
 
             include "lobby.inc"
 
@@ -120,6 +131,9 @@ pl_col:     ld   bc,5*256+PANEL_COL
             call gprint_at
             call draw_labels
             call draw_all
+            xor  a
+            ld   (CLKC),a
+            call game_clock_go      ; los relojes (si los hay) empiezan ahora
 pl_loop:    call kbd_scan
             or   a
             jp   z,pl_poll
@@ -188,6 +202,7 @@ pl_rs:      ld   a,b
             ld   (MSG),a
             call draw_all
 pl_poll:    call poll_step_game
+            call clock_step
             call delay20
             jp   pl_loop
 pl_quit:    call gfx_off            ; el menu es de texto
@@ -212,6 +227,9 @@ poll_step_game: call poll_step
             jr   z,psg_set
             cp   5
             ld   b,10               ; desincronizado: pidiendo el estado
+            jr   z,psg_set
+            cp   6
+            ld   b,0                ; al rival se le ha acabado el tiempo: el estado lo dice
             jr   z,psg_set
             cp   8
             ld   b,0                ; otra partida
@@ -312,6 +330,7 @@ bm_set:     ld   a,c
 ;  Dibujo
 ; ---------------------------------------------------------------------
 draw_all:   call draw_board
+            call draw_clocks
             call draw_input
             ; estado: quien mueve, jaque, y el final
             ld   a,(GM_OVER)
@@ -322,9 +341,18 @@ draw_all:   call draw_board
             jr   z,da_st
             ld   hl,GM_ME
             cp   (hl)
+            jr   nz,da_lost
             ld   hl,t_win
+            ld   a,(GM_WHY)
+            or   a
             jr   z,da_st
-            ld   hl,t_lose
+            ld   hl,t_wint
+            jr   da_st
+da_lost:    ld   hl,t_lose
+            ld   a,(GM_WHY)
+            or   a
+            jr   z,da_st
+            ld   hl,t_lost
             jr   da_st
 da_play:    call game_turn_of
             ld   hl,GM_ME
@@ -615,6 +643,163 @@ mm_color:   ld   a,(GM_PLY)
             ret
 
 ; ---------------------------------------------------------------------
+;  Los relojes (game.inc, G_CLOCK)
+; ---------------------------------------------------------------------
+; una vuelta del bucle: cada ~30 vueltas (~1 s) pone al dia el reloj del que mueve y lo pinta
+clock_step: ld   a,(GM_CKON)
+            or   a
+            ret  z
+            ld   hl,CLKC
+            inc  (hl)
+            ld   a,(hl)
+            cp   30
+            ret  c
+            ld   (hl),0
+            call game_tick
+            or   a
+            ret  z
+            cp   1
+            jp   z,draw_clocks
+            cp   3
+            jr   nz,cs_all
+            ld   a,12               ; al rival se le ha acabado el tiempo: espero a que lo diga el
+            ld   (MSG),a
+cs_all:     jp   draw_all           ; (2: he perdido por tiempo)
+
+; los dos relojes en el panel: "WHITE 05:00" / "BLACK 05:00"; el que corre, en amarillo (en rojo si le
+; quedan 30 s o menos)
+draw_clocks: ld  a,(GM_TC)
+            or   a
+            ret  z
+            ld   a,1
+            ld   (CLK_P),a
+dc_lp:      ld   a,(CLK_P)
+            call gm_get_rem         ; HL = sus segundos
+            ld   (CLK_S),hl
+            ld   de,CLK_BUF
+            ld   a,(CLK_P)
+            cp   2
+            ld   hl,t_wclk
+            jr   c,dc_w
+            ld   hl,t_bclk
+dc_w:       ld   bc,6
+            ldir                    ; DE = CLK_BUF + 6
+            ld   hl,(CLK_S)
+            call fmt_time
+            xor  a
+            ld   (de),a
+            ld   a,(CLK_P)
+            add  a,ROW_CLOCK-1
+            ld   b,a
+            ld   c,PANEL_COL
+            ld   hl,CLK_BUF
+            call gprint_at
+            ld   e,ATTR_TEXT        ; el color: el del que mueve, destacado
+            ld   a,(GM_OVER)
+            or   a
+            jr   nz,dc_att
+            ld   a,(GM_CKON)
+            or   a
+            jr   z,dc_att
+            call game_turn_of
+            ld   hl,CLK_P
+            cp   (hl)
+            jr   nz,dc_att
+            ld   e,ATTR_CLOCK
+            ld   hl,(CLK_S)
+            ld   bc,31
+            or   a
+            sbc  hl,bc
+            jr   nc,dc_att          ; mas de 30 s
+            ld   e,ATTR_LOW
+dc_att:     ld   a,(CLK_P)
+            add  a,ROW_CLOCK-1
+            ld   b,a
+            ld   c,PANEL_COL
+            ld   a,e
+            ld   e,11
+            call gattr_span
+            ld   hl,CLK_P
+            inc  (hl)
+            ld   a,(hl)
+            cp   3
+            jr   nz,dc_lp
+            ret
+
+; HL = segundos -> "MM:SS" en ASCII en (DE); DE avanza (destruye A, BC, HL)
+fmt_time:   push de
+            xor  a
+            ld   bc,60
+ft_m:       or   a
+            sbc  hl,bc
+            jr   c,ft_d
+            inc  a
+            jr   ft_m
+ft_d:       add  hl,bc              ; L = los segundos que sobran
+            pop  de
+            call ft_2               ; A = los minutos
+            ld   a,':'
+            ld   (de),a
+            inc  de
+            ld   a,l
+ft_2:       ld   c,'0'              ; A (0-99) -> dos cifras
+ft_t:       cp   10
+            jr   c,ft_u
+            sub  10
+            inc  c
+            jr   ft_t
+ft_u:       ld   b,a
+            ld   a,c
+            ld   (de),a
+            inc  de
+            ld   a,b
+            add  a,'0'
+            ld   (de),a
+            inc  de
+            ret
+
+; el control de tiempo, al crear la sala (lobby.inc): lo deja en NB_TC como la letra del codigo
+; (A sin reloj, B 5 min, C 10, D 15, E 30). CF = 1: volver al menu
+pick_tc:    call cls
+            ld   hl,t_title
+            ld   bc,ROW_TITLE*256+7
+            call print_at
+            ld   hl,t_tcq
+            ld   bc,4*256+4
+            call print_at
+            ld   hl,t_tc1
+            ld   bc,6*256+4
+            call print_at
+            ld   hl,t_tc2
+            ld   bc,7*256+4
+            call print_at
+            ld   hl,t_tc3
+            ld   bc,8*256+4
+            call print_at
+            ld   hl,t_tc4
+            ld   bc,9*256+4
+            call print_at
+            ld   hl,t_tc5
+            ld   bc,10*256+4
+            call print_at
+            ld   hl,t_pickq
+            ld   bc,ROW_HELP*256+4
+            call print_at
+pt_key:     call key_wait
+            cp   'Q'
+            jr   nz,pt_k1
+            scf
+            ret
+pt_k1:      sub  '1'
+            jr   c,pt_key
+            cp   5
+            jr   nc,pt_key
+            or   80h
+            ld   (NB_TC),a
+            or   a                  ; CF = 0
+            ret
+
+; ---------------------------------------------------------------------
 ;  Textos
 ; ---------------------------------------------------------------------
 t_title:    defm "NETWORK CHESS"
@@ -631,6 +816,22 @@ t_black:    defm "BLACK"
             defb 0
 t_lastlbl:  defm "LAST MOVE"
             defb 0
+t_wclk:     defm "WHITE "
+            defb 0
+t_bclk:     defm "BLACK "
+            defb 0
+t_tcq:      defm "TIME FOR EACH PLAYER:"
+            defb 0
+t_tc1:      defm "1 = NO CLOCK"
+            defb 0
+t_tc2:      defm "2 = 5 MINUTES"
+            defb 0
+t_tc3:      defm "3 = 10 MINUTES"
+            defb 0
+t_tc4:      defm "4 = 15 MINUTES"
+            defb 0
+t_tc5:      defm "5 = 30 MINUTES"
+            defb 0
 t_empty:    defb 0
 t_mine:     defm "YOUR MOVE"
             defb 0
@@ -642,6 +843,10 @@ t_theirs_chk: defm "THE RIVAL IS IN CHECK"
             defb 0
 t_win:      defm "CHECKMATE - YOU WIN"
             defb 0
+t_wint:     defm "TIME OUT - YOU WIN"
+            defb 0
+t_lost:     defm "TIME OUT - THE RIVAL WINS"
+            defb 0
 t_lose:     defm "CHECKMATE - THE RIVAL WINS"
             defb 0
 t_draw:     defm "DRAW"
@@ -650,7 +855,7 @@ t_help:     defm "E2 E4 ENTER  0 QUIT  9 RESEND"
             defb 0
 t_help_over: defm "ENTER = AGAIN   0 = QUIT"
             defb 0
-msg_tab:    defw m_1,m_2,m_3,m_4,m_5,m_6,m_7,m_8,m_9,m_10,m_11
+msg_tab:    defw m_1,m_2,m_3,m_4,m_5,m_6,m_7,m_8,m_9,m_10,m_11,m_12
 m_1:        defb 0
 m_2:        defb 0
 m_3:        defm "THAT MOVE IS NOT LEGAL"
@@ -670,6 +875,8 @@ m_9:        defm "BACK IN SYNC"
 m_10:       defm "RESYNCING WITH THE RIVAL..."
             defb 0
 m_11:       defm "MODEM ERROR"
+            defb 0
+m_12:       defm "THE RIVAL IS OUT OF TIME"
             defb 0
 
             include "../NETCHAT/net.inc"

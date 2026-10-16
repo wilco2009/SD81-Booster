@@ -15,13 +15,13 @@ motor del Z80 en el PC** (16 de octubre): son legales de principio a fin, el mat
 blancas y la de Loyd acaba en tablas.
 
 ## 1. Arranque y sala
-- [x] Cargar `CHESS.B81` en las dos instancias (`LOAD "CHESS.B81"`, o `LOAD THEN CLEAR 24575` + `LOAD "CHESS.BIN" CODE 24576` + `RAND USR 24576`).
+- [x] Cargar `CHESS.B81` en las dos instancias (`LOAD "CHESS.B81"`, o `LOAD THEN CLEAR 20479` + `LOAD "CHESS.BIN" CODE 20480` + `RAND USR 20480`; el ajedrez empieza en `$5000` y no en `$6000` porque con los relojes ya no cabía por debajo de `$8000`).
 - [x] Menú: crear sala en la 1 (sale un código de 10 caracteres), unirse en la 2 con ese código.
 - [x] Sala llena: una **tercera** instancia con el mismo código recibe «THE ROOM IS FULL» y la partida de las otras dos no se altera.
 - [x] Código mal escrito / sala que no existe: `THERE IS NO SUCH ROOM` y vuelta al menú, sin colgarse (arreglado el 16 de octubre).
-- [x] **Salir y volver**: con `0` sal siendo el que se unió y vuelve con el mismo código (entra como jugador 2, recibe la posición). Sal siendo el creador y vuelve con «unirse» y el mismo código: entras como jugador 1 (blancas) y la partida sigue donde estaba.
+- [x] **Salir y volver**: con `0` sal siendo el que se unió y vuelve con el mismo código (entra como jugador 2, recibe la posición). Sal siendo el creador y vuelve con «unirse» y el mismo código: entras como jugador 1 (blancas) y la partida sigue donde estaba. (Probado en el emulador el 16 de octubre: sale `THE ROOM IS EMPTY`.)
 - [ ] Un tercero con el código mientras uno está fuera puede ocupar su sitio (limitación conocida).
-- [ ] **Se cayeron los dos** (cortar la red de las dos instancias, esperar a que el broker dé por caídas las dos conexiones —hasta ~90 s— y volver a unirse con el código): sale `THE ROOM IS EMPTY` y se elige `1` (blancas) o `2` (negras); el segundo que vuelve entra solo en la que queda y la partida sigue donde estaba.
+- [x] **Se cayeron los dos** (cortar la red de las dos instancias, esperar a que el broker dé por caídas las dos conexiones —hasta ~90 s— y volver a unirse con el código): sale `THE ROOM IS EMPTY` y se elige `1` (blancas) o `2` (negras); el segundo que vuelve entra solo en la que queda y la partida sigue donde estaba.
 - [x] Sin WiFi o sin broker: mensaje de error legible (`NETWORK ERROR`, sin colgarse; probado el 16 de octubre).
 
 ## 2. Pantalla (gráfica desde el 16 de octubre: HiRes Spectrum; probada en el emulador por el usuario el 16 de octubre; los gráficos se quedan como están)
@@ -38,7 +38,18 @@ blancas y la de Loyd acaba en tablas.
 - [x] La velocidad: repintar el tablero entero tras cada jugada no se nota (si parpadea, habría que repintar solo las casillas que cambian).
 
 ## 2b. Una carrera corregida el 16 de octubre (jugar justo cuando el sondeo tiene una petición pendiente)
-- [ ] Jugar (o ENTER para otra partida, o `9`) en cualquier momento, también justo después de que el rival haya jugado: sin pausa de unos segundos y sin el aviso `MODEM ERROR`, y sin perder la jugada del rival. (Antes, si el envío caía entre la petición del sondeo y su recogida, el módem tiraba esa respuesta y luego se esperaba en balde: `gm_drain` en `game.inc`.)
+- [x] Jugar (o ENTER para otra partida, o `9`) en cualquier momento, también justo después de que el rival haya jugado: sin pausa de unos segundos y sin el aviso `MODEM ERROR`, y sin perder la jugada del rival. (Antes, si el envío caía entre la petición del sondeo y su recogida, el módem tiraba esa respuesta y luego se esperaba en balde: `gm_drain` en `game.inc`.)
+
+## 2c. Relojes (16 de octubre; control de tiempo en la primera letra del código)
+- [ ] Al crear la sala sale `TIME FOR EACH PLAYER` con 1 = NO CLOCK, 2 = 5, 3 = 10, 4 = 15 y 5 = 30 MINUTES, y `Q` vuelve al menú.
+- [ ] El código de sala empieza por `A` (sin reloj), `B`, `C`, `D` o `E` según lo elegido; el que se une con ese código ve los mismos relojes sin teclear nada.
+- [ ] En el panel salen `WHITE MM:SS` y `BLACK MM:SS` (nada si no hay reloj); el del que mueve, en **amarillo**, y en **rojo** si quedan 30 s o menos.
+- [ ] Mi reloj baja mientras pienso y se para al jugar; el del rival baja durante su turno y se pone al valor que dice su jugada cuando llega (compara los dos ordenadores).
+- [ ] Los dos relojes coinciden entre un ordenador y otro con una diferencia de un par de segundos como mucho tras varias jugadas.
+- [ ] **Se acaba mi tiempo**: sale `TIME OUT - THE RIVAL WINS` y en el otro `TIME OUT - YOU WIN`; ENTER para otra partida repone los relojes.
+- [ ] Un mate o las tablas paran los relojes.
+- [ ] Reentrar a mitad de partida (salir con `0` y volver) mantiene los relojes que mande el otro (llegan con el estado completo).
+- [ ] El tablero y el teclado no van a tirones por leer el reloj del MCU cada segundo (cada lectura tarda unas decenas de ms).
 
 ## 3. Teclado
 - [x] Una letra o cifra que no cuadra en esa posición no entra (p. ej. `Z` o `9` como columna).

@@ -25,6 +25,7 @@ C4_BASE     equ 7C40h
 UI_BASE     equ 7C80h
 G_STATE_LEN equ 42
 G_MOVE_LEN  equ 1
+G_CLOCK     equ 0               ; sin relojes
 DFILE       equ 8000h           ; pantalla: 1 + 24 filas de 33
 
 
@@ -294,6 +295,8 @@ g3_w:       ld   (de),a
 ;  Textos (ASCII; a2z los pasa a caracteres del ZX81)
 ; ---------------------------------------------------------------------
 t_bar_code  equ 14              ; la barra del tablero: el ':' del ZX81 hace de barra vertical
+pick_tc:    or   a                  ; el 4 en raya no tiene reloj
+            ret
 t_sides:    defm "PLAYER 1 MOVES FIRST"
             defb 0
 t_title:    defm "NETWORK CONNECT 4"

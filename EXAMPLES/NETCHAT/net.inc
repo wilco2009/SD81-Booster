@@ -46,6 +46,7 @@ DataPort    equ 0A7h
 ClkPort     equ 0AFh
 CMD_NET_RD  equ 66
 CMD_NET_WR  equ 67
+CMD_RTC     equ 50              ; el reloj (LOAD *RTC): lo usa el reloj de ajedrez de game.inc
 
 TMO_S       equ 150             ; 3 s (en pasos de ~20 ms)
 TMO_L       equ 1800            ; 36 s: AT+MQTT conecta con hasta 3 brokers
@@ -53,6 +54,8 @@ TMO_L       equ 1800            ; 36 s: AT+MQTT conecta con hasta 3 brokers
 ; --- variables: el buzon (BASIC puede PEEK/POKE) ----------------------
 NB_RES      equ NB_BASE+0       ; resultado de la ultima llamada
 NB_SLOT     equ NB_BASE+1       ; mi ranura (0 creo, 1 me uni)
+NB_TC       equ NB_BASE+6       ; entrada de room_new: con el bit 7 a 1, el primer caracter del codigo es el
+                                ; de la tabla de letras con ese indice (bits 4-0); a 0, aleatorio como los demas
 NB_PEER     equ NB_BASE+2       ; 1 si el rival esta
 NB_TURN     equ NB_BASE+3       ; (2) turno de lo que se manda / se recibe
 NB_LEN      equ NB_BASE+5       ; bytes de NB_TX / NB_RX
@@ -892,7 +895,17 @@ room_new:   xor  a
             ld   (NB_SLOT),a
             call gen_code
             jr   nz,set_res
-            call code_to_81
+            ld   a,(NB_TC)          ; un juego puede meter algo (el control de tiempo) en el primer caracter
+            bit  7,a
+            jr   z,rn_rnd
+            and  1Fh
+            ld   e,a
+            ld   d,0
+            ld   hl,s_alpha
+            add  hl,de
+            ld   a,(hl)
+            ld   (V_CODE),a
+rn_rnd:     call code_to_81
             call room_go
             jp   set_res
 

@@ -42,7 +42,7 @@ y la pantalla simulados, el módem de verdad y un broker falso.
 pasmo chess.asm chess.bin chess.sym        (o compila.bat, que hace los dos juegos)
 ```
 
-Se carga igual que el 4 en raya (`CHESS.B81`, pásalo a `.P`). La sala, el menú y el teclado son los mismos
+Se carga igual que el 4 en raya (`CHESS.B81`, pásalo a `.P`), pero en `$5000` (`CLEAR 20479`, `CODE 20480`) y no en `$6000`: el ZX81 no ejecuta código por encima de `$8000` y, con los relojes, el programa ya no cabe en `$6000-$7FFF`; `compila.bat` y `build_z80.sh` avisan si algún juego se pasa. La sala, el menú y el teclado son los mismos
 (`lobby.inc`). Quien crea la sala juega con las blancas y abajo; el que se une, con las negras y el tablero
 girado. La partida se dibuja en **Superfast HiRes Spectrum** (256×192, un atributo por celda de 8×8; el lobby
 y los menús siguen en texto): el tablero de 8×8 casillas de 16×16 puntos, verdes y blancas, con las
@@ -68,6 +68,16 @@ un `.SCR` del Spectrum en PNG (lo usa el arnés de las pruebas, `SCRDIR=<carpeta
   acabada, pide otra.
 - Se ve la última jugada (`LAST MOVE`, en el panel), de quién es el turno, `CHECK` cuando hay jaque y el final
   (`CHECKMATE - YOU WIN`, `CHECKMATE - THE RIVAL WINS`, `DRAW`).
+
+**Relojes.** Al crear la sala (`1` en el menú) se elige el tiempo de cada jugador: sin reloj, 5, 10, 15 o 30
+minutos (sin incremento). El control viaja en la **primera letra del código de sala** (`A` sin reloj, `B` 5 min,
+`C` 10, `D` 15, `E` 30), así que el otro jugador lo hereda al teclear el código. Los dos relojes salen en el
+panel (`WHITE 09:58` / `BLACK 10:00`): el del que mueve, en amarillo (en rojo con 30 s o menos). El tiempo sale del
+reloj del MCU (el de `LOAD *RTC`), no de los fotogramas: el handshake con el MCU pone a cero el contador de VSYNC
+en cada lectura. Cada programa es la autoridad de **su** reloj: en cada jugada manda los segundos que le quedan
+(el rival se los apunta) y es el que dice «se me acabó el tiempo» (`TIME OUT - THE RIVAL WINS` / `TIME OUT - YOU
+WIN`); entre jugada y jugada cada uno lleva una estimación local del reloj del otro. Los relojes arrancan cuando
+están los dos y paran al acabar la partida; otra partida los repone.
 
 Reglas (`chess.inc`): todo el ajedrez salvo la **triple repetición**: enroque, al paso, coronación, jaque,
 mate, ahogado, material insuficiente (rey solo, o con un caballo o un alfil) y la regla de las 50 jugadas.

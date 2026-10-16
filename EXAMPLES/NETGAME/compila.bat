@@ -5,6 +5,9 @@ set BASE=\ClaudeCode\Eightyone2\EightyOne\SD81\SD81\TOOLS
 
 pasmo connect4.asm connect4.bin connect4.sym || goto error
 pasmo chess.asm chess.bin chess.sym || goto error
+rem El ZX81 no ejecuta codigo en $8000-$FFFF: el programa tiene que acabar antes (chess en $5000, connect4 en $6000)
+for %%F in (chess.bin) do if %%~zF GTR 12288 (echo *** chess.bin pasa de $8000 *** & goto error)
+for %%F in (connect4.bin) do if %%~zF GTR 8192 (echo *** connect4.bin pasa de $8000 *** & goto error)
 if not exist "%BASE%\CONNECT4" mkdir "%BASE%\CONNECT4"
 if not exist "%BASE%\CHESS" mkdir "%BASE%\CHESS"
 copy /y connect4.bin "%BASE%\CONNECT4" >nul || goto error

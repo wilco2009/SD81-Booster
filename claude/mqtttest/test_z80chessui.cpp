@@ -227,10 +227,19 @@ static void apply_simple(St& s, const char* from, const char* to) {
   s[66] = (uint8_t)((pawn || cap) ? 0 : s[66] + 1);
   s[65] = (pawn && (t - f == 16 || f - t == 16)) ? (uint8_t)(f & 7) : 0xFF;
 }
-static std::string move_payload(const char* from, const char* to, const St& after) {
+static std::string move_payload(const char* from, const char* to, const St& after, uint16_t rem = 0) {
   std::string s; s += (char)1; s += (char)sq(from); s += (char)sq(to);
   uint16_t h = hash16(after.data(), 67); s += (char)(h & 255); s += (char)(h >> 8);
+  s += (char)(rem & 255); s += (char)(rem >> 8);          // los segundos que le quedan al que juega
   return s;
+}
+// "WHITE 09:58" o "BLACK 09:58" en la fila r del panel -> segundos, o -1 si no hay reloj
+static int clock_secs(int r) {
+  std::string l = screen_row(r);
+  size_t p = l.find("WHITE ");
+  if (p == std::string::npos) p = l.find("BLACK ");
+  if (p == std::string::npos) return -1;
+  return atoi(l.substr(p + 6, 2).c_str()) * 60 + atoi(l.substr(p + 9, 2).c_str());
 }
 static std::string body_of(const Seen* s) { return s ? s->data.substr(5, s->data.size() - 13) : std::string(); }
 
@@ -238,20 +247,23 @@ int main(int argc, char** argv) {
   if (argc < 2) { printf("uso: test_z80chessui chess.bin\n"); return 2; }
   FILE* f = fopen(argv[1], "rb");
   if (!f) { printf("no encuentro %s\n", argv[1]); return 2; }
-  size_t sz = fread(mem + 0x6000, 1, 0x2800, f); fclose(f);
-  printf("chess.bin: %zu bytes en $6000\n", sz);
+  size_t sz = fread(mem + 0x5000, 1, 0x3000, f); fclose(f);
+  if (0x5000 + sz > 0x8000) { printf("ERROR el programa llega a $%04zX: pasa de $8000 y alli el ZX81 no ejecuta codigo\n", 0x5000 + sz); errors++; }
+  printf("chess.bin: %zu bytes en $5000\n", sz);
   install_font(); load_pieces("pieces.inc");
   mem[0x02E7] = 0xC9; mem[0x0207] = 0xC9;              // SET_FAST y SLOW_FAST de la ROM: aqui, un RET
   z80_init(); z80_reset();
   reset_world();
   z80.sp.w = 0xFFF0; mem[0xFFF0] = 0x00; mem[0xFFF1] = 0x01; mem[0x0100] = 0x76;
-  z80.pc.w = 24576; z80.iff1 = z80.iff2 = 0;
+  z80.pc.w = 20480; z80.iff1 = z80.iff2 = 0;
 
   CHECK(wait_text("1 = NEW GAME", 20000), "arranca y llega al menu");
   CHECK(shows("NETWORK CHESS"), "con el titulo del ajedrez");
   CHECK(mem[2045] == 170 && mem[2096] == 0x00 && mem[2097] == 0x88 && mem[2098] == 170, "Superfast texto con la pantalla alternativa en $8800");
 
-  // --- partida nueva (soy las blancas)
+  // --- partida nueva (soy las blancas), sin reloj
+  press('1');
+  CHECK(wait_text("TIME FOR EACH PLAYER", 3000), "partida nueva: pide el control de tiempo");
   press('1');
   CHECK(wait_text("WAITING FOR THE RIVAL", 40000), "partida nueva: codigo y espera");
   std::string code = code_on_screen();
@@ -280,9 +292,9 @@ int main(int argc, char** argv) {
   apply_simple(st, "e2", "e4");
   CHECK(cell(3, 4) == 'P' && cell(1, 4) == ' ' && screen_row(9).find("E2-E4") != std::string::npos && square_paper(1, 4) == 3 && square_paper(3, 4) == 3, "el peon esta en e4, se ve la ultima jugada y sus dos casillas resaltadas");
   { std::string b = body_of(last_seen("PUBLISH", base + "/0"));
-    CHECK(b.size() == 5 && b[0] == 1 && b[1] == sq("e2") && b[2] == sq("e4"), "al broker sale la jugada: tipo 1, e2, e4");
+    CHECK(b.size() == 7 && b[0] == 1 && b[1] == sq("e2") && b[2] == sq("e4"), "al broker sale la jugada: tipo 1, e2, e4 (y los segundos del reloj)");
     uint16_t h = hash16(st.data(), 67);
-    CHECK(b.size() == 5 && (uint8_t)b[3] == (h & 255) && (uint8_t)b[4] == (h >> 8), "con el hash del estado despues (el rival lo calcula igual)"); }
+    CHECK(b.size() == 7 && (uint8_t)b[3] == (h & 255) && (uint8_t)b[4] == (h >> 8), "con el hash del estado despues (el rival lo calcula igual)"); }
   // jugar cuando no toca
   type("A2A3"); press(ENTER);
   CHECK(wait_text("IT IS NOT YOUR TURN", 3000), "no me toca: aviso");
@@ -363,7 +375,7 @@ int main(int argc, char** argv) {
     type("E7E5"); press(ENTER);
     CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego como las negras: e5");
     { std::string b = body_of(last_seen("PUBLISH", base2 + "/1"));
-      CHECK(b.size() == 5 && b[1] == sq("e7") && b[2] == sq("e5"), "sale e7 a e5 (en casillas, no en pantalla)"); }
+      CHECK(b.size() == 7 && b[1] == sq("e7") && b[2] == sq("e5"), "sale e7 a e5 (en casillas, no en pantalla)"); }
     CHECK(cell(4, 4, true) == 'p', "y el peon negro esta en e5");
   }
 
@@ -386,6 +398,63 @@ int main(int argc, char** argv) {
     CHECK(wait_text("YOUR MOVE", 40000) && shows("WHITE"), "elijo ser el jugador 1: blancas, me toca");
     const Seen* pp = last_seen("PUBLISH", b9 + "/p0");
     CHECK(pp && pp->data == "1" && pp->retain, "con mi presencia en la ranura 0");
+  }
+
+
+  // --- los relojes: 10 minutos por jugador (el control de tiempo va en la primera letra del codigo: C)
+  press('0');
+  CHECK(wait_text("1 = NEW GAME", 30000), "0: vuelvo al menu");
+  seen.clear(); retained.clear(); filters.clear(); has_will = false;
+  {
+    press('1');
+    CHECK(wait_text("TIME FOR EACH PLAYER", 3000), "partida nueva: pide el control de tiempo");
+    press('3');                                                  // 3 = 10 minutos
+    CHECK(wait_text("WAITING FOR THE RIVAL", 40000), "y crea la sala");
+    std::string codeT = code_on_screen();
+    CHECK(codeT.size() == 10 && codeT[0] == 'C', "el control de tiempo viaja en la primera letra del codigo (C = 10 min)");
+    std::string baseT = topic_base(codeT);
+    uint16_t pseqT = 3000;
+    auto peerT = [&](uint16_t ply, std::string payload) { peer_publish(baseT + "/1", make_msg(codeT, pseqT++, ply, payload), false); };
+    peer_publish(baseT + "/p1", "1", true);
+    CHECK(wait_text("YOUR MOVE", 10000), "el rival entra: me toca");
+    show("relojes: 10 minutos");
+    { int w = clock_secs(12), b = clock_secs(13);
+      CHECK(w >= 595 && w <= 600 && b == 600, "los dos relojes, a 10:00"); }
+    time_extra += 25000; run_ms(2500);                            // pienso 27 s
+    { int w = clock_secs(12);
+      CHECK(w >= 565 && w <= 580, "mi reloj (el de las blancas) baja con el tiempo que pienso"); }
+    type("E2E4"); press(ENTER);
+    CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego e4");
+    int mine = 0;
+    { std::string b = body_of(last_seen("PUBLISH", baseT + "/0"));
+      mine = b.size() == 7 ? ((uint8_t)b[5] | ((uint8_t)b[6] << 8)) : -1;
+      CHECK(mine >= 560 && mine <= 580, "la jugada lleva los segundos que me quedan"); }
+    time_extra += 12000; run_ms(2500);                            // el rival piensa unos 14 s
+    { int w = clock_secs(12), b = clock_secs(13);
+      CHECK(w >= mine - 2 && w <= mine + 1, "mi reloj se para mientras piensa el rival");
+      CHECK(b >= 575 && b <= 592, "y el suyo (una estimacion mia) baja"); }
+    St stT = start_state();
+    apply_simple(stT, "e2", "e4"); apply_simple(stT, "e7", "e5");
+    peerT(2, move_payload("e7", "e5", stT, 590));                 // el rival dice que le quedan 590 s
+    CHECK(wait_text("YOUR MOVE", 5000), "el rival juega e5");
+    { int b = clock_secs(13);
+      CHECK(b >= 586 && b <= 590, "su reloj pasa a lo que dice su mensaje (590 s)"); }
+    show("relojes: tras 1.e4 e5");
+    // se me acaba el tiempo: pierdo, y el rival lo sabe
+    time_extra += 700000; run_ms(3000);
+    CHECK(wait_text("TIME OUT - THE RIVAL WINS", 5000), "se me acaba el tiempo: pierdo");
+    { std::string b = body_of(last_seen("PUBLISH", baseT + "/0"));
+      CHECK(b.size() == 1 && b[0] == 5, "y se lo digo al rival (tipo 5)"); }
+    show("relojes: me quedo sin tiempo");
+    // otra partida: los relojes vuelven a 10:00
+    press(ENTER);
+    CHECK(wait_text("YOUR MOVE", 8000) && !shows("TIME OUT"), "ENTER: otra partida");
+    { int w = clock_secs(12), b = clock_secs(13);
+      CHECK(w >= 595 && w <= 600 && b >= 595 && b <= 600, "con los relojes otra vez a 10:00"); }
+    // al rival se le acaba el tiempo: me lo dice y gano
+    peerT(0, std::string(1, (char)5));
+    CHECK(wait_text("TIME OUT - YOU WIN", 5000), "el rival dice que se le ha acabado el tiempo: gano");
+    show("relojes: gano por tiempo");
   }
 
   printf("  instrucciones del Z80: %ld\n", instr_total);

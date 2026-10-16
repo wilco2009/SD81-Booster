@@ -30,6 +30,7 @@ echo "== el juego entero (EXAMPLES/NETGAME/connect4.asm): pantalla, teclado y re
 cd .. || exit 1
 cp test_z80ui.cpp tmp2/
 (cd ../../EXAMPLES/NETGAME && pasmo connect4.asm "$OLDPWD/tmp2/connect4.bin") || exit 1
+[ "$(stat -c %s tmp2/connect4.bin)" -le 8192 ] || { echo "ERROR connect4.bin pasa de \$8000"; exit 1; }
 cd tmp2 || exit 1
 g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80ui.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80ui.exe || exit 1
 ./test_z80ui.exe connect4.bin
@@ -47,6 +48,8 @@ cd .. || exit 1
 cp test_z80chessui.cpp tmp2/
 cp ../../EXAMPLES/NETGAME/pieces.inc tmp2/
 (cd ../../EXAMPLES/NETGAME && pasmo chess.asm "$OLDPWD/tmp2/chess.bin") || exit 1
+# el ZX81 no ejecuta codigo por encima de $8000: chess empieza en $5000 y connect4 en $6000
+[ "$(stat -c %s tmp2/chess.bin)" -le 12288 ] || { echo "ERROR chess.bin pasa de \$8000"; exit 1; }
 cd tmp2 || exit 1
 g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80chessui.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80chessui.exe || exit 1
 ./test_z80chessui.exe chess.bin

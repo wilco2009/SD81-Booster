@@ -9,6 +9,8 @@
 ;                   NEWLINE) = 793 bytes (connect4 la pone en $8000)
 ;      t_title      el titulo (ASCII, acaba en 0)
 ;      t_sides      una linea que dice que es ser el jugador 1 y el 2 (se ve al reentrar en una sala vacia)
+;      pick_tc      se llama al crear la sala, antes de generar el codigo: puede dejar en NB_TC (net.inc) una letra
+;                   del codigo (el control de tiempo) y devolver CF = 1 si el usuario quiere volver al menu
 ;      play         lo que se ejecuta cuando ya hay sala y el rival esta (o, al unirse, al entrar)
 ;      NB_BASE, GM_BASE, UI_BASE (RAM) y G_STATE_LEN / G_MOVE_LEN, ademas de net.inc y game.inc
 ;  El lobby llama a game_start, room_new, room_join, room_leave, room_poll_send y game_poll.
@@ -93,7 +95,9 @@ mn_key:     call key_wait
 ; ---------------------------------------------------------------------
 ;  Partida nueva: crea la sala, ensena el codigo y espera al rival
 ; ---------------------------------------------------------------------
-new_game:   call cls
+new_game:   call pick_tc
+            jp   c,menu
+            call cls
             ld   hl,t_creating
             ld   bc,5*256+7
             call print_at

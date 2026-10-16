@@ -126,7 +126,7 @@ static void tube_finish_write() {
 }
 static void tube_out(uint8_t d) {
   switch (tube_state) {
-    case 0: tube_state = (d == 66) ? 1 : (d == 67) ? 2 : 0; if (tube_state == 0) printf("  tubo: comando %d\n", d); break;
+    case 0: tube_state = (d == 66) ? 1 : (d == 67) ? 2 : (d == 50) ? 5 : 0; if (tube_state == 0) printf("  tubo: comando %d\n", d); break;
     case 1: {
       size_t n = std::min<size_t>(d, to_z80.size());
       resp.clear(); resp.push_back((uint8_t)n);
@@ -138,6 +138,15 @@ static void tube_out(uint8_t d) {
     }
     case 2: wr_left = d; wr_data.clear(); if (!wr_left) tube_finish_write(); else tube_state = 3; break;
     case 3: wr_data.push_back(d); if (--wr_left == 0) tube_finish_write(); break;
+    case 5: {                                   // LOAD *RTC: tras la longitud (0) manda "AAAA-MM-DD hh:mm:ss.cc" y el estado
+      uint32_t ms = mock_now - 100000, sec = ms / 1000 + 12 * 3600;      // las 12:00:00 al arrancar el banco
+      char buf[40];
+      snprintf(buf, sizeof buf, "2026-10-16 %02u:%02u:%02u.%02u", (sec / 3600) % 24, (sec / 60) % 60, sec % 60, (ms % 1000) / 10);
+      resp.clear();
+      for (const char* q = buf; *q; q++) resp.push_back(*q >= '0' && *q <= '9' ? (uint8_t)(28 + *q - '0') : *q == '-' ? 22 : *q == ':' ? 14 : *q == '.' ? 27 : 0);
+      resp.push_back(0);
+      tube_state = 4; break;
+    }
     default: printf("  tubo: OUT en estado %d\n", tube_state); break;
   }
   clk = !clk;

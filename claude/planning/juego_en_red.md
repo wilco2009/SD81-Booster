@@ -194,8 +194,12 @@ Los topics de un broker público los ve cualquiera que se suscriba a `#`. Por es
 
 ### 4.1b Sala llena (dos jugadores como mucho)
 
-Hay dos ranuras. Antes de entrar como la 1, `room_join` se suscribe solo a `<sala>/p1` y mira la presencia
-retenida: si dice `1`, ya hay otro jugador, devuelve el error 6 y cierra la sesión con `AT+MQTTCLOSE` (una
+Hay dos ranuras. `room_join` hace primero una **sonda** (16 de octubre): conecta sin *last will*, se suscribe a
+`<sala>/p0` y `<sala>/p1`, lee las presencias retenidas, cierra y entra de verdad con el *will* de la ranura
+elegida. Elige así: creador presente y la 1 libre → soy el 2; creador ausente y la 1 ocupada → **reentro como
+creador** (ranura 0, conservando el color); las dos ocupadas → error 6 (sala llena); las dos libres → error 7
+(la sala no existe; antes cualquier código servía y el que se unía a una sala inexistente quedaba como un
+jugador fantasma en la ranura 1). El coste es una conexión más al broker. Si la `p1` dice `1`, ya hay otro jugador, devuelve el error 6 y cierra la sesión con `AT+MQTTCLOSE` (una
 desconexión limpia no dispara el *last will*, así que la presencia del otro no se toca). Si dice `0` o no hay
 nada, se desuscribe, entra y publica la suya. Límites: si el otro jugador se cae sin despedirse, su `1` dura
 hasta que el broker detecta la caída (~90 s con el keepalive de 60 s) y en ese tiempo la sala parece llena; y
@@ -307,7 +311,7 @@ Hecha: `EXAMPLES/NETCHAT/net.inc` (unos 2 KB, ver §4.4).
 | **1. Capa A** | `NET_MQTT.cpp`, comandos de §3, `NET.CFG`, reconexión | desde el terminal (`EXAMPLES/TELNET`) se hace `AT+MQTT`, `AT+MQTTSUB`, `AT+MQTTPUB` y `AT+MQTTRX` a mano |
 | **2. Librería Z80** | `net.inc` y una pantalla de lobby (crear / unirse, mostrar el código). **Hecha en el PC**: `NETCHAT` (chat de prueba en BASIC con la librería por `USR`) | probada en el PC con un rival propio (`claude/mqtttest/build_z80.sh`); falta el emulador y el hardware |
 | **3. Primer juego** (hecho en el PC: `EXAMPLES/NETGAME`, el 4 en raya) | Uno sencillo (reversi, 4 en raya o hundir la flota; este último luce la información oculta) | partida completa entre dos SD81 |
-| **4. Ajedrez** | Reglas desde cero (generador y validador de jugadas); motor opcional para jugar en solitario (§9) | partida con jugadas ilegales rechazadas, enroque y al paso |
+| **4. Ajedrez** (hecho en el PC: `EXAMPLES/NETGAME/chess.inc` + `chess.asm`) | Reglas desde cero (generador y validador de jugadas); motor opcional para jugar en solitario (§9) | partida con jugadas ilegales rechazadas, enroque y al paso. **Verificado con `perft`** (197.281, 97.862, 43.238, 9.467 en las posiciones de referencia) y con una partida completa por teclado y pantalla simulados. Sin triple repetición. Falta el emulador y el hardware |
 | **5. Gráficos** | Modo Spectrum / HiRes con Chroma; piezas como sprites (64 en total, 12 por línea) | se hace aparte con otra fuente de arte |
 
 El **rival en Python** (un script con `paho-mqtt` que habla el mismo formato) permite probar con

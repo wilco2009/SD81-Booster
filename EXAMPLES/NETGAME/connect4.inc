@@ -4,7 +4,7 @@
 ;  desde abajo: casilla = columna + 7 * fila; 0 vacia, 1 y 2 el jugador.
 ;
 ;  El que lo incluye define antes  C4_BASE equ ...  (unos 60 bytes de RAM)
-;  y  G_STATE_LEN equ 42.
+;  y  G_STATE_LEN equ 42  y  G_MOVE_LEN equ 1.
 ; =====================================================================
 
 G_BOARD     equ C4_BASE+0       ; (42)
@@ -24,8 +24,9 @@ g_reset:    ld   hl,G_BOARD
             ldir
             ret
 
-; A = columna: CF = 1 si no se puede (fuera del tablero o columna llena)
-g_valid:    cp   7
+; HL = la jugada (la columna, 1 byte): CF = 1 si no se puede (fuera del tablero o columna llena)
+g_valid:    ld   a,(hl)
+            cp   7
             jr   nc,gv_bad
             ld   e,a
             ld   d,0
@@ -39,8 +40,9 @@ g_valid:    cp   7
 gv_bad:     scf
             ret
 
-; A = columna, B = jugador: la ficha cae a la primera casilla libre
-g_apply:    ld   e,a
+; HL = la columna, B = jugador: la ficha cae a la primera casilla libre
+g_apply:    ld   a,(hl)
+            ld   e,a
             ld   d,0
             ld   hl,G_HEIGHT
             add  hl,de

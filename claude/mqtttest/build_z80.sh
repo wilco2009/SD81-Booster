@@ -33,3 +33,19 @@ cp test_z80ui.cpp tmp2/
 cd tmp2 || exit 1
 g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80ui.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80ui.exe || exit 1
 ./test_z80ui.exe connect4.bin
+
+echo "== ajedrez (EXAMPLES/NETGAME/chess.inc): perft, mate, ahogado, enroque, al paso, coronacion"
+cd .. || exit 1
+cp test_z80chess.cpp tmp2/
+pasmo chtest.asm tmp2/chtest.bin || exit 1
+cd tmp2 || exit 1
+g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80chess.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80chess.exe || exit 1
+./test_z80chess.exe chtest.bin
+
+echo "== el ajedrez entero (EXAMPLES/NETGAME/chess.asm): pantalla, teclado y red"
+cd .. || exit 1
+cp test_z80chessui.cpp tmp2/
+(cd ../../EXAMPLES/NETGAME && pasmo chess.asm "$OLDPWD/tmp2/chess.bin") || exit 1
+cd tmp2 || exit 1
+g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80chessui.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80chessui.exe || exit 1
+./test_z80chessui.exe chess.bin

@@ -8,6 +8,7 @@ NB_BASE     equ 7000h
 GM_BASE     equ 7400h
 C4_BASE     equ 7440h
 G_STATE_LEN equ 42
+G_MOVE_LEN  equ 1
 MB          equ 7F00h
 
             org  24576
@@ -57,7 +58,7 @@ jp_hl:      jp   (hl)
 t_reset:    jp   g_reset
 t_valid:    ld   a,(MB+1)
             ld   b,a
-            ld   a,(MB)
+            ld   hl,MB
             call g_valid
             ld   a,0
             adc  a,0                ; CF -> A
@@ -65,7 +66,7 @@ t_valid:    ld   a,(MB+1)
             ret
 t_apply:    ld   a,(MB+1)
             ld   b,a
-            ld   a,(MB)
+            ld   hl,MB
             jp   g_apply
 t_winner:   call g_winner
             ld   (MB+2),a

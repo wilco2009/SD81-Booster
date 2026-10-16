@@ -230,6 +230,39 @@ int main(int argc, char** argv) {
     CHECK(wait_text("1 = NEW GAME", 5000), "una tecla: vuelvo al menu");
   }
 
+  // --- una sala que nadie ha creado: tampoco deja entrar (antes se colaba como un jugador fantasma)
+  seen.clear(); retained.clear(); filters.clear(); has_will = false;
+  {
+    std::string code5 = "PQRSTUVWXY"; std::string b5 = topic_base(code5);
+    press('2');
+    CHECK(wait_text("TYPE THE ROOM CODE", 3000), "unirse: pide el codigo");
+    type(code5.c_str());
+    press('\r');
+    CHECK(wait_text("THERE IS NO SUCH ROOM", 40000), "sala inexistente: me lo dice");
+    show("sala inexistente");
+    bool pub = false; for (auto& sn : seen) if (sn.kind == "PUBLISH") pub = true;
+    CHECK(!pub && retained.find(b5 + "/p1") == retained.end(), "y no deja una presencia fantasma en la ranura 1");
+    press(' ');
+    CHECK(wait_text("1 = NEW GAME", 5000), "una tecla: vuelvo al menu");
+  }
+
+  // --- el creador reentra en su sala: su presencia esta a '0' y el rival sigue en la ranura 1
+  seen.clear(); retained.clear(); filters.clear(); has_will = false;
+  {
+    std::string code6 = "BCDEFGHJKM"; std::string b6 = topic_base(code6);
+    peer_publish(b6 + "/p0", "0", true);
+    peer_publish(b6 + "/p1", "1", true);
+    press('2');
+    CHECK(wait_text("TYPE THE ROOM CODE", 3000), "unirse: pide el codigo");
+    type(code6.c_str());
+    press('\r');
+    CHECK(wait_text("YOUR TURN:", 40000), "el creador vuelve a su sala y juega como el 1");
+    const Seen* pp = last_seen("PUBLISH", b6 + "/p0");
+    CHECK(pp && pp->data == "1" && pp->retain, "con su presencia en la ranura 0");
+    press('Q');
+    CHECK(wait_text("1 = NEW GAME", 30000), "Q: vuelvo al menu");
+  }
+
   if (errors) printf("%d ERRORES\n", errors); else printf("TODO OK\n");
   return errors ? 1 : 0;
 }

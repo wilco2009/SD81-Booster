@@ -152,11 +152,54 @@ int main(int argc, char** argv) {
     CHECK(!pub && retained[b3 + "/p1"] == "1", "no publica nada: la presencia del otro jugador queda como estaba");
     reset_world();
     CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
+    peer_publish(b3 + "/p0", "1", true);            // el creador sigue ahi
     peer_publish(b3 + "/p1", "0", true);            // el otro jugador se fue sin dejar rastro
     CHECK(call_ep(EP_JOIN) == 0 && mem[NB + 1] == 1, "con la presencia del otro en '0' si se puede entrar");
     { const Seen* pp2 = last_seen("PUBLISH", b3 + "/p1");
       CHECK(pp2 && pp2->data == "1" && pp2->retain, "y publico mi presencia en la ranura 1"); }
-    CHECK(count_seen("SUBSCRIBE") == 2 && count_seen("UNSUBSCRIBE") == 0, "(se suscribio a p1 y luego a todo; sin dobles)");
+    CHECK(count_seen("SUBSCRIBE") == 3 && count_seen("UNSUBSCRIBE") == 0, "(miro p1 y p0, y me suscribo a todo; sin dobles)");
+  }
+
+  // --- 14. la sala no existe: nadie la ha creado (o el creador se fue)
+  reset_world();
+  CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
+  {
+    std::string code4 = "PQRSTUVWXY"; std::string b4 = topic_base(code4);
+    set_code(code4);
+    CHECK(call_ep(EP_JOIN) == 7, "room_join a una sala que nadie ha creado: error 7");
+    CHECK(count_seen("DISCONNECT") == 1, "y cierra la sesion limpiamente");
+    bool pub = false; for (auto& sn : seen) if (sn.kind == "PUBLISH") pub = true;
+    CHECK(!pub, "no publica nada: no deja un jugador fantasma en la ranura 1");
+    CHECK(retained.find(b4 + "/p1") == retained.end(), "y la presencia de la ranura 1 sigue sin existir");
+    reset_world();
+    CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
+    peer_publish(b4 + "/p0", "0", true);            // el creador salio (presencia retenida a '0')
+    CHECK(call_ep(EP_JOIN) == 7, "con la presencia del creador en '0' tambien: error 7");
+    reset_world();
+    CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
+    peer_publish(b4 + "/p0", "1", true);            // y ahora si esta
+    CHECK(call_ep(EP_JOIN) == 0 && mem[NB + 1] == 1, "con el creador presente entro");
+
+    // --- 15. el creador reentra: su presencia esta a '0' (se fue) y el rival sigue en la ranura 1
+    reset_world();
+    CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
+    std::string code6 = "BCDEFGHJKM"; std::string b6 = topic_base(code6);
+    peer_publish(b6 + "/p0", "0", true);
+    peer_publish(b6 + "/p1", "1", true);
+    set_code(code6);
+    CHECK(call_ep(EP_JOIN) == 0 && mem[NB + 1] == 0, "room_join: el creador reentra, vuelvo a ser la ranura 0");
+    c = last_seen("CONNECT");
+    CHECK(c && c->topic == b6 + "/p0", "con el will en <sala>/p0");
+    { const Seen* pp3 = last_seen("PUBLISH", b6 + "/p0");
+      CHECK(pp3 && pp3->data == "1" && pp3->retain, "y publico mi presencia en la ranura 0");
+      CHECK(!last_seen("PUBLISH", b6 + "/p1"), "sin tocar la del rival"); }
+    CHECK(call_ep(EP_POLL) == 2 && mem[NB + 2] == 1, "y veo que el rival esta (su presencia retenida)");
+    // con la presencia del creador a '0' y la del rival a '0' no queda nadie: no existe
+    reset_world();
+    CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
+    peer_publish(b6 + "/p0", "0", true);
+    peer_publish(b6 + "/p1", "0", true);
+    CHECK(call_ep(EP_JOIN) == 7, "las dos a '0': la sala no existe (error 7)");
   }
 
   printf("  instrucciones del Z80: %ld (%.1f s a 3,25 MHz)\n", instr_total, instr_total * 5.0 / 3250000.0);

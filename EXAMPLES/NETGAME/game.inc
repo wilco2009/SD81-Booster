@@ -7,14 +7,15 @@
 ;  El que incluye este fichero define ANTES:
 ;      GM_BASE      equ 7400h   ; RAM de trabajo (unos 100 bytes)
 ;      G_STATE_LEN  equ 42      ; bytes del estado completo del juego (<= 90)
+;      G_MOVE_LEN   equ 1       ; bytes de una jugada (1 o 2)
 ;  y despues  include "net.inc"  y  include "game.inc"; el juego define:
 ;      g_reset      empieza una partida (posicion inicial)
-;      g_valid      A = jugada, B = jugador (1 o 2): CF = 1 si NO es legal
-;      g_apply      A = jugada, B = jugador: la hace (ya se sabe que es legal)
+;      g_valid      HL = la jugada (G_MOVE_LEN bytes), B = jugador (1 o 2): CF = 1 si NO es legal
+;      g_apply      HL = la jugada, B = jugador: la hace (ya se sabe que es legal)
 ;      g_winner     A = 0 sigue, 1 o 2 gana ese jugador, 3 tablas
 ;      g_save       HL = destino: escribe los G_STATE_LEN bytes del estado
 ;      g_load       HL = origen: lee los G_STATE_LEN bytes y rehace lo derivado
-;  Las jugadas son de un byte. Empieza el jugador 1 (el que crea la sala);
+;  Las jugadas son de G_MOVE_LEN bytes. Empieza el jugador 1 (el que crea la sala);
 ;  mueve el 1 con un numero de jugada par y el 2 con uno impar.
 ;
 ;  Rutinas (CALL; destruyen todos los registros):
@@ -22,7 +23,8 @@
 ;      game_new      partida nueva (sin avisar al rival)
 ;      game_rematch  partida nueva y se lo dice al rival
 ;      game_turn_of  A = el jugador al que le toca (1 o 2)
-;      game_move     A = mi jugada. Devuelve A = 0 hecha y enviada, 1 no es legal,
+;      game_move     A = mi jugada (juegos de una jugada de 1 byte); game_move_p: HL = la
+;                    jugada (G_MOVE_LEN bytes). Devuelve A = 0 hecha y enviada, 1 no es legal,
 ;                    2 no me toca, 3 la partida ha acabado, 9 error de red (la
 ;                    jugada esta hecha en local: se puede repetir con game_resend)
 ;      game_resend   vuelve a mandar mi ultima jugada
@@ -34,10 +36,11 @@
 ;                      5 desincronizado: he pedido el estado   7 error del modem
 ;                      8 el rival quiere otra partida (ya esta puesta)
 ;  Variables: GM_ME (mi numero de jugador), GM_PLY (2 bytes: jugadas hechas),
-;  GM_OVER (0 sigue, 1 o 2 ha ganado, 3 tablas), GM_MOVE (ultima jugada del rival).
+;  GM_OVER (0 sigue, 1 o 2 ha ganado, 3 tablas), GM_MOVE (G_MOVE_LEN bytes: la ultima jugada,
+;  mia o del rival).
 ;
 ;  Mensajes (payload; el turno va en NB_TURN = numero de jugada, que ya firma net.inc):
-;      1 jugada     [1][jugada][hash 2 bytes del estado DESPUES de la jugada]
+;      1 jugada     [1][jugada: G_MOVE_LEN bytes][hash 2 bytes del estado DESPUES de la jugada]
 ;      2 pido estado [2]
 ;      3 estado     [3][G_STATE_LEN bytes]
 ;      4 otra partida [4]
@@ -48,8 +51,8 @@
 GM_ME       equ GM_BASE+0
 GM_PLY      equ GM_BASE+1       ; (2)
 GM_OVER     equ GM_BASE+3
-GM_MOVE     equ GM_BASE+4
-GM_HASH     equ GM_BASE+5       ; (2)
+GM_MOVE     equ GM_BASE+4       ; (2) la jugada
+GM_HASH     equ GM_BASE+6       ; (2)
 GM_TMP      equ GM_BASE+8       ; (G_STATE_LEN) estado para el resumen
 
 game_start: ld   a,(NB_SLOT)
@@ -106,8 +109,12 @@ gh_nc:      dec  c
             ex   de,hl
             ret
 
-game_move:  ld   (GM_MOVE),a
-            ld   a,(GM_OVER)
+game_move:  ld   (GM_MOVE),a           ; juegos de una jugada de 1 byte
+            jr   gm_have
+game_move_p: ld  de,GM_MOVE         ; HL = la jugada
+            ld   bc,G_MOVE_LEN
+            ldir
+gm_have:    ld   a,(GM_OVER)
             or   a
             jr   z,gm_o1
             ld   a,3
@@ -120,14 +127,14 @@ gm_o1:      call game_turn_of
             ret
 gm_o2:      ld   a,(GM_ME)
             ld   b,a
-            ld   a,(GM_MOVE)
+            ld   hl,GM_MOVE
             call g_valid
             jr   nc,gm_ok
             ld   a,1
             ret
 gm_ok:      ld   a,(GM_ME)
             ld   b,a
-            ld   a,(GM_MOVE)
+            ld   hl,GM_MOVE
             call g_apply
             call gm_ply_inc
             call g_winner
@@ -136,11 +143,13 @@ game_resend: call game_hash
             ld   (GM_HASH),hl
             ld   a,1
             ld   (NB_TX),a
-            ld   a,(GM_MOVE)
-            ld   (NB_TX+1),a
+            ld   hl,GM_MOVE
+            ld   de,NB_TX+1
+            ld   bc,G_MOVE_LEN
+            ldir
             ld   hl,(GM_HASH)
-            ld   (NB_TX+2),hl
-            ld   a,4
+            ld   (NB_TX+1+G_MOVE_LEN),hl
+            ld   a,3+G_MOVE_LEN
             ld   (NB_LEN),a
             ld   hl,(GM_PLY)
             ld   (NB_TURN),hl
@@ -221,7 +230,7 @@ gp_state:   ld   a,(NB_LEN)
 
 ; una jugada del rival: tiene que ser la siguiente, ser legal y dejar el mismo estado
 gp_move:    ld   a,(NB_LEN)
-            cp   4
+            cp   3+G_MOVE_LEN
             jr   nz,gp_ign
             ld   hl,(GM_PLY)
             inc  hl
@@ -243,22 +252,24 @@ gp_next:    ld   a,(GM_OVER)
             ld   hl,GM_ME
             cp   (hl)
             jr   z,gp_miss          ; me tocaba a mi: algo no cuadra
-            ld   a,(NB_RX+1)
-            ld   (GM_MOVE),a
+            ld   hl,NB_RX+1
+            ld   de,GM_MOVE
+            ld   bc,G_MOVE_LEN
+            ldir
             call game_turn_of
             ld   b,a
-            ld   a,(GM_MOVE)
+            ld   hl,GM_MOVE
             call g_valid
             jr   c,gp_miss
             call game_turn_of
             ld   b,a
-            ld   a,(GM_MOVE)
+            ld   hl,GM_MOVE
             call g_apply
             call gm_ply_inc
             call g_winner
             ld   (GM_OVER),a
             call game_hash
-            ld   de,(NB_RX+2)
+            ld   de,(NB_RX+1+G_MOVE_LEN)
             or   a
             sbc  hl,de
             jr   nz,gp_miss

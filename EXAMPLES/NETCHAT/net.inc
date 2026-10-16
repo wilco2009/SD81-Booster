@@ -14,7 +14,9 @@
 ;      net_init    ATZ, ATE0 y borra lo pendiente del modem.
 ;      room_new    crea una sala: genera el codigo (NB_CODE81, 10 codigos
 ;                  de caracter del ZX81), conecta y se suscribe. Soy el 0.
-;      room_join   se une a la sala cuyo codigo esta en NB_CODE81. Soy el 1.
+;      room_join   entra en la sala cuyo codigo esta en NB_CODE81. Mira quien hay: si el creador
+;                  esta y la ranura 1 libre soy el 1 (NB_SLOT); si el creador se fue y la
+;                  ranura 1 esta ocupada, vuelvo a ser el 0 (el creador reentra).
 ;      room_send   manda NB_LEN bytes (0-100) de NB_TX con el turno NB_TURN.
 ;      room_poll   mira si ha llegado algo: A = 0 nada, 1 mensaje (NB_RX,
 ;                  NB_LEN, NB_TURN), 2 el rival entro, 3 el rival salio,
@@ -27,7 +29,8 @@
 ;  Resultados de las demas (A): 0 bien, 1 el modem dijo ERROR, 2 plazo
 ;  agotado, 3 respuesta inesperada, 4 codigo de sala invalido, 5 mensaje
 ;  demasiado largo, 6 la sala esta llena (room_join: ya hay otro jugador en la
-;  ranura 1; no se llega a entrar y se cierra la sesion sin tocar su presencia).
+;  ranura 1), 7 la sala no existe (room_join: ni el creador ni nadie esta en ella). En los dos
+;  ultimos casos no se llega a entrar: se cierra la sesion sin tocar la presencia.
 ;
 ;  REGLAS DEL MCU: C es el reloj del handshake y A no sobrevive a
 ;  mcu_send (claude/planning/net_bridge_emulator.md).
@@ -58,6 +61,8 @@ V_BASE      equ NB_BASE+272     ; (24) "sd81/" + 12 hex + 0
 V_SEQ       equ NB_BASE+296     ; (2) mi numero de secuencia
 V_PSEQ      equ NB_BASE+298     ; (2) el ultimo del rival
 V_PSEQV     equ NB_BASE+300     ; 1 si V_PSEQ vale
+V_P0        equ NB_BASE+301     ; room_join: la presencia retenida de la ranura 0, tal como llego ('1' ocupada)
+V_P1        equ NB_BASE+311     ; lo mismo de la ranura 1
 V_TMO       equ NB_BASE+302     ; (2) pasos que quedan
 V_RXN       equ NB_BASE+304     ; bytes en V_RXBUF
 V_RXP       equ NB_BASE+305     ; (2) siguiente
@@ -714,7 +719,7 @@ bt_slot:    ld   a,(NB_SLOT)
 ; =====================================================================
 room_go:    call derive
             ret  nz
-            ; last will: mi presencia a 0
+room_go_d:  ; last will: mi presencia a 0
             call cb_init
             ld   hl,s_will
             call cb_puts
@@ -731,20 +736,6 @@ room_go:    call derive
             ld   de,TMO_L
             call at_cmd
             ret  nz
-            ; el segundo jugador mira antes que la ranura 1 no este ocupada
-            ld   a,(NB_SLOT)
-            or   a
-            jr   z,rg_suball
-            call room_check_free
-            or   a
-            jr   z,rg_suball
-            push af
-            ld   hl,s_close
-            ld   de,TMO_S
-            call at_cmd             ; cerrar bien: asi el last will (mi ranura) no sale
-            pop  af
-            or   a
-            ret
 rg_suball:  ; suscribirme a todo lo de la sala
             call cb_init
             ld   hl,s_sub
@@ -778,9 +769,14 @@ rg_noseq:   xor  a
             ld   (NB_PEER),a
             ret
 
-; Me suscribo solo a <sala>/p1: el broker manda la presencia retenida de esa ranura. Si dice '1',
-; hay otro jugador: A = 6. A = 0 si esta libre ('0' o nada). Luego me desuscribo
-room_check_free: call cb_init
+; Sonda de la sala (ya conectado, sin last will): me suscribo a <sala>/p0 y <sala>/p1 y miro las
+; presencias retenidas. Decide mi ranura (NB_SLOT):
+;   creador (0) presente y la 1 libre  -> soy el 2 (NB_SLOT = 1), A = 0
+;   creador ausente y la 1 ocupada     -> reentro como creador (NB_SLOT = 0), A = 0
+;   las dos ocupadas                   -> A = 6 (sala llena)
+;   las dos libres                     -> A = 7 (esa sala no existe)
+; Cualquier otro valor de A es un error del modem. La sesion la cierra quien llama.
+room_probe: call cb_init
             ld   hl,s_sub
             call cb_puts
             ld   hl,V_BASE
@@ -790,29 +786,62 @@ room_check_free: call cb_init
             ld   hl,V_CMD
             ld   de,TMO_S
             call at_cmd
-            jr   nz,rcf_end         ; error (1, 2 o 3)
-            ld   e,6                ; los retenidos llegan justo detras del SUBACK: un momento
-rcf_w:      call delay20
-            dec  e
-            jr   nz,rcf_w
-            ld   a,1
-            ld   (V_CHK),a
-            call room_poll          ; 0 libre, 6 ocupada, 4 error
-            push af
-            xor  a
-            ld   (V_CHK),a
+            ret  nz                 ; error (1, 2 o 3)
             call cb_init
-            ld   hl,s_unsub
+            ld   hl,s_sub
             call cb_puts
             ld   hl,V_BASE
             call cb_puts
-            ld   hl,s_pone2
+            ld   hl,s_pzero
             call cb_puts
             ld   hl,V_CMD
             ld   de,TMO_S
             call at_cmd
+            ret  nz
+            xor  a
+            ld   (V_P0),a
+            ld   (V_P1),a
+            ld   e,6                ; los retenidos llegan justo detras del SUBACK: un momento
+rp_w1:      call delay20
+            dec  e
+            jr   nz,rp_w1
+            ld   a,1
+            ld   (V_CHK),a
+            call room_poll          ; apunta V_P0 y V_P1; 0 si no hay mas
+            or   a
+            jr   nz,rp_end          ; 4: error del modem
+            ld   a,(V_P0)
+            cp   '1'
+            jr   z,rp_decide        ; el creador esta: ya se lo que hay
+            ld   e,10               ; si no, puede que lo retenido aun no haya llegado: un poco mas
+rp_w2:      call delay20
+            dec  e
+            jr   nz,rp_w2
+            call room_poll
+            or   a
+            jr   nz,rp_end
+rp_decide:  ld   a,(V_P0)
+            cp   '1'
+            jr   nz,rp_nocr
+            ld   a,(V_P1)
+            cp   '1'
+            ld   a,6                ; las dos ocupadas
+            jr   z,rp_end
+            ld   a,1                ; el creador esta y la 1 libre: soy el 2
+            ld   (NB_SLOT),a
+            xor  a
+            jr   rp_end
+rp_nocr:    ld   a,(V_P1)
+            cp   '1'
+            ld   a,7                ; ninguna: nadie ha creado esa sala
+            jr   nz,rp_end
+            xor  a                  ; el rival esta y el creador no: vuelvo a ser el creador
+            ld   (NB_SLOT),a
+rp_end:     push af
+            xor  a
+            ld   (V_CHK),a
             pop  af
-rcf_end:    or   a
+            or   a
             ret
 
 ; A = '1' o '0': publica mi presencia retenida
@@ -860,7 +889,21 @@ room_join:  ld   a,1
             ld   (NB_SLOT),a
             call code_from_81
             jr   nz,set_res
-            call room_go
+            call derive
+            jr   nz,set_res
+            ld   hl,s_mqtt          ; primero una sonda: conectar sin last will y ver quien hay
+            ld   de,TMO_L
+            call at_cmd
+            jr   nz,set_res
+            call room_probe         ; elige mi ranura (el 2, o el creador que vuelve) o dice por que no
+            push af
+            ld   hl,s_close
+            ld   de,TMO_S
+            call at_cmd             ; cerrar bien: no hay last will que salte
+            pop  af
+            or   a
+            jr   nz,set_res
+            call room_go_d          ; y entro de verdad, con el will de mi ranura
             jp   set_res
 
 room_leave: ld   a,'0'
@@ -1037,14 +1080,14 @@ rc_pres:    inc  hl
             ld   a,(V_CHK)
             or   a
             jr   z,rc_pres2
-            ld   a,b                ; mirando si la sala esta llena: solo importa la ranura 1
-            cp   1
-            jp   nz,room_poll
+            ld   a,b                ; sondeando la sala: apunto las presencias de las dos ranuras
+            or   a
             ld   a,(V_WK+64)
-            cp   '1'
-            jp   nz,room_poll       ; '0': libre, sigue leyendo
-            ld   a,6
-            jp   set_res            ; ocupada
+            jr   nz,rc_chk1
+            ld   (V_P0),a           ; '1' ocupada, '0' libre
+            jp   room_poll
+rc_chk1:    ld   (V_P1),a
+            jp   room_poll
 rc_pres2:   ld   a,(NB_SLOT)
             cp   b
             jp   z,room_poll        ; mi propia presencia
@@ -1202,6 +1245,10 @@ s_sub_t:    defm "/+,1"
 s_pone:     defm "/p1,1"
             defb 0
 s_pone2:    defm "/p1"
+            defb 0
+s_pzero:    defm "/p0,1"
+            defb 0
+s_pzero2:   defm "/p0"
             defb 0
 s_unsub:    defm "AT+MQTTUNSUB="
             defb 0

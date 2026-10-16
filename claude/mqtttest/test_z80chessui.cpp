@@ -5,39 +5,164 @@
 // Con SHOW=1 imprime la pantalla en cada paso importante.
 #include "z80net_env.h"
 
-static const uint16_t DFILE = 0x8800;
-static const int ROW_BOARD = 3, BOARD_COL = 4;
+static const uint16_t DFILE = 0x8800;           // la pantalla de texto del lobby
+static const uint16_t HFILE = 0xA000, ATTRB = 0xB800;   // la pantalla del juego: HiRes Spectrum
+static const int BOARD_ROW = 1, BOARD_COL = 3;
 
+// la fuente de la ROM ($1E00) en el PC: sintetica, un dibujo distinto por codigo (el 0, el espacio, en blanco)
+static void install_font() {
+  for (int c = 1; c < 64; c++) for (int k = 0; k < 8; k++) mem[0x1E00 + c * 8 + k] = (uint8_t)(c * 3 + 1 + k * 17);
+}
+static std::vector<uint8_t> pc_tab;             // pieces.inc: las 6 piezas (P N B R Q K), 32 bytes cada una
+static void load_pieces(const char* path) {
+  FILE* f = fopen(path, "r");
+  if (!f) { printf("no encuentro %s\n", path); exit(2); }
+  char line[256];
+  while (fgets(line, sizeof line, f)) {
+    char* p = strstr(line, "defb");
+    if (!p) continue;
+    for (p += 4; *p; p++) {
+      if (*p == '0' && p[1] != 0 && isxdigit((unsigned char)p[1])) { pc_tab.push_back((uint8_t)strtoul(p, &p, 16)); p--; }
+    }
+  }
+  fclose(f);
+  if (pc_tab.size() != 192) { printf("pieces.inc: %zu bytes, esperaba 192\n", pc_tab.size()); exit(2); }
+}
+static uint8_t cell_byte(int row, int col, int line) {
+  return mem[HFILE + ((row & 0x18) << 8) + (line << 8) + ((row & 7) << 5) + col];
+}
+// el codigo de caracter del ZX81 que dibuja la celda, 0 si esta en blanco, -1 si no es ninguno de la fuente
+static int glyph_code(int row, int col) {
+  bool blank = true;
+  for (int k = 0; k < 8; k++) if (cell_byte(row, col, k)) blank = false;
+  if (blank) return 0;
+  for (int c = 1; c < 64; c++) {
+    bool ok = true;
+    for (int k = 0; k < 8 && ok; k++) if (cell_byte(row, col, k) != (uint8_t)(c * 3 + 1 + k * 17)) ok = false;
+    if (ok) return c;
+  }
+  return -1;
+}
+static uint8_t font_byte(int code, int k) { return (uint8_t)(code * 3 + 1 + k * 17); }
+// las coordenadas van centradas en las dos celdas de la casilla: una letra desplazada 4 puntos en horizontal
+// (las dos celdas de una fila) y una cifra desplazada 4 puntos en vertical (las dos celdas de una columna)
+static int hlabel_code(int row, int col) {
+  bool blank = true;
+  for (int k = 0; k < 8; k++) if (cell_byte(row, col, k) || cell_byte(row, col + 1, k)) blank = false;
+  if (blank) return 0;
+  for (int c = 1; c < 64; c++) {
+    bool ok = true;
+    for (int k = 0; k < 8 && ok; k++)
+      if (cell_byte(row, col, k) != (font_byte(c, k) >> 4) || cell_byte(row, col + 1, k) != (uint8_t)(font_byte(c, k) << 4)) ok = false;
+    if (ok) return c;
+  }
+  return -1;
+}
+static int vlabel_code(int row, int col) {
+  bool blank = true;
+  for (int k = 0; k < 8; k++) if (cell_byte(row, col, k) || cell_byte(row + 1, col, k)) blank = false;
+  if (blank) return 0;
+  for (int c = 1; c < 64; c++) {
+    bool ok = true;
+    for (int k = 0; k < 4 && ok; k++)
+      if (cell_byte(row, col, 4 + k) != font_byte(c, k) || cell_byte(row + 1, col, k) != font_byte(c, 4 + k)) ok = false;
+    for (int k = 0; k < 4 && ok; k++) if (cell_byte(row, col, k) || cell_byte(row + 1, col, 4 + k)) ok = false;
+    if (ok) return c;
+  }
+  return -1;
+}
+static char zx_char(int v) {
+  if (v == 0) return ' ';
+  if (v >= 28 && v <= 37) return (char)('0' + v - 28);
+  if (v >= 38 && v <= 63) return (char)('A' + v - 38);
+  if (v == 27) return '.'; if (v == 14) return ':'; if (v == 22) return '-';
+  if (v == 15) return '?'; if (v == 20) return '='; if (v == 26) return ',';
+  return '~';
+}
+static bool gfx_mode() { return mem[2045] == 172; }
 static std::string screen_row(int r) {
   std::string s;
   for (int c = 0; c < 32; c++) {
-    int v = mem[DFILE + 1 + 33 * r + c];
-    char ch;
-    if (v == 0) ch = ' ';
-    else if (v >= 28 && v <= 37) ch = (char)('0' + v - 28);
-    else if (v >= 38 && v <= 63) ch = (char)('A' + v - 38);
-    else if (v >= 166 && v <= 191) ch = (char)('a' + v - 166);            // las negras: letras en inverso
-    else if (v == 27) ch = '.'; else if (v == 14) ch = ':'; else if (v == 22) ch = '-';
-    else if (v == 15) ch = '?'; else if (v == 20) ch = '='; else if (v == 26) ch = ',';
-    else if (v == 128) ch = '#';
-    else ch = '~';
-    s += ch;
+    if (gfx_mode() && r == 17 && c >= BOARD_COL && c < BOARD_COL + 16) {          // A-H, centradas en cada casilla
+      s += ((c - BOARD_COL) % 2 == 0) ? zx_char(hlabel_code(r, c)) : ' ';
+      continue;
+    }
+    if (gfx_mode() && c == BOARD_COL - 1 && r >= BOARD_ROW && r < BOARD_ROW + 16) {  // 1-8, centradas en cada casilla
+      s += ((r - BOARD_ROW) % 2 == 0) ? zx_char(vlabel_code(r, c)) : ' ';
+      continue;
+    }
+    if (gfx_mode()) {
+      bool in_board = r >= BOARD_ROW && r < BOARD_ROW + 16 && c >= BOARD_COL && c < BOARD_COL + 16;
+      s += in_board ? ' ' : zx_char(glyph_code(r, c));
+    } else {
+      int v = mem[DFILE + 1 + 33 * r + c];
+      s += v == 128 ? '#' : (v >= 166 && v <= 191) ? (char)('a' + v - 166) : zx_char(v);
+    }
   }
   return s;
 }
 static std::string screen_all() { std::string s; for (int r = 0; r < 24; r++) s += screen_row(r) + "\n"; return s; }
 static bool shows(const char* t) { return screen_all().find(t) != std::string::npos; }
 static bool show_on = getenv("SHOW") != nullptr;
+// la pieza que se ve en la casilla (rank 0-7, file 0-7): letra mayuscula = blanca (tinta blanca), minuscula =
+// negra (tinta negra), ' ' vacia, '?' un dibujo desconocido
+static char cell(int rank, int file, bool black_bottom = false) {
+  int y = black_bottom ? rank : 7 - rank;
+  int x = black_bottom ? 7 - file : file;
+  int row = BOARD_ROW + 2 * y, col = BOARD_COL + 2 * x;
+  uint8_t b[32];
+  bool blank = true;
+  for (int i = 0; i < 4; i++) for (int k = 0; k < 8; k++) { b[i * 8 + k] = cell_byte(row + (i >> 1), col + (i & 1), k); if (b[i * 8 + k]) blank = false; }
+  if (blank) return ' ';
+  const char* names = "PNBRQK";
+  bool white = (mem[ATTRB + row * 32 + col] & 7) == 7;
+  for (int p = 0; p < 6; p++)
+    if (!memcmp(b, &pc_tab[p * 32], 32)) return white ? names[p] : (char)(names[p] + 32);
+  return '?';
+}
+// el papel (color de fondo) de la casilla: 4 verde (clara), 2 rojo (oscura), 3 magenta (ultima jugada), 0 negro (rey blanco
+// en jaque), 7 blanco (rey negro en jaque)
+static int square_paper(int rank, int file, bool black_bottom = false) {
+  int y = black_bottom ? rank : 7 - rank;
+  int x = black_bottom ? 7 - file : file;
+  return (mem[ATTRB + (BOARD_ROW + 2 * y) * 32 + BOARD_COL + 2 * x] >> 3) & 7;
+}
+static int scr_n = 0;
+// con SCRDIR=<carpeta>, guarda la pantalla del juego (6912 bytes, formato .SCR del Spectrum) en cada show()
+static void dump_scr(const char* title) {
+  const char* dir = getenv("SCRDIR");
+  if (!dir || !gfx_mode()) return;
+  char name[256];
+  snprintf(name, sizeof name, "%s/%02d.scr", dir, scr_n++);
+  FILE* f = fopen(name, "wb");
+  if (!f) return;
+  fwrite(mem + HFILE, 1, 6912, f);
+  fclose(f);
+  printf("pantalla guardada: %s (%s)\n", name, title);
+}
 static void show(const char* title) {
+  dump_scr(title);
   if (!show_on) return;
   printf("---- %s (t=%u ms)\n", title, mock_now - 100000);
-  for (int r = 0; r < 24; r++) { std::string l = screen_row(r); while (!l.empty() && l.back() == ' ') l.pop_back(); if (!l.empty()) printf("%2d|%s\n", r, l.c_str()); }
-}
-// la pieza que se ve en la casilla (rank 0-7, file 0-7), con las blancas abajo
-static char cell(int rank, int file, bool black_bottom = false) {
-  int row = black_bottom ? ROW_BOARD + rank : ROW_BOARD + (7 - rank);
-  int f = black_bottom ? 7 - file : file;
-  return screen_row(row)[BOARD_COL + 3 * f + 1];
+  bool black_bottom = false;
+  { std::string l = screen_row(5); if (l.find("BLACK") != std::string::npos) black_bottom = true; }
+  for (int r = 0; r < 24; r++) {
+    std::string l = screen_row(r);
+    if (gfx_mode() && r >= BOARD_ROW && r < BOARD_ROW + 16 && (r - BOARD_ROW) % 2 == 0) {   // el tablero, una linea por casilla
+      int y = (r - BOARD_ROW) / 2;
+      std::string b;
+      for (int x = 0; x < 8; x++) {
+        int rank = black_bottom ? y : 7 - y, file = black_bottom ? 7 - x : x;
+        char ch = cell(rank, file, black_bottom);
+        int paper = square_paper(rank, file, black_bottom);
+        b += (ch == ' ' ? '.' : ch);
+        b += (paper == 3 ? '*' : (paper == 0 || paper == 7) ? '!' : paper == 2 ? ':' : ' ');
+      }
+      for (int x = 0; x < 16; x++) l[BOARD_COL + x] = b[x];
+    }
+    while (!l.empty() && l.back() == ' ') l.pop_back();
+    if (!l.empty()) printf("%2d|%s\n", r, l.c_str());
+  }
 }
 
 static void run_ms(uint32_t ms) {
@@ -73,7 +198,7 @@ static const char ENTER = 13;
 // ---------------------------------------------------------------- el rival
 static std::string code_on_screen() {
   std::string c;
-  for (int i = 0; i < 10; i++) { int v = mem[DFILE + 1 + 33 * 6 + 11 + i]; c += (char)(v >= 38 ? v + 27 : v + 20); }
+  for (int i = 0; i < 10; i++) { int v = gfx_mode() ? glyph_code(2, 21 + i) : mem[DFILE + 1 + 33 * 6 + 11 + i]; c += (char)(v >= 38 ? v + 27 : v + 20); }
   return c;
 }
 typedef std::vector<uint8_t> St;
@@ -115,6 +240,7 @@ int main(int argc, char** argv) {
   if (!f) { printf("no encuentro %s\n", argv[1]); return 2; }
   size_t sz = fread(mem + 0x6000, 1, 0x2800, f); fclose(f);
   printf("chess.bin: %zu bytes en $6000\n", sz);
+  install_font(); load_pieces("pieces.inc");
   mem[0x02E7] = 0xC9; mem[0x0207] = 0xC9;              // SET_FAST y SLOW_FAST de la ROM: aqui, un RET
   z80_init(); z80_reset();
   reset_world();
@@ -136,13 +262,14 @@ int main(int argc, char** argv) {
   peer_publish(base + "/p1", "1", true);
   CHECK(wait_text("YOUR MOVE", 10000), "el rival entra: me toca");
   show("el tablero al empezar");
-  CHECK(shows("YOU ARE WHITE") && shows("A  B  C  D  E  F  G  H"), "soy las blancas y los nombres de las columnas");
+  CHECK(shows("YOU ARE") && shows("WHITE") && screen_row(17).find("A B C D E F G H") != std::string::npos, "soy las blancas y los nombres de las columnas");
   { bool ok = true;
     const char* w = "RNBQKBNR"; const char* b = "rnbqkbnr";
     for (int fl = 0; fl < 8; fl++) { if (cell(0, fl) != w[fl] || cell(7, fl) != b[fl] || cell(1, fl) != 'P' || cell(6, fl) != 'p') ok = false; }
     CHECK(ok, "el tablero: blancas en mayusculas abajo, negras en inverso arriba");
-    CHECK(cell(0, 0) == 'R' && screen_row(ROW_BOARD + 7)[2] == '1' && screen_row(ROW_BOARD)[2] == '8', "los numeros de fila: 1 abajo, 8 arriba");
-    CHECK(cell(3, 0) == ' ' && cell(3, 1) == '.', "las casillas vacias: oscura con punto (a4), clara sin nada (b4)"); }
+    CHECK(cell(0, 0) == 'R' && screen_row(BOARD_ROW + 14)[2] == '1' && screen_row(BOARD_ROW)[2] == '8', "los numeros de fila: 1 abajo, 8 arriba");
+    CHECK(cell(3, 0) == ' ' && cell(3, 1) == ' ' && square_paper(3, 0) == 4 && square_paper(3, 1) == 2 && square_paper(0, 0) == 2,
+          "los colores: a1 es oscura (roja), a4 clara (verde), b4 oscura"); }
 
   St st = start_state();
   // 1. e4
@@ -151,7 +278,7 @@ int main(int argc, char** argv) {
   press(ENTER);
   CHECK(wait_text("THE RIVAL IS THINKING", 5000), "jugada hecha: le toca al rival");
   apply_simple(st, "e2", "e4");
-  CHECK(cell(3, 4) == 'P' && cell(1, 4) == ' ' && shows("LAST: E2E4"), "el peon esta en e4 y se ve la ultima jugada");
+  CHECK(cell(3, 4) == 'P' && cell(1, 4) == ' ' && screen_row(9).find("E2-E4") != std::string::npos && square_paper(1, 4) == 3 && square_paper(3, 4) == 3, "el peon esta en e4, se ve la ultima jugada y sus dos casillas resaltadas");
   { std::string b = body_of(last_seen("PUBLISH", base + "/0"));
     CHECK(b.size() == 5 && b[0] == 1 && b[1] == sq("e2") && b[2] == sq("e4"), "al broker sale la jugada: tipo 1, e2, e4");
     uint16_t h = hash16(st.data(), 67);
@@ -207,6 +334,7 @@ int main(int argc, char** argv) {
   CHECK(wait_text("YOUR MOVE", 5000), "1... f5");
   type("D1H5"); press(ENTER); apply_simple(st, "d1", "h5");
   CHECK(wait_text("THE RIVAL IS IN CHECK", 5000), "2. Dh5+: se ve que el rival esta en jaque");
+  CHECK(square_paper(7, 4) == 7 && cell(7, 4) == 'k', "y su rey (negro) sale con el papel blanco");
   show("jaque");
 
   // --- el rival se va y salgo
@@ -226,11 +354,11 @@ int main(int argc, char** argv) {
     CHECK(wait_text("TYPE THE ROOM CODE", 3000), "unirse: pide el codigo");
     type(code2.c_str());
     press(ENTER);
-    CHECK(wait_text("YOU ARE BLACK", 40000), "unido: soy las negras");
+    CHECK(wait_text("BLACK", 40000), "unido: soy las negras");
     CHECK(wait_text("YOUR MOVE", 10000), "ya tengo su jugada retenida (1.e4) y me toca");
     show("como las negras");
-    CHECK(shows("H  G  F  E  D  C  B  A"), "las columnas, al reves");
-    CHECK(screen_row(ROW_BOARD)[2] == '1' && screen_row(ROW_BOARD + 7)[2] == '8', "las filas, al reves: la 1 arriba");
+    CHECK(shows("H G F E D C B A"), "las columnas, al reves");
+    CHECK(screen_row(BOARD_ROW)[2] == '1' && screen_row(BOARD_ROW + 14)[2] == '8', "las filas, al reves: la 1 arriba");
     CHECK(cell(7, 4, true) == 'k' && cell(0, 4, true) == 'K' && cell(3, 4, true) == 'P', "el rey negro abajo, el blanco arriba y el peon de e4");
     type("E7E5"); press(ENTER);
     CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego como las negras: e5");

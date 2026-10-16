@@ -31,15 +31,7 @@ start:      call SET_FAST           ; sin NMI: el video lo da la FPGA
             ld   bc,0500h
             ld   (hl),0
             ldir
-            call cls
-            ld   hl,DFILE
-            ld   (2096),hl          ; pantalla alternativa
-            ld   a,170
-            ld   (2098),a
-            xor  a
-            ld   (2090),a           ; sin desplazamiento
-            ld   a,170              ; Superfast texto de 32 columnas
-            ld   (2045),a
+            call txt_on
 
             ld   hl,t_title
             ld   bc,ROW_TITLE*256+7
@@ -58,6 +50,19 @@ start:      call SET_FAST           ; sin NMI: el video lo da la FPGA
             call print_at
             call key_wait
             jp   exit
+
+; Superfast texto de 32 columnas con la pantalla alternativa en DFILE (el juego puede haber pasado un
+; rato a otro modo de video, p. ej. el ajedrez a HiRes Spectrum, y vuelve aqui para los menus)
+txt_on:     call cls
+            ld   hl,DFILE
+            ld   (2096),hl          ; pantalla alternativa
+            ld   a,170
+            ld   (2098),a
+            xor  a
+            ld   (2090),a           ; sin desplazamiento
+            ld   a,170              ; Superfast texto de 32 columnas
+            ld   (2045),a
+            ret
 
 ; ---------------------------------------------------------------------
 ;  Menu: partida nueva, unirse, salir

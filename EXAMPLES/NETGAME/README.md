@@ -41,15 +41,29 @@ pasmo chess.asm chess.bin chess.sym        (o compila.bat, que hace los dos jueg
 
 Se carga igual que el 4 en raya (`CHESS.B81`, pásalo a `.P`). La sala, el menú y el teclado son los mismos
 (`lobby.inc`). Quien crea la sala juega con las blancas y abajo; el que se une, con las negras y el tablero
-girado. Las blancas se ven como letras (P peón, N caballo, B alfil, R torre, Q dama, K rey) y las negras en
-inverso; una casilla oscura vacía lleva un punto.
+girado. La partida se dibuja en **Superfast HiRes Spectrum** (256×192, un atributo por celda de 8×8; el lobby
+y los menús siguen en texto): el tablero de 8×8 casillas de 16×16 puntos, verdes y blancas, con las
+coordenadas, un panel a la derecha (sala, tu color, última jugada) y el estado, los avisos y la entrada
+debajo. Casillas **verde claro y rojo oscuro, brillantes**; piezas blancas y negras macizas (el mismo dibujo
+con tinta blanca o negra: el bit de brillo es de la celda entera, así que todo el tablero va en brillante, que
+es lo que permite la tinta blanca). La última jugada se resalta en magenta (contrasta con las dos tintas) y el rey en jaque tiene el papel del
+color contrario a su tinta: el blanco sobre negro y el negro sobre blanco; el título va en una barra amarilla
+y el estado en una caja verde. Capturas de la pantalla real a 1:1
+(generadas con el arnés del PC):
+[inicio](../../DOC/img/chess_start.png), [jaque](../../DOC/img/chess_check.png) y
+[las negras](../../DOC/img/chess_black.png).
+
+Las piezas (`pieces.inc`) salen de la hoja `piezas_16x16.png` (seis casillas de 16×16 pegadas, a escala 1:1:
+peón, caballo, alfil, torre, dama y rey; negro = pieza). Para retocarlas se edita ese PNG (sin entrelazar) y
+se ejecuta `python gen_pieces.py`; el arnés de pruebas usa el mismo `pieces.inc`. `scr2png.py` convierte
+un `.SCR` del Spectrum en PNG (lo usa el arnés de las pruebas, `SCRDIR=<carpeta>`, para ver la pantalla real).
 
 - **Una jugada** se teclea con las casillas de origen y destino: letra, cifra, letra, cifra (por ejemplo
   `E2 E4`) y **ENTER**. Una tecla que no cuadra en esa posición no entra. **SHIFT+0** borra la última.
 - **Coronar**: una quinta letra elige la pieza (Q dama, R torre, B alfil, N caballo); sin ella, dama.
 - **9** reenvía la última jugada si falló la red. **0** sale. **ENTER** sin nada tecleado, con la partida
   acabada, pide otra.
-- Se ve la última jugada (`LAST: E2E4`), de quién es el turno, `CHECK` cuando hay jaque y el final
+- Se ve la última jugada (`LAST MOVE`, en el panel), de quién es el turno, `CHECK` cuando hay jaque y el final
   (`CHECKMATE - YOU WIN`, `CHECKMATE - THE RIVAL WINS`, `DRAW`).
 
 Reglas (`chess.inc`): todo el ajedrez salvo la **triple repetición**: enroque, al paso, coronación, jaque,

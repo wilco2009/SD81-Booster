@@ -14,13 +14,17 @@
 ;      SHIFT+0 borra la ultima tecla. 9 = reenviar si fallo la red. 0 = salir.
 ;      ENTER = otra partida, cuando ha acabado y no hay nada tecleado.
 ;  Las blancas (quien crea la sala) empiezan y juegan abajo; las negras ven el
-;  tablero girado.  Las piezas blancas se ven como letras, las negras en inverso:
-;  P peon, N caballo, B alfil, R torre, Q dama, K rey.
+;  tablero girado.  Las piezas son dibujos de 16x16 (pieces.inc, que genera gen_pieces.py a partir de
+;  piezas_16x16.png): las mismas para las dos bandos, con tinta blanca o negra, sobre casillas verde claro y
+;  rojo oscuro, brillantes. La partida se dibuja en Superfast HiRes Spectrum (gfx.inc); el lobby y los
+;  menus siguen en texto. La ultima jugada se resalta en magenta y el rey en jaque con el papel del color
+;  contrario a su tinta (el blanco sobre negro, el negro sobre blanco).
 ;
 ;  Reglas: todo el ajedrez salvo la triple repeticion (enroque, al paso, coronacion,
 ;  jaque, mate, ahogado, material insuficiente y las 50 jugadas).
 ;
-;  Memoria:   $6000-$87FF el programa;  $8800-$8B18 pantalla;  $9000-$9A00 variables
+;  Memoria:   $6000-$87FF el programa;  $8800-$8B18 pantalla de texto del lobby;  $9000-$9A00 variables;
+;             $A000-$BAFF pantalla de la partida (bitmap $A000, atributos $B800)
 ;  Cargar:    CHESS.B81 (CLEAR 24575, LOAD FAST ... CODE 24576, RAND USR 24576).
 ;  Ensamblar: pasmo chess.asm chess.bin chess.sym   (compila.bat)
 ; =====================================================================
@@ -43,14 +47,21 @@ MV_BUF      equ UI_BASE+11      ; (6) lo tecleado, ASCII
 MV_OUT      equ UI_BASE+17      ; (2) la jugada en el formato de game.inc
 LAST_BUF    equ UI_BASE+20      ; (20) texto de la ultima jugada
 
-ROW_ROOM    equ 1
-ROW_BOARD   equ 3               ; la fila de arriba del tablero
-ROW_FILES   equ 11
-ROW_STATUS  equ 13
-ROW_INPUT   equ 15
-ROW_MSG     equ 17
-ROW_LAST    equ 19
-BOARD_COL   equ 4               ; la primera casilla (cada una ocupa 3 columnas)
+; La pantalla (gfx.inc: HiRes Spectrum, 32 x 24 celdas de 8x8): el titulo arriba, el tablero de 8 x 8
+; casillas de 2 x 2 celdas, las coordenadas, un panel a la derecha y el estado abajo. Los colores
+; (gfx.inc) son los de Cyrus II adaptados a la paleta del Spectrum: casillas verdes y rojas, brillantes,
+; barra del titulo amarilla y el estado en una caja verde
+BOARD_ROW   equ 1               ; la celda de arriba a la izquierda del tablero
+BOARD_COL   equ 3
+PANEL_COL   equ 21              ; el panel de la derecha (sala, color, ultima jugada)
+ROW_FILES   equ 17              ; A-H bajo el tablero
+ROW_STATUS  equ 18
+ROW_MSG     equ 19
+ROW_INPUT   equ 20
+ATTR_TITLE  equ 070h            ; barra del titulo: papel amarillo brillante, tinta negra
+ATTR_STATUS equ 060h            ; caja del estado: papel verde brillante, tinta negra
+ATTR_MSG    equ 042h            ; rojo brillante
+ATTR_HELP   equ 005h            ; cian
 
             org  24576
 
@@ -63,33 +74,51 @@ play:       xor  a
             ld   (POLLC),a
             ld   (MSG),a
             ld   (MV_N),a
-            call cls                ; lo fijo se pinta una vez; draw_all repinta lo que cambia
+            call gfx_on             ; lo fijo se pinta una vez; draw_all repinta lo que cambia
             ld   hl,t_title
-            ld   bc,ROW_TITLE*256+7
-            call print_at
+            ld   bc,ROW_TITLE*256+BOARD_COL
+            call gprint_at
+            ld   b,ROW_TITLE
+            ld   a,ATTR_TITLE
+            call gattr_row
             ld   hl,t_room
-            ld   bc,ROW_ROOM*256+1
-            call print_at
-            ld   bc,ROW_ROOM*256+6
-            call scr_addr
-            ex   de,hl
+            ld   bc,1*256+PANEL_COL
+            call gprint_at
+            ld   e,0                ; el codigo de sala: ya son codigos de caracter del ZX81
+pl_code:    push de
+            ld   b,2
+            ld   a,PANEL_COL
+            add  a,e
+            ld   c,a
+            call gaddr              ; HL = la celda
+            pop  de
+            push de
+            ld   d,0
+            push hl
             ld   hl,NB_CODE81
-            ld   bc,10
-            ldir
+            add  hl,de
+            ld   a,(hl)
+            pop  hl
+            call gglyph
+            pop  de
+            inc  e
+            ld   a,e
+            cp   10
+            jr   nz,pl_code
             ld   hl,t_white
             ld   a,(GM_ME)
             cp   2
             jr   nz,pl_col
             ld   hl,t_black
-pl_col:     ld   bc,ROW_ROOM*256+18
-            call print_at
-            ld   hl,t_files
-            ld   a,(GM_ME)
-            cp   2
-            jr   nz,pl_files
-            ld   hl,t_files_b
-pl_files:   ld   bc,ROW_FILES*256+BOARD_COL
-            call print_at
+pl_col:     ld   bc,5*256+PANEL_COL
+            call gprint_at
+            ld   hl,t_youare
+            ld   bc,4*256+PANEL_COL
+            call gprint_at
+            ld   hl,t_lastlbl
+            ld   bc,8*256+PANEL_COL
+            call gprint_at
+            call draw_labels
             call draw_all
 pl_loop:    call kbd_scan
             or   a
@@ -161,7 +190,8 @@ pl_rs:      ld   a,b
 pl_poll:    call poll_step_game
             call delay20
             jp   pl_loop
-pl_quit:    call room_leave
+pl_quit:    call gfx_off            ; el menu es de texto
+            call room_leave
             jp   menu
 
 ; un paso del sondeo en la partida: cada 20 vueltas pregunta y 2 vueltas despues recoge
@@ -319,13 +349,16 @@ da_chk:     push hl                 ; "en jaque" si al que le toca lo esta
             pop  hl
             jr   z,da_st
             ld   hl,t_theirs_chk
-da_st:      ld   bc,ROW_STATUS*256+4
-            call print_row
-            ; la ultima jugada
+da_st:      ld   bc,ROW_STATUS*256+2
+            call gprint_row
+            ld   b,ROW_STATUS
+            ld   a,ATTR_STATUS
+            call gattr_row
+            ; la ultima jugada, en el panel
             call last_move
             ld   hl,LAST_BUF
-            ld   bc,ROW_LAST*256+4
-            call print_row
+            ld   bc,9*256+PANEL_COL
+            call gprint_at
             ; el mensaje
             ld   a,(MSG)
             ld   hl,t_empty
@@ -341,18 +374,28 @@ da_st:      ld   bc,ROW_STATUS*256+4
             inc  hl
             ld   d,(hl)
             ex   de,hl
-da_msg:     ld   bc,ROW_MSG*256+4
-            call print_row
+da_msg:     ld   bc,ROW_MSG*256+2
+            call gprint_row
+            ld   a,(MSG)
+            cp   3                  ; los avisos de error (jugada ilegal, no te toca...) en rojo
+            ld   a,ATTR_TEXT
+            jr   c,da_mc
+            ld   a,ATTR_MSG
+da_mc:      ld   b,ROW_MSG
+            call gattr_row
             ld   a,(GM_OVER)
             or   a
             ld   hl,t_help
             jr   z,da_h2
             ld   hl,t_help_over
-da_h2:      ld   bc,ROW_HELP*256+1
-            jp   print_row
+da_h2:      ld   bc,ROW_HELP*256+2
+            call gprint_row
+            ld   b,ROW_HELP
+            ld   a,ATTR_HELP
+            jp   gattr_row
 
 ; "MOVE: E2E4" en la fila de entrada
-draw_input: ld   hl,LAST_BUF        ; se arma ahi: "MOVE " + lo tecleado + " _"
+draw_input: ld   hl,LAST_BUF        ; se arma ahi: "MOVE " + lo tecleado + " -"
             ld   (hl),'M'
             inc  hl
             ld   (hl),'O'
@@ -379,31 +422,26 @@ di_done:    ld   (hl),'-'
             inc  hl
             ld   (hl),0
             ld   hl,LAST_BUF
-            ld   bc,ROW_INPUT*256+4
-            jp   print_row
+            ld   bc,ROW_INPUT*256+2
+            jp   gprint_row
 
-; LAST_BUF = "LAST: E2E4", o nada si no ha habido jugadas
+; LAST_BUF = la ultima jugada ("E2-E4") o "-----" si no ha habido ninguna (siempre cinco caracteres)
 last_move:  ld   hl,LAST_BUF
-            ld   (hl),0
             ld   de,(GM_PLY)
             ld   a,d
             or   e
-            ret  z
-            ld   (hl),'L'
+            jr   nz,lm_some
+            ld   b,5
+lm_none:    ld   (hl),'-'
             inc  hl
-            ld   (hl),'A'
-            inc  hl
-            ld   (hl),'S'
-            inc  hl
-            ld   (hl),'T'
-            inc  hl
-            ld   (hl),':'
-            inc  hl
-            ld   (hl),' '
-            inc  hl
-            ld   a,(GM_MOVE)
+            djnz lm_none
+            ld   (hl),0
+            ret
+lm_some:    ld   a,(GM_MOVE)
             and  3Fh
             call sq_text
+            ld   (hl),'-'
+            inc  hl
             ld   a,(GM_MOVE+1)
             and  3Fh
             call sq_text
@@ -426,8 +464,56 @@ sq_text:    ld   b,a
             inc  hl
             ret
 
+; las letras A-H bajo el tablero y las cifras 1-8 a su izquierda (al reves si soy el 2)
+draw_labels: ld  b,0
+dl_f:       push bc
+            ld   a,(GM_ME)
+            cp   2
+            ld   a,b
+            jr   nz,dl_f1
+            ld   a,7
+            sub  b
+dl_f1:      add  a,38               ; 'A' del ZX81
+            push af
+            ld   a,b
+            add  a,a
+            add  a,BOARD_COL
+            ld   c,a
+            ld   b,ROW_FILES
+            pop  af
+            call gglyph_h           ; centrada en las dos celdas de la casilla
+            pop  bc
+            inc  b
+            ld   a,b
+            cp   8
+            jr   nz,dl_f
+            ld   b,0
+dl_r:       push bc
+            ld   a,(GM_ME)
+            cp   2
+            ld   a,b
+            jr   z,dl_r1
+            ld   a,7
+            sub  b
+dl_r1:      add  a,29               ; '1' del ZX81 = 29
+            push af
+            ld   a,b
+            add  a,a
+            add  a,BOARD_ROW
+            ld   b,a
+            ld   c,BOARD_COL-1
+            pop  af
+            call gglyph_v           ; centrada en las dos celdas de la casilla
+            pop  bc
+            inc  b
+            ld   a,b
+            cp   8
+            jr   nz,dl_r
+            ret
+
 ; el tablero (con las blancas abajo, o las negras si soy el 2)
-draw_board: xor  a
+draw_board: call mk_marks
+            xor  a
             ld   (UI_Y),a
 db_row:     ld   a,(UI_Y)
             ld   e,a
@@ -438,20 +524,6 @@ db_row:     ld   a,(UI_Y)
             ld   a,7
             sub  e                  ; blancas abajo: rank = 7 - fila de pantalla
 db_b:       ld   (UI_R),a
-            ld   a,(UI_Y)           ; la cifra de la fila, en la columna 2
-            add  a,ROW_BOARD
-            ld   b,a
-            ld   c,2
-            call scr_addr
-            ld   a,(UI_R)
-            add  a,29               ; '1' del ZX81 = 29
-            ld   (hl),a
-            ld   a,(UI_Y)
-            add  a,ROW_BOARD
-            ld   b,a
-            ld   c,BOARD_COL
-            call scr_addr
-            ex   de,hl              ; DE = la pantalla
             xor  a
             ld   (UI_X),a
 db_col:     ld   a,(GM_ME)
@@ -472,7 +544,7 @@ db_f:       ld   (UI_F),a
             ld   l,a
             ld   h,CH_BOARD/256
             ld   a,(hl)
-            call piece_glyph        ; tres caracteres en (DE)
+            call draw_square
             ld   hl,UI_X
             inc  (hl)
             ld   a,(hl)
@@ -485,69 +557,62 @@ db_f:       ld   (UI_F),a
             jr   c,db_row
             ret
 
-; A = pieza (0 vacia): tres caracteres en (DE); DE avanza. Las negras en inverso; las casillas
-; oscuras vacias llevan un punto
-piece_glyph: or  a
-            jr   nz,pg_piece
-            ld   a,(UI_R)
-            ld   hl,UI_F
-            add  a,(hl)
-            and  1
-            jr   nz,pg_light        ; (rank + columna) par = casilla oscura (a1)
-            xor  a
-            ld   (de),a
-            inc  de
-            ld   a,27               ; '.'
-            ld   (de),a
-            inc  de
-            xor  a
-            ld   (de),a
-            inc  de
-            ret
-pg_light:   xor  a
-            ld   (de),a
-            inc  de
-            ld   (de),a
-            inc  de
-            ld   (de),a
-            inc  de
-            ret
-pg_piece:   ld   c,a
-            and  7
-            dec  a
+; las casillas que se resaltan: la ultima jugada (de y a) y el rey en jaque (casilla 0-63, o 0FFh)
+mk_marks:   ld   a,0FFh
+            ld   (HL_FROM),a
+            ld   (HL_TO),a
+            ld   (CHK_SQ),a
+            ld   hl,(GM_PLY)
+            ld   a,h
+            or   l
+            jr   z,mm_chk
+            ld   a,(GM_MOVE)
+            and  3Fh
+            ld   (HL_FROM),a
+            ld   a,(GM_MOVE+1)
+            and  3Fh
+            ld   (HL_TO),a
+mm_chk:     call mm_color           ; A = 0 o 8: el que mueve
+            call ch_in_check
+            ret  nc
+            call mm_color
+            or   6
+            ld   c,a                ; C = su rey
+            ld   b,0
+mm_r:       ld   d,0
+mm_f:       ld   a,b
+            add  a,a
+            add  a,a
+            add  a,a
+            add  a,a
+            add  a,d
             ld   l,a
-            ld   h,0
-            push de
-            ld   de,pg_codes
-            add  hl,de
-            pop  de
-            ld   a,(hl)             ; el codigo de la letra
-            bit  3,c
-            jr   nz,pg_black
-            ld   b,a
-            xor  a
-            ld   (de),a
-            inc  de
+            ld   h,CH_BOARD/256
+            ld   a,(hl)
+            cp   c
+            jr   z,mm_found
+            inc  d
+            ld   a,d
+            cp   8
+            jr   c,mm_f
+            inc  b
             ld   a,b
-            ld   (de),a
-            inc  de
-            xor  a
-            ld   (de),a
-            inc  de
+            cp   8
+            jr   c,mm_r
             ret
-pg_black:   ld   b,a
-            ld   a,128
-            ld   (de),a
-            inc  de
-            ld   a,b
-            add  a,128
-            ld   (de),a
-            inc  de
-            ld   a,128
-            ld   (de),a
-            inc  de
+mm_found:   ld   a,b
+            add  a,a
+            add  a,a
+            add  a,a
+            add  a,d
+            ld   (CHK_SQ),a
             ret
-pg_codes:   defb 53,51,39,55,54,48  ; P N B R Q K (codigos del ZX81)
+mm_color:   ld   a,(GM_PLY)
+            and  1
+            add  a,a
+            add  a,a
+            add  a,a
+            ret
 
 ; ---------------------------------------------------------------------
 ;  Textos
@@ -556,13 +621,13 @@ t_title:    defm "NETWORK CHESS"
             defb 0
 t_room:     defm "ROOM"
             defb 0
-t_white:    defm "YOU ARE WHITE"
+t_youare:   defm "YOU ARE"
             defb 0
-t_black:    defm "YOU ARE BLACK"
+t_white:    defm "WHITE"
             defb 0
-t_files:    defm " A  B  C  D  E  F  G  H"
+t_black:    defm "BLACK"
             defb 0
-t_files_b:  defm " H  G  F  E  D  C  B  A"
+t_lastlbl:  defm "LAST MOVE"
             defb 0
 t_empty:    defb 0
 t_mine:     defm "YOUR MOVE"
@@ -608,3 +673,5 @@ m_11:       defm "MODEM ERROR"
             include "../NETCHAT/net.inc"
             include "game.inc"
             include "chess.inc"
+            include "gfx.inc"
+            include "pieces.inc"

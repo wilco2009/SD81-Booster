@@ -45,6 +45,7 @@ g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"
 echo "== el ajedrez entero (EXAMPLES/NETGAME/chess.asm): pantalla, teclado y red"
 cd .. || exit 1
 cp test_z80chessui.cpp tmp2/
+cp ../../EXAMPLES/NETGAME/pieces.inc tmp2/
 (cd ../../EXAMPLES/NETGAME && pasmo chess.asm "$OLDPWD/tmp2/chess.bin") || exit 1
 cd tmp2 || exit 1
 g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80chessui.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80chessui.exe || exit 1

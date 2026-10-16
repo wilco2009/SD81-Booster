@@ -23,13 +23,21 @@ blancas y la de Loyd acaba en tablas.
 - [ ] Un tercero con el código mientras uno está fuera puede ocupar su sitio (limitación conocida).
 - [ ] Sin WiFi o sin broker: mensaje de error legible.
 
-## 2. Pantalla
-- [x] Blancas (quien crea la sala): abajo, letras normales (P N B R Q K); negras en vídeo inverso; casillas oscuras vacías con un punto.
-- [x] Negras (quien se une): el tablero **girado** (rank 1 arriba, columnas H..A).
-- [x] «YOUR MOVE» / «WAIT» según el turno; `LAST: E2E4` tras cada jugada.
-- [x] Fila de entrada `MOVE: ` con lo tecleado; ayuda `E2 E4 ENTER  0 QUIT  9 RESEND`.
-- [x] Pulsar ENTER fuera de turno: aviso «NOT YOUR TURN», sin romper nada.
-- [x] Rebote del teclado: una tecla mantenida no repite letras.
+## 2. Pantalla (gráfica desde el 16 de octubre: HiRes Spectrum; hay que probarla en el emulador)
+- [ ] Al empezar la partida la pantalla pasa de texto a gráfico sin basura; el borde es negro.
+- [ ] El tablero: 8×8 casillas de 16×16 puntos, **a1 roja** (esquina de abajo a la izquierda con las blancas), alternando rojo oscuro y verde claro, todo brillante; coordenadas A-H bajo el tablero y 1-8 a la izquierda, **centradas** en cada casilla.
+- [ ] Piezas: macizas, las blancas con tinta blanca y las negras con tinta negra (dibujo de Cyrus II reducido); los seis tipos se distinguen (peón, caballo, alfil, torre, dama, rey) y las blancas se leen bien sobre el verde.
+- [ ] Blancas (quien crea la sala): abajo; negras (quien se une): el tablero **girado** (1 arriba, columnas H..A).
+- [ ] Panel de la derecha: `ROOM` y el código, `YOU ARE` + `WHITE`/`BLACK`, `LAST MOVE` y la jugada como `E2-E4` (`-----` al empezar).
+- [ ] **Resaltados**: las dos casillas de la última jugada en **magenta**; el rey en jaque, con el papel contrario a su tinta (el rey **blanco** sobre **negro**, el rey **negro** sobre **blanco**).
+- [ ] Debajo: el estado en una caja verde con letra negra (`YOUR MOVE`, `THE RIVAL IS THINKING...`, `CHECKMATE...`), el aviso en rojo si es un error, `MOVE: ` con lo tecleado y la ayuda en cian; arriba, el título en una barra amarilla.
+- [ ] Pulsar ENTER fuera de turno: aviso «IT IS NOT YOUR TURN», sin romper nada; una jugada rechazada **no cambia** `LAST MOVE` ni el resaltado.
+- [ ] Al salir con `0` vuelve el menú de texto de siempre (sin restos del tablero ni colores).
+- [ ] Rebote del teclado: una tecla mantenida no repite letras.
+- [ ] La velocidad: repintar el tablero entero tras cada jugada no se nota (si parpadea, habría que repintar solo las casillas que cambian).
+
+## 2b. Una carrera corregida el 16 de octubre (jugar justo cuando el sondeo tiene una petición pendiente)
+- [ ] Jugar (o ENTER para otra partida, o `9`) en cualquier momento, también justo después de que el rival haya jugado: sin pausa de unos segundos y sin el aviso `MODEM ERROR`, y sin perder la jugada del rival. (Antes, si el envío caía entre la petición del sondeo y su recogida, el módem tiraba esa respuesta y luego se esperaba en balde: `gm_drain` en `game.inc`.)
 
 ## 3. Teclado
 - [x] Una letra o cifra que no cuadra en esa posición no entra (p. ej. `Z` o `9` como columna).

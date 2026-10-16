@@ -54,6 +54,7 @@ GM_OVER     equ GM_BASE+3
 GM_MOVE     equ GM_BASE+4       ; (2) la jugada
 GM_HASH     equ GM_BASE+6       ; (2)
 GM_TMP      equ GM_BASE+8       ; (G_STATE_LEN) estado para el resumen
+GM_NEW      equ GM_TMP+G_STATE_LEN ; (G_MOVE_LEN) la jugada que se intenta (GM_MOVE solo cambia si es legal)
 
 game_start: ld   a,(NB_SLOT)
             inc  a
@@ -66,7 +67,8 @@ game_new:   xor  a
             ld   (GM_OVER),a
             jp   g_reset
 
-game_rematch: ld a,4
+game_rematch: call gm_drain
+            ld   a,4
             ld   (NB_TX),a
             ld   a,1
             ld   (NB_LEN),a
@@ -82,6 +84,15 @@ game_turn_of: ld a,(GM_PLY)
             and  1
             inc  a
             ret
+
+; Si el sondeo (room_poll_send) ha pedido un AT+MQTTRX y aun no se ha recogido, hay que recogerlo ANTES
+; de mandar nada: el siguiente comando AT tira lo que traiga el modem (y se perderia una jugada del rival, o
+; room_poll_recv esperaria unos segundos una respuesta que ya no llega: "MODEM ERROR"). game_poll la recoge
+; y la procesa; su resultado se ignora (lo que cambie se ve al repintar).
+gm_drain:   ld   a,(V_PEND)
+            or   a
+            ret  z
+            jp   game_poll
 
 gm_ply_inc: ld   hl,(GM_PLY)
             inc  hl
@@ -109,12 +120,13 @@ gh_nc:      dec  c
             ex   de,hl
             ret
 
-game_move:  ld   (GM_MOVE),a           ; juegos de una jugada de 1 byte
+game_move:  ld   (GM_NEW),a            ; juegos de una jugada de 1 byte
             jr   gm_have
-game_move_p: ld  de,GM_MOVE         ; HL = la jugada
+game_move_p: ld  de,GM_NEW          ; HL = la jugada
             ld   bc,G_MOVE_LEN
             ldir
-gm_have:    ld   a,(GM_OVER)
+gm_have:    call gm_drain
+            ld   a,(GM_OVER)
             or   a
             jr   z,gm_o1
             ld   a,3
@@ -127,19 +139,25 @@ gm_o1:      call game_turn_of
             ret
 gm_o2:      ld   a,(GM_ME)
             ld   b,a
-            ld   hl,GM_MOVE
+            ld   hl,GM_NEW
             call g_valid
             jr   nc,gm_ok
             ld   a,1
             ret
-gm_ok:      ld   a,(GM_ME)
+gm_ok:      ld   hl,GM_NEW          ; es legal: ahora si es la ultima jugada (y la que reenvia 9)
+            ld   de,GM_MOVE
+            ld   bc,G_MOVE_LEN
+            ldir
+            ld   a,(GM_ME)
             ld   b,a
             ld   hl,GM_MOVE
             call g_apply
             call gm_ply_inc
             call g_winner
             ld   (GM_OVER),a
-game_resend: call game_hash
+            jr   gm_send
+game_resend: call gm_drain
+gm_send:    call game_hash
             ld   (GM_HASH),hl
             ld   a,1
             ld   (NB_TX),a

@@ -66,15 +66,26 @@ Sin probar en hardware (`tb_vkeys.v` solo en simulación).
 
 ## 2. Snapshots y depurador (STM32)
 
-- [ ] **`LOAD` ya no borra las páginas escritas**: un programa de varias cargas (datos desde la SD) guarda todas las páginas en el snapshot.
-- [ ] **El snapshot describe lo que se ve**: modo, `DISP_ADDR`, `ATTR_ADDR`, `DBUF` salen del estado real. Probar: programa Superfast → `POKE 2045,85` → snapshot → cargar: sigue en el modo normal, no en el alternativo.
-- [ ] Snapshot y carga con **doble buffer** activo.
-- [ ] Sonido callado mientras carga un snapshot (ya en v1.6.0; recomprobar con los AY).
+- [x] **`LOAD` ya no borra las páginas escritas**: un programa de varias cargas (datos desde la SD) guarda todas las páginas en el snapshot.
+- [x] **El snapshot describe lo que se ve**: modo, `DISP_ADDR`, `ATTR_ADDR`, `DBUF` salen del estado real. Probar: programa Superfast → `POKE 2045,85` → snapshot → cargar: sigue en el modo normal, no en el alternativo.
+- [x] Snapshot y carga con **doble buffer** activo.
+- [x] Sonido callado mientras carga un snapshot (ya en v1.6.0; recomprobar con los AY).
 - [ ] **Web del depurador**: paneles (desensamblado con breakpoints por clic, registros, pila, volcado, consola) — pendiente de probar en detalle. El teclado virtual, también en la pantalla del depurador, y la captura de pantalla ya están probados.
 - [ ] `v dir` (HiRes WRX a dirección manual): no se pudo confirmar en la v1.6.0 (no se encontró el mapa de bits).
 - [ ] Riesgos del §9 de `hw_debugger_plan.md`: parar en mitad de un `LOAD`; breakpoints `FF` que borra un `LOAD`.
 - [ ] FPGA anterior a 0.08 con el monitor cargado deja la ROM en `Z81MonWait` (comprobación opcional).
 - [ ] `LOAD *Z81` cuando hay snapshot o carga en curso, o el depurador parado: hoy contesta `0xFF` y la ROM cae al comando 70 (se quita antes de la próxima release; ver `project_remove_cmd70`).
+
+---
+
+## 2b. Regresión con los programas de prueba del repositorio (con la FPGA 0.16 y el firmware nuevo)
+
+- [ ] **`SD81TEST`** (`EXAMPLES/SD81TEST`, `SD81TEST.B81`): el menú completo, los nueve apartados. Los que más pueden notar los cambios: 1 (memoria y mapper, incluida la protección del bloque 0), 2 (ejecución MC45), 3 (puertos mapeados), 5 y 6 (vídeo y Superfast, con los 64 sprites), 8 (teclado y joystick, con el teclado virtual).
+  - **Primera pasada (16 de octubre, 19:35; MCU 2.6, FPGA 1.5, resumen `SD81TEST (1).TXT`): 19 OK y 2 FALLOS.** OK: MC45 6-7, mapper, `POKE 2045`, **interrupciones simuladas** (con el monitor), ROMLOCK, protocolo MCU, memoria sin paginar, registros del mapper, **protección del bloque 0**, velocidad de cuadros, RTC, AY, escritura en la SD, páginas de sistema, AY del MCU, reloj de la CPU, **WiFi (IP.TXT), TCP (HTTP) e hora de Internet**. **FALLAN: `01 MC45 BLOCKS 4-5` (FAIL 5) y `15 SD READ` (FAIL 4)**, y el resumen dice `ROM 0.0` (el test lee el byte de versión en `$2004`). Hipótesis: la ROM de expansión, que el MCU deja en RAM en el bloque 1, tiene unos bytes machacados (la lectura de la SD la compara con `/SYS/SDBOOST.ROM`: 4 diferencias, y el byte `$2004` a 0). El test de MC45 escribe `01 02 03 C9` en cinco puntos de los bloques 4-5, y si esos bloques apuntan a la página 1 (la ROM) en lugar de a las 4 y 5, se machaca justo ahí. Posible causa: la paginación completa (`LOAD *FULLPAG`) que se dejó puesta para `DBGTEST`. **Repetir tras apagar y encender del todo** y, si persiste, leer las pantallas de detalle del 1 y del 15 (la del 15 dice la primera dirección distinta).
+  - **Aclarado el 17 de octubre: ninguno de los dos fallos es del interface.** `15 SD READ` y `ROM 0.0`: en la placa quedaban ficheros antiguos (FPGA, ROM o firmware de la v1.6.0 de las pruebas de bisección); con los tres actuales pasa. `01 MC45 BLOCKS 4-5` (falla solo la columna `MC45 OFF`, que devuelve `0302`): **el ordenador de pruebas no es un ZX81 sino un clon de ZX80 diseñado por el usuario, con el mod M1NOT configurable en su propia ULA (selector)**; con el selector puesto, la máquina ya ejecuta código en `$8000-$BFFF` sin NOPs forzados, haga lo que haga MC45. Comprobado por el camino: `EN_MC45` sigue a `LOAD *MC45`/`STOP` al instante (sonda en `nBUSRQ`/`nBUSAK`, y lectura por la consola), `nHALT` no baja nunca con MC45 apagado, y el netlist de XST hace bien la lógica de `nHALT`. Con el selector de M1NOT quitado, el test tendría que pasar (pendiente de repetir).
+  - De paso: XST convierte las órdenes de un bit del canal de configuración (`EN_MC45`, `nMODE48K`, `FULL_PAGING`, los del depurador... y `joy_cnf`) en **latches** con la puerta en una LUT (`~CFG_RESET & orden`): avisos `Xst:737`. Funcionan, pero son frágiles; una de las sondas pareció aplicar una orden tarde. Si alguna vez una orden «no entra», pasar el decodificado a un `always @(negedge CFG_RESET)` aparte (flip-flops, como ya hace `vkeys.v`).
+- [ ] **`SIMINT`** (`inttest`, `halttest`): las interrupciones simuladas siguen bien con la FPGA 0.16 (aceptan la firma `51h` y `52h`).
+- [x] **`DBGTEST` no vale con el monitor de verdad (aclarado el 16 de octubre).** Lo que se probó en la placa y se creyó que era `SD81TEST` era `DBGTEST`: la prueba de la fase 1 del depurador, que exige el monitor de juguete. Con el monitor real, su prueba 1 (`OUT $10` a `$3FEF`, la trampa) para en el depurador con el LED magenta (`*** STOP at 0216: trap (OUT $10) (SLOW)`; con `c` sigue y acaba con `TEST1 WRONG`). Es lo esperado: **no hay ningún fallo**. El usuario lo borra de la tarjeta porque ya no tiene utilidad. `SD81TEST` y `SIMINT` siguen pendientes de probar (las dos líneas de arriba).
 
 ---
 

@@ -117,6 +117,11 @@
 //  system_clk, con tr_go sincronizado. El puntero (la entrada siguiente)
 //  se lee con los indices 7/8: el MCU lee el anillo al parar
 //
+// Revision 0.17 - Indices 13 y 14: el estado REAL de los registros de configuracion de la FPGA
+//                 (13: bit 0 MC45, 1 nMODE48K, 2 nQS_en, 3 FULL_PAGING, 4 128 caracteres, 5 256
+//                 caracteres, 6 ROMLOCK, 7 monitor cargado) y el byte bajo del registro de
+//                 desplazamiento de la orden (14: bits 3-0 la orden, bit 4 su valor), para
+//                 comparar con lo que el MCU cree haber mandado (consola: io 3FEF 0D / io 3FEF)
 // Revision 0.16 - (solo SD81.v) la orden 10 (el monitor escribe como el programa) devuelve el
 //                 comportamiento de ROM al bloque 0 aunque CP/M lo haya puesto en RAM: los POKEs de
 //                 la pantalla del depurador y de la carga de un snapshot actuan como puertos y no
@@ -214,6 +219,8 @@ module sim_int(
 	input wire [7:0] vid_status,		// estado del video (indice 9, ver la revision 0.14)
 	input wire [2:0] vid_front,			// bloque de delante del doble buffer (indice 10)
 	input wire blk0_w,					// el bloque 0 es RAM (CP/M, POKE 2056): indice 12
+	input wire [7:0] cfg_flags,			// registros de configuracion de la FPGA (indice 13)
+	input wire [7:0] cfg_raw,			// byte bajo del registro de desplazamiento de configuracion (indice 14)
 	output reg tr_go = 1'b0,			// esta M1 se apunta (desde la subida de T2 hasta su final)
 	output wire [15:0] tr_pc			// su direccion
     );
@@ -463,6 +470,8 @@ module sim_int(
 			4'd10: port_out = {5'd0, vid_front};
 			4'd11: port_out = 8'hC4;				// esta FPGA tiene los indices 9 y 10
 			4'd12: port_out = {7'b1010100, blk0_w};	// $A8 | bloque 0 en RAM (el patron dice que existe)
+			4'd13: port_out = cfg_flags;
+			4'd14: port_out = cfg_raw;
 			4'd15: port_out = 8'h52;
 			default: port_out = 8'h00;
 		endcase

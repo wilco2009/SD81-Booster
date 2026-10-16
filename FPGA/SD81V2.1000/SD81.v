@@ -337,6 +337,7 @@ module SD81(
 	reg dbg_poke = 1'b0;		// orden 10 del MCU: el monitor escribe como el programa (carga de snapshots)
 	reg dbg_dirty_clr = 1'b0;	// orden 11 del MCU: borrar las paginas escritas (mientras este a 1)
 	reg dbg_trace = 1'b0;		// orden 12 del MCU: la traza (sim_int / trace_wr)
+	wire [7:0] cfg_raw;			// byte bajo del registro de desplazamiento de configuracion (indice 14 de $3FEF)
 	wire tr_skip;				// la M1 no se apunta: video (NOP forzado) o HALT (mas abajo, junto a MC45)
 	wire tr_go;
 	wire [15:0] tr_pc;
@@ -1862,6 +1863,8 @@ assign DEBUG_RDY = 1'b0;
 		.vid_status({dbuf_en, attr_ovr_en, dfile_ovr_en, sf80_char7, sf80_en, sfSP_en, sfHR_en, sfast_mode_en}),
 		.vid_front(front_blk),
 		.blk0_w(block0Writable),
+		.cfg_flags({dbg_loaded, PORTS_LOCKED, SEL_256CHARS, SEL_128CHARS, FULL_PAGING, nQS_en, nMODE48K, EN_MC45}),
+		.cfg_raw(cfg_raw),
 		.tr_go(tr_go),
 		.tr_pc(tr_pc)
 	);
@@ -2316,6 +2319,7 @@ assign DEBUG_RDY = 1'b0;
 		reg [MAX_CFG:0] cfg_reg = 0;
 		reg [5:0] cfg_cnt;
 		wire [CMD_BITS-1:0]comm_cmd = cfg_reg[CMD_BITS-1:0];
+		assign cfg_raw = cfg_reg[7:0];
 		reg [29:0] joy_cnf = {
 			3'd4,3'd3, 
 			3'd4,3'd4, 

@@ -322,6 +322,8 @@ Z80 no hace falta estar en el monitor.
 | 10 | el bloque de delante del doble buffer (bits 2-0, `front_blk`) |
 | 11 | `C4h`: esta FPGA tiene los indices 9 y 10 (una anterior da 0). El firmware, si no lo ve, deduce el estado de los POKEs de la sombra |
 | 12 | `A8h` \| 1 si el bloque 0 es RAM (rev 0.15: `POKE 2056`, CP/M; el reset lo borra). El patrón `A8h` dice que existe (una anterior da 0). El snapshot lo usa para guardar el `POKE 2056` (sección 13.12) |
+| 13 | (rev 0.17) el estado REAL de los registros de configuración de la FPGA: bit 0 MC45 (`EN_MC45`), 1 `nMODE48K`, 2 `nQS_en`, 3 `FULL_PAGING`, 4 128 caracteres, 5 256 caracteres, 6 ROMLOCK, 7 monitor cargado (orden 9). Para diagnóstico: comparar con lo que el MCU cree haber mandado (`cfg_value`). Consola: `io 3FEF 0D` y `io 3FEF` |
+| 14 | (rev 0.17) el byte bajo del registro de desplazamiento del canal de configuración: bits 3-0 la última orden recibida, bit 4 su valor (los de encima, restos de órdenes más largas). Diagnóstico |
 | 15 | firma `52h` |
 | otros | 0 |
 

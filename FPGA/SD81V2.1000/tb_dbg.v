@@ -81,7 +81,7 @@ module tb_dbg;
 		.data_out(fpga_data), .enable_out(fpga_en), .state(si_state),
 		.enabled(si_enabled), .dbg_win(dbg_win), .dbg_mon(dbg_mon), .port_out(port_out),
 		.bram_rd(bram_rd), .bram_wr(bram_wr), .bram_ptr(bram_ptr), .bram_data(bram_data), .chroma_reg(8'h3C), .ay_sel_a(8'h0D), .ay_sel_b(8'h07), .sram_wr(1'b0), .sram_page(6'd0), .dirty_clr(1'b0),
-		.trace_en(trace), .tr_skip(skipv), .tr_ptr(tr_ptr), .vid_status(vid_st), .vid_front(vid_fr), .blk0_w(blk0_w), .tr_go(tr_go), .tr_pc(tr_pc));
+		.trace_en(trace), .tr_skip(skipv), .tr_ptr(tr_ptr), .vid_status(vid_st), .vid_front(vid_fr), .blk0_w(blk0_w), .cfg_flags(8'h5A), .cfg_raw(8'hA5), .tr_go(tr_go), .tr_pc(tr_pc));
 
 	reg [7:0] got;			// el byte que ha leido la CPU en la ultima lectura
 	reg got_fpga;			// si lo servia la FPGA
@@ -499,8 +499,10 @@ module tb_dbg;
 		io_out(16'h3FEF, 8'h0B); io_in(16'h3FEF); expect_val(port_out, 8'hC4, "indice 11: la FPGA los tiene");
 		io_out(16'h3FEF, 8'h0C); io_in(16'h3FEF); expect_val(port_out, 8'hA8, "indice 12: $A8, bloque 0 en ROM");
 		blk0_w = 1'b1; io_in(16'h3FEF); expect_val(port_out, 8'hA9, "indice 12: $A9, bloque 0 en RAM");
+		io_out(16'h3FEF, 8'h0D); io_in(16'h3FEF); expect_val(port_out, 8'h5A, "indice 13: los registros de configuracion");
+		io_out(16'h3FEF, 8'h0E); io_in(16'h3FEF); expect_val(port_out, 8'hA5, "indice 14: el registro de desplazamiento");
 		blk0_w = 1'b0;
-		io_out(16'h3FEF, 8'h0D); io_in(16'h3FEF); expect_val(port_out, 0, "indice 13: sin usar");
+		io_out(16'h3FEF, 8'h0B); io_in(16'h3FEF); expect_val(port_out, 8'hC4, "indice 11: sigue valiendo $C4");
 		io_out(16'h3FEF, 8'h00);
 
 		// --- traza (orden 12): el PC de cada instruccion del programa ---

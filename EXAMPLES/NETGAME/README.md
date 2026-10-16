@@ -20,7 +20,10 @@ Hace falta el módulo WiFi con la red configurada (`/SYS/WIFI.CFG`) y la FPGA co
   llena unos ~90 s, hasta que el broker lo detecta). Un código que nadie ha creado da `THERE IS NO SUCH ROOM`.
   **Si te sales (0/Q) puedes volver** con el mismo código en «unirse»: el programa entra en la ranura que
   esté libre, así que el creador vuelve como jugador 1 (mismo color) y el otro como jugador 2. Mientras estás
-  fuera, cualquiera con el código puede ocupar tu sitio. Si alguien se cae sin despedirse, su ranura parece
+  fuera, cualquiera con el código puede ocupar tu sitio. **Si se cayeron los dos** (por ejemplo, se corta la red
+  de los dos: el broker deja las dos presencias a `0`), la sala sigue existiendo pero vacía: el programa ofrece
+  elegir `1 = PLAYER 1 (THE CREATOR)` o `2 = PLAYER 2` (en el ajedrez, blancas o negras) y el que vuelva después
+  ya entra solo en la que queda. Si alguien se cae sin despedirse, su ranura parece
   ocupada ~90 s, hasta que el broker lo detecta.
 - **1-7** la columna donde cae la ficha. **R** reenvía la última jugada si falló la red. **Q** sale.
 - **ENTER** otra partida, cuando ha acabado (se lo dice al rival).

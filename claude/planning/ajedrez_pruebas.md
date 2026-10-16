@@ -19,22 +19,23 @@ blancas y la de Loyd acaba en tablas.
 - [x] Menú: crear sala en la 1 (sale un código de 10 caracteres), unirse en la 2 con ese código.
 - [x] Sala llena: una **tercera** instancia con el mismo código recibe «THE ROOM IS FULL» y la partida de las otras dos no se altera.
 - [x] Código mal escrito / sala que no existe: `THERE IS NO SUCH ROOM` y vuelta al menú, sin colgarse (arreglado el 16 de octubre).
-- [ ] **Salir y volver**: con `0` sal siendo el que se unió y vuelve con el mismo código (entra como jugador 2, recibe la posición). Sal siendo el creador y vuelve con «unirse» y el mismo código: entras como jugador 1 (blancas) y la partida sigue donde estaba.
+- [x] **Salir y volver**: con `0` sal siendo el que se unió y vuelve con el mismo código (entra como jugador 2, recibe la posición). Sal siendo el creador y vuelve con «unirse» y el mismo código: entras como jugador 1 (blancas) y la partida sigue donde estaba.
 - [ ] Un tercero con el código mientras uno está fuera puede ocupar su sitio (limitación conocida).
-- [ ] Sin WiFi o sin broker: mensaje de error legible.
+- [ ] **Se cayeron los dos** (cortar la red de las dos instancias, esperar a que el broker dé por caídas las dos conexiones —hasta ~90 s— y volver a unirse con el código): sale `THE ROOM IS EMPTY` y se elige `1` (blancas) o `2` (negras); el segundo que vuelve entra solo en la que queda y la partida sigue donde estaba.
+- [x] Sin WiFi o sin broker: mensaje de error legible (`NETWORK ERROR`, sin colgarse; probado el 16 de octubre).
 
-## 2. Pantalla (gráfica desde el 16 de octubre: HiRes Spectrum; hay que probarla en el emulador)
-- [ ] Al empezar la partida la pantalla pasa de texto a gráfico sin basura; el borde es negro.
-- [ ] El tablero: 8×8 casillas de 16×16 puntos, **a1 roja** (esquina de abajo a la izquierda con las blancas), alternando rojo oscuro y verde claro, todo brillante; coordenadas A-H bajo el tablero y 1-8 a la izquierda, **centradas** en cada casilla.
-- [ ] Piezas: macizas, las blancas con tinta blanca y las negras con tinta negra (dibujo de Cyrus II reducido); los seis tipos se distinguen (peón, caballo, alfil, torre, dama, rey) y las blancas se leen bien sobre el verde.
-- [ ] Blancas (quien crea la sala): abajo; negras (quien se une): el tablero **girado** (1 arriba, columnas H..A).
-- [ ] Panel de la derecha: `ROOM` y el código, `YOU ARE` + `WHITE`/`BLACK`, `LAST MOVE` y la jugada como `E2-E4` (`-----` al empezar).
-- [ ] **Resaltados**: las dos casillas de la última jugada en **magenta**; el rey en jaque, con el papel contrario a su tinta (el rey **blanco** sobre **negro**, el rey **negro** sobre **blanco**).
-- [ ] Debajo: el estado en una caja verde con letra negra (`YOUR MOVE`, `THE RIVAL IS THINKING...`, `CHECKMATE...`), el aviso en rojo si es un error, `MOVE: ` con lo tecleado y la ayuda en cian; arriba, el título en una barra amarilla.
-- [ ] Pulsar ENTER fuera de turno: aviso «IT IS NOT YOUR TURN», sin romper nada; una jugada rechazada **no cambia** `LAST MOVE` ni el resaltado.
-- [ ] Al salir con `0` vuelve el menú de texto de siempre (sin restos del tablero ni colores).
-- [ ] Rebote del teclado: una tecla mantenida no repite letras.
-- [ ] La velocidad: repintar el tablero entero tras cada jugada no se nota (si parpadea, habría que repintar solo las casillas que cambian).
+## 2. Pantalla (gráfica desde el 16 de octubre: HiRes Spectrum; probada en el emulador por el usuario el 16 de octubre; los gráficos se quedan como están)
+- [x] Al empezar la partida la pantalla pasa de texto a gráfico sin basura; el borde es negro.
+- [x] El tablero: 8×8 casillas de 16×16 puntos, **a1 roja** (esquina de abajo a la izquierda con las blancas), alternando rojo oscuro y verde claro, todo brillante; coordenadas A-H bajo el tablero y 1-8 a la izquierda, **centradas** en cada casilla.
+- [x] Piezas: macizas, las blancas con tinta blanca y las negras con tinta negra (dibujo de Cyrus II reducido); los seis tipos se distinguen (peón, caballo, alfil, torre, dama, rey) y las blancas se leen bien sobre el verde.
+- [x] Blancas (quien crea la sala): abajo; negras (quien se une): el tablero **girado** (1 arriba, columnas H..A).
+- [x] Panel de la derecha: `ROOM` y el código, `YOU ARE` + `WHITE`/`BLACK`, `LAST MOVE` y la jugada como `E2-E4` (`-----` al empezar).
+- [x] **Resaltados**: las dos casillas de la última jugada en **magenta**; el rey en jaque, con el papel contrario a su tinta (el rey **blanco** sobre **negro**, el rey **negro** sobre **blanco**).
+- [x] Debajo: el estado en una caja verde con letra negra (`YOUR MOVE`, `THE RIVAL IS THINKING...`, `CHECKMATE...`), el aviso en rojo si es un error, `MOVE: ` con lo tecleado y la ayuda en cian; arriba, el título en una barra amarilla.
+- [x] Pulsar ENTER fuera de turno: aviso «IT IS NOT YOUR TURN», sin romper nada; una jugada rechazada **no cambia** `LAST MOVE` ni el resaltado.
+- [x] Al salir con `0` vuelve el menú de texto de siempre (sin restos del tablero ni colores).
+- [x] Rebote del teclado: una tecla mantenida no repite letras.
+- [x] La velocidad: repintar el tablero entero tras cada jugada no se nota (si parpadea, habría que repintar solo las casillas que cambian).
 
 ## 2b. Una carrera corregida el 16 de octubre (jugar justo cuando el sondeo tiene una petición pendiente)
 - [ ] Jugar (o ENTER para otra partida, o `9`) en cualquier momento, también justo después de que el rival haya jugado: sin pausa de unos segundos y sin el aviso `MODEM ERROR`, y sin perder la jugada del rival. (Antes, si el envío caía entre la petición del sondeo y su recogida, el módem tiraba esa respuesta y luego se esperaba en balde: `gm_drain` en `game.inc`.)

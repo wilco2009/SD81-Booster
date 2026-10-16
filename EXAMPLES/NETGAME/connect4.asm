@@ -294,6 +294,8 @@ g3_w:       ld   (de),a
 ;  Textos (ASCII; a2z los pasa a caracteres del ZX81)
 ; ---------------------------------------------------------------------
 t_bar_code  equ 14              ; la barra del tablero: el ':' del ZX81 hace de barra vertical
+t_sides:    defm "PLAYER 1 MOVES FIRST"
+            defb 0
 t_title:    defm "NETWORK CONNECT 4"
             defb 0
 t_room:     defm "ROOM"

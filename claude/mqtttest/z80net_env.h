@@ -288,7 +288,7 @@ static int errors = 0;
 #define CHECK(c, msg) do { if (!(c)) { printf("ERROR %s\n", msg); errors++; } } while (0)
 
 static const uint16_t NB = 0x7000;
-static uint16_t EP_INIT = 24576, EP_NEW = 24579, EP_JOIN = 24582, EP_SEND = 24585, EP_POLL = 24588, EP_LEAVE = 24591,
+static uint16_t EP_JOINAS = 24600, EP_INIT = 24576, EP_NEW = 24579, EP_JOIN = 24582, EP_SEND = 24585, EP_POLL = 24588, EP_LEAVE = 24591,
                 EP_PSEND = 24594, EP_PRECV = 24597;
 static int call_ep(uint16_t ep) { if (!z80_call(ep)) { printf("ERROR el Z80 no vuelve (entrada %u)\n", ep); errors++; return -1; } if (getenv("TRACE")) printf("  => entrada %u devuelve %u (NB_RES=%u)\n", ep, z80.bc.w, mem[NB]); return z80.bc.w; }
 static std::string room_code_ascii() {

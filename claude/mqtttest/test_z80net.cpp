@@ -174,11 +174,40 @@ int main(int argc, char** argv) {
     reset_world();
     CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
     peer_publish(b4 + "/p0", "0", true);            // el creador salio (presencia retenida a '0')
-    CHECK(call_ep(EP_JOIN) == 7, "con la presencia del creador en '0' tambien: error 7");
+    CHECK(call_ep(EP_JOIN) == 8, "con la presencia del creador en '0' (se fue: la sala existio): error 8, a elegir");
     reset_world();
     CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
     peer_publish(b4 + "/p0", "1", true);            // y ahora si esta
     CHECK(call_ep(EP_JOIN) == 0 && mem[NB + 1] == 1, "con el creador presente entro");
+
+    // --- 16. la sala existio pero esta vacia: se cayeron los dos (las dos presencias a '0')
+    reset_world();
+    CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
+    std::string code7 = "CDEFGHJKMN"; std::string b7 = topic_base(code7);
+    peer_publish(b7 + "/p0", "0", true);
+    peer_publish(b7 + "/p1", "0", true);
+    set_code(code7);
+    CHECK(call_ep(EP_JOIN) == 8, "room_join a una sala vacia que existio: error 8 (hay que elegir ranura)");
+    { bool pub = false; for (auto& sn : seen) if (sn.kind == "PUBLISH") pub = true;
+      CHECK(!pub && count_seen("DISCONNECT") == 1, "sin publicar nada y cerrando bien"); }
+    reset_world();
+    CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
+    peer_publish(b7 + "/p0", "0", true);
+    peer_publish(b7 + "/p1", "0", true);
+    set_code(code7);
+    mem[NB + 1] = 0;                                // room_join_as: elijo ser el creador (ranura 0)
+    CHECK(call_ep(EP_JOINAS) == 0 && mem[NB + 1] == 0, "room_join_as 0: entro como creador");
+    c = last_seen("CONNECT");
+    CHECK(c && c->topic == b7 + "/p0", "con el will en <sala>/p0");
+    { const Seen* pp4 = last_seen("PUBLISH", b7 + "/p0");
+      CHECK(pp4 && pp4->data == "1" && pp4->retain, "y mi presencia en la ranura 0"); }
+    // y el otro, al volver, ve al creador y entra solo como el 2
+    reset_world();
+    CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
+    peer_publish(b7 + "/p0", "1", true);
+    peer_publish(b7 + "/p1", "0", true);
+    set_code(code7);
+    CHECK(call_ep(EP_JOIN) == 0 && mem[NB + 1] == 1, "el segundo en volver entra solo como el 2");
 
     // --- 15. el creador reentra: su presencia esta a '0' (se fue) y el rival sigue en la ranura 1
     reset_world();
@@ -199,7 +228,7 @@ int main(int argc, char** argv) {
     CHECK(call_ep(EP_INIT) == 0, "net_init otra vez");
     peer_publish(b6 + "/p0", "0", true);
     peer_publish(b6 + "/p1", "0", true);
-    CHECK(call_ep(EP_JOIN) == 7, "las dos a '0': la sala no existe (error 7)");
+    CHECK(call_ep(EP_JOIN) == 8, "las dos a '0': la sala existio y esta vacia (error 8)");
   }
 
   printf("  instrucciones del Z80: %ld (%.1f s a 3,25 MHz)\n", instr_total, instr_total * 5.0 / 3250000.0);

@@ -197,8 +197,8 @@ Los topics de un broker público los ve cualquiera que se suscriba a `#`. Por es
 Hay dos ranuras. `room_join` hace primero una **sonda** (16 de octubre): conecta sin *last will*, se suscribe a
 `<sala>/p0` y `<sala>/p1`, lee las presencias retenidas, cierra y entra de verdad con el *will* de la ranura
 elegida. Elige así: creador presente y la 1 libre → soy el 2; creador ausente y la 1 ocupada → **reentro como
-creador** (ranura 0, conservando el color); las dos ocupadas → error 6 (sala llena); las dos libres → error 7
-(la sala no existe; antes cualquier código servía y el que se unía a una sala inexistente quedaba como un
+creador** (ranura 0, conservando el color); las dos ocupadas → error 6 (sala llena); las dos libres sin ningún mensaje de presencia → error 7
+(nadie la ha creado; antes cualquier código servía y el que se unía a una sala inexistente quedaba como un
 jugador fantasma en la ranura 1). El coste es una conexión más al broker. Si la `p1` dice `1`, ya hay otro jugador, devuelve el error 6 y cierra la sesión con `AT+MQTTCLOSE` (una
 desconexión limpia no dispara el *last will*, así que la presencia del otro no se toca). Si dice `0` o no hay
 nada, se desuscribe, entra y publica la suya. Límites: si el otro jugador se cae sin despedirse, su `1` dura

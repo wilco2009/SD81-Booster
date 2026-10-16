@@ -38,8 +38,9 @@ NB_BASE     equ 7000h          ; RAM de trabajo de la librería (1,2 KB)
 ```
 
 Resultados: 0 bien, 1 el módem dijo ERROR, 2 plazo agotado, 3 respuesta inesperada, 4 código inválido, 5 mensaje
-demasiado largo, 6 sala llena (ya hay otro jugador en la ranura 1: no entra y no toca su presencia), 7 la sala no existe (las dos
-ranuras libres: tampoco entra ni toca ninguna presencia). `room_join` elige la ranura libre: el que llega después
+demasiado largo, 6 sala llena (ya hay otro jugador en la ranura 1: no entra y no toca su presencia), 7 la sala no existe (nadie
+la ha creado: tampoco entra ni toca ninguna presencia), 8 la sala existió pero está vacía (las dos presencias
+a `0`: hay que elegir ranura con `room_join_as`, entrada `USR 24600`, tras poner la ranura 0 o 1 en `NB_SLOT`). `room_join` elige la ranura libre: el que llega después
 de un creador es el 1, y el creador que vuelve a una sala con el rival dentro recupera la 0.
 
 Rutinas (CALL; A = resultado, también en `NB_RES`): `net_init`, `room_new`, `room_join`, `room_send`,

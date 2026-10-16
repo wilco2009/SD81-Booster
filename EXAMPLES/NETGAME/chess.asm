@@ -623,6 +623,8 @@ t_room:     defm "ROOM"
             defb 0
 t_youare:   defm "YOU ARE"
             defb 0
+t_sides:    defm "PLAYER 1 = WHITE, 2 = BLACK"
+            defb 0
 t_white:    defm "WHITE"
             defb 0
 t_black:    defm "BLACK"

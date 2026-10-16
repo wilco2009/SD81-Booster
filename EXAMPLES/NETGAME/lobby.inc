@@ -8,6 +8,7 @@
 ;      DFILE        donde esta la pantalla alternativa: 1 + 24 filas de 33 (32 caracteres y el
 ;                   NEWLINE) = 793 bytes (connect4 la pone en $8000)
 ;      t_title      el titulo (ASCII, acaba en 0)
+;      t_sides      una linea que dice que es ser el jugador 1 y el 2 (se ve al reentrar en una sala vacia)
 ;      play         lo que se ejecuta cuando ya hay sala y el rival esta (o, al unirse, al entrar)
 ;      NB_BASE, GM_BASE, UI_BASE (RAM) y G_STATE_LEN / G_MOVE_LEN, ademas de net.inc y game.inc
 ;  El lobby llama a game_start, room_new, room_join, room_leave, room_poll_send y game_poll.
@@ -205,6 +206,51 @@ jg_enter:   ld   a,(CODEN)
             ld   bc,5*256+7
             call print_at
             call room_join
+            or   a
+            jr   z,jg_ok2
+            cp   8
+            jr   z,jg_empty
+            call show_err
+            jp   menu
+jg_empty:   call cls                ; la sala existio pero esta vacia (se cayeron los dos): elegir con que ranura
+            ld   hl,t_title
+            ld   bc,ROW_TITLE*256+7
+            call print_at
+            ld   hl,t_roomempty
+            ld   bc,4*256+4
+            call print_at
+            ld   hl,t_pick
+            ld   bc,6*256+4
+            call print_at
+            ld   hl,t_pick1
+            ld   bc,8*256+4
+            call print_at
+            ld   hl,t_pick2
+            ld   bc,10*256+4
+            call print_at
+            ld   hl,t_sides         ; lo define el juego: que es ser el 1 y el 2
+            ld   bc,13*256+4
+            call print_at
+            ld   hl,t_pickq
+            ld   bc,ROW_HELP*256+4
+            call print_at
+jg_pick:    call key_wait
+            cp   'Q'
+            jp   z,menu
+            ld   b,0
+            cp   '1'
+            jr   z,jg_as
+            inc  b
+            cp   '2'
+            jr   nz,jg_pick
+jg_as:      push bc
+            call cls
+            ld   hl,t_joining
+            ld   bc,5*256+7
+            call print_at
+            pop  bc
+            ld   a,b
+            call room_join_as
             or   a
             jr   z,jg_ok2
             call show_err
@@ -509,6 +555,16 @@ t_joining:  defm "JOINING THE ROOM..."
 t_err:      defm "COULD NOT ENTER THE ROOM"
             defb 0
 t_badcode:  defm "THAT CODE IS NOT VALID"
+            defb 0
+t_roomempty: defm "THE ROOM IS EMPTY"
+            defb 0
+t_pick:     defm "ENTER AS:"
+            defb 0
+t_pick1:    defm "1 = PLAYER 1 (THE CREATOR)"
+            defb 0
+t_pick2:    defm "2 = PLAYER 2"
+            defb 0
+t_pickq:    defm "Q = BACK"
             defb 0
 t_full:     defm "THE ROOM IS FULL"
             defb 0

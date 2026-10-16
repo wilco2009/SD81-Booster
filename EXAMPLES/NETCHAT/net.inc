@@ -16,7 +16,11 @@
 ;                  de caracter del ZX81), conecta y se suscribe. Soy el 0.
 ;      room_join   entra en la sala cuyo codigo esta en NB_CODE81. Mira quien hay: si el creador
 ;                  esta y la ranura 1 libre soy el 1 (NB_SLOT); si el creador se fue y la
-;                  ranura 1 esta ocupada, vuelvo a ser el 0 (el creador reentra).
+;                  ranura 1 esta ocupada, vuelvo a ser el 0 (el creador reentra). Si la sala existio
+;                  pero esta vacia (las dos presencias a '0': se cayeron los dos), devuelve 8 y
+;                  hay que elegir ranura con room_join_as.
+;      room_join_as  igual que room_join, pero entrando en la ranura A (0 = el creador, 1 = el otro),
+;                  sin mirar quien hay: para el 8 de room_join.
 ;      room_send   manda NB_LEN bytes (0-100) de NB_TX con el turno NB_TURN.
 ;      room_poll   mira si ha llegado algo: A = 0 nada, 1 mensaje (NB_RX,
 ;                  NB_LEN, NB_TURN), 2 el rival entro, 3 el rival salio,
@@ -29,8 +33,8 @@
 ;  Resultados de las demas (A): 0 bien, 1 el modem dijo ERROR, 2 plazo
 ;  agotado, 3 respuesta inesperada, 4 codigo de sala invalido, 5 mensaje
 ;  demasiado largo, 6 la sala esta llena (room_join: ya hay otro jugador en la
-;  ranura 1), 7 la sala no existe (room_join: ni el creador ni nadie esta en ella). En los dos
-;  ultimos casos no se llega a entrar: se cierra la sesion sin tocar la presencia.
+;  ranura 1), 7 la sala no existe (room_join: nadie la ha creado), 8 la sala existio pero esta
+;  vacia (room_join: hay que elegir ranura con room_join_as). En 6, 7 y 8 no se llega a entrar: se cierra la sesion sin tocar la presencia.
 ;
 ;  REGLAS DEL MCU: C es el reloj del handshake y A no sobrevive a
 ;  mcu_send (claude/planning/net_bridge_emulator.md).
@@ -833,9 +837,16 @@ rp_decide:  ld   a,(V_P0)
             jr   rp_end
 rp_nocr:    ld   a,(V_P1)
             cp   '1'
-            ld   a,7                ; ninguna: nadie ha creado esa sala
-            jr   nz,rp_end
-            xor  a                  ; el rival esta y el creador no: vuelvo a ser el creador
+            jr   z,rp_re0           ; el rival esta y el creador no: vuelvo a ser el creador
+            ld   a,(V_P0)           ; ninguna ocupada: sin ningun mensaje de presencia (ni siquiera un '0'
+            ld   b,a                ; de los que se dejan al salir) es que nadie la ha creado
+            ld   a,(V_P1)
+            or   b
+            ld   a,7
+            jr   z,rp_end
+            ld   a,8                ; existio y esta vacia: que el usuario elija ranura (room_join_as)
+            jr   rp_end
+rp_re0:     xor  a
             ld   (NB_SLOT),a
 rp_end:     push af
             xor  a
@@ -904,6 +915,13 @@ room_join:  ld   a,1
             or   a
             jr   nz,set_res
             call room_go_d          ; y entro de verdad, con el will de mi ranura
+            jp   set_res
+
+; entra en la ranura A (0 = el creador, 1 = el otro) sin sonda: para el caso 8 de room_join
+room_join_as: ld  (NB_SLOT),a
+            call code_from_81
+            jr   nz,set_res
+            call room_go
             jp   set_res
 
 room_leave: ld   a,'0'

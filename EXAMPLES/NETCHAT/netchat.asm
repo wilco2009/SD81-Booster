@@ -34,6 +34,7 @@ t_poll:     jp   e_poll
 t_leave:    jp   e_leave
 t_psend:    jp   e_psend            ; 24594: manda la pregunta y vuelve
 t_precv:    jp   e_precv            ; 24597: recoge la respuesta
+t_joinas:   jp   e_joinas           ; 24600: como join, en la ranura que haya en NB_SLOT (POKE) 0 o 1
 
 ; Cada entrada llama a la rutina de la libreria y devuelve el resultado en BC (LET R=USR ...). Funciona en SLOW
 ; y en FAST: no hace falta cambiar de modo.
@@ -53,6 +54,9 @@ e_leave:    ld   hl,room_leave
 e_psend:    ld   hl,room_poll_send
             jr   run
 e_precv:    ld   hl,room_poll_recv
+            jr   run
+e_joinas:   ld   a,(NB_SLOT)
+            ld   hl,room_join_as
 run:        call jp_hl
             ld   c,a                ; USR devuelve BC
             ld   b,0

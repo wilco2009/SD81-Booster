@@ -367,6 +367,27 @@ int main(int argc, char** argv) {
     CHECK(cell(4, 4, true) == 'p', "y el peon negro esta en e5");
   }
 
+  // --- se cayeron los dos (presencias a '0'): la sala existe pero esta vacia; se elige con que ranura entrar
+  press('0');
+  CHECK(wait_text("1 = NEW GAME", 30000), "0: vuelvo al menu");
+  seen.clear(); retained.clear(); filters.clear(); has_will = false;
+  {
+    std::string code9 = "BCDEFGHJKM"; std::string b9 = topic_base(code9);
+    peer_publish(b9 + "/p0", "0", true);
+    peer_publish(b9 + "/p1", "0", true);
+    press('2');
+    CHECK(wait_text("TYPE THE ROOM CODE", 3000), "unirse: pide el codigo");
+    type(code9.c_str());
+    press(ENTER);
+    CHECK(wait_text("THE ROOM IS EMPTY", 40000) && shows("1 = PLAYER 1") && shows("PLAYER 1 = WHITE, 2 = BLACK"), "sala vacia: se ofrece elegir ranura");
+    bool pub = false; for (auto& sn : seen) if (sn.kind == "PUBLISH") pub = true;
+    CHECK(!pub, "sin publicar nada mientras se elige");
+    press('1');
+    CHECK(wait_text("YOUR MOVE", 40000) && shows("WHITE"), "elijo ser el jugador 1: blancas, me toca");
+    const Seen* pp = last_seen("PUBLISH", b9 + "/p0");
+    CHECK(pp && pp->data == "1" && pp->retain, "con mi presencia en la ranura 0");
+  }
+
   printf("  instrucciones del Z80: %ld\n", instr_total);
   if (errors) printf("%d ERRORES\n", errors); else printf("TODO OK\n");
   return errors ? 1 : 0;

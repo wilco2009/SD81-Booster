@@ -27,7 +27,7 @@ Orden recomendado: 1 → 2 → 3 (lo que ya se probó parcialmente y puede rompe
 
 ### Ya comprobado el 15 de octubre
 - [x] Con `firmware.bin` compilado con el FQBN del IDE (`usb=CDCgen`...), el ESP32 conecta al WiFi y `LOAD *VER` da la ROM bien (1.7). El primer intento, compilado sin `usb=CDCgen`, rompió el enlace con el ESP32 (el `Serial` de depuración y el `Serial1` del ESP32 eran la misma USART1); la ROM 0.0 de ese intento no se ha explicado, pero desapareció con el binario correcto.
-- [ ] **Autoactualización del ESP32 desde la SD** (`ESP32_FW.BIN` en la raíz): con el STM32 bueno, ¿termina antes de 60 s y borra el fichero (LED verde)? Mide cuánto tarda; el plazo de 60 s del STM32 es total y puede quedarse justo con 1,3 MB (ver el análisis del 15 de octubre).
+- [x] **Autoactualización del ESP32 desde la SD** (probada el 17 de octubre: **36 s**, dentro del plazo de 60 s; antes no terminaba porque se paraba la comunicación con el STM32 y no llegaba a grabar el fichero que marca el fin): (`ESP32_FW.BIN` en la raíz): con el STM32 bueno, ¿termina antes de 60 s y borra el fichero (LED verde)? Mide cuánto tarda; el plazo de 60 s del STM32 es total y puede quedarse justo con 1,3 MB (ver el análisis del 15 de octubre).
 
 ---
 

@@ -4,23 +4,26 @@ Lista viva (empezada el 14 de octubre de 2026). Se tacha lo que se hace en los d
 (`MANUAL/ES/SD81_Manual_ES.docx` y `MANUAL/EN/SD81_Manual_EN.docx`: docx primero, ver la nota de memoria
 `reference_manual_docx`). Cada punto lleva dónde iría y de qué depende.
 
-## Falta del todo
+## Hecho el 17 de octubre de 2026 (ES y EN, `.docx` y `.md`)
 
-| # | Qué | Dónde | Depende de |
-|---|---|---|---|
-| 1 | **Comandos AT genéricos de red** del módulo WiFi: `AT+MQTT`, `MQTTID`, `MQTTWILL`, `MQTTSUB`, `MQTTUNSUB`, `MQTTPUB` (datos crudos tras `>`), `MQTTRX`, `MQTT?`, `MQTTCLOSE`, `AT+SHA256`, `AT+HMAC`, `AT+RAND`, con la cola de 8 mensajes, los códigos de error y los estados. Fuente: `juego_en_red.md` §3 y `emulador_pendiente.md` §5 | Apéndice nuevo para programadores (junto al de la terminal telnet) y una línea en 9.7 (módulo WiFi); la tabla de comandos del puente (`NET_READ`/`NET_WRITE`, comandos 66/67) lo cita | **Ya se puede redactar** (17 de octubre): el uso básico se ejerce con los juegos en red en la placa. TLS, usuario/contraseña, QoS 1, retenidos y testamento no se han probado: decirlo en el texto |
-| 2 | **`/SYS/NET.CFG`**: formato (`broker host puerto [tls]`, `#` comentarios, máximo 6) y los tres brokers por defecto | mismo apéndice; si se decide llevar un `NET.CFG` de ejemplo en SD Content, también 9.7 | decidir si va en SD Content (por ahora no hace falta: sin fichero se usan los de siempre) |
-| 3 | **Juegos por turnos en red** (salas, código de sala, qué se publica en el broker) y la **librería `net.inc` / el chat `NETCHAT`** (EXAMPLES/NETCHAT, para quien programe juegos y para probar la red entre dos ZX81). La librería ya existe, y los dos primeros juegos (el 4 en raya y el ajedrez, `EXAMPLES/NETGAME`) también: **probados en el emulador y en la placa (17 de octubre)** | apéndice nuevo o sección propia; `NETCHAT` en Software.zip (SD81/TOOLS) | **ya se puede redactar**; capa C de `juego_en_red.md` |
+| # | Qué se hizo | Dónde quedó |
+|---|---|---|
+| 1, 2 | Comandos AT de red (MQTT, SHA-256, HMAC, aleatorios), estados y errores, `/SYS/NET.CFG` | Apéndice M nuevo (Red para programadores) |
+| 3 | Juegos por turnos en red: cómo se juega (sala, código, volver, sala llena, relojes), el 4 en raya, el ajedrez, NETCHAT; y la librería `net.inc` / el controlador `game.inc` | sección **9.9** (usuario) y Apéndice M (programadores) |
+| 4 | `snap` guarda las mapeadas más las escritas desde el último reset; `snap -a`, todas | Apéndices K y L |
+| 5 | CP/M y el depurador | subsección «CP/M y el depurador» al final del Apéndice I, y una limitación en el L |
+| 6 | `LOAD *Z81` sin el comando 70: exige el monitor; sin él, informe P | 7.7 (texto y aviso), sección 14 (fila P), tabla de comandos del MCU (el 70 pasa a ser el 75) |
+| 7 | Web del depurador: abrirla con la IP, aviso rojo, botones Symbols y Trace, `sym !`, símbolos que no se releen solos | Apéndice L (Desde el navegador, Símbolos y la tabla de la consola) |
+| 8 | `ESP32FW.BIN` (sin guion bajo), compatibilidad con módulos viejos y actualización conjunta | 9.7 |
 
-## Está, pero hay que corregirlo
+## Pendiente
 
-| # | Qué | Dónde | Detalle |
-|---|---|---|---|
-| 4 | **Qué guarda `snap`** | "Snapshots desde el depurador" (Apéndice L) y 7.7 | Dice "por defecto solo se guardan las páginas mapeadas; `snap -a` guarda las 64". Lo cierto: las **mapeadas más las que el programa ha escrito desde el último reset** (menos la 63); `snap -a` guarda todas. Y `LOAD` ya no borra las escritas, así que un programa de varias cargas (datos desde la SD) las acumula |
-| 5 | **CP/M y el depurador** | Apéndice I (CP/M) y Apéndice L | Con CP/M (`POKE 2056`) los POKEs de control y los sprites están apagados y el bloque 0 es RAM. La pantalla del depurador (QS más de 1 s) y la carga/guardado de snapshots de CP/M funcionan; decir qué se ve y qué no. **Probado en la placa el 15 de octubre: ya se puede redactar** |
-| 6 | **`LOAD *Z81` sin el comando 70** | 7.7 y el texto "Sin el depurador se restauran como los de…" | **El 70 ya se quitó (17 de octubre).** `LOAD *Z81` exige `/SYS/DEBUG.BIN` y que el depurador no esté parado ni haya un snapshot o una carga en curso; si no, da el **informe P** y no carga nada (añadir P a la tabla de códigos de error, sección 14). Reescribir el aviso «Sin el depurador se restauran como los de EightyOne»: ya no se restauran de ninguna forma. Ver `project_remove_cmd70` |
-| 7 | **Teclado virtual y captura de pantalla de la web** | Apéndice L (ya hay un párrafo) | **Probados en la placa el 15 de octubre**: quitar cualquier "no probado"; decir que se abre mejor con la **IP** del módulo (la resolución de `sd81booster.local` en el navegador puede tardar 10-30 s por operación); comprobar que ES y EN dicen lo mismo |
-| 8 | **El archivo de actualización del ESP32 pasa a llamarse `ESP32FW.BIN`** (sin guion bajo, antes `ESP32_FW.BIN`; 17 de octubre) | 9.7 / actualización del módulo WiFi (ES: «Copia el archivo ESP32_FW.BIN…», EN: «Copy the ESP32_FW.BIN file…») y `FIRMWARE/README_update.md` / `_ES.md` (ya cambiados) | Cambiar el nombre en los dos manuales. Decir que un módulo WiFi anterior a esta versión se actualiza igual con el zip (el STM32 nuevo le sirve el fichero con el nombre viejo), pero que, si en el mismo arranque se actualizan también el firmware y la FPGA, el módulo viejo no espera y se actualiza en el arranque siguiente |
+- **El 4 en raya con interfaz gráfica** (se hace antes de la release): cuando esté, actualizar 9.9 (cómo se ve, teclas) y, si
+  se quiere, poner su captura como la del ajedrez.
+- **Fila nueva en el historial de versiones** (sección 19, ES y EN) al preparar la release, con la versión de cada parte.
+- El MQTT avanzado (TLS, usuario y contraseña, QoS 1, retenidos, testamento) **no se ha probado en la placa**: el Apéndice M
+  lo describe tal como está implementado.
+- Los comandos 68, 69 y 71-74 del MCU no están en la tabla de comandos de la sección 15 (ROMLOCK, `fcreate` y el depurador).
 
 ## Para cada release
 

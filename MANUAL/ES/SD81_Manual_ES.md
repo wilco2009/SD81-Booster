@@ -104,6 +104,8 @@ Versión 1.0
 
 [9.8 Terminal telnet --- TELNET](#terminal-telnet-telnet)
 
+[9.9 Juegos por turnos en red](#juegos-por-turnos-en-red)
+
 [10. Sonido](#sonido)
 
 [10.1 Comando PLAY --- Música con el chip AY](#comando-play-música-con-el-chip-ay)
@@ -364,6 +366,8 @@ Versión 1.0
 
 [Mapa de memoria de CP/M 3 (resumen)](#mapa-de-memoria-de-cpm-3-resumen)
 
+[CP/M y el depurador](#cpm-y-el-depurador)
+
 [Apéndice J --- El explorador de archivos](#apéndice-j-el-explorador-de-archivos)
 
 [Arranque](#arranque)
@@ -477,6 +481,22 @@ Versión 1.0
 [Para programadores: la trampa OUT](#para-programadores-la-trampa-out)
 
 [Limitaciones](#limitaciones)
+
+[Apéndice M --- Red para programadores: MQTT y juegos por turnos](#apéndice-m-red-para-programadores-mqtt-y-juegos-por-turnos)
+
+[Comandos MQTT](#comandos-mqtt)
+
+[Resumen criptográfico y números aleatorios](#resumen-criptográfico-y-números-aleatorios)
+
+[Los servidores: /SYS/NET.CFG](#los-servidores-sysnet.cfg)
+
+[Estados y errores](#estados-y-errores)
+
+[Salas y mensajes de los juegos](#salas-y-mensajes-de-los-juegos)
+
+[La librería net.inc y el controlador game.inc](#la-librería-net.inc-y-el-controlador-game.inc)
+
+[Probarlo a mano](#probarlo-a-mano)
 
 *Al abrir el documento, haz clic derecho sobre el índice y selecciona «Actualizar campo» para ver los números de página.*
 
@@ -911,7 +931,7 @@ El comando LOAD \*Z81 restaura un snapshot en formato .Z81 guardado con el emula
 
 > LOAD \*Z81 \"JUEGO.Z81\"
 
-El nombre debe incluir la extensión .Z81 y admite rutas, igual que LOAD FAST. Además de la memoria y los registros, se restauran el estado de las NMI, el modo WRX, el generador de caracteres (64, 128 o 256) y el color Chroma81 (RAM de color y modo), si el snapshot los incluye; lo que no aparezca en el fichero se deja como estaba. Si el fichero no existe o no es un snapshot válido, el comando termina con error.
+El nombre debe incluir la extensión .Z81 y admite rutas, igual que LOAD FAST. Además de la memoria y los registros, se restauran el estado de las NMI, el modo WRX, el generador de caracteres (64, 128 o 256) y el color Chroma81 (RAM de color y modo), si el snapshot los incluye; lo que no aparezca en el fichero se deja como estaba. Si el fichero no existe o no es un snapshot válido, el comando termina con error. Los snapshots se cargan con el depurador por hardware (Apéndice L): hace falta el monitor /SYS/DEBUG.BIN en la tarjeta SD (viene en SD Content), y el comando no se puede usar con el programa parado en el depurador ni mientras se graba o se carga otro snapshot. En esos casos termina con el error P y no se carga nada.
 
 Sirve también para programas que no arrancan bien con el interface conectado: se guarda en el emulador un snapshot con el programa ya en marcha y se carga directamente, sin pasar por su código de arranque. El explorador de archivos (Apéndice J) carga los .Z81 con este comando.
 
@@ -919,7 +939,7 @@ No uses LOAD FAST con un fichero .Z81: al no ser una extensión reconocida (ver 
 
 |  |  |
 |:----:|------------------------------------------------------------------|
-| **⚠** | *Los snapshots de EightyOne se restauran tal como los ve el Z80 (de 8K a 64K). Los que graba el propio SD81 Booster (ver Apéndice L) guardan además las páginas de la RAM extendida y su asignación, los POKEs de control, el sonido y el estado del interface, y LOAD \*Z81 los restaura enteros cuando el depurador está cargado (/SYS/DEBUG.BIN). Sin el depurador se restauran como los de EightyOne.* |
+| **⚠** | *Los snapshots de EightyOne se restauran tal como los ve el Z80 (de 8K a 64K). Los que graba el propio SD81 Booster (ver Apéndice L) guardan además las páginas de la RAM extendida y su asignación, los POKEs de control, el sonido y el estado del interface, y LOAD \*Z81 los restaura enteros cuando el depurador está cargado (/SYS/DEBUG.BIN). Sin el depurador no se puede cargar ningún snapshot (error P).* |
 
 # 8. Gestión de archivos y directorios
 
@@ -1289,7 +1309,11 @@ También puedes editar esta configuración, y forzar una sincronización inmedia
 
 **Actualización del firmware del módulo WiFi:**
 
-El módulo WiFi puede actualizar su propio firmware desde la SD, sin necesidad de conectarlo a un ordenador. Copia el archivo ESP32_FW.BIN (disponible en el repositorio del proyecto) en la raíz de la SD --- por ejemplo subiéndolo con el propio servidor de archivos --- y reinicia el interface.
+El módulo WiFi puede actualizar su propio firmware desde la SD, sin necesidad de conectarlo a un ordenador. Copia el archivo ESP32FW.BIN (disponible en el repositorio del proyecto) en la raíz de la SD --- por ejemplo subiéndolo con el propio servidor de archivos --- y reinicia el interface.
+
+El nombre llevaba un guion bajo hasta la versión 1.6 (ESP32_FW.BIN). El ZX81 no tiene ese carácter, así que un archivo que se hubiera quedado a medias no se podía borrar desde el propio ZX81. Un módulo WiFi anterior sigue buscando el nombre antiguo, pero el interface actualizado le entrega este mismo archivo: no hace falta renombrarlo.
+
+Se puede actualizar todo de una vez: copia firmware.bin, sd81.mcs y ESP32FW.BIN a la SD y enciende. El módulo nuevo espera hasta 2 minutos a que el interface termine de actualizarse y entonces se actualiza él. Un módulo anterior a la 1.7 solo espera 15 segundos: si en ese mismo arranque se actualizan también el firmware y la FPGA, no llega a verlo y se actualizará en el arranque siguiente (el archivo se queda en la SD).
 
 Durante la actualización, el LED STAT parpadea en rosa. Si termina con éxito, pasa a verde fijo. Si el proceso falla, el LED se queda en amarillo fijo --- vuelve a intentarlo copiando de nuevo el archivo.
 
@@ -1332,6 +1356,48 @@ La terminal funciona como un módem Hayes: los comandos AT se teclean en la prop
 | **SHIFT + 5/6/7/8** | Flechas izquierda, abajo, arriba y derecha: envían las secuencias ANSI ESC \[ D/B/A/C, que es lo que entienden las BBS. |
 
 El teclado es el mismo que el de CP/M (ver la tabla de teclado de CP/M en el Apéndice I), salvo las flechas. Con el eco local activado, los códigos de control se muestran como \^X (\^\[ es ESC y \^C es CTRL + C). La terminal contesta a la negociación telnet del servidor aceptando solo ECHO y SUPPRESS-GO-AHEAD, así que las BBS no muestran caracteres extraños al conectar. Usa la memoria de los bloques 4 y 5 (\$8000-\$97FF) para la pantalla, los colores y la fuente.
+
+## 9.9 Juegos por turnos en red
+
+Con el módulo WiFi (9.7), dos SD81 Booster pueden jugar por turnos por internet, cada uno en su casa y sin ningún servidor propio: los dos interfaces se conectan como clientes a un buzón público (un servidor MQTT) y se mandan en él las jugadas. Hay dos juegos, el 4 en raya (CONNECT4) y el ajedrez (CHESS), y un chat de prueba (NETCHAT). Están en Software.zip, en las carpetas SD81/TOOLS/CONNECT4, CHESS y NETCHAT. Copia la carpeta del juego a la SD y carga su programa .P, que es un cargador pequeño: lee del mismo directorio el .BIN con el juego, así que los dos archivos tienen que estar juntos.
+
+Hace falta el módulo WiFi con la red configurada (/SYS/WIFI.CFG, ver 9.7), la FPGA con los modos Superfast. No hace falta el monitor del depurador.
+
+**Empezar una partida:**
+
+- Partida nueva (1): el programa crea una sala y enseña su código, de 10 caracteres. Díselo al rival por cualquier medio. Quien crea la sala es el jugador 1: en el 4 en raya empieza, y en el ajedrez juega con las blancas.
+
+- Unirse (2): teclea el código que te han dado (SHIFT+0 borra) y ENTER. Eres el jugador 2.
+
+- Una sala admite dos jugadores. Un tercero que teclee el código ve THE ROOM IS FULL y no puede entrar; un código que nadie ha creado da THERE IS NO SUCH ROOM.
+
+- Si sales del juego (0 o Q) o se corta la red, puedes volver con el mismo código desde «unirse»: recuperas tu sitio y la partida sigue donde estaba. Si se cayeron los dos, la sala queda vacía y el programa te deja elegir con qué jugador vuelves. Si alguien se cae sin despedirse, su sitio parece ocupado durante uno o dos minutos, hasta que el servidor se da cuenta.
+
+- No hace falta que los dos estén conectados a la vez: si el rival no está, su última jugada espera en el buzón y la recibes al volver.
+
+- Al acabar la partida, ENTER propone otra al rival.
+
+**4 en raya:**
+
+Las teclas 1 a 7 sueltan la ficha en esa columna. R reenvía la última jugada, por si falló la red. Q sale.
+
+**Ajedrez:**
+
+La partida se dibuja en alta resolución (Superfast HiRes Spectrum): tablero de 8×8 casillas con sus coordenadas, la última jugada resaltada en magenta, el rey en jaque resaltado, y un panel con la sala, tu color y el estado. Cada uno ve el tablero desde su lado: las negras lo ven girado. Una jugada se teclea con la casilla de origen y la de destino, por ejemplo E2 E4, y ENTER; una tecla que no cuadra en esa posición no entra, y SHIFT+0 borra la última. Para coronar, una quinta letra elige la pieza (Q dama, R torre, B alfil, N caballo); sin ella, dama. 9 reenvía la última jugada y 0 sale. Se aplican todas las reglas salvo la triple repetición: enroque, captura al paso, coronación, jaque, mate, ahogado, material insuficiente y la regla de las 50 jugadas.
+
+![](media/image6.png){width="2.6666666666666665in" height="2.0in"}
+
+*Ajedrez: la posición inicial (captura de la pantalla real, a su tamaño).*
+
+**Relojes del ajedrez:**
+
+Al crear la sala eliges el tiempo de cada jugador: sin reloj, 5, 10, 15 o 30 minutos, sin incremento. El otro jugador lo hereda al teclear el código (va en su primera letra: A sin reloj, B 5 minutos, C 10, D 15, E 30). Los dos relojes salen en el panel; el del jugador que mueve, en amarillo y, con 30 segundos o menos, en rojo. Quien se queda sin tiempo pierde (TIME OUT).
+
+**Chat de prueba (NETCHAT):**
+
+Un chat mínimo para probar la red entre dos interfaces: uno elige sala nueva, el otro se une con el código, S envía una línea y Q sale.
+
+Nota: las jugadas viajan sin cifrar por un servidor MQTT público, firmadas con una clave que sale del código de la sala. Eso impide que un extraño meta jugadas, pero no las oculta: no mandes nada sensible. Para programar tu propio juego, ver el Apéndice M.
 
 # 10. Sonido
 
@@ -2088,6 +2154,7 @@ Cuando se produce un error, el ZX81 muestra un código en la parte inferior de l
 | **L** | Nombre de archivo demasiado largo o con caracteres no permitidos. |
 | **M** | El directorio no está vacío (al intentar eliminar con \*RD). |
 | **N** | Permiso denegado o archivo protegido contra escritura. |
+| **P** | No se pudo cargar: un archivo .B81 con errores (el detalle, con LOAD THEN PRINT \"\*B81ERR\"), o un snapshot .Z81 sin el depurador (falta /SYS/DEBUG.BIN), con el depurador parado o con un snapshot en curso. |
 
 |  |  |
 |:----:|------------------------------------------------------------------|
@@ -2279,7 +2346,7 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 ### Comandos de sistema de archivos
 
 | **Cód.** | **Nombre** | **Parámetros** | **Respuesta** | **Descripción** |
-|------|------------|----------------|---------------------------|-------------|
+|------|------------|----------------|--------------------------|--------------|
 | **2** | **PWD** | **---** | **String + EOT + status** | **Devuelve el directorio actual en codificación ZX81.** |
 | 3 | CD | String: ruta | Status | Cambia el directorio actual. Admite rutas absolutas (/) y relativas. |
 | 4 | DEL | String: archivo | Status | Borra un archivo del directorio actual. Sin comodines. |
@@ -2303,7 +2370,7 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 | 56 | F_WRITE | Handle(0..3)+Count(2B Little Endian)+info to write (count bytes) | 1B:status | escribe count bytes. |
 | 57 | F_CLOSE | Handle(0..3) | 1B:status | Cierra el fichero |
 | 59 | F_STAT | Handle(0..3) | 4B:tamaño+2B:fecha+2B:hora+1B:status | Devuelve el tamaño (32 bits) y la fecha/hora de creación (formato FAT) de un fichero ya abierto con F_OPEN. |
-| 70 | LOAD_Z81 | String: nombre | 2B dirección + 2B longitud + 30B registros + N bytes de memoria + 2B longitud de color + color + 5B modos + Status | Carga un snapshot .Z81 de EightyOne para LOAD \*Z81 (ver 7.7). El RLE del fichero llega ya expandido. |
+| 75 | LOAD_Z81 | String: nombre | Status (1B) + IM (1B) | LOAD \*Z81 (ver 7.7), por el monitor del depurador (Apéndice L). El MCU lee el fichero entero antes de contestar: Status 0 = la ROM lanza la trampa y el MCU lo carga todo al parar; 1 no existe el fichero, 2 sin \[MEMORY\], 3 fichero mal hecho, 10 no se puede ahora (sin /SYS/DEBUG.BIN, depurador parado o snapshot en curso). IM es el modo de interrupción del snapshot. Hasta la 1.6 el comando 70 era un cargador propio, sin monitor; se quitó. |
 
 ### Comandos de control del hardware
 
@@ -3507,7 +3574,7 @@ BORDER n, con n de 0 a 7 (color normal) o de 8 a 15 (mismo color brillante, suma
 
 ## Tabla de teclado de CP/M
 
-![](media/image6.png){width="5.5in" height="2.4287128171478565in"}
+![](media/image7.png){width="5.5in" height="2.4287128171478565in"}
 
 Las teclas ENTER+8 y ENTER+9 se rotulan por su función (LOG, ECO) en vez de por el código de control que mandan (\$1E, \$1C): son las que usa TERM para su propio menú.
 
@@ -3563,6 +3630,12 @@ Además, SHIFT+ENTER y luego una letra da \^A-\^Z (letra AND \$1F), y SHIFT+ENTE
 | **\$E000-\$FFFF** | Común a los dos contextos: el SCB (\$FE00), la tabla pública de llamadas al BIOS (\$FF00), y el resto del estado que tiene que verse igual desde ambos lados |
 
 El tamaño exacto de la TPA depende de la configuración final del sistema; se puede consultar arrancando y mirando el mensaje inicial de CP/M 3 (Banked memory, NN.NK TPA).
+
+## CP/M y el depurador
+
+El depurador por hardware (Apéndice L) funciona con CP/M. Pulsa el botón QuickSilva entre 1 y 3 segundos y aparece su pantalla; S, O, U y C ejecutan paso a paso o siguen, y volver a pulsar el botón también sigue. Con CP/M el bloque 0 (\$0000-\$1FFF) es RAM de CP/M, así que los sprites y los POKEs de control, que viven en ese bloque, no existen mientras CP/M está en marcha. Mientras el depurador está en pantalla, el bloque 0 vuelve a comportarse como la ROM de siempre y no se toca la RAM de CP/M: al seguir, todo está como estaba.
+
+Los snapshots también valen: el botón QuickSilva más de 3 segundos (o snap en la consola) guarda el estado de CP/M y LOAD \*Z81 lo restaura. El historial (th) sigue apuntando las instrucciones aunque el bloque 0 sea RAM.
 
 # Apéndice J --- El explorador de archivos
 
@@ -4021,7 +4094,7 @@ Los números son hexadecimales. Se admiten programas en modo **SLOW** y **FAST**
 
 ### Snapshots desde el depurador
 
-snap escribe un fichero .Z81 en la tarjeta SD (el nombre por defecto es el del último programa cargado). Cárgalo con LOAD \*Z81, con **File → Load Snapshot...** o en la placa real. Por defecto solo se guardan las páginas mapeadas; snap -a guarda las 64.
+snap escribe un fichero .Z81 en la tarjeta SD (el nombre por defecto es el del último programa cargado). Cárgalo con LOAD \*Z81, con File → Load Snapshot... o en la placa real. Por defecto se guardan las páginas asignadas a algún bloque y las que el programa ha escrito desde el último reset; snap -a guarda las 64.
 
 ## Línea de comandos y opciones del INI
 
@@ -4126,7 +4199,7 @@ Se graba en la carpeta actual con el nombre del último programa cargado y un n�
 
 > snap \[-a\] \[NOMBRE\]
 
-Con -a se guardan todas las páginas de la RAM extendida, no solo las que usa el programa. Para volver a cargarlo, LOAD \*Z81 \"NOMBRE.Z81\" (ver 7.7), el explorador de archivos o L en la pantalla del depurador.
+Por defecto se guardan las páginas de la RAM extendida que están asignadas a algún bloque y las que el programa ha escrito desde el último reset (la 63, la del depurador, nunca). Un LOAD no borra la cuenta, así que un programa que carga sus datos desde la SD en varias tandas conserva todo. Con -a se guardan las 64 páginas. Para volver a cargarlo, LOAD \*Z81 \"NOMBRE.Z81\" (ver 7.7), el explorador de archivos o L en la pantalla del depurador.
 
 ## La consola USB
 
@@ -4146,7 +4219,7 @@ Conectando el USB-C a un PC y abriendo un terminal serie (ver 15.4), todo lo ant
 | **snap \[-a\] \[nombre\]** | Snapshot. |
 | **t \[n\] / th \[n\]** | Traza lenta / ver las últimas instrucciones. |
 | **tron / troff** | Historial encendido / apagado. |
-| **sym \[fichero \| -\]** | Cargar / quitar los símbolos. |
+| **sym \[fichero \| ! \| -\]** | Cargar / releer / quitar los símbolos. |
 | **ui** | Pantalla del depurador en el ZX81, sí / no. |
 | **v / v dir** | Con el programa parado, ver su pantalla en Superfast texto / su mapa de bits WRX en dir. |
 
@@ -4154,13 +4227,17 @@ Conectando el USB-C a un PC y abriendo un terminal serie (ver 15.4), todo lo ant
 
 Con el módulo WiFi (ver 9.7), la página http://dirección-IP/debug, enlazada desde el servidor de ficheros como Debugger, muestra el depurador en paneles: desensamblado (clic en el margen para poner o quitar un punto de ruptura, doble clic en una línea para ejecutar hasta ella), registros y flags (clic para cambiar un registro), puntos de ruptura y de vigilancia, pila, volcado de memoria (clic en un byte para cambiarlo) y una consola con las mismas órdenes que la USB. Hace falta actualizar a la vez el firmware del MCU y el del módulo WiFi. Debajo de los paneles, Captura de pantalla (el botón Capture) dibuja en el navegador la imagen que el ZX81 está mostrando: para el programa un instante (del orden de décimas de segundo, según el modo), lee de la memoria de vídeo lo necesario y lo deja seguir. Es una foto, no vídeo: la velocidad del enlace no da para más. Dibuja el ZX81 nativo, el texto Superfast de 32, 70 y 80 columnas, HiRes y Spectrum, con el color de Chroma81, el scroll fino y los sprites (con su límite de 12 por línea, salvo en 70 y 80 columnas, donde los sprites no están implementados). Con el programa ya parado, la captura no lo hace seguir. Los modos que no reconoce, como WRX con la fuente en I, no los dibuja. El borde es el del Chroma81; con el modo Spectrum no se conoce y se dibuja igual. La orden cap de la consola hace la captura sin web (solo para probar). Si el programa usa un D_FILE alternativo (POKE 2096-2098), la captura trae también el del sistema y la casilla D_FILE alternativo elige cuál se dibuja con una FPGA anterior: el interface no puede saber en ese caso si la FPGA tiene activo el alternativo (un POKE 2045,85 lo apaga y volver a 170 no lo enciende), así que si la imagen sale mezclada hay que probar la otra opción. La casilla sprites los muestra u oculta; sin marcar antes de capturar, no se leen y la captura es más rápida. La línea de información de la captura dice si el estado del vídeo (modo, D_FILE y atributos alternativos, doble búfer) viene de la FPGA, que lo informa desde la versión de este paquete, o se ha deducido de los POKEs; si viene de la FPGA, la casilla queda desactivada porque no hay nada que elegir. Debajo de la captura hay un teclado del ZX81: haz clic en sus teclas (SHIFT se queda pulsado hasta la siguiente tecla) o marca «use my keyboard» para que las teclas de tu ordenador vayan al ZX81. Letras, cifras, ENTER, el punto y la barra espaciadora van directas; los símbolos se mandan con el SHIFT que les toque en el ZX81 (por ejemplo, las comillas son SHIFT+P), Retroceso es RUBOUT (SHIFT+0), las flechas son SHIFT+5 a SHIFT+8 y Escape es BREAK (SHIFT+SPACE). Las teclas llegan al ZX81 como si estuvieran pulsadas de verdad, también para la pantalla del depurador. Si la página deja de dar señales (se cierra, se pierde la conexión), el interface suelta todas las teclas al cabo de 1,5 segundos. Hace falta actualizar a la vez la FPGA, el firmware del MCU y el del módulo WiFi.
 
+Abre la página con la IP del módulo (LOAD THEN PRINT \"\*IP\") mejor que con el nombre sd81booster.local: en algunos ordenadores el navegador tarda de 10 a 30 segundos en resolver el nombre en cada operación y las órdenes parecen lentas.
+
+Las órdenes que necesitan el programa parado (puntos de ruptura, registros, memoria, pasos) avisan con una línea roja arriba si el programa está en marcha: pulsa Pause antes. En la consola de la página, History es th 20, Trace 100 ejecuta 100 instrucciones en traza lenta y Symbols relee el fichero de símbolos (ver Símbolos).
+
 ## Símbolos
 
 Si junto al programa hay un fichero de símbolos con su mismo nombre y la extensión .SYM (MIJUEGO.P y MIJUEGO.SYM), se lee al cargar el programa: el desensamblado muestra las etiquetas y las direcciones se pueden escribir por su nombre (b BUCLE, g INICIO+10). Es el fichero que genera el ensamblador pasmo con un tercer argumento:
 
 > pasmo mijuego.asm mijuego.bin MIJUEGO.SYM
 
-También se puede cargar a mano con sym FICHERO.SYM.
+También se puede cargar a mano con sym FICHERO.SYM. Los símbolos se leen al cargar el programa y no se vuelven a leer solos: si vuelves a ensamblar y cambias el .SYM sin volver a cargar el programa, el depurador sigue con el anterior y las etiquetas salen en direcciones que ya no son las del programa. sym ! lo relee, y sym solo dice cuántos símbolos hay y de qué fichero. En la página web, el botón Symbols hace lo mismo y, con un nombre escrito en la caja de al lado, carga ese fichero.
 
 ## Traza e historial
 
@@ -4187,5 +4264,109 @@ Un programa puede pararse a sí mismo en un punto concreto escribiendo 16 en el 
 - Si el programa se para en mitad de una operación con la SD (un LOAD, por ejemplo), conviene dejarlo seguir antes de usar otras funciones del depurador.
 
 - Parado, un programa en SLOW o en FAST no tiene imagen propia: V la muestra en Superfast texto. Los programas que generan su propia imagen (WRX, pseudo alta resolución) pueden no verse bien.
+
+- Con CP/M en marcha (bloque 0 en RAM) los sprites y los POKEs de control están apagados; el resto del depurador funciona igual (ver el Apéndice I).
+
+# Apéndice M --- Red para programadores: MQTT y juegos por turnos
+
+El módulo WiFi (9.7) incluye un cliente MQTT, resumen criptográfico y números aleatorios, todo con comandos AT. Se escriben en el terminal TELNET (9.8) o los manda un programa propio por el puente de red del interface (comandos NET_READ y NET_WRITE del MCU, ver la sección 15). Encima, el Z80 tiene una librería de salas y mensajes firmados (net.inc) y un controlador de partidas por turnos (game.inc), que son los que usan los juegos de 9.9. Los fuentes están en EXAMPLES/NETCHAT y EXAMPLES/NETGAME del repositorio.
+
+## Comandos MQTT
+
+| **Comando** | **Qué hace** |
+|-----------------------------------|-------------------------------------|
+| **AT+MQTT=host,puerto\[,tls\[,usuario,clave\]\]** | Conecta a ese servidor. tls vale 0 o 1. Bloquea hasta unos 8 segundos si el servidor no contesta. |
+| **AT+MQTT** | Sin argumentos: prueba por orden los servidores de /SYS/NET.CFG, recuerda el último que funcionó y pasa al siguiente si uno falla tres veces seguidas. |
+| **AT+MQTTID=cadena** | Fija el identificador del cliente (por defecto, sd81- y 8 caracteres hexadecimales al azar). |
+| **AT+MQTTWILL=topic,retain,texto** | Mensaje de última voluntad: se publica si la conexión se corta sin despedirse. Se manda antes de conectar. |
+| **AT+MQTTSUB=topic\[,qos\]** | Se suscribe a un topic (admite los comodines + y #). Espera la confirmación hasta 3 segundos. |
+| **AT+MQTTUNSUB=topic** | Cancela la suscripción. |
+| **AT+MQTTPUB=topic,qos,retain,len** | Publica un mensaje: el módem contesta \> y después se envían len bytes tal cual (cualquier valor, hasta 120). Con len 0 publica un mensaje vacío, que borra el retenido. Con qos 1 espera la confirmación 3 segundos y reintenta una vez. |
+| **AT+MQTTRX** | Saca un mensaje de la cola: +MQTTRX:topic,len, un salto de línea y los len bytes; o solo OK si no hay ninguno. |
+| **AT+MQTT?** | Estado: +MQTT:estado,servidor,en_cola,perdidos,error. |
+| **AT+MQTTCLOSE** | Cierra la sesión MQTT. ATZ cierra la sesión MQTT y el socket TCP y olvida todo. |
+
+- Los datos van por longitud, en binario: el módem no interpreta los bytes que siguen al \>.
+
+- La recepción es por sondeo (AT+MQTTRX), nunca con mensajes que aparezcan solos. El módulo guarda hasta 8 mensajes de 128 bytes; si se llena descarta el más antiguo y lo cuenta en perdidos. Un mensaje de más de 120 bytes o con un topic de más de 64 se descarta.
+
+- Hay una sola sesión MQTT, independiente del socket TCP de ATDT. Se reconecta sola, con esperas de 2, 4, 8, 16 y 30 segundos, y vuelve a suscribirse a lo que estuviera suscrita.
+
+## Resumen criptográfico y números aleatorios
+
+| **Comando** | **Qué hace** |
+|------------------------------------|------------------------------------|
+| **AT+SHA256=len** | El módem contesta \> y se envían len bytes. Devuelve +SHA256: y 64 caracteres hexadecimales. |
+| **AT+HMAC=lenclave,lendatos** | Después del \>, la clave y los datos seguidos. Devuelve +HMAC: y 64 caracteres hexadecimales (HMAC-SHA256). |
+| **AT+RAND=n** | Devuelve +RAND: y n bytes al azar en hexadecimal (n hasta 32), del generador del módulo. |
+
+## Los servidores: /SYS/NET.CFG
+
+Un archivo de texto en la carpeta SYS de la SD, con un servidor por línea (hasta 6): broker, el nombre, el puerto y, si hace falta TLS, la palabra tls. Las líneas vacías, las que empiezan por \# y las mal formadas se ignoran. Sin el archivo (o sin ninguna línea válida) se usan estos tres, sin TLS:
+
+> broker test.mosquitto.org 1883
+>
+> broker broker.emqx.io 1883
+>
+> broker broker.hivemq.com 1883
+
+Son servidores públicos de prueba, sin garantía de servicio. Los comandos AT+MQTT con argumentos ignoran el archivo.
+
+## Estados y errores
+
+| **Valor** | **Significado** |
+|------------------------------------|------------------------------------|
+| **estado 0 / 1 / 2 / 3** | apagado / conectando / conectado / reconectando |
+| **error 0** | ninguno (es el último error: se borra al conectar con éxito) |
+| **error 1** | sin WiFi |
+| **error 2** | no abre el socket TCP |
+| **error 3** | el servidor rechaza la conexión |
+| **error 4** | tiempo agotado |
+| **error 5** | argumentos malos |
+| **error 6** | cola o búfer lleno |
+| **error 7** | sin sesión MQTT |
+| **error 8** | sin confirmación de un mensaje con qos 1 |
+
+## Salas y mensajes de los juegos
+
+Los topics de un servidor público los puede leer cualquiera, así que el código de la sala no va en el topic. El código son 10 caracteres de un alfabeto de 32 (50 bits), sacados de AT+RAND. El topic es sd81/ más los 12 primeros hexadecimales de SHA256(\"topic\"+código), y la clave es SHA256(\"key\"+código) en hexadecimal, usada tal cual como clave del HMAC. Quien ve el topic no obtiene el código.
+
+Cada jugador publica, retenido y con qos 1, en \<topic\>/0 (quien creó la sala) o \<topic\>/1 (quien se unió). El mensaje es: versión (1 byte), secuencia (2, empieza en un valor al azar y sube por emisor), turno (2), datos (0 a 100) y los 8 primeros bytes del HMAC de todo lo anterior. El receptor descarta lo que no verifica, lo de su propia ranura y la secuencia repetida.
+
+La presencia va en \<topic\>/p0 y \<topic\>/p1, retenida: 1 al entrar y 0 al salir; el mensaje de última voluntad publica el 0 si la conexión se corta sin despedirse (el servidor tarda unos 90 segundos en notarlo). Antes de entrar, la librería lee las dos presencias: así sabe si la sala está llena, si no existe o si hay que volver a ocupar un sitio.
+
+Esto protege de travesuras, no de un atacante decidido: 50 bits se pueden romper sin conexión, y los datos van en claro.
+
+## La librería net.inc y el controlador game.inc
+
+net.inc (EXAMPLES/NETCHAT) se incluye en el programa y necesita una RAM de trabajo de unos 1,2 KB, cuya dirección se define con NB_BASE. Rutinas: net_init, room_new, room_join, room_send, room_poll, room_leave y, para un bucle de juego, room_poll_send y room_poll_recv (el sondeo en dos pasos, que deja pintar entre medias). Devuelven un código en A: 0 bien, 1 el módem dijo ERROR, 2 plazo agotado, 3 respuesta inesperada, 4 código inválido, 5 mensaje demasiado largo, 6 sala llena, 7 la sala no existe, 8 la sala existió pero está vacía (hay que elegir ranura con room_join_as).
+
+game.inc (EXAMPLES/NETGAME) es el controlador de una partida por turnos: la jugada, el turno, el hash del estado, el estado completo, la otra partida y la reconexión. No sabe nada de las reglas: el juego define seis rutinas, G_STATE_LEN (el tamaño del estado) y G_MOVE_LEN (1 o 2 bytes por jugada). Mueve el jugador 1 con un número de jugada par y el 2 con uno impar.
+
+| **Rutina** | **Qué hace** |
+|------------------------------------|------------------------------------|
+| **g_reset** | Deja la posición inicial. |
+| **g_valid** | HL = la jugada, B = el jugador: devuelve CF = 1 si no es legal. |
+| **g_apply** | HL = la jugada, B = el jugador: la hace. |
+| **g_winner** | A = 0 sigue, 1 o 2 gana ese jugador, 3 tablas. |
+| **g_save / g_load** | HL = destino / origen: los G_STATE_LEN bytes del estado. |
+
+Los mensajes del controlador son: 1 jugada (con el hash del estado resultante), 2 pido el estado, 3 estado completo y 4 otra partida; cualquier desfase se arregla pidiendo el estado completo. El fuente de connect4.asm es el ejemplo más corto, y chess.asm el más completo (HiRes, relojes).
+
+## Probarlo a mano
+
+Con el terminal TELNET (9.8), escribe estas líneas en dos interfaces, o en uno solo y publica con un cliente MQTT de escritorio (por ejemplo mosquitto_pub):
+
+> AT+MQTT=test.mosquitto.org,1883
+>
+> AT+MQTTSUB=sd81test/hola,1
+>
+> AT+MQTTPUB=sd81test/hola,1,0,5
+>
+> \>hello
+>
+> AT+MQTTRX
+>
+> AT+MQTT?
 
 *Manual de Usuario SD81 Booster v1.0 --- Hardware y software de código abierto*

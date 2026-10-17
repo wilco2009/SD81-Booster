@@ -218,13 +218,20 @@ int main(int argc, char** argv) {
     const Seen* s = last_pub();
     CHECK(seen.size() > n0 && s && body_of(s).size() == 1 && body_of(s)[0] == 2, "y sale un mensaje de tipo 2 (pido estado)"); }
 
-  // 2.6 el rival me manda el estado completo
-  { C4 st; st.reset(); st.apply(0, 1); st.apply(1, 2); st.apply(0, 1);
+  // 2.6 el rival me manda el estado completo (mi partida va por la jugada 6, con la jugada mala del rival ya puesta)
+  { C4 st; st.reset(); st.apply(0, 1); st.apply(1, 2); st.apply(0, 1); st.apply(1, 2); st.apply(0, 1); st.apply(1, 2);
     std::string pl; pl += (char)3; pl += std::string((const char*)st.b, 42);
-    peer_msg(3, pl);
-    CHECK(z_gpoll() == 4 && z_ply() == 3, "estado completo recibido: me sincronizo con la jugada 3");
+    peer_msg(6, pl);
+    CHECK(z_gpoll() == 4 && z_ply() == 6, "estado completo recibido: me sincronizo con la jugada 6");
     CHECK(same_board(st, "tras recibir el estado"), "mi tablero es el recibido");
-    pe = st; }
+    pe = st;
+    // un estado MAS VIEJO que mi partida (el creador que vuelve el primero con un guardado antiguo, o una respuesta
+    // tardia) no me hace retroceder
+    C4 old; old.reset(); old.apply(0, 1); old.apply(1, 2); old.apply(0, 1);
+    std::string po; po += (char)3; po += std::string((const char*)old.b, 42);
+    peer_msg(3, po);
+    CHECK(z_gpoll() == 0 && z_ply() == 6, "un estado mas viejo que el mio se ignora: no retrocedo");
+    CHECK(same_board(st, "tras el estado viejo"), "y mi tablero sigue igual"); }
 
   // 2.7 el rival me pide el estado
   peer_msg(3, std::string("\x02", 1));
@@ -234,7 +241,7 @@ int main(int argc, char** argv) {
 
   // 2.8 faltan jugadas (el rival va tres por delante): pide el estado
   { C4 x = pe; x.apply(2, 2);
-    peer_msg(7, move_payload(2, x));                // yo estoy en la jugada 3: la 7 no es la 4
+    peer_msg(9, move_payload(2, x));                // yo estoy en la jugada 6: la 9 no es la 7
     CHECK(z_gpoll() == 5, "faltan jugadas: pide el estado"); }
 
   // 2.9 fin de partida: gano con cuatro en vertical (mi 4 en raya, columna 6)

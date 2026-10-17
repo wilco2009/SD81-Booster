@@ -34,6 +34,8 @@ start:      call SET_FAST           ; sin NMI: el video lo da la FPGA
             ld   bc,0500h
             ld   (hl),0
             ldir
+            xor  a
+            ld   (SV_VAL),a         ; savegame.inc: todavia no se ha guardado nada
             call txt_on
 
             ld   hl,t_title
@@ -80,6 +82,19 @@ menu:       call cls
             ld   hl,t_menu2
             ld   bc,7*256+6
             call print_at
+            call sv_exists          ; savegame.inc: "3 = CONTINUE" solo si hay una partida guardada
+            jr   c,mn_nosave
+            ld   a,1
+            ld   (SV_CONT),a
+            ld   hl,t_menu4
+            ld   bc,9*256+6
+            call print_at
+            ld   hl,t_menu3
+            ld   bc,11*256+6
+            call print_at
+            jr   mn_key
+mn_nosave:  xor  a
+            ld   (SV_CONT),a
             ld   hl,t_menu3
             ld   bc,9*256+6
             call print_at
@@ -88,9 +103,42 @@ mn_key:     call key_wait
             jp   z,new_game
             cp   '2'
             jp   z,join_game
+            cp   '3'
+            jr   z,mn_cont
             cp   'Q'
             jp   z,exit
             jr   mn_key
+mn_cont:    ld   a,(SV_CONT)
+            or   a
+            jr   z,mn_key
+            jp   cont_game
+
+; ---------------------------------------------------------------------
+;  Seguir la partida guardada: vuelve a entrar en la misma sala y en la misma ranura
+; ---------------------------------------------------------------------
+cont_game:  call sv_load
+            jp   c,menu             ; (acaba de existir: no deberia pasar)
+            call sv_apply           ; el codigo, la ranura, las jugadas, el estado y los relojes
+            call cls
+            ld   hl,t_joining
+            ld   bc,5*256+7
+            call print_at
+            ld   a,(NB_SLOT)
+            call room_join_as
+            or   a
+            jr   z,cg_in
+            call show_err
+            jp   menu
+cg_in:      call game_turn_of       ; si la ultima jugada fue mia, la mando otra vez: el broker puede haberla olvidado
+            ld   hl,GM_ME
+            cp   (hl)
+            jp   z,play             ; me toca a mi: la del rival (retenida) ya esta aplicada o llegara con el sondeo
+            ld   hl,(GM_PLY)
+            ld   a,h
+            or   l
+            jp   z,play             ; sin jugadas
+            call game_resend
+            jp   play
 
 ; ---------------------------------------------------------------------
 ;  Partida nueva: crea la sala, ensena el codigo y espera al rival
@@ -539,6 +587,8 @@ t_menu1:    defm "1 = NEW GAME"
 t_menu2:    defm "2 = JOIN A GAME"
             defb 0
 t_menu3:    defm "Q = QUIT"
+            defb 0
+t_menu4:    defm "3 = CONTINUE SAVED GAME"
             defb 0
 t_creating: defm "CREATING THE ROOM..."
             defb 0

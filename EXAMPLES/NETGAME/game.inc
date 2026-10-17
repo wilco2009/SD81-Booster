@@ -294,6 +294,11 @@ ENDIF
 gp_state:   ld   a,(NB_LEN)
             cp   G_STATE_LEN+1+G_CLKB*2
             jr   nz,gp_ign
+            ld   hl,(NB_TURN)       ; un estado mas viejo que mi partida (el creador, que vuelve el primero, o un
+            ld   de,(GM_PLY)        ; guardado antiguo) no me hace retroceder: sigo con lo mio
+            or   a
+            sbc  hl,de
+            jr   c,gp_ign
             ld   hl,NB_RX+1
             call g_load
 IF G_CLOCK
@@ -328,12 +333,12 @@ gp_move:    ld   a,(NB_LEN)
             ld   de,(GM_PLY)
             or   a
             sbc  hl,de
-            jr   c,gp_ign
-            jr   z,gp_ign
+            jp   c,gp_ign
+            jp   z,gp_ign
             jr   gp_miss
 gp_next:    ld   a,(GM_OVER)
             or   a
-            jr   nz,gp_ign
+            jp   nz,gp_ign
             call game_turn_of
             ld   hl,GM_ME
             cp   (hl)

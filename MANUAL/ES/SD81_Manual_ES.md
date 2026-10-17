@@ -1377,6 +1377,8 @@ Hace falta el módulo WiFi con la red configurada (/SYS/WIFI.CFG, ver 9.7), la F
 
 - Al acabar la partida, ENTER propone otra al rival.
 
+- Guardar y seguir otro día: cada vez que cambia la partida, el programa la guarda en un fichero de la raíz de la SD (CONNECT4.SAV o CHESS.SAV, uno por juego). Si apagas el ZX81, al volver el menú ofrece «3 = CONTINUE SAVED GAME»: el programa vuelve a entrar en la misma sala y con el mismo color, y la partida sigue donde estaba (en el ajedrez, con los relojes como estaban: el tiempo que pasas fuera no cuenta). No hace falta que los dos jugadores estén conectados a la vez: cada uno solo necesita su partida guardada y que el servidor conserve la última jugada del otro hasta que la recoja. Si el servidor la hubiera olvidado, quien vuelva primero vuelve a mandar su última jugada. Empezar otra partida, o unirse a otra, sustituye la guardada.
+
 **4 en raya:**
 
 El tablero se dibuja en alta resolución: 7 columnas de 6 filas en azul, con las fichas del jugador 1 en rojo y las del jugador 2 en amarillo. Los números 1 a 7 sobre las columnas dicen qué tecla suelta la ficha en cada una. La última ficha que cae queda resaltada con el fondo blanco y, al ganar, los cuatro en línea. En el panel de la derecha se ve la sala, tu color, si el rival está y la última jugada. R reenvía la última jugada, por si falló la red. Q sale.

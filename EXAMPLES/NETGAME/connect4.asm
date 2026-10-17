@@ -34,6 +34,9 @@ G_MOVE_LEN  equ 1
 G_CLOCK     equ 0               ; sin relojes
 DFILE       equ 8800h           ; pantalla de texto del lobby: 1 + 24 filas de 33
 GFX_SQUARES equ 0               ; gfx.inc sin las casillas del ajedrez
+SV_BASE     equ 0BC00h          ; savegame.inc: la partida guardada en la SD (CONNECT4.SAV)
+SV_ID       equ 1
+SV_NAMELEN  equ 13
 
 MSG         equ UI_BASE+5       ; el mensaje de la fila ROW_MSG (0 = ninguno)
 UI_Y        equ UI_BASE+6       ; fila de pantalla del tablero que se dibuja (0 = arriba)
@@ -298,7 +301,8 @@ da_h2:      ld   bc,ROW_HELP*256+1
             call gprint_row
             ld   b,ROW_HELP
             ld   a,ATTR_HELP
-            jp   gattr_row
+            call gattr_row
+            jp   sv_maybe_save      ; ya pintado: si ha cambiado la partida, a la SD
 
 ; la ultima ficha (LAST_X/LAST_Y) y su texto del panel (LAST_BUF): "COLUMN n", o "--------" si no hay
 last_text:  ld   a,0FFh
@@ -444,6 +448,7 @@ t_sides:    defm "PLAYER 1 MOVES FIRST"
             defb 0
 t_title:    defm "NETWORK CONNECT 4"
             defb 0
+sv_name:    defm "/CONNECT4.SAV"
 t_room:     defm "ROOM"
             defb 0
 t_you:      defm "YOU ARE"
@@ -502,5 +507,6 @@ m_11:       defm "MODEM ERROR"
 
             include "../NETCHAT/net.inc"
             include "game.inc"
+            include "savegame.inc"
             include "connect4.inc"
             include "gfx.inc"

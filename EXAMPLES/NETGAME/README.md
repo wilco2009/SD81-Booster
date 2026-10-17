@@ -25,6 +25,7 @@ Hace falta el módulo WiFi con la red configurada (`/SYS/WIFI.CFG`) y la FPGA co
   elegir `1 = PLAYER 1 (THE CREATOR)` o `2 = PLAYER 2` (en el ajedrez, blancas o negras) y el que vuelva después
   ya entra solo en la que queda. Si alguien se cae sin despedirse, su ranura parece
   ocupada ~90 s, hasta que el broker lo detecta.
+- **3** seguir la partida guardada (solo sale si hay un fichero): ver «Guardar y seguir otro día», más abajo.
 - **1-7** la columna donde cae la ficha. **R** reenvía la última jugada si falló la red. **Q** sale.
 - **ENTER** otra partida, cuando ha acabado (se lo dice al rival).
 
@@ -94,6 +95,31 @@ jugadas legales de una posición cuesta ~0,1-0,3 s en un Z80 a 3,25 MHz.
 
 **Sin probar en el emulador ni en la placa.**
 
+## Guardar y seguir otro día (`savegame.inc`)
+
+Los mensajes del broker solo conservan la **última** jugada de cada jugador (retenida) y el tablero vive en la RAM de cada
+ordenador: sin esto, apagar el ZX81 perdía la partida. Ahora cada juego guarda su estado en la SD cada vez que cambia
+(`GM_PLY` o `GM_OVER`; lo comprueba `draw_all`, y no escribe si solo cambia un aviso) y el menú ofrece **`3 = CONTINUE SAVED
+GAME`** cuando existe el fichero. Seguir lee el fichero, vuelve a entrar en la **misma sala y la misma ranura**
+(`room_join_as`, sin sonda) y, si la última jugada fue mía, **la vuelve a mandar** (por si el broker la había olvidado). No
+hace falta que los dos estén conectados a la vez: cada uno solo necesita su estado guardado y que el broker conserve el último
+mensaje del rival hasta que este lo recoja.
+
+- **Fichero:** `/CONNECT4.SAV` (66 bytes) o `/CHESS.SAV` (91), en la raíz de la SD (los dos nombres, sin `_`, se pueden borrar
+  desde el ZX81). Un fichero por juego: empezar o unirse a otra partida lo sustituye.
+- **Formato:** `SV_ID` (1 = 4 en raya, 2 = ajedrez), versión 1, mi ranura, control de tiempo, el código de sala (10, en códigos
+  del ZX81), `GM_PLY` (2), `GM_OVER`, `GM_MOVE` (2), los relojes `GM_REM` (4) y `GM_WHY`, y el estado del juego (`g_save`).
+  Cada juego define `SV_BASE` (RAM, unos 110 bytes; `$BC00`), `SV_ID`, `SV_NAMELEN` y la etiqueta `sv_name`.
+- **Los relojes** del ajedrez se restauran con lo que quedaba y arrancan al seguir: el tiempo que se está fuera no cuenta.
+- **Por la SD:** los comandos del MCU 71 (crear o vaciar y abrir), 53 (abrir), 55 (leer), 56 (escribir) y 57 (cerrar). El
+  arnés del PC los simula con una SD de mentira (`sdfiles` en `z80net_env.h`) que sobrevive a «apagar el ZX81» (`reboot()`).
+- **No retroceder:** el controlador (`game.inc`, `gp_state`) ignora un estado completo **más viejo** que la partida propia. Antes
+  el creador, que vuelve el primero con su guardado, podía hacer retroceder al otro, que va por delante.
+- Si el broker olvida un mensaje retenido, quien vuelva primero vuelve a publicar su última jugada; las ranuras son de cada
+  jugador (`<sala>/0` y `<sala>/1`), así que nadie pisa la del otro, y el que recibe ignora lo viejo o repetido por el número de turno.
+- Límite: el otro jugador tiene que seguir teniendo su estado (guardado en su SD, o en marcha). Si alguien pierde el suyo, hace
+  falta que el rival esté conectado para pedirle el estado completo.
+
 ## Cómo añadir otro juego
 
 `game.inc` no sabe nada de las reglas; el juego define seis rutinas, `G_STATE_LEN` (el tamaño del estado) y
@@ -108,7 +134,7 @@ jugadas legales de una posición cuesta ~0,1-0,3 s en un Z80 a 3,25 MHz.
 | `g_save` / `g_load` | HL = destino / origen: los `G_STATE_LEN` bytes del estado |
 
 Empieza el jugador 1; mueve el 1 con un número de jugada par y el 2 con uno impar.
-Lo demás lo hace el controlador: `game_start`, `game_move`, `game_poll` (con sus códigos de resultado en la
+Para guardar y seguir hay que añadir `savegame.inc` (ver arriba). Lo demás lo hace el controlador: `game_start`, `game_move`, `game_poll` (con sus códigos de resultado en la
 cabecera de `game.inc`), `game_resend`, `game_rematch`.
 
 **Mensajes** (payload; el turno es `NB_TURN` = número de jugada, que ya firma `net.inc`): `1` jugada

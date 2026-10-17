@@ -75,6 +75,9 @@ ATTR_CLOCK  equ 046h            ; el reloj del que mueve: amarillo brillante
 ATTR_LOW    equ 042h            ; ... y en rojo brillante con 30 s o menos
 
 GFX_SQUARES equ 1               ; gfx.inc: con draw_square (las casillas del tablero)
+SV_BASE     equ 0BC00h          ; savegame.inc: la partida guardada en la SD (CHESS.SAV)
+SV_ID       equ 2
+SV_NAMELEN  equ 10
 
             org  20480
 
@@ -422,7 +425,8 @@ da_h2:      ld   bc,ROW_HELP*256+2
             call gprint_row
             ld   b,ROW_HELP
             ld   a,ATTR_HELP
-            jp   gattr_row
+            call gattr_row
+            jp   sv_maybe_save      ; ya pintado: si ha cambiado la partida, a la SD
 
 ; "MOVE: E2E4" en la fila de entrada
 draw_input: ld   hl,LAST_BUF        ; se arma ahi: "MOVE " + lo tecleado + " -"
@@ -806,6 +810,7 @@ pt_k1:      sub  '1'
 ; ---------------------------------------------------------------------
 t_title:    defm "NETWORK CHESS"
             defb 0
+sv_name:    defm "/CHESS.SAV"
 t_room:     defm "ROOM"
             defb 0
 t_youare:   defm "YOU ARE"
@@ -883,6 +888,7 @@ m_12:       defm "THE RIVAL IS OUT OF TIME"
 
             include "../NETCHAT/net.inc"
             include "game.inc"
+            include "savegame.inc"
             include "chess.inc"
             include "gfx.inc"
             include "pieces.inc"

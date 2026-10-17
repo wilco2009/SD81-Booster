@@ -130,6 +130,9 @@ Solo se han probado en el emulador (4 en raya, NETCHAT) y en el PC (todo). Hace 
 - [x] Revancha (ENTER al acabar).
 
 ### 5.3 Ajedrez (`EXAMPLES/NETGAME/CHESS.B81`)
+> **Nuevo el 17 de octubre, sin probar en la placa ni en el emulador:** guardar la partida en la SD (`CONNECT4.SAV`, `CHESS.SAV`) y seguirla otro día
+> con `3 = CONTINUE SAVED GAME`; y el **4 en raya gráfico**. Listas en `connect4_pruebas.md` y `ajedrez_pruebas.md` (2d).
+
 Probado en el **emulador** (dos instancias) el 16 de octubre: pantalla, teclado, jugadas especiales, final de partida, red y rendimiento (detalle en `ajedrez_pruebas.md`). Lo de abajo es lo que falta **en la placa**.
 - [x] Partida completa entre dos placas: blancas abajo, negras con el tablero girado.
 - [x] Teclear `E2 E4` + ENTER; jugada ilegal rechazada; SHIFT+0 borra.

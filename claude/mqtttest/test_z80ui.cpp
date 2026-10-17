@@ -72,6 +72,12 @@ static char disc(int x, int y) {
 static bool hilite(int x, int y) { return ((disc_attr(x, y) >> 3) & 7) == 7; }
 static std::string board_row(int y) { std::string s; for (int x = 0; x < 7; x++) s += disc(x, y); return s; }
 static std::string board_all() { std::string s; for (int y = 5; y >= 0; y--) s += board_row(y) + (y ? "/" : ""); return s; }
+// el tablero de una Board (abajo) con el mismo formato que board_all(): filas de arriba a abajo separadas por '/'
+static std::string board_text(const uint8_t* b) {
+  std::string s;
+  for (int y = 5; y >= 0; y--) { for (int x = 0; x < 7; x++) s += b[x + 7 * y] == 1 ? 'R' : b[x + 7 * y] == 2 ? 'Y' : '.'; if (y) s += '/'; }
+  return s;
+}
 static const char* EMPTY_BOARD = "......./......./......./......./......./.......";
 static bool board_is(const char* rows_from_top) {         // "fila de arriba/.../fila de abajo", con '/' entre filas
   return board_all() == rows_from_top;
@@ -171,6 +177,20 @@ int main(int argc, char** argv) {
   size_t sz = fread(mem + 0x6000, 1, 0x2000, f); fclose(f);
   if (0x6000 + sz > 0x8000) { printf("ERROR el programa llega a $%04zX: pasa de $8000 y alli el ZX81 no ejecuta codigo\n", 0x6000 + sz); errors++; }
   printf("connect4.bin: %zu bytes en $6000\n", sz);
+  std::vector<uint8_t> bin(mem + 0x6000, mem + 0x6000 + sz);
+  // apagar y encender el ZX81: se pierde la RAM, la SD (sdfiles) y el broker (los retenidos) no
+  auto reboot = [&]() {
+    auto keep = retained;
+    memset(mem, 0, sizeof(mem));
+    memcpy(mem + 0x6000, bin.data(), bin.size());
+    install_font();
+    mem[0x02E7] = 0xC9; mem[0x0207] = 0xC9;
+    z80_init(); z80_reset();
+    reset_world();
+    retained = keep;
+    z80.sp.w = 0xFFF0; mem[0xFFF0] = 0x00; mem[0xFFF1] = 0x01; mem[0x0100] = 0x76;
+    z80.pc.w = 24576; z80.iff1 = z80.iff2 = 0;
+  };
   install_font();
   mem[0x02E7] = 0xC9; mem[0x0207] = 0xC9;              // SET_FAST y SLOW_FAST de la ROM: aqui, un RET
   z80_init(); z80_reset();
@@ -348,6 +368,74 @@ int main(int argc, char** argv) {
     CHECK(pp && pp->data == "1" && pp->retain, "con su presencia en la ranura 0");
     press('Q');
     CHECK(wait_text("1 = NEW GAME", 30000), "Q: vuelvo al menu");
+  }
+
+
+  // --- guardar la partida en la SD y seguirla otro dia (savegame.inc)
+  CHECK(shows("3 = CONTINUE SAVED GAME"), "hay una partida guardada (la anterior): el menu ofrece seguirla");
+  {
+    seen.clear(); retained.clear(); filters.clear(); has_will = false;
+    sdfiles.clear();
+    press('2'); press('\r');                           // ENTER sin codigo: otra vez el menu, ahora sin fichero
+    CHECK(wait_text("1 = NEW GAME", 5000) && !shows("CONTINUE"), "sin partida guardada, el menu no ofrece seguir");
+    press('1');
+    CHECK(wait_text("WAITING FOR THE RIVAL", 40000), "partida nueva para guardar");
+    std::string codeS = code_on_screen(); std::string baseS = topic_base(codeS);
+    uint16_t sseq = 3000;
+    auto peerS = [&](uint16_t ply, std::string payload) { peer_publish(baseS + "/1", make_msg(codeS, sseq++, ply, payload), true); };
+    peer_publish(baseS + "/p1", "1", true);
+    CHECK(wait_text("YOUR TURN", 10000), "el rival entra");
+    Board gs; gs.reset();
+    press('1'); gs.apply(0, 1);
+    CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego la columna 1");
+    gs.apply(1, 2); peerS(2, move_payload(1, gs));
+    CHECK(wait_text("YOUR TURN:", 5000), "el rival juega la columna 2");
+    press('3'); gs.apply(2, 1);
+    CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego la columna 3");
+    run_ms(500);
+    { auto it = sdfiles.find("/CONNECT4.SAV");
+      CHECK(it != sdfiles.end() && it->second.size() == 66, "se ha guardado CONNECT4.SAV (24 + 42 bytes)");
+      if (it != sdfiles.end() && it->second.size() == 66) {
+        const auto& v = it->second;
+        CHECK(v[0] == 1 && v[1] == 1 && v[2] == 0, "el fichero: juego 1, version 1, mi ranura (la 0)");
+        CHECK(v[14] == 3 && v[15] == 0 && v[16] == 0, "tres jugadas hechas y la partida sigue");
+        bool codeok = true;
+        for (int i = 0; i < 10; i++) { char ch = codeS[i]; uint8_t z = (uint8_t)(ch >= 'A' ? ch - 27 : ch - 20); if (v[4 + i] != z) codeok = false; }
+        CHECK(codeok, "con el codigo de la sala");
+        CHECK(memcmp(v.data() + 24, gs.b, 42) == 0, "y el tablero"); } }
+    press('Q');
+    CHECK(wait_text("1 = NEW GAME", 30000), "salgo al menu");
+
+    // apagar y encender el ZX81: la RAM se pierde, la SD y los mensajes retenidos del broker no
+    reboot();
+    CHECK(wait_text("1 = NEW GAME", 20000), "el ZX81 arranca otra vez");
+    CHECK(shows("3 = CONTINUE SAVED GAME"), "y el menu ofrece seguir la partida guardada");
+    press('3');
+    CHECK(wait_text("THE RIVAL IS THINKING", 40000), "sigo la partida: la ultima jugada fue mia y espero al rival");
+    show("partida seguida");
+    CHECK(board_all() == board_text(gs.b), "el tablero vuelve como estaba");
+    CHECK(shows("RED") && shows(codeS.c_str()), "soy el rojo, en la misma sala");
+    { const Seen* c = last_seen("CONNECT");
+      CHECK(c && c->topic == baseS + "/p0", "he entrado con el testamento en MI ranura (la 0)"); }
+    { const Seen* pp = last_seen("PUBLISH", baseS + "/p0");
+      CHECK(pp && pp->data == "1" && pp->retain, "y con mi presencia retenida en la 0"); }
+    { const Seen* s = last_seen("PUBLISH", baseS + "/0"); std::string b = body_of(s);
+      CHECK(s && b.size() == 4 && b[0] == 1 && b[1] == 2 && (uint8_t)s->data[3] == 3,
+            "he vuelto a mandar mi ultima jugada (columna 3, jugada 3): el broker pudo olvidarla"); }
+    gs.apply(3, 2); peerS(4, move_payload(3, gs));
+    CHECK(wait_text("YOUR TURN:", 10000), "el rival juega la columna 4: me toca");
+    CHECK(board_all() == board_text(gs.b), "su jugada encaja en el estado que traia guardado (el hash cuadra)");
+    show("tras la jugada del rival, ya seguida");
+    press('Q');
+    CHECK(wait_text("1 = NEW GAME", 30000), "salgo al menu");
+
+    // un fichero que no es de este programa: se vuelve al menu, sin colgarse
+    sdfiles["/CONNECT4.SAV"] = std::vector<uint8_t>(5, 7);
+    press('2'); press('\r');
+    CHECK(wait_text("1 = NEW GAME", 5000) && shows("3 = CONTINUE SAVED GAME"), "con un fichero roto sigue saliendo la opcion");
+    press('3');
+    run_ms(3000);
+    CHECK(shows("1 = NEW GAME") && !shows("JOINING"), "pero no lo carga: vuelve al menu");
   }
 
   if (errors) printf("%d ERRORES\n", errors); else printf("TODO OK\n");

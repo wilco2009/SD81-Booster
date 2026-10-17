@@ -51,6 +51,13 @@ blancas y la de Loyd acaba en tablas.
 - [ ] Reentrar a mitad de partida (salir con `0` y volver) mantiene los relojes que mande el otro (llegan con el estado completo).
 - [ ] El tablero y el teclado no van a tirones por leer el reloj del MCU cada segundo (cada lectura tarda unas decenas de ms).
 
+## 2d. Guardar y seguir otro día (17 de octubre)
+- [ ] Tras jugar aparece `CHESS.SAV` en la raíz de la SD (91 bytes).
+- [ ] Apagar y encender: el menú ofrece `3 = CONTINUE SAVED GAME`; vuelve a la misma sala, con el mismo color, el tablero y la última jugada.
+- [ ] Con relojes: vuelven con lo que quedaba (el tiempo fuera no cuenta) y arrancan al seguir.
+- [ ] Si la última jugada fue mía, se vuelve a mandar; la del rival, si estaba retenida, llega al seguir.
+- [ ] Asíncrono de verdad: cada jugador juega y apaga; vuelven otro día y siguen.
+
 ## 3. Teclado
 - [x] Una letra o cifra que no cuadra en esa posición no entra (p. ej. `Z` o `9` como columna).
 - [x] **SHIFT+0** borra la última tecla; borrar con la línea vacía no hace nada.

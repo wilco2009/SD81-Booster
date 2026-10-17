@@ -1337,6 +1337,8 @@ You need the WiFi module with the network configured (/SYS/WIFI.CFG, see 9.7) an
 
 - When the game ends, ENTER offers another one to the opponent.
 
+- Saving and carrying on another day: every time the game changes, the program saves it to a file in the root of the SD card (CONNECT4.SAV or CHESS.SAV, one per game). If you switch the ZX81 off, when you come back the menu offers «3 = CONTINUE SAVED GAME»: the program goes back into the same room with the same colour, and the game carries on where it was (in chess, with the clocks as they were: the time you spend away does not count). The two players do not need to be connected at the same time: each one only needs their saved game and the server to keep the other\'s last move until it is picked up. If the server has forgotten it, whoever comes back first sends their last move again. Starting another game, or joining another, replaces the saved one.
+
 **Connect 4:**
 
 The board is drawn in high resolution: 7 columns by 6 rows in blue, with player 1\'s counters in red and player 2\'s in yellow. The numbers 1 to 7 above the columns say which key drops the counter into each one. The counter that has just fallen is highlighted with a white background and, when someone wins, so are the four in a row. The panel on the right shows the room, your colour, whether the opponent is here and the last move. R resends the last move, in case the network failed. Q quits.

@@ -250,6 +250,20 @@ int main(int argc, char** argv) {
   size_t sz = fread(mem + 0x5000, 1, 0x3000, f); fclose(f);
   if (0x5000 + sz > 0x8000) { printf("ERROR el programa llega a $%04zX: pasa de $8000 y alli el ZX81 no ejecuta codigo\n", 0x5000 + sz); errors++; }
   printf("chess.bin: %zu bytes en $5000\n", sz);
+  std::vector<uint8_t> bin(mem + 0x5000, mem + 0x5000 + sz);
+  // apagar y encender el ZX81: se pierde la RAM; la SD (sdfiles) y el broker (los retenidos) no
+  auto reboot = [&]() {
+    auto keep = retained;
+    memset(mem, 0, sizeof(mem));
+    memcpy(mem + 0x5000, bin.data(), bin.size());
+    install_font();
+    mem[0x02E7] = 0xC9; mem[0x0207] = 0xC9;
+    z80_init(); z80_reset();
+    reset_world();
+    retained = keep;
+    z80.sp.w = 0xFFF0; mem[0xFFF0] = 0x00; mem[0xFFF1] = 0x01; mem[0x0100] = 0x76;
+    z80.pc.w = 20480; z80.iff1 = z80.iff2 = 0;
+  };
   install_font(); load_pieces("pieces.inc");
   mem[0x02E7] = 0xC9; mem[0x0207] = 0xC9;              // SET_FAST y SLOW_FAST de la ROM: aqui, un RET
   z80_init(); z80_reset();
@@ -455,6 +469,71 @@ int main(int argc, char** argv) {
     peerT(0, std::string(1, (char)5));
     CHECK(wait_text("TIME OUT - YOU WIN", 5000), "el rival dice que se le ha acabado el tiempo: gano");
     show("relojes: gano por tiempo");
+  }
+
+
+  // --- guardar la partida y seguirla otro dia (savegame.inc), con relojes de 10 minutos
+  press('0');
+  CHECK(wait_text("1 = NEW GAME", 30000), "0: vuelvo al menu");
+  CHECK(shows("3 = CONTINUE SAVED GAME"), "la partida anterior esta guardada: el menu ofrece seguirla");
+  seen.clear(); retained.clear(); filters.clear(); has_will = false;
+  sdfiles.clear();
+  {
+    press('1');
+    CHECK(wait_text("TIME FOR EACH PLAYER", 3000), "partida nueva");
+    press('3');                                                  // 10 minutos
+    CHECK(wait_text("WAITING FOR THE RIVAL", 40000), "y crea la sala");
+    std::string codeS = code_on_screen(), baseS = topic_base(codeS);
+    uint16_t sseq = 5000;
+    auto peerS = [&](uint16_t ply, std::string payload) { peer_publish(baseS + "/1", make_msg(codeS, sseq++, ply, payload), true); };
+    peer_publish(baseS + "/p1", "1", true);
+    CHECK(wait_text("YOUR MOVE", 10000), "el rival entra: me toca");
+    type("E2E4"); press(ENTER);
+    CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego e4");
+    St stS = start_state();
+    apply_simple(stS, "e2", "e4"); apply_simple(stS, "e7", "e5");
+    peerS(2, move_payload("e7", "e5", stS, 590));
+    CHECK(wait_text("YOUR MOVE", 5000), "el rival juega e5");
+    type("G1F3"); press(ENTER);
+    CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego Cf3");
+    apply_simple(stS, "g1", "f3");
+    run_ms(500);
+    int mine = 0;
+    { std::string b = body_of(last_seen("PUBLISH", baseS + "/0"));
+      mine = b.size() == 7 ? ((uint8_t)b[5] | ((uint8_t)b[6] << 8)) : -1; }
+    { auto it = sdfiles.find("/CHESS.SAV");
+      CHECK(it != sdfiles.end() && it->second.size() == 91, "se ha guardado CHESS.SAV (24 + 67 bytes)");
+      if (it != sdfiles.end() && it->second.size() == 91) {
+        const auto& v = it->second;
+        CHECK(v[0] == 2 && v[1] == 1 && v[2] == 0 && v[3] == 2, "el fichero: ajedrez, version 1, ranura 0 y control de tiempo 2 (10 minutos: la letra C)");
+        CHECK(v[14] == 3 && v[15] == 0 && v[16] == 0, "tres jugadas hechas y la partida sigue");
+        CHECK(memcmp(v.data() + 24, stS.data(), 67) == 0, "y el tablero (las 67 bytes del estado)");
+        int w = v[19] | (v[20] << 8), b = v[21] | (v[22] << 8);
+        CHECK(w == mine && b == 590, "y los relojes: los mios (los de mi ultima jugada) y los 590 s del rival"); } }
+    press('0');
+    CHECK(wait_text("1 = NEW GAME", 30000), "salgo al menu");
+
+    reboot();                                                    // apagar y encender: la SD y el broker se quedan como estan
+    CHECK(wait_text("1 = NEW GAME", 20000), "el ZX81 arranca otra vez");
+    CHECK(shows("3 = CONTINUE SAVED GAME"), "y el menu ofrece seguir la partida guardada");
+    press('3');
+    CHECK(wait_text("THE RIVAL IS THINKING", 40000), "sigo la partida: la ultima jugada fue mia y espero al rival");
+    show("ajedrez seguido");
+    CHECK(cell(3, 4) == 'P' && cell(4, 4) == 'p' && cell(2, 5) == 'N' && cell(1, 4) == ' ' && cell(6, 4) == ' ', "el tablero vuelve como estaba (e4, e5 y Cf3)");
+    CHECK(shows("WHITE") && shows(codeS.c_str()), "soy las blancas, en la misma sala");
+    { int w = clock_secs(12), b = clock_secs(13);
+      CHECK(w >= mine - 2 && w <= mine + 3 && b >= 586 && b <= 592, "los relojes vuelven como estaban (el tiempo que estuve fuera no cuenta)"); }
+    { const Seen* c = last_seen("CONNECT");
+      CHECK(c && c->topic == baseS + "/p0", "he entrado con el testamento en MI ranura (la 0)"); }
+    { std::string b = body_of(last_seen("PUBLISH", baseS + "/0"));
+      CHECK(b.size() == 7 && b[0] == 1 && b[1] == sq("g1") && b[2] == sq("f3"), "he vuelto a mandar mi ultima jugada (Cf3)"); }
+    apply_simple(stS, "b8", "c6");
+    peerS(4, move_payload("b8", "c6", stS, 580));
+    CHECK(wait_text("YOUR MOVE", 10000), "el rival juega Cc6: me toca");
+    CHECK(cell(5, 2) == 'n', "y su jugada encaja en el estado guardado (el hash cuadra)");
+    { int b = clock_secs(13);
+      CHECK(b >= 576 && b <= 580, "y su reloj pasa a lo que dice su mensaje (580 s)"); }
+    show("ajedrez seguido: tras Cc6");
   }
 
   printf("  instrucciones del Z80: %ld\n", instr_total);

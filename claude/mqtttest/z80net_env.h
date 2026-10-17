@@ -117,6 +117,54 @@ static void dump(const char* dir, const uint8_t* b, size_t n) {
   for (size_t i = 0; i < n; i++) printf(b[i] >= 32 && b[i] < 127 ? "%c" : "<%02X>", b[i]);
   printf("\n");
 }
+// La SD de mentira: los comandos de fichero del MCU (53 abre, 71 crea o vacia, 55 lee, 56 escribe, 57 cierra),
+// con los ficheros en memoria. No se borra con reset_world(): es lo que sobrevive a "apagar el ZX81".
+static std::map<std::string, std::vector<uint8_t>> sdfiles;
+struct FileHandle { bool used = false; std::string name; size_t pos = 0; };
+static FileHandle fhs[4];
+static int f_cmd = 0, f_h = 0, f_cnt = 0, f_left = 0;
+static std::string f_name;
+static std::vector<uint8_t> f_data;
+static void file_resp(std::initializer_list<uint8_t> v) { resp.clear(); for (uint8_t b : v) resp.push_back(b); tube_state = 4; }
+static void file_open_done() {
+  uint8_t h = 0xFF;
+  bool ok = (f_cmd == 71) || sdfiles.count(f_name);
+  for (int i = 0; i < 4 && ok && h == 0xFF; i++) if (!fhs[i].used) { h = (uint8_t)i; fhs[i].used = true; fhs[i].name = f_name; fhs[i].pos = 0; }
+  if (h != 0xFF && f_cmd == 71) sdfiles[f_name].clear();
+  file_resp({h});
+}
+static void file_read_done() {
+  resp.clear();
+  uint8_t st = 0xFF;
+  size_t got = 0;
+  if (f_h < 4 && fhs[f_h].used && f_cnt > 0 && f_cnt <= 512) {
+    auto& v = sdfiles[fhs[f_h].name];
+    size_t pos = fhs[f_h].pos;
+    got = pos < v.size() ? std::min<size_t>((size_t)f_cnt, v.size() - pos) : 0;
+    for (size_t i = 0; i < (size_t)f_cnt; i++) resp.push_back(i < got ? v[pos + i] : 0);
+    fhs[f_h].pos += got;
+    st = (got == (size_t)f_cnt) ? 0 : 1;
+  } else for (int i = 0; i < f_cnt; i++) resp.push_back(0);
+  resp.push_back(st);
+  tube_state = 4;
+}
+static void file_write_done() {
+  uint8_t st = 0xFF;
+  if (f_h < 4 && fhs[f_h].used && f_cnt <= 512) {
+    auto& v = sdfiles[fhs[f_h].name];
+    size_t pos = fhs[f_h].pos;
+    if (v.size() < pos + f_data.size()) v.resize(pos + f_data.size());
+    for (size_t i = 0; i < f_data.size(); i++) v[pos + i] = f_data[i];
+    fhs[f_h].pos += f_data.size();
+    st = 0;
+  }
+  file_resp({st});
+}
+static void file_close_done() {
+  uint8_t st = 0xFF;
+  if (f_h < 4 && fhs[f_h].used) { fhs[f_h].used = false; st = 0; }
+  file_resp({st});
+}
 static void tube_finish_write() {
   dump("Z80->ESP", wr_data.data(), wr_data.size());
   size_t acc = std::min<size_t>(wr_data.size(), (size_t)write_limit);
@@ -126,7 +174,18 @@ static void tube_finish_write() {
 }
 static void tube_out(uint8_t d) {
   switch (tube_state) {
-    case 0: tube_state = (d == 66) ? 1 : (d == 67) ? 2 : (d == 50) ? 5 : 0; if (tube_state == 0) printf("  tubo: comando %d\n", d); break;
+    case 0: tube_state = (d == 66) ? 1 : (d == 67) ? 2 : (d == 50) ? 5 : (d == 53 || d == 71) ? 10 : d == 55 ? 20 : d == 56 ? 30 : d == 57 ? 40 : 0;
+            f_cmd = d; if (tube_state == 0) printf("  tubo: comando %d\n", d); break;
+    case 10: f_left = d; f_name.clear(); if (!f_left) file_open_done(); else tube_state = 11; break;      // abrir / crear: la longitud del nombre
+    case 11: f_name += (char)d; if (--f_left == 0) file_open_done(); break;
+    case 20: f_h = d; tube_state = 21; break;                                                              // leer: handle, cuantos (2)
+    case 21: f_cnt = d; tube_state = 22; break;
+    case 22: f_cnt |= d << 8; file_read_done(); break;
+    case 30: f_h = d; tube_state = 31; break;                                                              // escribir: handle, cuantos (2), datos
+    case 31: f_cnt = d; tube_state = 32; break;
+    case 32: f_cnt |= d << 8; f_data.clear(); f_left = f_cnt; if (!f_left) file_write_done(); else tube_state = 33; break;
+    case 33: f_data.push_back(d); if (--f_left == 0) file_write_done(); break;
+    case 40: f_h = d; file_close_done(); break;                                                            // cerrar: handle
     case 1: {
       size_t n = std::min<size_t>(d, to_z80.size());
       resp.clear(); resp.push_back((uint8_t)n);

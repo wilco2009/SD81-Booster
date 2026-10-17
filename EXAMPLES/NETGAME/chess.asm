@@ -77,7 +77,7 @@ ATTR_LOW    equ 042h            ; ... y en rojo brillante con 30 s o menos
 GFX_SQUARES equ 1               ; gfx.inc: con draw_square (las casillas del tablero)
 SV_BASE     equ 0BC00h          ; savegame.inc: la partida guardada en la SD (CHESS.SAV)
 SV_ID       equ 2
-SV_NAMELEN  equ 10
+SV_NAMELEN  equ 9
 
             org  20480
 
@@ -810,7 +810,7 @@ pt_k1:      sub  '1'
 ; ---------------------------------------------------------------------
 t_title:    defm "NETWORK CHESS"
             defb 0
-sv_name:    defm "/CHESS.SAV"
+sv_name:    defm "CHESS.SAV"        ; sin "/": en la carpeta actual, que es la del juego
 t_room:     defm "ROOM"
             defb 0
 t_youare:   defm "YOU ARE"

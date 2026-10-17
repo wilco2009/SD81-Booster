@@ -52,7 +52,7 @@ blancas y la de Loyd acaba en tablas.
 - [ ] El tablero y el teclado no van a tirones por leer el reloj del MCU cada segundo (cada lectura tarda unas decenas de ms).
 
 ## 2d. Guardar y seguir otro día (17 de octubre)
-- [ ] Tras jugar aparece `CHESS.SAV` en la raíz de la SD (91 bytes).
+- [ ] Tras jugar aparece `CHESS.SAV` en la carpeta del juego (91 bytes).
 - [ ] Apagar y encender: el menú ofrece `3 = CONTINUE SAVED GAME`; vuelve a la misma sala, con el mismo color, el tablero y la última jugada.
 - [ ] Con relojes: vuelven con lo que quedaba (el tiempo fuera no cuenta) y arrancan al seguir.
 - [ ] Si la última jugada fue mía, se vuelve a mandar; la del rival, si estaba retenida, llega al seguir.

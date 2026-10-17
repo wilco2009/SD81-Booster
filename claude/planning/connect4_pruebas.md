@@ -42,10 +42,11 @@ Qué ha cambiado respecto a la versión de texto (la del 15 y 16 de octubre):
 - [ ] El rival pide otra partida a medias: el tablero se vacía y me vuelve a tocar.
 
 ## 4b. Guardar y seguir otro día (nuevo, 17 de octubre)
-- [ ] Tras jugar un par de jugadas aparece `CONNECT4.SAV` en la raíz de la SD (66 bytes). No se escribe en cada sondeo, solo cuando cambia la partida.
+- [ ] Tras jugar un par de jugadas aparece `CONNECT4.SAV` en la carpeta del juego (66 bytes). No se escribe en cada sondeo, solo cuando cambia la partida.
 - [ ] Apagar y encender (o `RUN`): el menú ofrece `3 = CONTINUE SAVED GAME`; con él, vuelve a la misma sala con el mismo color y el tablero como estaba.
 - [ ] Si la última jugada fue mía, se vuelve a mandar (se ve en el rival, que la ignora por repetida). Si fue del rival y estaba retenida, llega al seguir.
 - [ ] **Asíncrono de verdad:** A juega y apaga; B juega y apaga; A vuelve otro día, sigue y recibe la de B. Los dos nunca coinciden en línea.
+- [ ] Dos instancias del emulador, cada una con **su carpeta de juego**: cada una guarda y sigue su partida sin pisar a la otra (con la misma carpeta, comparten fichero y las dos serían la misma ranura).
 - [ ] Sin fichero, el menú no ofrece el 3. Con un fichero que no es de este juego (o roto), el 3 vuelve al menú sin colgarse.
 - [ ] Empezar otra partida o unirse a otra sustituye el guardado.
 

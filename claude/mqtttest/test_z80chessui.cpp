@@ -344,7 +344,7 @@ int main(int argc, char** argv) {
   type("H5F7"); press(ENTER);
   CHECK(wait_text("CHECKMATE - YOU WIN", 8000), "4. Dxf7++: mate del pastor");
   show("mate");
-  CHECK(shows("ENTER = AGAIN"), "y la ayuda cambia");
+  CHECK(wait_text("ENTER = AGAIN", 2000), "y la ayuda cambia");
   CHECK(cell(6, 5) == 'Q', "la dama blanca esta en f7");
   type("A2A3"); press(ENTER);
   CHECK(wait_text("THE GAME IS OVER", 3000), "con la partida acabada, una jugada da un aviso");
@@ -501,7 +501,7 @@ int main(int argc, char** argv) {
     int mine = 0;
     { std::string b = body_of(last_seen("PUBLISH", baseS + "/0"));
       mine = b.size() == 7 ? ((uint8_t)b[5] | ((uint8_t)b[6] << 8)) : -1; }
-    { auto it = sdfiles.find("/CHESS.SAV");
+    { auto it = sdfiles.find("CHESS.SAV");
       CHECK(it != sdfiles.end() && it->second.size() == 91, "se ha guardado CHESS.SAV (24 + 67 bytes)");
       if (it != sdfiles.end() && it->second.size() == 91) {
         const auto& v = it->second;

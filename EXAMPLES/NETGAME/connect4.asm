@@ -36,7 +36,7 @@ DFILE       equ 8800h           ; pantalla de texto del lobby: 1 + 24 filas de 3
 GFX_SQUARES equ 0               ; gfx.inc sin las casillas del ajedrez
 SV_BASE     equ 0BC00h          ; savegame.inc: la partida guardada en la SD (CONNECT4.SAV)
 SV_ID       equ 1
-SV_NAMELEN  equ 13
+SV_NAMELEN  equ 12
 
 MSG         equ UI_BASE+5       ; el mensaje de la fila ROW_MSG (0 = ninguno)
 UI_Y        equ UI_BASE+6       ; fila de pantalla del tablero que se dibuja (0 = arriba)
@@ -448,7 +448,7 @@ t_sides:    defm "PLAYER 1 MOVES FIRST"
             defb 0
 t_title:    defm "NETWORK CONNECT 4"
             defb 0
-sv_name:    defm "/CONNECT4.SAV"
+sv_name:    defm "CONNECT4.SAV"     ; sin "/": en la carpeta actual, que es la del juego
 t_room:     defm "ROOM"
             defb 0
 t_you:      defm "YOU ARE"

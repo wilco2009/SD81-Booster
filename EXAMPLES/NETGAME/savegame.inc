@@ -3,7 +3,7 @@
 ;
 ;  Los mensajes del broker solo guardan la ULTIMA jugada de cada jugador, y el tablero vive en la
 ;  RAM de cada ordenador: sin esto, apagar el ZX81 perdia la partida. Aqui cada juego guarda su
-;  estado en un fichero de la raiz de la SD (CONNECT4.SAV, CHESS.SAV) cada vez que cambia, y el menu
+;  estado en un fichero de la carpeta actual de la SD, la del juego (CONNECT4.SAV, CHESS.SAV), cada vez que cambia, y el menu
 ;  ofrece "3 = CONTINUE SAVED GAME": lee el fichero, vuelve a entrar en la MISMA sala y en la misma
 ;  ranura, y si la ultima jugada fue mia la manda otra vez (por si el broker la olvido).
 ;  No hace falta que los dos esten conectados a la vez: cada uno solo necesita su estado guardado y
@@ -12,7 +12,8 @@
 ;  El juego que lo incluye define antes:
 ;      SV_BASE      equ ...   ; RAM de trabajo (unos 110 bytes)
 ;      SV_ID        equ ...   ; un byte distinto por juego (1 = 4 en raya, 2 = ajedrez)
-;      SV_NAMELEN   equ ...   ; y la etiqueta  sv_name  con el nombre (ASCII, con "/" delante)
+;      SV_NAMELEN   equ ...   ; y la etiqueta  sv_name  con el nombre (ASCII, SIN "/" delante: el MCU lo busca en la
+;                             carpeta actual; asi cada carpeta de juego tiene su partida, y dos ZX81 que comparten SD no se pisan)
 ;  y G_STATE_LEN / G_CLOCK / g_save / g_load / game.inc / net.inc como siempre.
 ;
 ;  Formato del fichero (SV_LEN = 24 + G_STATE_LEN bytes):

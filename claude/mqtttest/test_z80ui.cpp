@@ -261,7 +261,7 @@ int main(int argc, char** argv) {
   press('1'); g.apply(0, 1);
   CHECK(wait_text("YOU WIN", 5000), "cuatro en vertical: YOU WIN");
   show("he ganado");
-  CHECK(shows("ENTER = AGAIN"), "y la ayuda cambia a ENTER = otra partida");
+  CHECK(wait_text("ENTER = AGAIN", 2000), "y la ayuda cambia a ENTER = otra partida");
   { bool win4 = true; for (int y = 0; y < 4; y++) if (disc(0, y) != 'R' || !hilite(0, y)) win4 = false;
     bool others = true; for (int y = 0; y < 3; y++) if (disc(1, y) != 'Y' || hilite(1, y)) others = false;
     CHECK(win4, "los cuatro de la columna 1 ganadores, resaltados en blanco");
@@ -393,7 +393,7 @@ int main(int argc, char** argv) {
     press('3'); gs.apply(2, 1);
     CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego la columna 3");
     run_ms(500);
-    { auto it = sdfiles.find("/CONNECT4.SAV");
+    { auto it = sdfiles.find("CONNECT4.SAV");
       CHECK(it != sdfiles.end() && it->second.size() == 66, "se ha guardado CONNECT4.SAV (24 + 42 bytes)");
       if (it != sdfiles.end() && it->second.size() == 66) {
         const auto& v = it->second;
@@ -430,7 +430,7 @@ int main(int argc, char** argv) {
     CHECK(wait_text("1 = NEW GAME", 30000), "salgo al menu");
 
     // un fichero que no es de este programa: se vuelve al menu, sin colgarse
-    sdfiles["/CONNECT4.SAV"] = std::vector<uint8_t>(5, 7);
+    sdfiles["CONNECT4.SAV"] = std::vector<uint8_t>(5, 7);
     press('2'); press('\r');
     CHECK(wait_text("1 = NEW GAME", 5000) && shows("3 = CONTINUE SAVED GAME"), "con un fichero roto sigue saliendo la opcion");
     press('3');

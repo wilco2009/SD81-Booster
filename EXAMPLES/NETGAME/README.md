@@ -105,8 +105,9 @@ GAME`** cuando existe el fichero. Seguir lee el fichero, vuelve a entrar en la *
 hace falta que los dos estén conectados a la vez: cada uno solo necesita su estado guardado y que el broker conserve el último
 mensaje del rival hasta que este lo recoja.
 
-- **Fichero:** `/CONNECT4.SAV` (66 bytes) o `/CHESS.SAV` (91), en la raíz de la SD (los dos nombres, sin `_`, se pueden borrar
-  desde el ZX81). Un fichero por juego: empezar o unirse a otra partida lo sustituye.
+- **Fichero:** `CONNECT4.SAV` (66 bytes) o `CHESS.SAV` (91), en la **carpeta actual**, que es la del juego (el cargador ya lee de ahí el
+  `.BIN`): cada carpeta de juego tiene su partida, y dos ZX81 (o dos instancias del emulador) con carpetas distintas no se pisan. Los dos
+  nombres, sin `_`, se pueden borrar desde el ZX81. Un fichero por carpeta: empezar o unirse a otra partida lo sustituye.
 - **Formato:** `SV_ID` (1 = 4 en raya, 2 = ajedrez), versión 1, mi ranura, control de tiempo, el código de sala (10, en códigos
   del ZX81), `GM_PLY` (2), `GM_OVER`, `GM_MOVE` (2), los relojes `GM_REM` (4) y `GM_WHY`, y el estado del juego (`g_save`).
   Cada juego define `SV_BASE` (RAM, unos 110 bytes; `$BC00`), `SV_ID`, `SV_NAMELEN` y la etiqueta `sv_name`.

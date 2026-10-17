@@ -55,9 +55,11 @@ la release v1.6.0). Versiones:
 | cc3f2f9 | Orden `v`: vídeo Superfast texto mientras está parado (programas en SLOW y FAST). Solo el MCU | 10.5, 13.4 |
 | 26c37a9 | Fase 3: `o` (paso por encima), `u` (salir de la rutina), `g` (ejecutar hasta) y `w` (puntos de vigilancia) en la consola. Solo el MCU: la FPGA y el monitor no cambian | 10.5, 10.8 |
 
-**Importante:** la ROM nueva manda el comando 75 antes que el 70. El
-emulador tiene que contestarlo, aunque sea con `0xFF` ("sin monitor"), o
-`LOAD *Z81` se queda esperando (sección 12.3).
+**Importante (cambio del 17 de octubre de 2026, versión 1.7):** el comando 70 (`LOAD *Z81`
+clásico, sin monitor) **se ha quitado**. La ROM manda solo el comando 75 y el estado `0xFF` ya
+no existe: sin monitor, con el depurador parado o con un snapshot o una carga en curso, el
+MCU contesta **10** (informe `P`) y no se carga nada. El emulador tiene que contestar el 75
+(sección 12.3) y ya no necesita el 70.
 
 **Lo que tiene que hacer el emulador**, en resumen (el detalle, en cada
 sección):
@@ -880,7 +882,7 @@ sección 12.
 corre en la página 63, así que se puede escribir cualquier página, también
 la 1, que es donde se ejecuta la ROM. La salida del monitor (`SETREGS` +
 `CONT`) deja todos los registros, R incluido, como estaban. Sin monitor se
-usa el cargador de siempre (comando 70, `z81_snapshot_loading.md`).
+no se puede cargar (estado 10, informe `P`); el cargador clásico, el comando 70, se quitó en la 1.7 (`z81_snapshot_loading.md` queda como historia).
 
 ### 12.1 La FPGA
 
@@ -930,7 +932,7 @@ leer las páginas de los bloques 1 y 7. Las lecturas y escrituras de
 ### 12.3 El comando 75 y la ROM
 
 ```
-Z80 -> MCU:  75, longitud, nombre        (como el 70)
+Z80 -> MCU:  75, longitud, nombre        (como `LOAD`)
 MCU -> Z80:  estado, IM
 ```
 
@@ -940,8 +942,8 @@ empieza cada sección. El Z80 espera mientras tanto.
 | Estado | Qué hace la ROM |
 |---|---|
 | 0 | `DI`, `OUT ($FD),A` (NMI apagada), `IM` del snapshot, trampa (`OUT $10` a `$3FEF`) y `JR $`. No vuelve: el MCU carga todo al parar y salta al snapshot. Si venía de SLOW, la trampa espera hasta que la FPGA ve FAST (un cuadro sin NMI, 20 ms). |
-| `0xFF` | Sin monitor: vuelve a mandar el nombre con el comando 70 (el cargador de siempre). |
-| 1-3 | Error, como el 70: 1 sin fichero, 2 sin `[MEMORY]`, 3 fichero mal hecho (`REPORT-G`, `-H`, `-I`). |
+| 1-3 | Error: 1 sin fichero, 2 sin `[MEMORY]`, 3 fichero mal hecho (`REPORT-G`, `-H`, `-I`). |
+| 10 | No se puede cargar ahora: sin monitor (`/SYS/DEBUG.BIN` falta, pesa más de 8 KB o no se pudo abrir), depurador parado, o snapshot o carga en curso (`REPORT-P`). Antes de la 1.7 esto era `0xFF` y la ROM pasaba al comando 70. |
 
 ### 12.4 Lo que hace el MCU al parar
 
@@ -1045,8 +1047,7 @@ vuelta del monitor, PC+1). Con `NMI 01`, los 8 bytes debajo de SP.
 
 ### 12.5 En el emulador
 
-- **Lo mínimo:** contestar el comando 75. Con `0xFF` se queda todo como
-  antes (comando 70).
+- **Lo mínimo:** contestar el comando 75. Sin monitor, con estado 10 (ya no `0xFF`).
 - **Para cargar como el hardware:**
   - el registro 7 y la orden 10 (sección 12.1);
   - las peticiones 9 a 12 del monitor y la relectura del mapper (12.2);

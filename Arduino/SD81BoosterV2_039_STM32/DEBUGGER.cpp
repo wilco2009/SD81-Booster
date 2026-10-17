@@ -1937,16 +1937,18 @@ static void ld_cpu_key(const char* k, uint32_t v){
 }
 
 // Primera pasada (comando 75, con el Z80 esperando). Devuelve 0 si se puede
-// cargar (la ROM lanza la trampa), 0xFF si no hay monitor (la ROM usa el
-// cargador de siempre), 1 sin fichero, 2 sin [MEMORY], 3 fichero mal hecho.
+// cargar (la ROM lanza la trampa), 1 sin fichero, 2 sin [MEMORY], 3 fichero mal
+// hecho, y Z81_NOT_NOW (10, informe P) si ahora no se puede: sin monitor, el
+// depurador parado o un snapshot o una carga en curso.
+#define Z81_NOT_NOW 10
 uint8_t dbg_z81_prepare(const char* path, uint8_t* im){
-  if (stopped) { *im = 1; return 0xFF; }
+  if (stopped) { *im = 1; return Z81_NOT_NOW; }
   return ld_prepare(path, im);
 }
 
 static uint8_t ld_prepare(const char* path, uint8_t* im){
   *im = 1;
-  if (!debug_monitor_loaded || snap_busy() || ld_busy()) return 0xFF;
+  if (!debug_monitor_loaded || snap_busy() || ld_busy()) return Z81_NOT_NOW;
   if (!z81in_open(path)) return 1;
   memset(&ld, 0, sizeof(ld));
   mcustate_clear();

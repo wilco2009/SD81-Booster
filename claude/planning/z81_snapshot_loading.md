@@ -1,5 +1,9 @@
 # Carga de snapshots .Z81 — especificación para el emulador
 
+> **Historia (17 de octubre de 2026):** este cargador, el comando 70 (`cmd_loadZ81` y `Z81Classic`
+> en la ROM), **se quitó en la versión 1.7**. `LOAD *Z81` va solo por el monitor del depurador
+> (comando 75; `hw_debugger_emulator.md`, sección 12). Se conserva como documentación del formato.
+
 Contrato de lo que ve el **Z80**. El comando MCU y la ROM ya están implementados
 en el hardware real:
 

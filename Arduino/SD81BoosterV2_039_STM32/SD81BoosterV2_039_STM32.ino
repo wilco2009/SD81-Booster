@@ -288,7 +288,7 @@ void setup() {
   configure_interrupts();
 //  playing_wav = false;
   set_blinking(clYELLOW, 4);
-  rtc_init();
+  //rtc_init();
   Serial_print_time();
 
   vbat_init();

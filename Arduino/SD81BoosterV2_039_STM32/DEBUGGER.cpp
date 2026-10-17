@@ -1123,6 +1123,7 @@ bool dbg_console(const char* line){
       watch_mode = 0;
       queue_cmp(0, 0);
       Serial.println("Watchpoint cleared");
+      web_refresh();                          // y la web: el punto de vigilancia desaparece de su panel
       return true;
     }
     if (!parse_addr(p, a)) { Serial.println("w r|w|io addr"); return true; }

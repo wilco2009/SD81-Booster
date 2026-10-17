@@ -39,7 +39,7 @@ Ya probado por el usuario con `SPRDBUF` y el Mario (2026-10-06). Queda:
 - [x] **Doble buffer** con sprites (`SPRDBUF`: sprites 30-39 y 62-63).
 - [x] `LOAD *SPRITE` con índices 32-63 (segunda tabla en la sombra `$1800-$19FF`).
 - [x] Los sprites se ponen a cero en el **reset** (64, no 32): encender sin ninguno basura en pantalla.
-- [ ] Vídeo sin perturbar en Superfast / 80 columnas con sprites activos.
+- [x] Vídeo sin perturbar en Superfast con sprites activos (visto con `SPRDBUF` y el Mario). En 70 y 80 columnas los sprites no están implementados: no aplica.
 - [ ] Posiciones en los tres modos (normal, HiRes, Spectrum) con la misma calibración de siempre.
 
 ### 1.2 Estado de vídeo legible: índices 9, 10, 11 de `$3FEF` (sim_int 0.14)
@@ -54,7 +54,7 @@ Ya probado por el usuario con `SPRDBUF` y el Mario (2026-10-06). Queda:
 - [x] **Snapshot de CP/M**: guardar (QS > 3 s o `snap`) y volver a cargar con `LOAD *Z81`; CP/M retoma donde estaba.
 - [x] Índice 12 de `$3FEF` da `$A8 | 1` con CP/M y `$A8` tras un reset.
 - [x] Sin CP/M, con `POKE 2056,0`: nada cambia respecto a la v1.6.0 (sprites, POKEs de control, fuente de la ROM).
-- [ ] La traza (`th`) sigue registrando con el bloque 0 en RAM.
+- [x] La traza (`th`) sigue registrando con el bloque 0 en RAM (probado el 17 de octubre).
 
 ### 1.4 Teclado virtual (`vkeys.v`, orden 13) — probado el 15 de octubre
 Sin probar en hardware (`tb_vkeys.v` solo en simulación).

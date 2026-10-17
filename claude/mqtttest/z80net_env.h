@@ -160,6 +160,12 @@ static void file_write_done() {
   }
   file_resp({st});
 }
+static uint32_t f_off = 0;
+static void file_seek_done() {
+  uint8_t st = 0xFF;
+  if (f_h < 4 && fhs[f_h].used) { fhs[f_h].pos = f_off; st = 0; }
+  file_resp({st});
+}
 static void file_close_done() {
   uint8_t st = 0xFF;
   if (f_h < 4 && fhs[f_h].used) { fhs[f_h].used = false; st = 0; }
@@ -174,7 +180,7 @@ static void tube_finish_write() {
 }
 static void tube_out(uint8_t d) {
   switch (tube_state) {
-    case 0: tube_state = (d == 66) ? 1 : (d == 67) ? 2 : (d == 50) ? 5 : (d == 53 || d == 71) ? 10 : d == 55 ? 20 : d == 56 ? 30 : d == 57 ? 40 : 0;
+    case 0: tube_state = (d == 66) ? 1 : (d == 67) ? 2 : (d == 50) ? 5 : (d == 53 || d == 71) ? 10 : d == 54 ? 50 : d == 55 ? 20 : d == 56 ? 30 : d == 57 ? 40 : 0;
             f_cmd = d; if (tube_state == 0) printf("  tubo: comando %d\n", d); break;
     case 10: f_left = d; f_name.clear(); if (!f_left) file_open_done(); else tube_state = 11; break;      // abrir / crear: la longitud del nombre
     case 11: f_name += (char)d; if (--f_left == 0) file_open_done(); break;
@@ -185,7 +191,12 @@ static void tube_out(uint8_t d) {
     case 31: f_cnt = d; tube_state = 32; break;
     case 32: f_cnt |= d << 8; f_data.clear(); f_left = f_cnt; if (!f_left) file_write_done(); else tube_state = 33; break;
     case 33: f_data.push_back(d); if (--f_left == 0) file_write_done(); break;
-    case 40: f_h = d; file_close_done(); break;                                                            // cerrar: handle
+    case 40: f_h = d; file_close_done(); break;
+    case 50: f_h = d; f_off = 0; tube_state = 51; break;                                                   // fseek: handle y 4 bytes (little-endian)
+    case 51: f_off |= (uint32_t)d; tube_state = 52; break;
+    case 52: f_off |= (uint32_t)d << 8; tube_state = 53; break;
+    case 53: f_off |= (uint32_t)d << 16; tube_state = 54; break;
+    case 54: f_off |= (uint32_t)d << 24; file_seek_done(); break;                                                            // cerrar: handle
     case 1: {
       size_t n = std::min<size_t>(d, to_z80.size());
       resp.clear(); resp.push_back((uint8_t)n);

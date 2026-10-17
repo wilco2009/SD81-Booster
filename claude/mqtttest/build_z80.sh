@@ -53,3 +53,11 @@ cp ../../EXAMPLES/NETGAME/pieces.inc tmp2/
 cd tmp2 || exit 1
 g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80chessui.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80chessui.exe || exit 1
 ./test_z80chessui.exe chess.bin
+
+echo "== diccionario (EXAMPLES/DICTTEST): busqueda binaria en un fichero de la SD, por el Z80"
+cd .. || exit 1
+cp test_z80dict.cpp tmp2/
+(cd ../../EXAMPLES/DICTTEST && pasmo dicttest.asm "$OLDPWD/tmp2/dicttest.bin") || exit 1
+cd tmp2 || exit 1
+g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80dict.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80dict.exe || exit 1
+./test_z80dict.exe dicttest.bin

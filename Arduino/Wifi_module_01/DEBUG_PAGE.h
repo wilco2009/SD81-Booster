@@ -114,9 +114,9 @@ const esc=t=>t.replace(/&/g,'&amp;').replace(/</g,'&lt;');
 let warnT=0,tCmd=0,tSent=0,tPoll=0,tView=0;
 function lat(){const t=[];if(tCmd)t.push('waiting for the panels...');else if(tSent)t.push('command to panels '+tSent+' ms');t.push('poll '+tPoll+' ms');t.push('view '+tView+' ms');$('lat').textContent=t.join(' | ');}
 function flash(m){const w=$('warn');w.textContent=m;w.className='warn';clearTimeout(warnT);warnT=setTimeout(()=>{w.textContent='';w.className='';},4000);}
-function add(t){
+function add(t,fresh){
   if(!t)return;
-  if(t.indexOf('Running: p to pause')>=0)flash('The program is running: press Pause first');
+  if(fresh&&t.indexOf('Running: p to pause')>=0)flash('The program is running: press Pause first');
   const end=out.scrollTop+out.clientHeight>=out.scrollHeight-4;
   out.textContent+=t;
   if(out.textContent.length>200000)out.textContent=out.textContent.slice(-150000);
@@ -144,7 +144,7 @@ async function poll(c){
     tPoll=Math.round(performance.now()-t0);lat();
     if(j.ok){
       if(j.lost)add('\n[... '+j.lost+' bytes lost ...]\n');
-      add(j.text);seq=j.seq;state(j.state);
+      add(j.text,!!c);seq=j.seq;state(j.state);   // (el aviso solo si es la respuesta a una orden de ahora, no el historial al abrir)
       if(j.vver!==vhave)view();
     }else{st.textContent='no answer from the STM32 (firmware without the web debugger?)';st.className='off';}
   }catch(e){st.textContent='connection error';st.className='off';}

@@ -1003,6 +1003,8 @@ bool sync_time_from_ntp(bool* out_disabled) {
 // budget (~1.5s) isn't enough to cover that race - wait here, with more
 // patience, until the STM32 actually answers a PING before doing anything
 // that depends on it (firmware update check, WiFi config fetch).
+#define STM32_WAIT_MS 120000   // paciencia con el STM32 al arrancar (una actualizacion completa le lleva un buen rato)
+
 bool wait_for_stm32(uint32_t timeout_ms) {
   uint32_t start = millis();
   uint8_t fw_version;
@@ -1022,7 +1024,9 @@ bool wait_for_stm32(uint32_t timeout_ms) {
 // displays as inverse video of an unrelated character. Force everything to
 // uppercase before writing (digits/./:/ are unaffected and already display
 // correctly).
-void write_ip_help_file() {
+static bool ip_file_pending = false;       // /MAN/IP.TXT sin escribir (el STM32 aun no podia): se reintenta desde loop()
+
+bool write_ip_help_file() {
   String ip = WiFi.localIP().toString();
   String content = "SD81 Booster WiFi module\n";
   content += "Firmware version: " WIFI_FW_VERSION "\n";
@@ -1033,12 +1037,26 @@ void write_ip_help_file() {
 
   uint8_t handle;
   if (!wifi_client_write_open("/MAN/IP.TXT", &handle)) {
-    Serial.println("Error: could not write /MAN/IP.TXT");
-    return;
+    Serial.println("Error: could not write /MAN/IP.TXT (retrying later)");
+    ip_file_pending = true;
+    return false;
   }
-  wifi_client_write_chunk(handle, (const uint8_t*)content.c_str(), content.length());
+  bool ok = wifi_client_write_chunk(handle, (const uint8_t*)content.c_str(), content.length());
   uint32_t total;
-  wifi_client_write_close(handle, &total);
+  ok = wifi_client_write_close(handle, &total) && ok;
+  ip_file_pending = !ok;
+  if (!ok) Serial.println("Error: /MAN/IP.TXT incomplete (retrying later)");
+  return ok;
+}
+
+// Tras actualizar el firmware, el STM32 puede seguir ocupado (SD, FPGA...) cuando el ESP32 ya tiene IP:
+// el primer intento de escribir IP.TXT falla y, sin esto, hacia falta otro reset
+void check_ip_file_retry() {
+  static uint32_t last_attempt = 0;
+  if (!ip_file_pending || WiFi.status() != WL_CONNECTED) return;
+  if (millis() - last_attempt < 3000) return;
+  last_attempt = millis();
+  if (write_ip_help_file()) Serial.println("/MAN/IP.TXT written");
 }
 
 #define WIFI_CONNECT_TIMEOUT_MS 10000   // per-network timeout while trying candidates in turn
@@ -1087,8 +1105,11 @@ void setup() {
   wifi_client_init();
   Serial.println("STEP2: wifi_client_init done");
 
+  // Con una actualizacion completa (firmware del STM32 + FPGA + este ESP32 a la vez) el STM32 tarda
+  // en contestar: el bootloader graba su aplicacion, se reconfigura la FPGA... y si el ESP32 se rinde
+  // antes, no encuentra ESP32_FW.BIN en la SD y no se actualiza (hasta otro encendido)
   Serial.println("Waiting for the STM32 to be ready...");
-  if (wait_for_stm32(15000)) {
+  if (wait_for_stm32(STM32_WAIT_MS)) {
     Serial.println("STM32 responded.");
   } else {
     Serial.println("STM32 did not respond within the timeout - continuing anyway.");
@@ -1231,6 +1252,7 @@ void loop() {
   check_ntp_sync_flag();
   check_ntp_retry();
   check_wifi_reconnect();
+  check_ip_file_retry();
   net_bridge_loop();
   sdlog_try_flush();
 }

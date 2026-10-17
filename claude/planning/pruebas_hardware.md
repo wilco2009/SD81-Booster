@@ -44,8 +44,8 @@ Ya probado por el usuario con `SPRDBUF` y el Mario (2026-10-06). Queda:
 
 ### 1.2 Estado de vídeo legible: índices 9, 10, 11 de `$3FEF` (sim_int 0.14)
 - [x] Índice 11 da `$C4`.
-- [ ] Índice 9 refleja lo que hay activo de verdad (hecho: BASIC `00`, CP/M `79` = Superfast + ancho + 7 píxeles + D_FILE y atributos alternativos; EDIT `79` (correcto); falta HiRes, Spectrum, doble buffer y el apagado con `POKE 2045,85`) (Superfast, HiRes, Spectrum, ancho, 7 píxeles, D_FILE alternativo, atributos alternativos, doble buffer): probar un programa que encienda cada uno y que lo apague con `POKE 2045,85`.
-- [ ] Índice 10: bloque de delante del doble buffer (`05` con EDIT y con `SPRDBUF`: es correcto, el registro arranca en 5 y `SPRDBUF` usa `POKE 2057,173` = AUTO con front 5, que no cambia de bloque. Falta ver otro valor: `POKE 2057,170` debe dar `02`, y `POKE 2057,85` apaga).
+- [x] (probado el 17 de octubre desde BASIC: 170→`01`, 171→`03`, 172→`05`, 173→`09`, 174→`19`, 85→`00`) Índice 9 refleja lo que hay activo de verdad (hecho: BASIC `00`, CP/M `79` = Superfast + ancho + 7 píxeles + D_FILE y atributos alternativos; EDIT `79` (correcto); falta HiRes, Spectrum, doble buffer y el apagado con `POKE 2045,85`) (Superfast, HiRes, Spectrum, ancho, 7 píxeles, D_FILE alternativo, atributos alternativos, doble buffer): probar un programa que encienda cada uno y que lo apague con `POKE 2045,85`.
+- [x] (probado el 17 de octubre: `POKE 2057,170`→`02`, el bit 7 del índice 9 se pone y se quita con `POKE 2057,85`) Índice 10: bloque de delante del doble buffer (`05` con EDIT y con `SPRDBUF`: es correcto, el registro arranca en 5 y `SPRDBUF` usa `POKE 2057,173` = AUTO con front 5, que no cambia de bloque. Falta ver otro valor: `POKE 2057,170` debe dar `02`, y `POKE 2057,85` apaga).
 - [x] Captura de pantalla de la web (`cap`) exacta en cada modo (D_FILE alternativo o del sistema). Probada en BASIC, CP/M y el Mario.
 
 ### 1.3 CP/M y bloque 0 en RAM (FPGA 0.15 y 0.16) — probado el 15 de octubre, solo falta la traza
@@ -100,7 +100,7 @@ Sin probar en hardware (`tb_vkeys.v` solo en simulación).
 
 Hace falta la placa con ESP32 y WiFi configurado (`/SYS/WIFI.CFG`). Sin probar con un broker real.
 
-- [ ] Conectar: `AT+MQTT` con el broker por defecto (`test.mosquitto.org`, `broker.emqx.io`, `broker.hivemq.com`) y con un `/SYS/NET.CFG` propio; `AT+MQTT?` da el estado 0-3.
+- [ ] (Pendiente de un programa de prueba propio: TLS, usuario/contraseña, QoS 1, retenidos, testamento, cola y 48 h no salen de jugar; el cliente MQTT básico sí se ejerce con los juegos en red.) Conectar: `AT+MQTT` con el broker por defecto (`test.mosquitto.org`, `broker.emqx.io`, `broker.hivemq.com`) y con un `/SYS/NET.CFG` propio; `AT+MQTT?` da el estado 0-3.
 - [ ] **Conexión TLS** (puerto 8883) y con usuario / contraseña.
 - [ ] `AT+MQTTSUB`, `AT+MQTTPUB=topic,qos,retain,len` (con `>` y datos crudos) y `AT+MQTTRX` entre **dos placas** o una placa y un cliente de escritorio (`mosquitto_pub`).
 - [ ] QoS 1 y retenidos; el último testamento (`MQTTWILL`) al desconectar mal.

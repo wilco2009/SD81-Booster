@@ -153,7 +153,14 @@ Probado en el **emulador** (dos instancias) el 16 de octubre: pantalla, teclado,
 
 ---
 
-## Antes de la próxima release (no es una prueba, pero va con ellas)
+## Release v1.7.0 (publicada el 17 de octubre de 2026)
+
+Probada por el usuario actualizando **desde el repositorio** (página `/update` del módulo), con las versiones STM32 2.7, ROM 1.8, FPGA 1.6 y
+WiFi 1.4: las versiones salen bien (`LOAD *VER`, `LOAD *FPGA`, la web), un snapshot carga bien, sin `DEBUG.BIN` `LOAD *Z81` da el
+informe P, y STM32 + FPGA + ESP32 se actualizan **de una sola vez**. Lo que se hizo de esa lista (comando 70 fuera, `ESP32FW.BIN`, versiones)
+queda cerrado; abajo, el texto original.
+
+## Antes de la próxima release (histórico: lo de la v1.7.0 está hecho; lo que quede, para la siguiente)
 
 1. ~~Quitar el comando 70 (ROM + MCU)~~ **Hecho el 17 de octubre**: sin monitor / depurador parado / snapshot en curso, el 75 contesta 10 (informe P). **Sin probar en la placa** (hace falta ROM y firmware nuevos a la vez): `LOAD *Z81` con monitor (debe seguir igual), y sin `/SYS/DEBUG.BIN` o con el depurador parado (debe dar el informe P).
 1b. ~~Renombrar `ESP32_FW.BIN` sin guion bajo~~ **Hecho el 17 de octubre**: ahora es `ESP32FW.BIN` (y `ESP32FWFAILED.TXT`). Tocado: `FW_UPDATE_PATH`/`FW_UPDATE_FAILED_PATH` (`Wifi_module_01.ino`), `ESP32_FW_PATH` (`WIFI_HANDLER.cpp`), `TOOLS/build_release.py`, `FIRMWARE/README_update.md` y `_ES.md`, y los comentarios de `SD_LOG.h` y del `.ino` (`ESP32LOG.TXT`). `NTP_SYNC_NOW.FLAG` se queda (el usuario no lo ve). **Compatibilidad**: el STM32 nuevo sirve `ESP32FW.BIN` cuando un ESP32 viejo (v1.6 o anterior) pide `ESP32_FW.BIN` y en la SD solo está el nuevo (`esp32_fw_alias`), y su DELETE borra el nuevo; así un ESP32 viejo se actualiza con el zip de la release. Un ESP32 viejo espera solo 15 s al STM32: si ese mismo arranque actualiza también el STM32 y la FPGA, se rinde y el ESP32 se actualiza en el arranque siguiente (el fichero se queda en la SD).

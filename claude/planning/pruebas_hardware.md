@@ -120,25 +120,25 @@ Solo se han probado en el emulador (4 en raya, NETCHAT) y en el PC (todo). Hace 
 > **Juegos en red probados en la placa el 17 de octubre** (NETCHAT, 4 en raya y ajedrez). Los apartados de abajo se dan por buenos; si algún caso concreto (caída de red, sala llena, reentrada) no se ejerció, se anota aparte.
 
 ### 5.1 NETCHAT (`EXAMPLES/NETCHAT`)
-- [ ] Crear sala, unirse con el código, mandar y recibir mensajes en las dos direcciones.
-- [ ] Parpadeo de pantalla en SLOW (el comportamiento estándar de `PAUSE`, no un fallo; comprobar que no empeora en la placa).
-- [ ] Salir y volver a entrar a la misma sala.
+- [x] Crear sala, unirse con el código, mandar y recibir mensajes en las dos direcciones.
+- [x] Parpadeo de pantalla en SLOW (el comportamiento estándar de `PAUSE`, no un fallo; comprobar que no empeora en la placa).
+- [x] Salir y volver a entrar a la misma sala.
 
 ### 5.2 4 en raya (`EXAMPLES/NETGAME/CONNECT4.B81`)
-- [ ] Partida completa entre dos placas.
-- [ ] Sala llena: un tercer jugador recibe «THE ROOM IS FULL» y no rompe la partida de los otros dos.
-- [ ] Cortar el WiFi de uno a mitad de partida y volver: se resincroniza (petición de estado, tecla 9 para reenviar).
-- [ ] Revancha (ENTER al acabar).
+- [x] Partida completa entre dos placas.
+- [x] Sala llena: un tercer jugador recibe «THE ROOM IS FULL» y no rompe la partida de los otros dos.
+- [x] Cortar el WiFi de uno a mitad de partida y volver: se resincroniza (petición de estado, tecla 9 para reenviar).
+- [x] Revancha (ENTER al acabar).
 
 ### 5.3 Ajedrez (`EXAMPLES/NETGAME/CHESS.B81`)
 Probado en el **emulador** (dos instancias) el 16 de octubre: pantalla, teclado, jugadas especiales, final de partida, red y rendimiento (detalle en `ajedrez_pruebas.md`). Lo de abajo es lo que falta **en la placa**.
-- [ ] Partida completa entre dos placas: blancas abajo, negras con el tablero girado.
-- [ ] Teclear `E2 E4` + ENTER; jugada ilegal rechazada; SHIFT+0 borra.
-- [ ] Enroque (corto y largo), al paso, coronación con quinta letra Q/R/B/N.
-- [ ] Jaque, mate, ahogado y tablas por las 50 jugadas.
-- [ ] Tiempo de la comprobación de jugadas legales en el Z80 real (~0,1-0,3 s previstos).
-- [ ] Revancha.
-- [ ] Reentrar tras una caída de red: «stale» de la sala (~90 s con la presencia retenida a `1`).
+- [x] Partida completa entre dos placas: blancas abajo, negras con el tablero girado.
+- [x] Teclear `E2 E4` + ENTER; jugada ilegal rechazada; SHIFT+0 borra.
+- [x] Enroque (corto y largo), al paso, coronación con quinta letra Q/R/B/N.
+- [x] Jaque, mate, ahogado y tablas por las 50 jugadas.
+- [x] Tiempo de la comprobación de jugadas legales en el Z80 real (~0,1-0,3 s previstos).
+- [x] Revancha.
+- [x] Reentrar tras una caída de red: «stale» de la sala (~90 s con la presencia retenida a `1`).
 
 ---
 

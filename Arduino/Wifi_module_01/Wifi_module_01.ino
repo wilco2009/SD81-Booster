@@ -12,7 +12,7 @@
 #include "NET_BRIDGE.h"
 
 // SD_LOG.h ultimo a proposito: redefine "Serial" como macro para el resto
-// de este fichero (espeja toda la salida a /SYS/ESP32_LOG.TXT ademas del
+// de este fichero (espeja toda la salida a /SYS/ESP32LOG.TXT ademas del
 // USB) - no debe afectar a las cabeceras de las librerias de arriba.
 #include "SD_LOG.h"
 
@@ -21,13 +21,13 @@
 // pattern as the STM32's own SD81.MCS FPGA self-update.
 // Raiz de la SD, no /SYS - misma convencion que firmware.bin (STM32) y
 // SD81.MCS (FPGA), los otros dos ficheros de auto-actualizacion.
-#define FW_UPDATE_PATH        "/ESP32_FW.BIN"
-#define FW_UPDATE_FAILED_PATH "/ESP32_FW_FAILED.TXT"
+#define FW_UPDATE_PATH        "/ESP32FW.BIN"        // (hasta la v1.6, ESP32_FW.BIN: el ZX81 no tiene "_")
+#define FW_UPDATE_FAILED_PATH "/ESP32FWFAILED.TXT"
 
 #define MDNS_HOSTNAME "sd81booster"   // reachable at http://sd81booster.local
 
 // WiFi module (ESP32-C3) own firmware version, shown on the web UI and in
-// /MAN/IP.TXT. Bump this before building a new ESP32_FW.BIN release.
+// /MAN/IP.TXT. Bump this before building a new ESP32FW.BIN release.
 #define WIFI_FW_VERSION "1.3"
 
 WebServer server(80);
@@ -785,7 +785,7 @@ void handleUpdatePage() {
               "    log('Marking installed version...');\n"
               "    await fetch('/update/finish', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'tag=' + encodeURIComponent(TAG)});\n"
               // El ESP32 solo puede reiniciarse a si mismo (necesario para
-              // que aplique su propio ESP32_FW.BIN, si venia en el ZIP) -
+              // que aplique su propio ESP32FW.BIN, si venia en el ZIP) -
               // no puede resetear el STM32/interface completo por software
               // (no hay comando de reset remoto en el protocolo), y ese
               // reset es imprescindible para que el STM32 detecte
@@ -824,10 +824,10 @@ void handleUpdateCheck() {
 // comando de reset remoto en WIFI_PROTOCOL.h) - la parte STM32/FPGA/ROM de
 // la actualizacion (firmware.bin/SD81.MCS/SDBOOST.ROM) solo se aplica en el
 // arranque fisico del STM32. Si el ESP32 se reiniciara YA para aplicar su
-// propio ESP32_FW.BIN (ver FW_UPDATE_PATH mas arriba) y el usuario le
+// propio ESP32FW.BIN (ver FW_UPDATE_PATH mas arriba) y el usuario le
 // hiciera el power-cycle a la interfaz completa mientras el ESP32 todavia
 // esta escribiendo su propia flash, se arriesgaria a corromper ese
-// autoflasheo a medias. Dejando el ESP32_FW.BIN pendiente en la SD sin
+// autoflasheo a medias. Dejando el ESP32FW.BIN pendiente en la SD sin
 // tocarlo, el UNICO power-cycle que el usuario tiene que hacer de todos
 // modos (para el STM32) tambien dispara, de paso, el autoflasheo del ESP32
 // - todo en un solo ciclo de encendido, sin ventana de riesgo.
@@ -852,7 +852,7 @@ void mark_firmware_update_failed(const char* reason) {
   if (!wifi_client_write_open(FW_UPDATE_FAILED_PATH, &handle)) return;
   String content = "SD81 Booster ESP32 firmware update REJECTED.\n";
   content += "Reason: "; content += reason; content += "\n";
-  content += "The bad file was deleted - copy a known-good ESP32_FW.BIN to the SD card root and retry.\n";
+  content += "The bad file was deleted - copy a known-good ESP32FW.BIN to the SD card root and retry.\n";
   wifi_client_write_chunk(handle, (const uint8_t*)content.c_str(), content.length());
   uint32_t total;
   wifi_client_write_close(handle, &total);
@@ -1107,7 +1107,7 @@ void setup() {
 
   // Con una actualizacion completa (firmware del STM32 + FPGA + este ESP32 a la vez) el STM32 tarda
   // en contestar: el bootloader graba su aplicacion, se reconfigura la FPGA... y si el ESP32 se rinde
-  // antes, no encuentra ESP32_FW.BIN en la SD y no se actualiza (hasta otro encendido)
+  // antes, no encuentra ESP32FW.BIN en la SD y no se actualiza (hasta otro encendido)
   Serial.println("Waiting for the STM32 to be ready...");
   if (wait_for_stm32(STM32_WAIT_MS)) {
     Serial.println("STM32 responded.");

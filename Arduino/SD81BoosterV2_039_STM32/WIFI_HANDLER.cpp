@@ -254,7 +254,22 @@ static void handle_stat(const uint8_t* payload, uint16_t len) {
 // ESP32, que no va a tener conectado).
 // En la raiz de la SD, no en /SYS - misma convencion que firmware.bin (STM32)
 // y SD81.MCS (FPGA), los otros dos ficheros de auto-actualizacion.
-#define ESP32_FW_PATH "/ESP32_FW.BIN"
+#define ESP32_FW_PATH "/ESP32FW.BIN"
+// Hasta la v1.6 se llamaba ESP32_FW.BIN, y el ZX81 no tiene "_": no se podia borrar desde el
+// ZX81 uno que se hubiera quedado a medias. Un ESP32 viejo sigue pidiendo el nombre de
+// antes: si en la SD solo esta el nuevo, se le sirve ese (y su DELETE borra ese)
+#define ESP32_FW_OLD_PATH "/ESP32_FW.BIN"
+
+// Si el ESP32 (de antes) pide el nombre viejo y solo esta el nuevo, lo cambia por el nuevo
+static void esp32_fw_alias(char* path) {
+  if (strcmp(path, ESP32_FW_OLD_PATH) != 0) return;
+  if (sd.exists(ESP32_FW_OLD_PATH) || !sd.exists(ESP32_FW_PATH)) return;
+  strcpy(path, ESP32_FW_PATH);
+}
+
+static bool is_esp32_fw(const char* path) {
+  return strcmp(path, ESP32_FW_PATH) == 0 || strcmp(path, ESP32_FW_OLD_PATH) == 0;
+}
 
 // Si el ESP32 falla a mitad de la actualizacion (imagen corrupta, error de
 // escritura, etc.) nunca llega a pedir DELETE - el fichero se queda en la
@@ -273,6 +288,7 @@ static void handle_read_open(const uint8_t* payload, uint16_t len) {
   int h = alloc_handle();
   if (h < 0) { send_status_only(CMD_READ_OPEN, ST_NO_HANDLE_FREE); return; }
 
+  esp32_fw_alias(path);
   if (!wifi_handle[h].open(path, O_RDONLY)) {
     send_status_only(CMD_READ_OPEN, ST_NOT_FOUND);
     return;
@@ -283,7 +299,7 @@ static void handle_read_open(const uint8_t* payload, uint16_t len) {
   // verdad - el ESP32 pide READ_OPEN de este path en TODOS los arranques
   // (exista o no la actualizacion), asi que disparar esto antes de saber
   // si realmente se abrio encenderia el LED en cada arranque normal.
-  if (strcmp(path, ESP32_FW_PATH) == 0) {
+  if (is_esp32_fw(path)) {
     Serial.println("Updating ESP32 firmware from the SD card...");
     set_blinking(clPINK, 4);
     esp32_update_in_progress = true;
@@ -401,6 +417,7 @@ static void handle_delete(const uint8_t* payload, uint16_t len) {
   char path[WIFI_PROTO_MAX_PATH];
   if (!extract_path(payload, len, path)) { send_status_only(CMD_DELETE, ST_IO_ERROR); return; }
 
+  esp32_fw_alias(path);
   FsFile f = sd.open(path, O_RDONLY);
   bool exists = (bool)f;
   bool is_dir = exists && f.isDir();
@@ -409,7 +426,7 @@ static void handle_delete(const uint8_t* payload, uint16_t len) {
   if (!exists) { send_status_only(CMD_DELETE, ST_NOT_FOUND); return; }
 
   bool ok = is_dir ? sd.rmdir(path) : sd.remove(path);
-  if (ok && strcmp(path, ESP32_FW_PATH) == 0) {
+  if (ok && is_esp32_fw(path)) {
     Serial.println("ESP32 firmware update completed successfully.");
     set_blinking_off();
     set_status_led_ok();

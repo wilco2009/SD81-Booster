@@ -153,12 +153,6 @@ Probado en el **emulador** (dos instancias) el 16 de octubre: pantalla, teclado,
 ## Antes de la próxima release (no es una prueba, pero va con ellas)
 
 1. Quitar el comando 70 (ROM + MCU) — `project_remove_cmd70`.
-1b. **Renombrar `ESP32_FW.BIN` sin guion bajo** (p. ej. `ESP32FW.BIN`; decidido el 15 de octubre, después de todas las pruebas). El ZX81 no tiene `_`, así que el usuario no puede borrar desde el ZX81 un `ESP32_FW.BIN` que se haya quedado a medias; hoy solo se arregla sacando la SD. Tocar a la vez:
-   - `FW_UPDATE_PATH` y `FW_UPDATE_FAILED_PATH` en `Wifi_module_01.ino` (y de paso `ESP32_FW_FAILED.TXT`, también con guion bajo),
-   - `ESP32_FW_PATH` en `WIFI_HANDLER.cpp` (STM32),
-   - `TOOLS/build_release.py`, `FIRMWARE/README_update.md` y `_ES.md`, los dos manuales y las notas de release,
-   - `NTP_SYNC_NOW.FLAG` (`COMMANDS.cpp` y `Wifi_module_01.ino`) lleva el mismo problema, aunque el usuario no lo ve; decidir si se renombra también,
-   - los comentarios de `SD_LOG.h` y del `.ino` hablan de `ESP32_LOG.TXT`, pero el fichero real es `ESP32LOG.TXT`.
-   Hay que cambiar ESP32 y STM32 a la vez: con un nombre distinto en cada lado la autoactualización no encuentra el fichero.
+1b. ~~Renombrar `ESP32_FW.BIN` sin guion bajo~~ **Hecho el 17 de octubre**: ahora es `ESP32FW.BIN` (y `ESP32FWFAILED.TXT`). Tocado: `FW_UPDATE_PATH`/`FW_UPDATE_FAILED_PATH` (`Wifi_module_01.ino`), `ESP32_FW_PATH` (`WIFI_HANDLER.cpp`), `TOOLS/build_release.py`, `FIRMWARE/README_update.md` y `_ES.md`, y los comentarios de `SD_LOG.h` y del `.ino` (`ESP32LOG.TXT`). `NTP_SYNC_NOW.FLAG` se queda (el usuario no lo ve). **Compatibilidad**: el STM32 nuevo sirve `ESP32FW.BIN` cuando un ESP32 viejo (v1.6 o anterior) pide `ESP32_FW.BIN` y en la SD solo está el nuevo (`esp32_fw_alias`), y su DELETE borra el nuevo; así un ESP32 viejo se actualiza con el zip de la release. Un ESP32 viejo espera solo 15 s al STM32: si ese mismo arranque actualiza también el STM32 y la FPGA, se rinde y el ESP32 se actualiza en el arranque siguiente (el fichero se queda en la SD).
 2. Subir las cuatro versiones (`project_firmware_versioning`): FPGA a 1.6 y regenerar `sd81.mcs` con `append_fpga_version.py`.
 3. Quitar «sin probar» de `manual_pendiente.md`, `emulador_pendiente.md` y `juego_en_red.md` según lo que salga.

@@ -79,7 +79,7 @@ FQBN_ESP32 = (
 
 # Ficheros que van en Firmware.zip: solo lo que el flujo de actualizacion
 # normal necesita (ver memoria feedback_release_zip_packaging.md).
-FIRMWARE_ZIP_FILES = ["firmware.bin", "sd81.mcs", "ESP32_FW.BIN"]
+FIRMWARE_ZIP_FILES = ["firmware.bin", "sd81.mcs", "ESP32FW.BIN"]
 
 # Ficheros/scripts que van en Tools.zip (kit de recuperacion/build, NO CP/M).
 TOOLS_ZIP_FILES = [
@@ -143,7 +143,7 @@ def build_esp32():
     if not produced:
         raise SystemExit(f"No se encontro ningun .ino.bin en {build_dir}")
     FIRMWARE_DIR.mkdir(exist_ok=True)
-    dest = FIRMWARE_DIR / "ESP32_FW.BIN"
+    dest = FIRMWARE_DIR / "ESP32FW.BIN"
     shutil.copy2(produced[0], dest)
     shutil.rmtree(build_dir)
     print(f"-> {dest} ({dest.stat().st_size} bytes)")

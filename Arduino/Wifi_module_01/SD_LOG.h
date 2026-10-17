@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-// Espeja toda la salida por Serial tambien a /SYS/ESP32_LOG.TXT en la SD -
+// Espeja toda la salida por Serial tambien a /SYS/ESP32LOG.TXT en la SD -
 // el conector USB del ESP32 normalmente no es accesible una vez montado el
 // interface dentro de la carcasa, asi que sin esto no hay forma de ver los
 // logs salvo desmontando la caja.

@@ -117,6 +117,8 @@ Hace falta la placa con ESP32 y WiFi configurado (`/SYS/WIFI.CFG`). Sin probar c
 
 Solo se han probado en el emulador (4 en raya, NETCHAT) y en el PC (todo). Hace falta **dos placas** o una placa y el emulador.
 
+> **Juegos en red probados en la placa el 17 de octubre** (NETCHAT, 4 en raya y ajedrez). Los apartados de abajo se dan por buenos; si algún caso concreto (caída de red, sala llena, reentrada) no se ejerció, se anota aparte.
+
 ### 5.1 NETCHAT (`EXAMPLES/NETCHAT`)
 - [ ] Crear sala, unirse con el código, mandar y recibir mensajes en las dos direcciones.
 - [ ] Parpadeo de pantalla en SLOW (el comportamiento estándar de `PAUSE`, no un fallo; comprobar que no empeora en la placa).

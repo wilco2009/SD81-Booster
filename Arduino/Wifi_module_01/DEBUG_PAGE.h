@@ -96,7 +96,7 @@ td.hx{color:var(--mu)}
 <small id="kbmsg"></small></h2>
 <div id="kbd"></div></section>
 <section class="pn full"><h2><span>Console</span>
-<button data-c="th 20">History</button><button data-c="t 100">Trace 100</button><button data-c="sym">Symbols</button>
+<button data-c="th 20">History</button><button data-c="t 64">Trace 100</button><button data-c="sym">Symbols</button>
 <button data-c="h">Help</button><button id="clr">Clear</button></h2>
 <div id="out"></div>
 <input id="cmd" autocomplete="off" spellcheck="false" placeholder="command, as in the USB console (h for help) - Enter sends, arrows: history">

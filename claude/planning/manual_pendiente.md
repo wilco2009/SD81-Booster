@@ -19,7 +19,7 @@ Lista viva (empezada el 14 de octubre de 2026). Se tacha lo que se hace en los d
 | 4 | **Qué guarda `snap`** | "Snapshots desde el depurador" (Apéndice L) y 7.7 | Dice "por defecto solo se guardan las páginas mapeadas; `snap -a` guarda las 64". Lo cierto: las **mapeadas más las que el programa ha escrito desde el último reset** (menos la 63); `snap -a` guarda todas. Y `LOAD` ya no borra las escritas, así que un programa de varias cargas (datos desde la SD) las acumula |
 | 5 | **CP/M y el depurador** | Apéndice I (CP/M) y Apéndice L | Con CP/M (`POKE 2056`) los POKEs de control y los sprites están apagados y el bloque 0 es RAM. La pantalla del depurador (QS más de 1 s) y la carga/guardado de snapshots de CP/M funcionan; decir qué se ve y qué no. **Probado en la placa el 15 de octubre: ya se puede redactar** |
 | 6 | **`LOAD *Z81` sin el comando 70** | 7.7 y el texto "Sin el depurador se restauran como los de…" | Cuando se quite el 70 (antes de la próxima release): `LOAD *Z81` exige `/SYS/DEBUG.BIN`; decir el informe de error que da sin él. Ver `project_remove_cmd70` |
-| 7 | **Teclado virtual y captura de pantalla de la web** | Apéndice L (ya hay un párrafo) | **Probados en la placa el 15 de octubre**: quitar cualquier "no probado"; comprobar que ES y EN dicen lo mismo |
+| 7 | **Teclado virtual y captura de pantalla de la web** | Apéndice L (ya hay un párrafo) | **Probados en la placa el 15 de octubre**: quitar cualquier "no probado"; decir que se abre mejor con la **IP** del módulo (la resolución de `sd81booster.local` en el navegador puede tardar 10-30 s por operación); comprobar que ES y EN dicen lo mismo |
 
 ## Para cada release
 

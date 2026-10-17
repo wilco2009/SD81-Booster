@@ -40,7 +40,7 @@ Ya probado por el usuario con `SPRDBUF` y el Mario (2026-10-06). Queda:
 - [x] `LOAD *SPRITE` con índices 32-63 (segunda tabla en la sombra `$1800-$19FF`).
 - [x] Los sprites se ponen a cero en el **reset** (64, no 32): encender sin ninguno basura en pantalla.
 - [x] Vídeo sin perturbar en Superfast con sprites activos (visto con `SPRDBUF` y el Mario). En 70 y 80 columnas los sprites no están implementados: no aplica.
-- [ ] Posiciones en los tres modos (normal, HiRes, Spectrum) con la misma calibración de siempre.
+- [x] (probado el 17 de octubre) Posiciones en los tres modos (normal, HiRes, Spectrum) con la misma calibración de siempre.
 
 ### 1.2 Estado de vídeo legible: índices 9, 10, 11 de `$3FEF` (sim_int 0.14)
 - [x] Índice 11 da `$C4`.
@@ -71,10 +71,9 @@ Sin probar en hardware (`tb_vkeys.v` solo en simulación).
 - [x] Snapshot y carga con **doble buffer** activo.
 - [x] Sonido callado mientras carga un snapshot (ya en v1.6.0; recomprobar con los AY).
 - [ ] **Web del depurador**: paneles (desensamblado con breakpoints por clic, registros, pila, volcado, consola) — pendiente de probar en detalle. El teclado virtual, también en la pantalla del depurador, y la captura de pantalla ya están probados.
-- [ ] `v dir` (HiRes WRX a dirección manual): no se pudo confirmar en la v1.6.0 (no se encontró el mapa de bits).
-- [ ] Riesgos del §9 de `hw_debugger_plan.md`: parar en mitad de un `LOAD`; breakpoints `FF` que borra un `LOAD`.
+- [ ] `v dir` (HiRes WRX a dirección manual): **sin confirmar**; el usuario no ha sido capaz de dar con la dirección del mapa de bits para probarlo (en la v1.6.0 tampoco, y de nuevo el 17 de octubre). No se sabe si funciona; no bloquea la release.
+- Riesgos del §9 de `hw_debugger_plan.md` (parar en mitad de un `LOAD`; breakpoints `FF` que borra un `LOAD`): son **limitaciones conocidas**, no pruebas pendientes (aclarado el 17 de octubre).
 - [ ] FPGA anterior a 0.08 con el monitor cargado deja la ROM en `Z81MonWait` (comprobación opcional).
-- [ ] `LOAD *Z81` cuando hay snapshot o carga en curso, o el depurador parado: hoy contesta `0xFF` y la ROM cae al comando 70 (se quita antes de la próxima release; ver `project_remove_cmd70`).
 
 ---
 

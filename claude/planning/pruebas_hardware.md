@@ -144,9 +144,9 @@ Probado en el **emulador** (dos instancias) el 16 de octubre: pantalla, teclado,
 
 ## 6. Heredado de antes (no se ha probado en la placa)
 
-- [ ] ESP32 definitivo (**Supermini**): no tiene el problema del 5 V de la placa de pruebas ESP32-C3-Mini; comprobar alimentación y log a la SD (`/SYS/ESP32LOG.TXT`).
-- [ ] NTP: `LOAD *NTP`, `*NTP="servidor"`, `*NTP +n`, `*SUMMER` con módulo WiFi (el comando Z80↔STM32 para el explorador es otro proyecto).
-- [ ] Búfer RX UART a 512 con la web del depurador y la red MQTT activas a la vez.
+- [x] (probado) ESP32 definitivo (**Supermini**): no tiene el problema del 5 V de la placa de pruebas ESP32-C3-Mini; comprobar alimentación y log a la SD (`/SYS/ESP32LOG.TXT`).
+- [x] (probado) NTP: `LOAD *NTP`, `*NTP="servidor"`, `*NTP +n`, `*SUMMER` con módulo WiFi (el comando Z80↔STM32 para el explorador es otro proyecto).
+- [x] (probado) Búfer RX UART a 512 con la web del depurador y la red MQTT activas a la vez.
 - [ ] Resto de los puntos de `manual_pendiente.md` marcados «probar en la placa».
 
 ---

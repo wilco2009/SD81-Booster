@@ -9,6 +9,7 @@ body{font-family:sans-serif;margin:0;background:var(--bg);color:var(--tx)}
 header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;background:var(--pn);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:2}
 header h1{font-size:18px;margin:0 8px 0 0}
 #st{font-weight:bold;margin-right:auto}
+#warn.warn{color:#c00;font-weight:bold;margin:0 10px}
 .run{color:#080}.stop{color:#c00}.off{color:#888}
 button{font-size:13px;padding:4px 9px;cursor:pointer}
 main{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:10px;padding:10px;max-width:1300px;margin:0 auto}
@@ -56,7 +57,7 @@ td.hx{color:var(--mu)}
 #kbd button.w5{min-width:200px}
 </style></head><body>
 <header>
-<h1>SD81 debugger</h1><span id="st" class="off">...</span>
+<h1>SD81 debugger</h1><span id="st" class="off">...</span><span id="warn"></span><small id="lat" style="color:#777"></small>
 <button data-c="p">Pause</button><button data-c="c">Continue</button>
 <button data-c="s">Step</button><button data-c="o">Over</button><button data-c="u">Out</button>
 <button data-c="snap">Snapshot</button><button data-c="ui">ZX81 screen</button><button id="capbtn">Capture</button>
@@ -96,7 +97,7 @@ td.hx{color:var(--mu)}
 <small id="kbmsg"></small></h2>
 <div id="kbd"></div></section>
 <section class="pn full"><h2><span>Console</span>
-<button data-c="th 20">History</button><button data-c="t 64">Trace 100</button><button data-c="sym">Symbols</button>
+<button data-c="th 20">History</button><button data-c="t 64">Trace 100</button><button data-c="sym !" title="reload the symbols file (or load the one typed here)">Symbols</button><input id="symf" placeholder="file.SYM (empty: reload)" size="22" autocomplete="off" spellcheck="false">
 <button data-c="h">Help</button><button id="clr">Clear</button></h2>
 <div id="out"></div>
 <input id="cmd" autocomplete="off" spellcheck="false" placeholder="command, as in the USB console (h for help) - Enter sends, arrows: history">
@@ -110,8 +111,12 @@ const out=$('out'),st=$('st'),cmd=$('cmd');
 const ZX=' ▘▝▀▖▌▞▛▒▒▒"£$:?()><=+-*/;,.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const hx=(v,n)=>v.toString(16).toUpperCase().padStart(n,'0');
 const esc=t=>t.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+let warnT=0,tCmd=0,tSent=0,tPoll=0,tView=0;
+function lat(){const t=[];if(tCmd)t.push('waiting for the panels...');else if(tSent)t.push('command to panels '+tSent+' ms');t.push('poll '+tPoll+' ms');t.push('view '+tView+' ms');$('lat').textContent=t.join(' | ');}
+function flash(m){const w=$('warn');w.textContent=m;w.className='warn';clearTimeout(warnT);warnT=setTimeout(()=>{w.textContent='';w.className='';},4000);}
 function add(t){
   if(!t)return;
+  if(t.indexOf('Running: p to pause')>=0)flash('The program is running: press Pause first');
   const end=out.scrollTop+out.clientHeight>=out.scrollHeight-4;
   out.textContent+=t;
   if(out.textContent.length>200000)out.textContent=out.textContent.slice(-150000);
@@ -134,7 +139,9 @@ async function poll(c){
   try{
     let u='/debug/poll?seq='+seq;
     if(c)u+='&c='+encodeURIComponent(c);
+    const t0=performance.now();
     const j=await (await fetch(u)).json();
+    tPoll=Math.round(performance.now()-t0);lat();
     if(j.ok){
       if(j.lost)add('\n[... '+j.lost+' bytes lost ...]\n');
       add(j.text);seq=j.seq;state(j.state);
@@ -147,8 +154,10 @@ async function poll(c){
 async function view(){
   if(vbusy)return;vbusy=true;
   try{
+    const t0=performance.now();
     const r=await fetch('/debug/view');
     if(r.ok)render(await r.text());
+    tView=Math.round(performance.now()-t0);lat();
   }catch(e){}
   vbusy=false;
 }
@@ -179,6 +188,7 @@ function render(doc){
       mem+='<tr><td>'+p[0]+'</td>'+h+'<td class="zx">'+esc(z)+'</td></tr>';
     }
   }
+  if(tCmd){tSent=Math.round(performance.now()-tCmd);tCmd=0;lat();}
   if(stop){$('dis').innerHTML=dis;$('stk').innerHTML=stk;$('mem').innerHTML=mem;}   // en marcha: lo de la ultima parada
   bpset=new Set(bps);
   $('bps').innerHTML=(bps.length?bps.map(b=>'<div><span>'+b+'</span><a data-b="'+b+'">&#10005;</a></div>').join(''):'<div>none</div>')+
@@ -194,9 +204,10 @@ function regs(p){
   $('flags').innerHTML='SZ5H3PNC'.split('').map((c,i)=>'<i class="'+((f>>(7-i))&1?'on':'')+'">'+c+'</i>').join('');
   $('slow').textContent=p[16]?'SLOW':'';
 }
-function send(c){if(!c)return;if(c[0]!=='@'){if(hist[hist.length-1]!==c)hist.push(c);hi=hist.length;}poll(c);}
+function send(c){if(!c)return;if(c[0]!=='@')tCmd=performance.now();if(c[0]!=='@'){if(hist[hist.length-1]!==c)hist.push(c);hi=hist.length;}poll(c);}
 document.addEventListener('click',e=>{
   const t=e.target;
+  if(t.dataset.c==='sym !'){const f=$('symf').value.trim();send(f?'sym '+f:'sym !');return;}
   if(t.dataset.c){send(t.dataset.c);return;}
   if(t.dataset.b){send('bc '+t.dataset.b);return;}
   if(t.classList.contains('bp')){const a=t.parentNode.dataset.a;send((bpset.has(a)?'bc ':'b ')+a);return;}

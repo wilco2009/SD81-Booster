@@ -963,7 +963,7 @@ static void help(){
   Serial.println("  io port [val]  read (or write) an I/O port");
   Serial.println("  snap [-a] [f]  snapshot (.Z81): mapped pages, -a all pages; name: last LOADed file");
   Serial.println("  cap            screen capture for the web page (stops the program for a moment)");
-  Serial.println("  sym [f | -]    symbols (pasmo .sym): load f, - clears, none: show; LOAD reads <name>.SYM");
+  Serial.println("  sym [f | ! | -] symbols (pasmo .sym): load f, ! reloads the current file, - clears, none: show; LOAD reads <name>.SYM");
   Serial.println("  DBG_RELOAD     reload /SYS/DEBUG.BIN (like a reset)");
 }
 
@@ -1023,7 +1023,17 @@ bool dbg_console(const char* line){
       if (sym_n) Serial.printf("%d symbols from %s\r\n", sym_n, sym_src);
       else Serial.println("No symbols");
     } else if (!strcmp(p, "-")) { sym_n = 0; sym_src[0] = 0; Serial.println("Symbols cleared"); }
-    else {
+    else if (!strcmp(p, "!")) {               // releer el .SYM de ahora (o el del ultimo programa cargado)
+      const char* path = sym_src[0] ? sym_src : sym_auto;
+      char keep[96];
+      snprintf(keep, sizeof(keep), "%s", path);
+      if (!keep[0]) Serial.println("No symbols file to reload");
+      else {
+        int n = sym_load(keep);
+        if (n < 0) Serial.printf("Can't open %s\r\n", keep);
+        else Serial.printf("%d symbols from %s\r\n", n, keep);
+      }
+    } else {
       char path[96];
       snprintf(path, sizeof(path), "%s%s", p[0] == '/' ? "" : current_dir, p);
       int n = sym_load(path);
@@ -1031,6 +1041,7 @@ bool dbg_console(const char* line){
       else Serial.printf("%d symbols from %s\r\n", n, path);
     }
     if (stopped) ui_refresh();
+    web_refresh();                            // y la web: las etiquetas del desensamblado
     return true;
   }
   if (!stopped && !strcmp(cmd, "ui")) {       // en marcha: si sale o no en la parada siguiente

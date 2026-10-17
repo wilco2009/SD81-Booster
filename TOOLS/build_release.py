@@ -91,7 +91,10 @@ TOOLS_ZIP_FILES = [
 # Excluido siempre de SD Content.zip -- placeholder inservible, sobrescribe
 # la config real del usuario al actualizar. NTP.CFG SI se incluye (ver
 # memoria feedback_release_zip_packaging.md).
-SD_CONTENT_EXCLUDE = {"SYS/WIFI.CFG"}
+SD_CONTENT_EXCLUDE = {
+    "SYS/WIFI.CFG",
+    "SD81/",    # lo que cuelga de SD81/ (p.ej. SD81/TOOLS/SD81TEST) es software: va en Software.zip, que prepara el usuario
+}
 
 
 def run(cmd, cwd=None, check=True):
@@ -206,7 +209,7 @@ def zip_dir(zip_path, base_dir, filenames=None, exclude=None, root_name=None):
                 if path.is_dir():
                     continue
                 rel = path.relative_to(base_dir).as_posix()
-                if rel in exclude:
+                if rel in exclude or any(e.endswith("/") and rel.startswith(e) for e in exclude):
                     print(f"  excluido a proposito: {rel}")
                     continue
                 arc = f"{prefix}/{rel}" if prefix else rel

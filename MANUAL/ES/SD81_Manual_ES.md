@@ -2666,6 +2666,7 @@ LOAD \*FPGA
 | **1.4** | 09/2026 | Snapshots de EightyOne (LOAD \*Z81), LOAD \*ROMLOCK y corrección de la basura en el borde con juegos WRX. |
 | **1.5** | 09/2026 | Terminal TELNET y programa de test SD81TEST. FPGA: captura síncrona de escrituras y lectura de FRAMES en Superfast. MCU: DEL con rutas absolutas y lectura de los registros 14 y 15 del AY. |
 | **1.6** | 10/2026 | Depurador por hardware (Apéndice L): pantalla en el ZX81, símbolos, traza e historial, consola y paneles en el navegador; snapshots completos con LOAD \*Z81. Interrupciones simuladas en la FPGA. ROM: PLOT y TAB en los modos de 70 y 80 columnas (gracias a Kelly Abrantes Murta por avisar del fallo de PLOT). MCU: el sonido calla mientras se carga un snapshot; el servidor web del módulo WiFi va más fluido. Nuevo Apéndice K con la guía del emulador EightyOne. |
+| **1.7** | 10/2026 | Juegos por turnos en red (sección 9.9 y Apéndice M): 4 en raya y ajedrez con relojes, dibujados en alta resolución, que guardan la partida en la SD y se siguen otro día. Módulo WiFi: comandos AT de MQTT, SHA-256, HMAC y aleatorios. 64 sprites, hasta 12 por línea. Depurador: captura de pantalla y teclado del ZX81 en la web, sym !, y CP/M. LOAD \*Z81 solo por el monitor del depurador (informe P; desaparece el comando 70 del MCU). El archivo de actualización del módulo WiFi pasa a ser ESP32FW.BIN y se puede actualizar todo de una vez. Los WAV de 32 bits suenan bien. Versiones: STM32 2.7, ROM 1.8, FPGA 1.6, WiFi 1.4. |
 
 |  |  |
 |:----:|------------------------------------------------------------------|

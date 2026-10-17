@@ -74,6 +74,8 @@ ATTR_HELP   equ 005h            ; cian
 ATTR_CLOCK  equ 046h            ; el reloj del que mueve: amarillo brillante
 ATTR_LOW    equ 042h            ; ... y en rojo brillante con 30 s o menos
 
+GFX_SQUARES equ 1               ; gfx.inc: con draw_square (las casillas del tablero)
+
             org  20480
 
             include "lobby.inc"

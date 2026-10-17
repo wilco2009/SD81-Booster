@@ -1,7 +1,7 @@
 # NETGAME: juegos por turnos en red (capa C): 4 en raya y ajedrez
 
 Capa C de `claude/planning/juego_en_red.md`: el controlador común de una partida por turnos entre dos ZX81
-(`game.inc`), las reglas del primer juego (`connect4.inc`) y el juego (`connect4.asm`). Va encima de la
+(`game.inc`), las reglas del primer juego (`connect4.inc`) y el juego (`connect4.asm`, con la pantalla gráfica). Va encima de la
 librería de red de `EXAMPLES/NETCHAT/net.inc` (sala, mensajes firmados, MQTT sin servidor propio).
 
 ## Jugar al 4 en raya
@@ -28,9 +28,16 @@ Hace falta el módulo WiFi con la red configurada (`/SYS/WIFI.CFG`) y la FPGA co
 - **1-7** la columna donde cae la ficha. **R** reenvía la última jugada si falló la red. **Q** sale.
 - **ENTER** otra partida, cuando ha acabado (se lo dice al rival).
 
-La pantalla es Superfast texto de 32 columnas con la pantalla alternativa en `$8000` (como `TELNET`): el
-vídeo lo da la FPGA y no parpadea. Sin color: los gráficos buenos se ponen aparte. Mientras es el turno del
-rival sondea el broker cada ~0,5 s. Si el rival no está, su última jugada espera retenida en el broker y la
+La partida se dibuja en **Superfast HiRes Spectrum** (256×192, un atributo por celda de 8×8, como el ajedrez;
+el lobby y los menús siguen en texto): el tablero de 7×6 casillas de 24×24 puntos (3×3 celdas) en azul
+brillante, con discos de 20×20: **rojos** (jugador 1), **amarillos** (jugador 2) y los huecos vacíos en negro.
+Los números 1-7 van sobre las columnas. La **última ficha** y, al ganar, las **cuatro en línea** se resaltan
+con el papel blanco. A la derecha, el panel (sala y su código, tu color, si el rival está, la última jugada) y
+debajo el estado en una caja verde, el aviso en rojo y la ayuda en cian. Capturas de la pantalla real a 1:1
+(generadas con el arnés del PC): [inicio](../../DOC/img/connect4_start.png) y
+[victoria](../../DOC/img/connect4_win.png). El dibujo del disco (`disc_cells`, 9 celdas de 8×8) está en
+`connect4.asm`; `gfx.inc` es el mismo del ajedrez (sin `draw_square`: `GFX_SQUARES equ 0`). Mientras es el
+turno del rival sondea el broker cada ~0,5 s. Si el rival no está, su última jugada espera retenida en el broker y la
 recibes al entrar (juego asíncrono).
 
 **Sin probar en el emulador ni en la placa**: probado en el PC (ver abajo) con el Z80 de verdad, el teclado

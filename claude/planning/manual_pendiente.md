@@ -18,8 +18,8 @@ Lista viva (empezada el 14 de octubre de 2026). Se tacha lo que se hace en los d
 
 ## Pendiente
 
-- **El 4 en raya con interfaz gráfica** (se hace antes de la release): cuando esté, actualizar 9.9 (cómo se ve, teclas) y, si
-  se quiere, poner su captura como la del ajedrez.
+- ~~El 4 en raya con interfaz gráfica~~ **hecho el 17 de octubre**: 9.9 describe cómo se ve y lleva su captura. Si cambia el aspecto
+  tras probarlo en el emulador, rehacer la captura (`DOC/img/connect4_win.png`).
 - **Fila nueva en el historial de versiones** (sección 19, ES y EN) al preparar la release, con la versión de cada parte.
 - El MQTT avanzado (TLS, usuario y contraseña, QoS 1, retenidos, testamento) **no se ha probado en la placa**: el Apéndice M
   lo describe tal como está implementado.

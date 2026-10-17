@@ -274,8 +274,8 @@ Reglas comunes a todos los juegos:
 
 `game.inc` es el controlador común (jugada, turno, hash del estado, estado completo, otra partida) y el
 juego pone seis rutinas (`g_reset`, `g_valid`, `g_apply`, `g_winner`, `g_save`, `g_load`). `connect4.inc` son
-las reglas del 4 en raya y `connect4.asm` el juego (Superfast texto de 32 columnas con la pantalla
-alternativa en `$8000`, teclado leído a mano). Mensajes: `1` jugada con el hash del estado resultante, `2`
+las reglas del 4 en raya y `connect4.asm` el juego (la partida en Superfast HiRes Spectrum desde el 17 de octubre: tablero azul de 7×6 casillas de 24×24 con discos
+rojos y amarillos, la última ficha y los cuatro ganadores resaltados; el lobby, en texto; teclado leído a mano). Mensajes: `1` jugada con el hash del estado resultante, `2`
 pido el estado, `3` estado completo, `4` otra partida. Cualquier desfase se arregla pidiendo el estado
 completo. Detalle y cómo añadir otro juego en `EXAMPLES/NETGAME/README.md`.
 

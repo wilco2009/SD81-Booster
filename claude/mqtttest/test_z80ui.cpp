@@ -1,38 +1,108 @@
 // Prueba del juego entero (EXAMPLES/NETGAME/connect4.bin) en el PC: el programa de verdad en el Z80
 // de EightyOne, con el teclado del ZX81 de mentira (pulsaciones con tiempo), la pantalla leida de la
-// memoria ($8000, como la leeria la FPGA), el modem de verdad y un rival hecho aqui por el broker.
-// Con SHOW=1 imprime la pantalla en cada paso importante.
+// memoria (el lobby en texto, en $8800; la partida en HiRes Spectrum: bitmap $A000 y atributos $B800,
+// como la leeria la FPGA), el modem de verdad y un rival hecho aqui por el broker.
+// Con SHOW=1 imprime la pantalla en cada paso importante; con SCRDIR=<carpeta>, guarda la de la partida (.SCR).
 #include "z80net_env.h"
 
-static const uint16_t DFILE = 0x8000;
+static const uint16_t DFILE = 0x8800;           // la pantalla de texto del lobby
+static const uint16_t HFILE = 0xA000, ATTRB = 0xB800;   // la pantalla del juego: HiRes Spectrum
+static const int BOARD_ROW = 2, BOARD_COL = 1;  // la celda de arriba a la izquierda del tablero (7 x 6 casillas de 3 x 3 celdas)
 
 // ------------------------------------------------------------ la pantalla
+// la fuente de la ROM ($1E00) en el PC: sintetica, un dibujo distinto por codigo (el 0, el espacio, en blanco)
+static void install_font() {
+  for (int c = 1; c < 64; c++) for (int k = 0; k < 8; k++) mem[0x1E00 + c * 8 + k] = (uint8_t)(c * 3 + 1 + k * 17);
+}
+static uint8_t cell_byte(int row, int col, int line) {
+  return mem[HFILE + ((row & 0x18) << 8) + (line << 8) + ((row & 7) << 5) + col];
+}
+// el codigo de caracter del ZX81 que dibuja la celda, 0 si esta en blanco, -1 si no es ninguno de la fuente
+static int glyph_code(int row, int col) {
+  bool blank = true;
+  for (int k = 0; k < 8; k++) if (cell_byte(row, col, k)) blank = false;
+  if (blank) return 0;
+  for (int c = 1; c < 64; c++) {
+    bool ok = true;
+    for (int k = 0; k < 8 && ok; k++) if (cell_byte(row, col, k) != (uint8_t)(c * 3 + 1 + k * 17)) ok = false;
+    if (ok) return c;
+  }
+  return -1;
+}
+static char zx_char(int v) {
+  if (v == 0) return ' ';
+  if (v >= 28 && v <= 37) return (char)('0' + v - 28);
+  if (v >= 38 && v <= 63) return (char)('A' + v - 38);
+  if (v == 27) return '.'; if (v == 14) return ':'; if (v == 22) return '-';
+  if (v == 15) return '?'; if (v == 18) return '>'; if (v == 19) return '<';
+  if (v == 20) return '='; if (v == 21) return '+'; if (v == 23) return '*'; if (v == 24) return '/';
+  if (v == 25) return ';'; if (v == 26) return ','; if (v == 16) return '('; if (v == 17) return ')';
+  if (v == 11) return '"'; if (v == 13) return '$';
+  return '~';
+}
+static bool gfx_mode() { return mem[2045] == 172; }
 static std::string screen_row(int r) {
   std::string s;
   for (int c = 0; c < 32; c++) {
-    int v = mem[DFILE + 1 + 33 * r + c];
-    char ch;
-    if (v == 0) ch = ' ';
-    else if (v >= 28 && v <= 37) ch = (char)('0' + v - 28);
-    else if (v >= 38 && v <= 63) ch = (char)('A' + v - 38);
-    else if (v == 27) ch = '.'; else if (v == 14) ch = ':'; else if (v == 22) ch = '-';
-    else if (v == 15) ch = '?'; else if (v == 18) ch = '>'; else if (v == 19) ch = '<';
-    else if (v == 20) ch = '='; else if (v == 21) ch = '+'; else if (v == 23) ch = '*'; else if (v == 24) ch = '/';
-    else if (v == 25) ch = ';'; else if (v == 26) ch = ','; else if (v == 16) ch = '('; else if (v == 17) ch = ')';
-    else if (v == 11) ch = '"'; else if (v == 13) ch = '$';
-    else if (v == 128) ch = '#'; else if (v == 8) ch = '%';
-    else ch = '~';
-    s += ch;
+    if (gfx_mode()) {
+      bool in_board = r >= BOARD_ROW && r < BOARD_ROW + 18 && c >= BOARD_COL && c < BOARD_COL + 21;
+      s += in_board ? ' ' : zx_char(glyph_code(r, c));
+    } else {
+      int v = mem[DFILE + 1 + 33 * r + c];
+      s += v == 128 ? '#' : v == 8 ? '%' : zx_char(v);
+    }
   }
   return s;
 }
 static std::string screen_all() { std::string s; for (int r = 0; r < 24; r++) s += screen_row(r) + "\n"; return s; }
 static bool shows(const char* t) { return screen_all().find(t) != std::string::npos; }
 static bool show_on = getenv("SHOW") != nullptr;
+
+// El tablero: la casilla de la columna x (0-6) y la fila de juego y (0 = abajo) es un disco de 3 x 3 celdas.
+// Se mira la celda del medio: la tinta dice la ficha (0 hueco, 2 roja = jugador 1, 6 amarilla = jugador 2) y el
+// papel si esta resaltada (7 blanco; el azul del tablero es 1). 'R' / 'Y' / '.' ; '?' si no se ve un disco entero
+static int disc_row(int y) { return BOARD_ROW + 3 * (5 - y) + 1; }
+static int disc_col(int x) { return BOARD_COL + 3 * x + 1; }
+static uint8_t disc_attr(int x, int y) { return mem[ATTRB + disc_row(y) * 32 + disc_col(x)]; }
+static char disc(int x, int y) {
+  for (int k = 0; k < 8; k++) if (cell_byte(disc_row(y), disc_col(x), k) != 0xFF) return '?';   // el centro del disco, entero
+  int ink = disc_attr(x, y) & 7;
+  return ink == 2 ? 'R' : ink == 6 ? 'Y' : ink == 0 ? '.' : '?';
+}
+static bool hilite(int x, int y) { return ((disc_attr(x, y) >> 3) & 7) == 7; }
+static std::string board_row(int y) { std::string s; for (int x = 0; x < 7; x++) s += disc(x, y); return s; }
+static std::string board_all() { std::string s; for (int y = 5; y >= 0; y--) s += board_row(y) + (y ? "/" : ""); return s; }
+static const char* EMPTY_BOARD = "......./......./......./......./......./.......";
+static bool board_is(const char* rows_from_top) {         // "fila de arriba/.../fila de abajo", con '/' entre filas
+  return board_all() == rows_from_top;
+}
+static int scr_n = 0;
+static void dump_scr(const char* title) {
+  const char* dir = getenv("SCRDIR");
+  if (!dir || !gfx_mode()) return;
+  char name[256];
+  snprintf(name, sizeof name, "%s/%02d.scr", dir, scr_n++);
+  FILE* f = fopen(name, "wb");
+  if (!f) return;
+  fwrite(mem + HFILE, 1, 6912, f);
+  fclose(f);
+  printf("pantalla guardada: %s (%s)\n", name, title);
+}
 static void show(const char* title) {
+  dump_scr(title);
   if (!show_on) return;
   printf("---- %s (t=%u ms)\n", title, mock_now - 100000);
-  for (int r = 0; r < 24; r++) { std::string l = screen_row(r); while (!l.empty() && l.back() == ' ') l.pop_back(); if (!l.empty()) printf("%2d|%s\n", r, l.c_str()); }
+  for (int r = 0; r < 24; r++) {
+    std::string l = screen_row(r);
+    if (gfx_mode() && r >= BOARD_ROW && r < BOARD_ROW + 18 && (r - BOARD_ROW) % 3 == 1) {     // el tablero, una linea por fila
+      int y = 5 - (r - BOARD_ROW) / 3;
+      std::string b;
+      for (int x = 0; x < 7; x++) { b += disc(x, y); b += hilite(x, y) ? '*' : ' '; }
+      l.replace(BOARD_COL, 21, std::string(b) + "      ");
+    }
+    while (!l.empty() && l.back() == ' ') l.pop_back();
+    if (!l.empty()) printf("%2d|%s\n", r, l.c_str());
+  }
 }
 
 // ------------------------------------------------------------ el tiempo y el teclado
@@ -99,7 +169,9 @@ int main(int argc, char** argv) {
   FILE* f = fopen(argv[1], "rb");
   if (!f) { printf("no encuentro %s\n", argv[1]); return 2; }
   size_t sz = fread(mem + 0x6000, 1, 0x2000, f); fclose(f);
+  if (0x6000 + sz > 0x8000) { printf("ERROR el programa llega a $%04zX: pasa de $8000 y alli el ZX81 no ejecuta codigo\n", 0x6000 + sz); errors++; }
   printf("connect4.bin: %zu bytes en $6000\n", sz);
+  install_font();
   mem[0x02E7] = 0xC9; mem[0x0207] = 0xC9;              // SET_FAST y SLOW_FAST de la ROM: aqui, un RET
   z80_init(); z80_reset();
   reset_world();
@@ -110,7 +182,7 @@ int main(int argc, char** argv) {
   CHECK(wait_text("1 = NEW GAME", 20000), "arranca y llega al menu (tras iniciar el modem)");
   show("menu");
   CHECK(shows("2 = JOIN A GAME") && shows("Q = QUIT"), "el menu tiene las tres opciones");
-  CHECK(mem[2045] == 170 && mem[2096] == 0x00 && mem[2097] == 0x80 && mem[2098] == 170, "Superfast texto con la pantalla alternativa en $8000");
+  CHECK(mem[2045] == 170 && mem[2096] == 0x00 && mem[2097] == 0x88 && mem[2098] == 170, "Superfast texto con la pantalla alternativa en $8800");
 
   // --- partida nueva
   press('1');
@@ -130,15 +202,23 @@ int main(int argc, char** argv) {
   peer_publish(base + "/p1", "1", true);
   CHECK(wait_text("YOUR TURN: PRESS 1 TO 7", 10000), "el rival entra: empieza la partida y me toca");
   show("la partida");
-  CHECK(shows("RIVAL: HERE"), "se ve que el rival esta");
-  CHECK(screen_row(11).substr(4, 23) == ":.. . .. . .. . .. . .. . .. . .:" || screen_row(11).find(':') == 4, "el tablero esta dibujado (bordes)");
+  CHECK(gfx_mode(), "la partida se dibuja en HiRes Spectrum");
+  CHECK(shows("NETWORK CONNECT 4") && shows("HERE") && shows("YELLOW") == false && shows("RED"), "titulo, el rival esta aqui y soy el rojo (jugador 1)");
+  { std::string n = screen_row(1);
+    CHECK(n[2] == '1' && n[5] == '2' && n[8] == '3' && n[11] == '4' && n[14] == '5' && n[17] == '6' && n[20] == '7', "los numeros 1-7 sobre las columnas"); }
+  CHECK(board_all() == "......./......./......./......./......./.......", "el tablero esta dibujado y vacio");
+  { bool allblue = true; for (int y = 0; y < 6; y++) for (int x = 0; x < 7; x++) if (hilite(x, y) || (disc_attr(x, y) & 0x78) != 0x48) allblue = false;
+    CHECK(allblue, "el fondo del tablero es azul brillante"); }
+  CHECK(shows("ROOM") && shows(code.c_str()), "el panel tiene la sala y su codigo");
+  CHECK(shows("LAST MOVE") && shows("--------"), "y la ultima jugada, todavia ninguna");
 
   Board g; g.reset();
   // 1. mi jugada en la columna 1 (tecla 1): cae abajo a la izquierda
   press('1');
   CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego: ahora le toca al rival");
   g.apply(0, 1);
-  CHECK(screen_row(11).substr(5, 3) == "###", "mi ficha (bloque entero) abajo a la izquierda");
+  CHECK(disc(0, 0) == 'R' && hilite(0, 0), "mi ficha (roja) abajo a la izquierda, resaltada como la ultima");
+  CHECK(shows("COLUMN 1"), "y el panel dice la ultima jugada: columna 1");
   { const Seen* s = last_seen("PUBLISH", base + "/0"); std::string b = body_of(s);
     CHECK(b.size() == 4 && b[0] == 1 && b[1] == 0, "la jugada sale al broker: tipo 1, columna 0"); }
   // 2. no me toca: la tecla 3 da un aviso
@@ -147,7 +227,8 @@ int main(int argc, char** argv) {
   // 3. el rival juega en la columna 2
   g.apply(1, 2); peer_msg(2, move_payload(1, g));
   CHECK(wait_text("YOUR TURN:", 5000), "el rival juega y me vuelve a tocar");
-  CHECK(screen_row(11).substr(8, 3) == "%%%", "su ficha (gris) a mi lado");
+  CHECK(disc(1, 0) == 'Y' && hilite(1, 0) && !hilite(0, 0), "su ficha (amarilla) a mi lado, y el resaltado pasa a ella");
+  CHECK(shows("COLUMN 2"), "ultima jugada: columna 2");
   CHECK(!shows("IT IS NOT YOUR TURN"), "y el aviso se va");
   show("tras la jugada del rival");
   // 4. gano en vertical: 1,2,1,2,1,2,1  (yo columna 0, el rival columna 1)
@@ -161,6 +242,10 @@ int main(int argc, char** argv) {
   CHECK(wait_text("YOU WIN", 5000), "cuatro en vertical: YOU WIN");
   show("he ganado");
   CHECK(shows("ENTER = AGAIN"), "y la ayuda cambia a ENTER = otra partida");
+  { bool win4 = true; for (int y = 0; y < 4; y++) if (disc(0, y) != 'R' || !hilite(0, y)) win4 = false;
+    bool others = true; for (int y = 0; y < 3; y++) if (disc(1, y) != 'Y' || hilite(1, y)) others = false;
+    CHECK(win4, "los cuatro de la columna 1 ganadores, resaltados en blanco");
+    CHECK(others, "y las fichas del rival sin resaltar"); }
   press('2');
   CHECK(wait_text("THE GAME IS OVER", 3000), "con la partida acabada, una jugada da un aviso");
 
@@ -169,16 +254,17 @@ int main(int argc, char** argv) {
   CHECK(wait_text("YOUR TURN: PRESS 1 TO 7", 5000) && !shows("YOU WIN"), "ENTER: otra partida, a cero");
   { const Seen* s = last_seen("PUBLISH", base + "/0"); std::string b = body_of(s);
     CHECK(b.size() == 1 && b[0] == 4, "y se lo digo al rival (tipo 4)"); }
-  CHECK(screen_row(11).substr(5, 3) == " . ", "el tablero esta vacio");
+  CHECK(board_all() == "......./......./......./......./......./.......", "el tablero esta vacio");
+  CHECK(shows("--------"), "y sin ultima jugada");
   show("otra partida");
   // 6. el rival pide otra partida cuando ya hay una a medias
   press('4'); g.reset(); g.apply(3, 1);
   CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego en la columna 4");
   peer_msg(1, std::string("\x04", 1));
-  CHECK(wait_text("YOUR TURN: PRESS 1 TO 7", 5000) && screen_row(11).substr(14, 3) == " . ", "el rival pide otra partida: a cero");
+  CHECK(wait_text("YOUR TURN: PRESS 1 TO 7", 5000) && board_all() == "......./......./......./......./......./.......", "el rival pide otra partida: a cero");
   // 7. el rival sale y yo salgo
   peer_publish(base + "/p1", "0", true);
-  CHECK(wait_text("THE RIVAL HAS LEFT", 5000) && shows("RIVAL: AWAY"), "el rival se va: aviso");
+  CHECK(wait_text("THE RIVAL HAS LEFT", 5000) && shows("AWAY") && !shows("HERE"), "el rival se va: aviso");
   show("el rival se fue");
   press('Q');
   CHECK(wait_text("1 = NEW GAME", 30000), "Q: salgo de la sala y vuelvo al menu");
@@ -201,11 +287,12 @@ int main(int argc, char** argv) {
     press('\r');
     CHECK(wait_text("YOUR TURN:", 40000), "unido: ya tengo su jugada retenida y me toca");
     show("unido a la partida");
-    CHECK(screen_row(11).substr(11, 3) == "###" , "se ve su primera jugada (columna 3, la suya es el bloque entero)");
-    CHECK(wait_text("RIVAL: HERE", 3000), "y, al siguiente sondeo, que esta (su presencia retenida)");
+    CHECK(disc(2, 0) == 'R' && hilite(2, 0), "se ve su primera jugada (columna 3 de 1 a 7, roja)");
+    CHECK(shows("YELLOW") && !shows("RED"), "y soy el amarillo (jugador 2)");
+    CHECK(wait_text("HERE", 3000), "y, al siguiente sondeo, que esta (su presencia retenida)");
     press('1');
     CHECK(wait_text("THE RIVAL IS THINKING", 5000), "juego como el 2");
-    CHECK(screen_row(11).substr(5, 3) == "%%%", "mi ficha es la gris");
+    CHECK(disc(0, 0) == 'Y', "mi ficha es la amarilla");
   }
 
   printf("  instrucciones del Z80: %ld\n", instr_total);

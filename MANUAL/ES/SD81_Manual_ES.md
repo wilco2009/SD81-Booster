@@ -1379,13 +1379,17 @@ Hace falta el módulo WiFi con la red configurada (/SYS/WIFI.CFG, ver 9.7), la F
 
 **4 en raya:**
 
-Las teclas 1 a 7 sueltan la ficha en esa columna. R reenvía la última jugada, por si falló la red. Q sale.
+El tablero se dibuja en alta resolución: 7 columnas de 6 filas en azul, con las fichas del jugador 1 en rojo y las del jugador 2 en amarillo. Los números 1 a 7 sobre las columnas dicen qué tecla suelta la ficha en cada una. La última ficha que cae queda resaltada con el fondo blanco y, al ganar, los cuatro en línea. En el panel de la derecha se ve la sala, tu color, si el rival está y la última jugada. R reenvía la última jugada, por si falló la red. Q sale.
+
+![](media/image6.png){width="2.6666666666666665in" height="2.0in"}
+
+*4 en raya: ganan los cuatro rojos de la primera columna (captura de la pantalla real, a su tamaño).*
 
 **Ajedrez:**
 
 La partida se dibuja en alta resolución (Superfast HiRes Spectrum): tablero de 8×8 casillas con sus coordenadas, la última jugada resaltada en magenta, el rey en jaque resaltado, y un panel con la sala, tu color y el estado. Cada uno ve el tablero desde su lado: las negras lo ven girado. Una jugada se teclea con la casilla de origen y la de destino, por ejemplo E2 E4, y ENTER; una tecla que no cuadra en esa posición no entra, y SHIFT+0 borra la última. Para coronar, una quinta letra elige la pieza (Q dama, R torre, B alfil, N caballo); sin ella, dama. 9 reenvía la última jugada y 0 sale. Se aplican todas las reglas salvo la triple repetición: enroque, captura al paso, coronación, jaque, mate, ahogado, material insuficiente y la regla de las 50 jugadas.
 
-![](media/image6.png){width="2.6666666666666665in" height="2.0in"}
+![](media/image7.png){width="2.6666666666666665in" height="2.0in"}
 
 *Ajedrez: la posición inicial (captura de la pantalla real, a su tamaño).*
 
@@ -3574,7 +3578,7 @@ BORDER n, con n de 0 a 7 (color normal) o de 8 a 15 (mismo color brillante, suma
 
 ## Tabla de teclado de CP/M
 
-![](media/image7.png){width="5.5in" height="2.4287128171478565in"}
+![](media/image8.png){width="5.5in" height="2.4287128171478565in"}
 
 Las teclas ENTER+8 y ENTER+9 se rotulan por su función (LOG, ECO) en vez de por el código de control que mandan (\$1E, \$1C): son las que usa TERM para su propio menú.
 

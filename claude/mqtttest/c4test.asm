@@ -34,6 +34,7 @@ MB          equ 7F00h
             jp   t_gnew             ; 24630
             jp   t_gresend          ; 24633
             jp   t_grematch         ; 24636
+            jp   t_inwin            ; 24639
 
 e_init:     ld   hl,net_init
             jr   run
@@ -92,6 +93,15 @@ t_gresend:  call game_resend
             ld   (MB+2),a
             ret
 t_grematch: call game_rematch
+            ld   (MB+2),a
+            ret
+t_inwin:    ld   a,(MB+1)           ; MB = columna, MB+1 = fila (de juego)
+            ld   c,a
+            ld   a,(MB)
+            ld   b,a
+            call c4_inwin
+            ld   a,0
+            adc  a,0                ; CF -> A
             ld   (MB+2),a
             ret
 

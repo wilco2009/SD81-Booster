@@ -7,9 +7,10 @@
 ;  tinta blanca brillante lo exige): casillas claras verdes y oscuras rojas. El texto sale de
 ;  la fuente de la ROM ($1E00, codigos del ZX81) a una celda por caracter.
 ;
-;  El juego que lo incluye define:  txt_on (lobby.inc) y las variables HL_FROM, HL_TO,
-;  CHK_SQ, SQ_PTR (2) y SQ_ATTR (una cada una, contiguas desde HL_FROM), y las filas y
-;  columnas del tablero: BOARD_ROW, BOARD_COL.
+;  El juego que lo incluye define:  txt_on (lobby.inc), GFX_SQUARES (1 si quiere draw_square, las
+;  casillas del ajedrez; 0 si no: el 4 en raya solo usa ds_cell, la celda de 8x8) y las variables
+;  HL_FROM, HL_TO, CHK_SQ, SQ_PTR (2) y SQ_ATTR (una cada una, contiguas desde HL_FROM), y las
+;  filas y columnas del tablero: BOARD_ROW, BOARD_COL.
 ;
 ;  Rutinas (destruyen los registros que digan):
 ;      gfx_on            pasa a HiRes Spectrum con la pantalla en blanco (texto blanco sobre negro)
@@ -24,8 +25,9 @@
 ;      gclr_row          B = fila: la deja en blanco, con los atributos del texto
 ;      gattr_row         B = fila, A = atributo
 ;      gattr_span        B = fila, C = columna, E = cuantas celdas, A = atributo
-;      draw_square       A = pieza (0 vacia), UI_Y/UI_X = casilla en pantalla, UI_R/UI_F = rank y
+;      draw_square       (solo con GFX_SQUARES) A = pieza (0 vacia), UI_Y/UI_X = casilla en pantalla, UI_R/UI_F = rank y
 ;                        columna del tablero: la dibuja con su color (blancas: tinta blanca)
+;      ds_cell           B = fila, C = columna, HL = 8 bytes de dibujo (avanza 8); atributo = SQ_ATTR; conserva B y C
 ; =====================================================================
 
 HFILE       equ 0A000h
@@ -267,6 +269,7 @@ gprint_row: push hl
             pop  hl
             jp   gprint_at
 
+IF GFX_SQUARES
 ; --- una casilla ----------------------------------------------------
 ; A = pieza (0 vacia): la dibuja en la casilla de pantalla (UI_Y, UI_X), rank UI_R, columna UI_F
 draw_square: ld  c,a                ; C = la pieza
@@ -336,6 +339,9 @@ ds_src:     ld   a,(UI_Y)           ; la celda de arriba a la izquierda de la ca
             dec  c
             call ds_cell
             inc  c
+ENDIF
+
+; --- una celda 8x8 (la usan las piezas del ajedrez y los discos del 4 en raya) ---
 ; una celda: B = fila, C = columna, HL = sus 8 bytes (avanza 8); el color es SQ_ATTR. B y C se conservan
 ds_cell:    push bc
             push hl
@@ -358,4 +364,6 @@ dc_l:       ld   a,(hl)
             pop  bc
             ret
 
+IF GFX_SQUARES
 pc_none:    defs 32,0
+ENDIF

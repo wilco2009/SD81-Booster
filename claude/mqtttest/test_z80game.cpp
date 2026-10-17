@@ -13,6 +13,20 @@ struct C4 {
   void reset() { memset(b, 0, sizeof(b)); memset(h, 0, sizeof(h)); }
   bool valid(int c) const { return c >= 0 && c < 7 && h[c] < 6; }
   void apply(int c, int p) { b[c + 7 * h[c]] = (uint8_t)p; h[c]++; }
+  // los cuatro de la primera linea ganadora (en el mismo orden de busqueda que el Z80); false si no hay
+  bool winline(int out[4][2]) const {
+    static const int dx[4] = {1, 0, 1, 1}, dy[4] = {0, 1, 1, -1};
+    for (int y = 0; y < 6; y++) for (int x = 0; x < 7; x++) {
+      int p = cell(x, y);
+      if (!p) continue;
+      for (int d = 0; d < 4; d++) {
+        bool four = true;
+        for (int k = 1; k < 4; k++) if (cell(x + k * dx[d], y + k * dy[d]) != p) { four = false; break; }
+        if (four) { for (int k = 0; k < 4; k++) { out[k][0] = x + k * dx[d]; out[k][1] = y + k * dy[d]; } return true; }
+      }
+    }
+    return false;
+  }
   int cell(int x, int y) const { return (x < 0 || x > 6 || y < 0 || y > 5) ? 0xFF : b[x + 7 * y]; }
   int winner() const {
     static const int dx[4] = {1, 0, 1, 1}, dy[4] = {0, 1, 1, -1};
@@ -41,13 +55,24 @@ static uint16_t hash16(const uint8_t* s, int n) {
 // ------------------------------------------------------------ llamadas al Z80
 static const uint16_t E_RESET = 24600, E_VALID = 24603, E_APPLY = 24606, E_WINNER = 24609, E_SAVE = 24612,
                       E_LOAD = 24615, E_HASH = 24618, E_GSTART = 24621, E_GMOVE = 24624, E_GPOLL = 24627,
-                      E_GNEW = 24630, E_GRESEND = 24633, E_GREMATCH = 24636;
+                      E_GNEW = 24630, E_GRESEND = 24633, E_GREMATCH = 24636, E_INWIN = 24639;
 static const uint16_t MB = 0x7F00, GMB = 0x7400;
 static int mbr() { return mem[MB + 2]; }
 static void z_reset() { call_ep(E_RESET); }
 static bool z_valid(int c, int p) { mem[MB] = (uint8_t)c; mem[MB + 1] = (uint8_t)p; call_ep(E_VALID); return mbr() == 0; }
 static void z_apply(int c, int p) { mem[MB] = (uint8_t)c; mem[MB + 1] = (uint8_t)p; call_ep(E_APPLY); }
 static int z_winner() { call_ep(E_WINNER); return mbr(); }
+static bool z_inwin(int x, int y) { mem[MB] = (uint8_t)x; mem[MB + 1] = (uint8_t)y; call_ep(E_INWIN); return mbr() != 0; }
+// la linea ganadora que ve el Z80 (c4_inwin, para resaltarla) es la misma que la de la referencia: 42 casillas
+static bool same_winline(const C4& r, const char* msg) {
+  int w[4][2]; bool has = r.winline(w);
+  for (int y = 0; y < 6; y++) for (int x = 0; x < 7; x++) {
+    bool want = false;
+    if (has) for (int k = 0; k < 4; k++) if (w[k][0] == x && w[k][1] == y) want = true;
+    if (z_inwin(x, y) != want) { printf("ERROR %s: casilla (%d,%d) Z80=%d ref=%d\n", msg, x, y, !want, want); errors++; return false; }
+  }
+  return true;
+}
 static void z_save(uint8_t* out) { call_ep(E_SAVE); memcpy(out, mem + MB + 16, 42); }
 static void z_load(const uint8_t* in) { memcpy(mem + MB + 16, in, 42); call_ep(E_LOAD); }
 static int z_gmove(int c) { mem[MB] = (uint8_t)c; call_ep(E_GMOVE); return mbr(); }
@@ -97,6 +122,7 @@ int main(int argc, char** argv) {
       int zw = z_winner();
       if (zw != res) { printf("ERROR partida %d: ganador Z80=%d ref=%d\n", game, zw, res); errors++; bad++; break; }
       if (!same_board(r, "tras apply")) { bad++; break; }
+      if ((res == 1 || res == 2) && !same_winline(r, "linea ganadora en una partida al azar")) { bad++; break; }
       if (n % 7 == 0) {                               // guardar, borrar y cargar: lo mismo, y las alturas valen
         uint8_t s[42]; z_save(s); z_reset(); z_load(s);
         if (!same_board(r, "tras guardar y cargar")) { bad++; break; }
@@ -122,6 +148,8 @@ int main(int argc, char** argv) {
       for (int i = 0; i < t.n; i++) { z_apply(t.moves[i], p); r.apply(t.moves[i], p); last = z_winner(); p = 3 - p; }
       char msg[64]; snprintf(msg, sizeof(msg), "ganador en %s", t.name);
       CHECK(last == t.win && r.winner() == t.win, msg);
+      snprintf(msg, sizeof(msg), "los cuatro resaltados en %s", t.name);
+      CHECK(same_winline(r, msg), msg);
     }
   }
 

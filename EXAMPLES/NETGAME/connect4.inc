@@ -16,12 +16,18 @@ C4_D        equ C4_BASE+53
 C4_DX       equ C4_BASE+54
 C4_DY       equ C4_BASE+55
 C4_K        equ C4_BASE+56
+C4_WON      equ C4_BASE+57      ; 1 si g_winner ha encontrado cuatro seguidas: C4_WX/C4_WY la primera, C4_WD la direccion
+C4_WX       equ C4_BASE+58
+C4_WY       equ C4_BASE+59
+C4_WD       equ C4_BASE+60
 
 g_reset:    ld   hl,G_BOARD
             ld   de,G_BOARD+1
             ld   bc,48
             ld   (hl),0
             ldir
+            xor  a
+            ld   (C4_WON),a
             ret
 
 ; HL = la jugada (la columna, 1 byte): CF = 1 si no se puede (fuera del tablero o columna llena)
@@ -84,6 +90,7 @@ c4c_out:    ld   a,0FFh
 
 ; A = 0 sigue, 1 o 2 gana ese jugador (cuatro seguidas), 3 tablas (tablero lleno)
 g_winner:   xor  a
+            ld   (C4_WON),a
             ld   (C4_Y),a
 gw_y:       xor  a
             ld   (C4_X),a
@@ -127,6 +134,14 @@ gw_k:       ld   a,(C4_DX)
             ld   hl,C4_K
             dec  (hl)
             jr   nz,gw_k
+            ld   a,(C4_X)           ; la linea ganadora: de donde sale y hacia donde va (para resaltarla)
+            ld   (C4_WX),a
+            ld   a,(C4_Y)
+            ld   (C4_WY),a
+            ld   a,(C4_D)
+            ld   (C4_WD),a
+            ld   a,1
+            ld   (C4_WON),a
             ld   a,(C4_P)
             ret
 gw_nd:      ld   hl,C4_D
@@ -143,7 +158,7 @@ gw_nx:      ld   hl,C4_X
             inc  (hl)
             ld   a,(hl)
             cp   6
-            jr   c,gw_y
+            jp   c,gw_y
             ld   hl,G_BOARD
             ld   b,42
 gw_f:       ld   a,(hl)
@@ -158,6 +173,46 @@ gw_none:    xor  a
 
 ; direcciones (dx, dy): derecha, arriba, diagonal arriba-derecha, diagonal abajo-derecha
 c4_dirs:    defb 1,0, 0,1, 1,1, 1,0FFh
+
+; B = columna, C = fila (de juego, 0 = abajo): CF = 1 si la casilla esta en los cuatro ganadores
+c4_inwin:   ld   a,(C4_WON)
+            or   a
+            ret  z                  ; CF = 0
+            ld   a,(C4_WD)
+            add  a,a
+            ld   e,a
+            ld   d,0
+            ld   hl,c4_dirs
+            add  hl,de
+            ld   d,(hl)             ; dx
+            inc  hl
+            ld   e,(hl)             ; dy
+            ld   a,(C4_WX)
+            ld   h,a
+            ld   a,(C4_WY)
+            ld   l,a
+            ld   a,4
+iw_k:       push af
+            ld   a,h
+            cp   b
+            jr   nz,iw_n
+            ld   a,l
+            cp   c
+            jr   z,iw_yes
+iw_n:       ld   a,h
+            add  a,d
+            ld   h,a
+            ld   a,l
+            add  a,e
+            ld   l,a
+            pop  af
+            dec  a
+            jr   nz,iw_k
+            or   a                  ; CF = 0
+            ret
+iw_yes:     pop  af
+            scf
+            ret
 
 ; HL = destino: las 42 casillas
 g_save:     ex   de,hl

@@ -1339,13 +1339,17 @@ You need the WiFi module with the network configured (/SYS/WIFI.CFG, see 9.7) an
 
 **Connect 4:**
 
-Keys 1 to 7 drop the counter into that column. R resends the last move, in case the network failed. Q quits.
+The board is drawn in high resolution: 7 columns by 6 rows in blue, with player 1\'s counters in red and player 2\'s in yellow. The numbers 1 to 7 above the columns say which key drops the counter into each one. The counter that has just fallen is highlighted with a white background and, when someone wins, so are the four in a row. The panel on the right shows the room, your colour, whether the opponent is here and the last move. R resends the last move, in case the network failed. Q quits.
+
+![](media/image6.png){width="2.6666666666666665in" height="2.0in"}
+
+*Connect 4: the four red counters in the first column win (a capture of the real screen, at its size).*
 
 **Chess:**
 
 The game is drawn in high resolution (Superfast HiRes Spectrum): an 8×8 board with its coordinates, the last move highlighted in magenta, the king in check highlighted, and a panel with the room, your colour and the status. Each player sees the board from their own side: black sees it turned round. A move is typed as the origin square and the destination square, for example E2 E4, and ENTER; a key that does not fit in that position is not accepted, and SHIFT+0 deletes the last one. To promote, a fifth letter chooses the piece (Q queen, R rook, B bishop, N knight); without it, queen. 9 resends the last move and 0 quits. All the rules apply except threefold repetition: castling, en passant, promotion, check, checkmate, stalemate, insufficient material and the 50-move rule.
 
-![](media/image6.png){width="2.6666666666666665in" height="2.0in"}
+![](media/image7.png){width="2.6666666666666665in" height="2.0in"}
 
 *Chess: the starting position (a capture of the real screen, at its size).*
 
@@ -3472,7 +3476,7 @@ BORDER n, with n from 0 to 7 (normal colour) or 8 to 15 (same colour, bright, by
 
 ## CP/M keyboard table
 
-![](media/image7.png){width="5.5in" height="2.4287128171478565in"}
+![](media/image8.png){width="5.5in" height="2.4287128171478565in"}
 
 ENTER+8 and ENTER+9 are labelled by their function (LOG, ECO) rather than by the control code they send (\$1E, \$1C): they\'re the ones TERM uses for its own menu.
 

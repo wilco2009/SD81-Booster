@@ -104,7 +104,8 @@ pasmo scrabble.asm scrabble.bin scrabble.sym        (o compila.bat, que hace los
 Se carga igual que los otros (`SCRABBLE.B81`, pásalo a `.P`), pero en **`$4400`** (`CLEAR 17407`, `CODE 17408`): con la red, el
 diccionario, las reglas y la pantalla ocupa unos 12,6 KB y desde `$5000` no cabría (`compila.bat` y `build_z80.sh` avisan si pasa de
 `$8000`). Hace falta el **diccionario en la misma carpeta de la SD**: `DICTEN.DIC` (inglés) y/o `DICTES.DIC` (castellano), que genera
-`TOOLS/make_dict.py` (`python make_dict.py enable1.txt DICTEN.DIC`; `python make_dict.py --lang es fise-2.txt DICTES.DIC`). Todo lo
+`TOOLS/make_dict.py` (`python make_dict.py enable1.txt DICTEN.DIC`; `python make_dict.py --lang es fise-2.txt DICTES.DIC`). **No se distribuyen**:
+las listas de origen (ENABLE, FISE-2, FILE 2017), sus enlaces y los pasos para descargarlas y convertirlas están en [`DICCIONARIOS.md`](DICCIONARIOS.md). Todo lo
 hace el Z80: reglas, puntuación, la búsqueda binaria en el diccionario de la SD (unos 40 ms por palabra en la placa) y la red.
 
 - **1** partida nueva: eliges el **idioma** (1 inglés, 2 castellano) y sale el código de sala. Eres el jugador 1 y empiezas.

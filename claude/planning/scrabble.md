@@ -225,3 +225,12 @@ etapas 2 y 3 (después de la columna y la fila).
   color. `test_z80scrabbleui.cpp` (~40 comprobaciones nuevas) y el test del juego entero (el jugador 2 juega moviendo el cursor).
 - Tamaño: 13.225 bytes (+0,55 KB); `SI_BASE` pasa a `$9870`. Pendiente de ver en el emulador: si el marco que parpadea y las flechas se ven bien
   sobre todos los colores, y si hace falta otro color o forma.
+
+## 15. Estado tras las pruebas del usuario (2026-10-18)
+
+- **Probado en la placa real** y **jugada una partida completa hasta el final**: sin fallos que apuntar.
+- Diccionarios: no se distribuyen; `EXAMPLES/NETGAME/DICCIONARIOS.md` da los enlaces a los repositorios originales (ENABLE: `dolph/dictionary`; FISE-2 y FILE 2017:
+  `kamilmielnik/scrabble-dictionaries`, carpeta `spanish`) y los pasos para generarlos con `TOOLS/make_dict.py`.
+- Manual: redactado en `manual_pendiente.md` («Texto redactado: Scrabble»); falta pasarlo al `.docx` (ES y EN) y las capturas.
+- Empaquetado en la release: lo hace el usuario cuando salga la siguiente.
+- Jugabilidad: se queda como está (sin marcador final, vista previa, puntos antes de enviar, relojes ni rendirse).

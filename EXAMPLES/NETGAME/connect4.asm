@@ -32,6 +32,8 @@ C4_BASE     equ 9500h
 G_STATE_LEN equ 42
 G_MOVE_LEN  equ 1
 G_CLOCK     equ 0               ; sin relojes
+G_MOVE_VAR  equ 0               ; (game.inc) jugadas de longitud fija
+G_BIG       equ 0               ; estado que cabe en un mensaje
 DFILE       equ 8800h           ; pantalla de texto del lobby: 1 + 24 filas de 33
 GFX_SQUARES equ 0               ; gfx.inc sin las casillas del ajedrez
 SV_BASE     equ 0BC00h          ; savegame.inc: la partida guardada en la SD (CONNECT4.SAV)

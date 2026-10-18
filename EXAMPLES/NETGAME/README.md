@@ -1,4 +1,4 @@
-# NETGAME: juegos por turnos en red (capa C): 4 en raya y ajedrez
+# NETGAME: juegos por turnos en red (capa C): 4 en raya, ajedrez y Scrabble
 
 Capa C de `claude/planning/juego_en_red.md`: el controlador común de una partida por turnos entre dos ZX81
 (`game.inc`), las reglas del primer juego (`connect4.inc`) y el juego (`connect4.asm`, con la pantalla gráfica). Va encima de la
@@ -95,6 +95,49 @@ jugadas legales de una posición cuesta ~0,1-0,3 s en un Z80 a 3,25 MHz.
 
 **Sin probar en el emulador ni en la placa.**
 
+## Jugar al Scrabble
+
+```
+pasmo scrabble.asm scrabble.bin scrabble.sym        (o compila.bat, que hace los tres juegos)
+```
+
+Se carga igual que los otros (`SCRABBLE.B81`, pásalo a `.P`), pero en **`$4400`** (`CLEAR 17407`, `CODE 17408`): con la red, el
+diccionario, las reglas y la pantalla ocupa unos 12,6 KB y desde `$5000` no cabría (`compila.bat` y `build_z80.sh` avisan si pasa de
+`$8000`). Hace falta el **diccionario en la misma carpeta de la SD**: `DICTEN.DIC` (inglés) y/o `DICTES.DIC` (castellano), que genera
+`TOOLS/make_dict.py` (`python make_dict.py enable1.txt DICTEN.DIC`; `python make_dict.py --lang es fise-2.txt DICTES.DIC`). Todo lo
+hace el Z80: reglas, puntuación, la búsqueda binaria en el diccionario de la SD (unos 40 ms por palabra en la placa) y la red.
+
+- **1** partida nueva: eliges el **idioma** (1 inglés, 2 castellano) y sale el código de sala. Eres el jugador 1 y empiezas.
+- **2** unirse: tecleas el código. **3** seguir la partida guardada (`SCRABBLE.SAV`, unos 400 bytes, en la carpeta del juego).
+- **El idioma y la semilla no se mandan**: salen del código de sala. La primera letra es el idioma (A inglés, B castellano) y la semilla,
+  un resumen de las 10 letras y del número de partida de la sala; los dos ordenadores barajan la misma bolsa de 100 fichas y roban en el
+  mismo orden. Por eso cada uno sabe también el atril del otro (el programa no lo muestra: se asume honradez, como con los relojes del
+  ajedrez). «Otra partida» (ENTER al acabar) suma 1 al número de partida: otra semilla.
+- **Una jugada**, con el **cursor**: las flechas del ZX81 (**5** izquierda, **6** abajo, **7** arriba, **8** derecha; da igual con o sin SHIFT) mueven
+  un marco negro (un **sprite de hardware** que parpadea poniendo su máscara a 0, así no tapa nunca ni un punto de las letras) por el tablero; **0** elige la casilla de
+  salida y despues **8** (derecha) o **6** (abajo) el sentido, que se ve con una flecha negra de borde blanco en la casilla de al lado. Despues
+  se teclea la palabra **entera tal como quedará**, con las letras que ya hay en el tablero, y ENTER. SHIFT+0 borra lo último (hasta volver a
+  mover el cursor).
+- **O tecleándola** como `H8 R QUIZ` + ENTER: columna A-O, fila 1-15 (`A10`, `O15`), `R` (derecha) o `D` (abajo) y la palabra. Se pueden
+  mezclar a medias: por ejemplo, tecleas `H8` y eliges el sentido con `8` o `6`. Una tecla que no cuadra no entra. Un **punto** antes de una letra fuerza el comodín (`.A`); sin él, el comodín solo se usa si falta la letra. En castellano
+  `C H`, `L L` y `R R` se juntan solos en una ficha y la tecla `1` es la N con tilde.
+- `P` ENTER pasa. `X letras` ENTER cambia de 1 a 7 fichas (hacen falta 7 o más en la bolsa). Con nada tecleado, `R` reenvía si falló la red y `Q` sale
+  (los dígitos son las flechas y las filas del tablero). Pasar y cambiar apagan el cursor, y la partida acabada también.
+- Antes de mandar, el Z80 comprueba la jugada con el diccionario (la palabra y **todas las cruzadas**) y da el aviso concreto
+  (`QUZZ IS NOT A WORD`, `YOU DO NOT HAVE THOSE TILES`, `FIRST WORD MUST COVER THE CENTER`...). Puntuación oficial (letra y palabra
+  dobles y triples solo con las fichas nuevas, comodín = 0, +50 por las 7 fichas); fin al quedarse sin fichas con la bolsa vacía o
+  con seis pases seguidos.
+- **Pantalla** (HiRes Spectrum, `scrabble_ui.inc`): tablero 15×15 de una celda por casilla (letra de la fuente de la ROM y el color del
+  premio en el atributo), el atril en fichas de 16×16 con su valor, y el panel (puntos, bolsa, turno, última jugada, leyenda DL/TL/DW/TW,
+  código de sala). La última jugada se resalta en verde.
+
+**Red.** Una jugada son hasta 21 bytes y el estado, 355: no caben en el formato de `game.inc` de los otros juegos, así que `game.inc` tiene
+dos opciones nuevas (los otros juegos las dejan a 0): `G_MOVE_VAR = 1` (jugadas de longitud variable: el primer byte es su longitud y solo se
+manda esa parte) y `G_BIG = 1` (el estado no cabe en un mensaje de 100 bytes: va en **trozos de 96 bytes** `[3][número][cuántos][datos]`, se juntan
+en `GM_TMP` y se cargan cuando están todos; el resumen lo calcula el juego, `g_hash`, sin copiar el estado). Al mandar el estado, si la
+última jugada fue mía se vuelve a mandar al final, para que sea lo último retenido en el broker. La jugada del Scrabble es
+`[L][tipo][datos]`: jugar (1: x, y, sentido, n y las fichas), pasar (2) o cambiar (3: n y las fichas).
+
 ## Guardar y seguir otro día (`savegame.inc`)
 
 Los mensajes del broker solo conservan la **última** jugada de cada jugador (retenida) y el tablero vive en la RAM de cada
@@ -105,7 +148,7 @@ GAME`** cuando existe el fichero. Seguir lee el fichero, vuelve a entrar en la *
 hace falta que los dos estén conectados a la vez: cada uno solo necesita su estado guardado y que el broker conserve el último
 mensaje del rival hasta que este lo recoja.
 
-- **Fichero:** `CONNECT4.SAV` (66 bytes) o `CHESS.SAV` (91), en la **carpeta actual**, que es la del juego (el cargador ya lee de ahí el
+- **Fichero:** `CONNECT4.SAV` (66 bytes), `CHESS.SAV` (91) o `SCRABBLE.SAV` (400), en la **carpeta actual**, que es la del juego (el cargador ya lee de ahí el
   `.BIN`): cada carpeta de juego tiene su partida, y dos ZX81 (o dos instancias del emulador) con carpetas distintas no se pisan. Los dos
   nombres, sin `_`, se pueden borrar desde el ZX81. Un fichero por carpeta: empezar o unirse a otra partida lo sustituye.
 - **Formato:** `SV_ID` (1 = 4 en raya, 2 = ajedrez), versión 1, mi ranura, control de tiempo, el código de sala (10, en códigos
@@ -124,7 +167,7 @@ mensaje del rival hasta que este lo recoja.
 ## Cómo añadir otro juego
 
 `game.inc` no sabe nada de las reglas; el juego define seis rutinas, `G_STATE_LEN` (el tamaño del estado) y
-`G_MOVE_LEN` (1 o 2 bytes por jugada):
+`G_MOVE_LEN` (1 o 2 bytes por jugada), y `G_MOVE_VAR` y `G_BIG` a 0 (a 1, jugadas de longitud variable y estado por trozos: ver el Scrabble):
 
 | Rutina | Qué hace |
 |---|---|
@@ -158,6 +201,11 @@ arregla pidiendo el estado completo; las jugadas viejas (un retenido) se ignoran
   ilegal, mate del pastor, jaque, otra partida, y como negras con el tablero girado.
 - `test_z80ui.cpp`: el 4 en raya entero, con pulsaciones de teclado, la pantalla leída de `$8000`, una partida
   hasta ganar, otra partida, el rival que se va, y unirse tecleando el código con un borrado.
+- **Scrabble** (`scrabble_ref.h` es la referencia en C++, escrita aparte): `test_z80scrabble.cpp` (el motor: la bolsa barajada con una
+  semilla, puntuación, errores y partidas enteras al azar con palabras reales, en los dos idiomas, comparando todo el estado tras cada
+  jugada), `test_z80scrabbleui.cpp` (la pantalla y la entrada de la jugada por teclado) y `test_z80scrabblegame.cpp` (el juego entero con un
+  rival simulado: idioma, estado idéntico al de la referencia, jugadas, pases y cambios, hash que no cuadra y estado por trozos en los dos
+  sentidos, guardar y seguir, fin de partida y otra partida, castellano y entrar como jugador 2).
 
 **Notas:** la parte común de los dos juegos (arranque del vídeo, menú, sala, teclado y texto) está en
 `lobby.inc`. `a2z` (ASCII a código del ZX81) usa `HL`, así que `print_at` lo guarda; `kbd_scan` destruye `BC`

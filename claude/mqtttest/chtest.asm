@@ -8,6 +8,8 @@ CH_BASE     equ 8500h
 G_STATE_LEN equ 67
 G_MOVE_LEN  equ 2
 G_CLOCK     equ 0
+G_MOVE_VAR  equ 0               ; (game.inc) jugadas de longitud fija
+G_BIG       equ 0               ; estado que cabe en un mensaje
 MB          equ 8F00h
 
             org  24576

@@ -14,10 +14,14 @@ La palabra n esta en el desplazamiento 16 * (n + 1) del fichero.
 Uso:
     python make_dict.py enable1.txt DICT.DIC                  # una lista real (solo A-Z; el resto se descarta)
     python make_dict.py --synthetic 500000 DICT.DIC           # N palabras al azar: para medir tiempos
-    opciones: --minlen 2  --maxlen 15  --seed 1
+    python make_dict.py --lang es fise-2.txt DICTES.DIC       # castellano (lista en UTF-8, sin tildes, con la n con tilde)
+    opciones: --minlen 2  --maxlen 15  --seed 1  --lang en|es
 
-Alfabeto: por ahora solo A-Z (ingles). Para el castellano se anadira la N con tilde y se decidira que bytes
-usan los digrafos: el orden que importa es el de los bytes.
+Alfabeto: en ingles, A-Z. En castellano (--lang es) cada FICHA es un byte: A-Z, la N con tilde = '[', CH = backslash,
+LL = ']' y RR = '^' (los bytes que usa EXAMPLES/NETGAME/scrabble.inc). Como en el Scrabble en castellano, CH, LL y RR
+son siempre una sola ficha (no se pueden hacer con C+H, L+L o R+R), asi que se trocea la palabra en fichas de forma
+voraz. Los limites de longitud (2 a 15) son en FICHAS. Se descarta lo que tenga otras letras (tildes, guiones...).
+El orden que importa es el de los bytes.
 """
 import argparse
 import random
@@ -29,16 +33,46 @@ REC = 16
 MAGIC = b"SDICT01\0"
 
 
-def load_words(path, minlen, maxlen):
+def tiles_en(line):
+    w = line.strip().upper()
+    return w.encode("ascii") if w and all("A" <= c <= "Z" for c in w) else None
+
+
+DIGRAPHS = {"CH": chr(92), "LL": "]", "RR": "^"}
+
+
+def tiles_es(line):
+    w = line.strip().upper()
+    out = []
+    i = 0
+    while i < len(w):
+        if w[i:i + 2] in DIGRAPHS:
+            out.append(DIGRAPHS[w[i:i + 2]])
+            i += 2
+            continue
+        c = w[i]
+        if c == "Ñ":
+            out.append("[")
+        elif "A" <= c <= "Z":
+            out.append(c)
+        else:
+            return None
+        i += 1
+    return "".join(out).encode("ascii") if out else None
+
+
+def load_words(path, minlen, maxlen, lang="en"):
     words = set()
     dropped = 0
-    with open(path, encoding="latin-1") as f:
+    conv = tiles_es if lang == "es" else tiles_en
+    encoding = "utf-8" if lang == "es" else "latin-1"
+    with open(path, encoding=encoding) as f:
         for line in f:
-            w = line.strip().upper()
-            if not (minlen <= len(w) <= maxlen) or not all("A" <= c <= "Z" for c in w):
+            w = conv(line)
+            if w is None or not (minlen <= len(w) <= maxlen):
                 dropped += 1
                 continue
-            words.add(w.encode("ascii"))
+            words.add(w)
     return sorted(words), dropped
 
 
@@ -58,6 +92,7 @@ def main():
     ap.add_argument("--minlen", type=int, default=2)
     ap.add_argument("--maxlen", type=int, default=15)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--lang", choices=["en", "es"], default="en", help="alfabeto de la lista de palabras")
     a = ap.parse_args()
     if a.maxlen > REC - 1:
         ap.error("maxlen no puede pasar de 15")
@@ -71,7 +106,7 @@ def main():
         if len(a.paths) != 2:
             ap.error("hacen falta la lista de palabras y el fichero de salida")
         dst = a.paths[1]
-        words, dropped = load_words(a.paths[0], a.minlen, a.maxlen)
+        words, dropped = load_words(a.paths[0], a.minlen, a.maxlen, a.lang)
     with open(dst, "wb") as f:
         f.write(MAGIC + struct.pack("<I", len(words)) + bytes(REC - 12))
         for w in words:

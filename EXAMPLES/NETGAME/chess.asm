@@ -39,6 +39,8 @@ CH_BASE     equ 9500h           ; alineado a 256
 G_STATE_LEN equ 67
 G_MOVE_LEN  equ 2
 G_CLOCK     equ 1               ; con relojes (game.inc)
+G_MOVE_VAR  equ 0               ; (game.inc) jugadas de longitud fija
+G_BIG       equ 0               ; estado que cabe en un mensaje
 DFILE       equ 8800h           ; pantalla: 1 + 24 filas de 33
 
 MSG         equ UI_BASE+5       ; el mensaje de la fila ROW_MSG (0 = ninguno)

@@ -16,7 +16,7 @@
 ;                             carpeta actual; asi cada carpeta de juego tiene su partida, y dos ZX81 que comparten SD no se pisan)
 ;  y G_STATE_LEN / G_CLOCK / g_save / g_load / game.inc / net.inc como siempre.
 ;
-;  Formato del fichero (SV_LEN = 24 + G_STATE_LEN bytes):
+;  Formato del fichero (SV_LEN = 24 + G_STATE_LEN bytes, mas G_MOVE_LEN con jugadas de longitud variable):
 ;       0 SV_ID   1 version (1)   2 mi ranura (0 o 1)   3 control de tiempo (GM_TC)
 ;       4-13 el codigo de sala (codigos del ZX81)       14-15 GM_PLY   16 GM_OVER   17-18 GM_MOVE
 ;      19-22 los relojes (GM_REM)   23 GM_WHY   24.. el estado del juego (g_save)
@@ -30,7 +30,7 @@
 ;  (nombre en ASCII puro, ver COMMANDS.cpp, do_f_open). C es el reloj del handshake: no se toca.
 ; =====================================================================
 
-SV_LEN      equ 24+G_STATE_LEN
+SV_LEN      equ 24+G_STATE_LEN+G_MOVE_VAR*G_MOVE_LEN   ; (con jugadas de longitud variable, la ultima jugada entera va detras del estado)
 SV_H        equ SV_BASE+0       ; el handle del fichero
 SV_ST       equ SV_BASE+1       ; el estado de la ultima lectura o escritura
 SV_LP       equ SV_BASE+2       ; (2) GM_PLY de lo ultimo guardado
@@ -113,7 +113,16 @@ ELSE
             ldir                    ; 19-23 a cero
 ENDIF
             ld   hl,SV_BUF+24
+IF G_MOVE_VAR
+            call g_save
+            ld   hl,GM_MOVE
+            ld   de,SV_BUF+24+G_STATE_LEN
+            ld   bc,G_MOVE_LEN
+            ldir
+            ret
+ELSE
             jp   g_save
+ENDIF
 
 ; --- leer ---------------------------------------------------------------------
 sv_exists:  ld   a,53               ; abrir
@@ -186,6 +195,12 @@ ENDIF
             ld   (GM_MOVE),hl
             xor  a
             ld   (SV_VAL),a         ; la proxima vez que se dibuje, se guarda
+IF G_MOVE_VAR
+            ld   hl,SV_BUF+24+G_STATE_LEN
+            ld   de,GM_MOVE
+            ld   bc,G_MOVE_LEN
+            ldir
+ENDIF
             ld   hl,SV_BUF+24
             jp   g_load
 

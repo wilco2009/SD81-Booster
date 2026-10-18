@@ -15,6 +15,7 @@ Lista viva (empezada el 14 de octubre de 2026). Se tacha lo que se hace en los d
 | 6 | `LOAD *Z81` sin el comando 70: exige el monitor; sin él, informe P | 7.7 (texto y aviso), sección 14 (fila P), tabla de comandos del MCU (el 70 pasa a ser el 75) |
 | 7 | Web del depurador: abrirla con la IP, aviso rojo, botones Symbols y Trace, `sym !`, símbolos que no se releen solos | Apéndice L (Desde el navegador, Símbolos y la tabla de la consola) |
 | 8 | `ESP32FW.BIN` (sin guion bajo), compatibilidad con módulos viejos y actualización conjunta | 9.7 |
+| 9 | **Scrabble en red** (inglés y castellano): cómo se juega (idioma al crear la sala, el cursor con las flechas 5-8, 0 y el sentido 8/6, o teclear `H8 R QUIZ`, `.` = comodín, `P`, `X`, `R`, `Q`; CH/LL/RR y la N con tilde), el diccionario en la SD (`DICTEN.DIC`/`DICTES.DIC`, `TOOLS/make_dict.py`; el castellano no va en la release por la licencia), `SCRABBLE.SAV`, el atril del rival no es secreto frente a quien toque el programa, y para programadores `G_MOVE_VAR`/`G_BIG` de `game.inc` | sección **9.9** (usuario) y Apéndice M (programadores). Pendiente de redactar tras probarlo en el emulador y la placa |
 
 ## Pendiente
 

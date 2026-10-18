@@ -8,6 +8,11 @@
 ;      GM_BASE      equ 7400h   ; RAM de trabajo (unos 100 bytes)
 ;      G_STATE_LEN  equ 42      ; bytes del estado completo del juego (<= 90)
 ;      G_MOVE_LEN   equ 1       ; bytes de una jugada (1 o 2)
+;      G_MOVE_VAR   equ 0       ; 1 = jugadas de longitud variable (el Scrabble): G_MOVE_LEN es el MAXIMO, el primer byte de la
+;                               jugada es su longitud (el mismo, contado entero) y se manda solo esa parte. No va con G_CLOCK
+;      G_BIG        equ 0       ; 1 = estado grande (el Scrabble: no cabe en un mensaje de 100 bytes): el estado se manda en trozos
+;                               de 96 bytes y el juego pone g_hash (HL = resumen de 16 bits del estado, sin copiarlo; el hash
+;                               de siempre pasa por g_save y G_STATE_LEN <= 90). No va con G_CLOCK
 ;  y despues  include "net.inc"  y  include "game.inc"; el juego define:
 ;      g_reset      empieza una partida (posicion inicial)
 ;      g_valid      HL = la jugada (G_MOVE_LEN bytes), B = jugador (1 o 2): CF = 1 si NO es legal
@@ -54,10 +59,23 @@
 GM_ME       equ GM_BASE+0
 GM_PLY      equ GM_BASE+1       ; (2)
 GM_OVER     equ GM_BASE+3
-GM_MOVE     equ GM_BASE+4       ; (2) la jugada
 GM_HASH     equ GM_BASE+6       ; (2)
 GM_TMP      equ GM_BASE+8       ; (G_STATE_LEN) estado para el resumen
 GM_NEW      equ GM_TMP+G_STATE_LEN ; (G_MOVE_LEN) la jugada que se intenta (GM_MOVE solo cambia si es legal)
+GM_BX       equ GM_NEW+G_MOVE_LEN+24 ; (con G_BIG) variables del estado por trozos, detras de las del reloj
+GM_CI       equ GM_BX+0         ; el trozo que se manda
+GM_CL       equ GM_BX+1         ; su longitud
+GM_CP       equ GM_BX+2         ; (2) de donde sale
+GM_CR       equ GM_BX+4         ; (2) bytes que faltan por mandar
+GM_RXT      equ GM_BX+6         ; (2) el turno del estado que se esta recibiendo
+GM_RXM      equ GM_BX+8         ; los trozos recibidos (un bit cada uno)
+G_NCHUNK    equ (G_STATE_LEN+95)/96
+G_LASTLEN   equ G_STATE_LEN-96*(G_NCHUNK-1)   ; bytes del ultimo trozo
+IF G_MOVE_VAR
+GM_MOVE     equ GM_BX+16        ; (G_MOVE_LEN) la jugada: con longitud variable no cabe en el hueco de 2 bytes de siempre
+ELSE
+GM_MOVE     equ GM_BASE+4       ; (2) la jugada
+ENDIF
 G_CLKB      equ G_CLOCK*2       ; bytes de reloj en cada jugada: los segundos del que la hace (solo con G_CLOCK = 1)
 IF G_CLOCK
 GM_TC       equ GM_NEW+G_MOVE_LEN   ; control de tiempo (indice de gm_tc_tab; 0 = sin reloj)
@@ -82,6 +100,11 @@ game_new:   xor  a
             ld   (GM_PLY),a
             ld   (GM_PLY+1),a
             ld   (GM_OVER),a
+IF G_BIG
+            ld   (GM_RXM),a
+            ld   hl,0FFFFh
+            ld   (GM_RXT),hl
+ENDIF
 IF G_CLOCK
             call gm_clk_reset
 ENDIF
@@ -123,6 +146,9 @@ gm_ply_inc: ld   hl,(GM_PLY)
             ret
 
 ; HL = resumen de 16 bits del estado (rota y mezcla cada byte)
+IF G_BIG
+game_hash:  jp   g_hash
+ELSE
 game_hash:  ld   hl,GM_TMP
             call g_save
             ld   hl,GM_TMP
@@ -142,12 +168,28 @@ gh_nc:      dec  c
             djnz gh_lp
             ex   de,hl
             ret
+ENDIF
 
 game_move:  ld   (GM_NEW),a            ; juegos de una jugada de 1 byte
             jr   gm_have
 game_move_p: ld  de,GM_NEW          ; HL = la jugada
+IF G_MOVE_VAR
+            ld   a,(hl)             ; su longitud
+            cp   2
+            jr   c,gm_badlen
+            cp   G_MOVE_LEN+1
+            jr   nc,gm_badlen
+            ld   c,a
+            ld   b,0
+ELSE
             ld   bc,G_MOVE_LEN
+ENDIF
             ldir
+            jr   gm_have
+IF G_MOVE_VAR
+gm_badlen:  ld   a,1                ; una longitud imposible: no es legal
+            ret
+ENDIF
 gm_have:    call gm_drain
             ld   a,(GM_OVER)
             or   a
@@ -187,12 +229,31 @@ gm_send:    call game_hash
             ld   (GM_HASH),hl
             ld   a,1
             ld   (NB_TX),a
+IF G_MOVE_VAR
+            ld   a,(GM_MOVE)        ; [1][jugada: L bytes][hash]
+            ld   c,a
+            ld   b,0
+            ld   hl,GM_MOVE
+            ld   de,NB_TX+1
+            ldir
+            ld   hl,(GM_HASH)
+            ld   a,l
+            ld   (de),a
+            inc  de
+            ld   a,h
+            ld   (de),a
+            ld   a,(GM_MOVE)
+            add  a,3
+            ld   (NB_LEN),a
+            jr   gm_sent
+ELSE
             ld   hl,GM_MOVE
             ld   de,NB_TX+1
             ld   bc,G_MOVE_LEN
             ldir
             ld   hl,(GM_HASH)
             ld   (NB_TX+1+G_MOVE_LEN),hl
+ENDIF
 IF G_CLOCK
             ld   a,(GM_ME)
             call gm_get_rem
@@ -200,6 +261,9 @@ IF G_CLOCK
 ENDIF
             ld   a,3+G_MOVE_LEN+G_CLKB
             ld   (NB_LEN),a
+IF G_MOVE_VAR
+gm_sent:
+ENDIF
             ld   hl,(GM_PLY)
             ld   (NB_TURN),hl
             call room_send
@@ -216,6 +280,72 @@ gm_send_type: ld (NB_TX),a
             ld   (NB_TURN),hl
             jp   room_send
 
+IF G_BIG
+; el estado en trozos de 96 bytes: [3][numero de trozo][cuantos son][datos]. Los mensajes son retenidos y cada uno pisa al
+; anterior, asi que al final, si la ultima jugada fue mia, se vuelve a mandar para que sea lo ultimo que queda en el broker
+game_send_state: ld hl,GM_TMP
+            call g_save
+            ld   hl,GM_TMP
+            ld   (GM_CP),hl
+            ld   hl,G_STATE_LEN
+            ld   (GM_CR),hl
+            xor  a
+            ld   (GM_CI),a
+gss_l:      ld   hl,(GM_CR)
+            ld   a,h
+            or   a
+            jr   nz,gss_96
+            ld   a,l
+            cp   97
+            jr   c,gss_go
+gss_96:     ld   a,96
+gss_go:     ld   (GM_CL),a
+            add  a,3
+            ld   (NB_LEN),a
+            ld   a,3
+            ld   (NB_TX),a
+            ld   a,(GM_CI)
+            ld   (NB_TX+1),a
+            ld   a,G_NCHUNK
+            ld   (NB_TX+2),a
+            ld   a,(GM_CL)
+            ld   c,a
+            ld   b,0
+            ld   hl,(GM_CP)
+            ld   de,NB_TX+3
+            ldir
+            ld   (GM_CP),hl
+            ld   a,(GM_CL)
+            ld   e,a
+            ld   d,0
+            ld   hl,(GM_CR)
+            or   a
+            sbc  hl,de
+            ld   (GM_CR),hl
+            ld   hl,(GM_PLY)
+            ld   (NB_TURN),hl
+            call room_send
+            or   a
+            ret  nz
+            ld   hl,GM_CI
+            inc  (hl)
+            ld   hl,(GM_CR)
+            ld   a,h
+            or   l
+            jr   nz,gss_l
+            ld   hl,(GM_PLY)        ; la ultima jugada, si fue mia
+            ld   a,h
+            or   l
+            jr   z,gss_end
+            call game_turn_of
+            ld   hl,GM_ME
+            cp   (hl)
+            jr   z,gss_end          ; me toca a mi: la ultima fue del rival
+            call gm_send
+            ret
+gss_end:    xor  a
+            ret
+ELSE
 game_send_state: ld a,3
             ld   (NB_TX),a
             ld   hl,NB_TX+1
@@ -231,6 +361,7 @@ ENDIF
             ld   hl,(GM_PLY)
             ld   (NB_TURN),hl
             jp   room_send
+ENDIF
 
 game_poll:  call room_poll_recv
             or   a
@@ -256,7 +387,7 @@ gp_in_end:  ld   a,2
 
 gp_msg:     ld   a,(NB_RX)
             cp   1
-            jr   z,gp_move
+            jp   z,gp_move
             cp   2
             jr   z,gp_sreq
             cp   3
@@ -291,6 +422,82 @@ IF G_CLOCK
 ENDIF
             ld   a,8
             ret
+IF G_BIG
+; un trozo del estado: [3][numero][cuantos][datos]. Se junta en GM_TMP y cuando estan todos se carga
+gp_state:   ld   a,(NB_LEN)
+            cp   4
+            jr   c,gp_ign
+            ld   a,(NB_RX+2)
+            cp   G_NCHUNK
+            jr   nz,gp_ign
+            ld   b,a
+            ld   a,(NB_RX+1)
+            cp   b
+            jr   nc,gp_ign
+            ld   hl,(NB_TURN)       ; mas viejo que mi partida: sigo con lo mio
+            ld   de,(GM_PLY)
+            or   a
+            sbc  hl,de
+            jr   c,gp_ign
+            ld   hl,(NB_TURN)       ; de otro turno que el que se estaba juntando: se empieza de nuevo
+            ld   de,(GM_RXT)
+            or   a
+            sbc  hl,de
+            jr   z,gps_same
+            ld   hl,(NB_TURN)
+            ld   (GM_RXT),hl
+            xor  a
+            ld   (GM_RXM),a
+gps_same:   ld   a,(NB_RX+1)        ; destino = GM_TMP + 96 * numero
+            ld   b,a
+            ld   hl,GM_TMP
+            ld   de,96
+            inc  b
+gps_ad:     dec  b
+            jr   z,gps_at
+            add  hl,de
+            jr   gps_ad
+gps_at:     ld   a,(NB_RX+1)        ; la longitud que tiene que traer: 96, o lo que quede en el ultimo
+            inc  a
+            ld   b,a
+            ld   a,(NB_RX+2)
+            cp   b
+            ld   c,96
+            jr   nz,gps_len
+            ld   c,G_LASTLEN
+gps_len:    ld   a,(NB_LEN)
+            sub  3
+            cp   c
+            jp   nz,gp_ign
+            ld   c,a
+            ld   b,0
+            ex   de,hl
+            ld   hl,NB_RX+3
+            ldir
+            ld   a,(NB_RX+1)        ; el bit del trozo
+            ld   b,a
+            ld   a,1
+            inc  b
+gps_bit:    dec  b
+            jr   z,gps_bd
+            add  a,a
+            jr   gps_bit
+gps_bd:     ld   hl,GM_RXM
+            or   (hl)
+            ld   (hl),a
+            cp   (1<<G_NCHUNK)-1
+            jp   nz,gp_ign          ; faltan trozos
+            xor  a
+            ld   (GM_RXM),a
+            ld   hl,GM_TMP
+            call g_load
+            ld   hl,(NB_TURN)
+            ld   (GM_PLY),hl
+            call g_winner
+            ld   (GM_OVER),a
+            ld   a,4
+            ret
+ELSE
 gp_state:   ld   a,(NB_LEN)
             cp   G_STATE_LEN+1+G_CLKB*2
             jr   nz,gp_ign
@@ -318,11 +525,26 @@ IF G_CLOCK
 ENDIF
             ld   a,4
             ret
+ENDIF
 
 ; una jugada del rival: tiene que ser la siguiente, ser legal y dejar el mismo estado
-gp_move:    ld   a,(NB_LEN)
+gp_move:
+IF G_MOVE_VAR
+            ld   a,(NB_RX+1)        ; [1][L ...][hash]: el mensaje mide 3 + L
+            cp   2
+            jp   c,gp_ign
+            cp   G_MOVE_LEN+1
+            jp   nc,gp_ign
+            add  a,3
+            ld   b,a
+            ld   a,(NB_LEN)
+            cp   b
+            jp   nz,gp_ign
+ELSE
+            ld   a,(NB_LEN)
             cp   3+G_MOVE_LEN+G_CLKB
             jr   nz,gp_ign
+ENDIF
             ld   hl,(GM_PLY)
             inc  hl
             ld   de,(NB_TURN)
@@ -360,7 +582,20 @@ gp_next:    ld   a,(GM_OVER)
             call g_winner
             ld   (GM_OVER),a
             call game_hash
+IF G_MOVE_VAR
+            push hl                 ; el resumen del rival esta detras de la jugada
+            ld   a,(NB_RX+1)
+            ld   e,a
+            ld   d,0
+            ld   hl,NB_RX+1
+            add  hl,de
+            ld   e,(hl)
+            inc  hl
+            ld   d,(hl)
+            pop  hl
+ELSE
             ld   de,(NB_RX+1+G_MOVE_LEN)
+ENDIF
             or   a
             sbc  hl,de
             jr   nz,gp_miss

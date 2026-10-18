@@ -61,3 +61,29 @@ cp test_z80dict.cpp tmp2/
 cd tmp2 || exit 1
 g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80dict.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80dict.exe || exit 1
 ./test_z80dict.exe dicttest.bin
+
+echo "== Scrabble (EXAMPLES/NETGAME/scrabble.inc): bolsa, puntuacion, validacion y partidas enteras contra una referencia"
+cd .. || exit 1
+cp test_z80scrabble.cpp scrabble_ref.h tmp2/
+pasmo scrtest.asm tmp2/scrtest.bin || exit 1
+cd tmp2 || exit 1
+g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80scrabble.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80scrabble.exe || exit 1
+./test_z80scrabble.exe scrtest.bin ../../../build/dict/enable1.txt $ESLIST   # ESLIST=<lista en castellano en UTF-8> usa la real
+
+echo "== Scrabble: la pantalla (EXAMPLES/NETGAME/scrabble_ui.inc), con la fuente de la ROM de verdad"
+cd .. || exit 1
+cp test_z80scrabbleui.cpp tmp2/
+pasmo scrui.asm tmp2/scrui.bin || exit 1
+cd tmp2 || exit 1
+g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80scrabbleui.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80scrabbleui.exe || exit 1
+./test_z80scrabbleui.exe scrui.bin "../../../SD Content/SYS/SDBOOST.ROM" ../../../build/dict/enable1.txt
+
+echo "== el Scrabble entero (EXAMPLES/NETGAME/scrabble.asm): menu, idioma, jugadas, red, estado por trozos, guardar y seguir"
+cd .. || exit 1
+cp test_z80scrabblegame.cpp scrabble_ref.h tmp2/
+(cd ../../EXAMPLES/NETGAME && pasmo scrabble.asm "$OLDPWD/tmp2/scrabble.bin") || exit 1
+# el ZX81 no ejecuta codigo por encima de $8000: scrabble empieza en $4400 (CLEAR 17407), asi que caben 15.360 bytes
+[ "$(stat -c %s tmp2/scrabble.bin)" -le 15360 ] || { echo "ERROR scrabble.bin pasa de \$8000"; exit 1; }
+cd tmp2 || exit 1
+g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80scrabblegame.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80scrabblegame.exe || exit 1
+./test_z80scrabblegame.exe scrabble.bin "../../../SD Content/SYS/SDBOOST.ROM" ../../../build/dict/enable1.txt

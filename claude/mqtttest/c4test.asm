@@ -10,6 +10,8 @@ C4_BASE     equ 7440h
 G_STATE_LEN equ 42
 G_MOVE_LEN  equ 1
 G_CLOCK     equ 0
+G_MOVE_VAR  equ 0               ; (game.inc) jugadas de longitud fija
+G_BIG       equ 0               ; estado que cabe en un mensaje
 MB          equ 7F00h
 
             org  24576

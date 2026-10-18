@@ -231,6 +231,22 @@ static uint8_t tube_in() {
 
 // ------------------------------------------------------------ el Z80
 static uint8_t mem[65536];
+// Los sprites por hardware (Apendice H del manual): los POKEs 2100-2128 llegan aqui. 64 sprites de 8x8, seleccionados con 2100; X (9 bits) e Y
+// llevan sumados 32 pixeles; el color, el patron y la mascara son 8 bytes cada uno (una fila por byte)
+struct Spr { bool en = false; int x = 0, y = 0; uint8_t col[8] = {0}, pix[8] = {0}, msk[8] = {0}; };
+static Spr sprs[64];
+static int spr_sel = 0;
+static void spr_write(int a, uint8_t d) {
+  Spr& s = sprs[spr_sel];
+  if (a == 2100) spr_sel = d & 63;
+  else if (a == 2101) s.en = d & 1;
+  else if (a == 2102) s.x = (s.x & 0x100) | d;
+  else if (a == 2103) s.x = (s.x & 0xFF) | ((d & 1) << 8);
+  else if (a == 2104) s.y = d;
+  else if (a >= 2105 && a <= 2112) s.col[a - 2105] = d;
+  else if (a >= 2113 && a <= 2120) s.pix[a - 2113] = d;
+  else if (a >= 2121 && a <= 2128) s.msk[a - 2121] = d;
+}
 static uint8_t keyrows[8];                      // teclas pulsadas por fila (bit 0 = la primera de la fila)
 extern "C" {
 int  z80_contend_wrapper(int, int, int) { return 0; }
@@ -238,7 +254,7 @@ int  z80_contend_io_wrapper(int, int, int) { return 0; }
 BYTE z80_readbyte_wrapper(int a) { return mem[a & 0xFFFF]; }
 BYTE z80_readoperandbyte_wrapper(int a) { return mem[a & 0xFFFF]; }
 BYTE z80_opcode_fetch_wrapper(int a) { z80_fetch_is_m1 = 0; return mem[a & 0xFFFF]; }
-void z80_writebyte_wrapper(int a, int d) { mem[a & 0xFFFF] = (uint8_t)d; }
+void z80_writebyte_wrapper(int a, int d) { a &= 0xFFFF; mem[a] = (uint8_t)d; if (a >= 2100 && a <= 2128) spr_write(a, (uint8_t)d); }
 void z80_writeport_wrapper(int port, int d, int*) { if ((port & 0xFF) == 0xA7) tube_out((uint8_t)d); }
 BYTE z80_readport_wrapper(int port, int*) {
   int lo = port & 0xFF;
@@ -396,6 +412,8 @@ static std::string make_msg(const std::string& code, uint16_t seq, uint16_t turn
   return body + std::string((const char*)mac, 8);
 }
 static void reset_world() {
+  for (auto& s : sprs) s = Spr();
+  spr_sel = 0;
   net_bridge_init();
   to_z80.clear(); from_z80.clear(); resp.clear(); tube_state = 0; clk = false;
   seen.clear(); retained.clear(); filters.clear(); has_will = false; mock_from_broker.clear(); mock_connected = false;

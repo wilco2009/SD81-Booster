@@ -112,3 +112,12 @@ cp test_z80pong.cpp tmp2/
 cd tmp2 || exit 1
 g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80pong.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80pong.exe || exit 1
 ./test_z80pong.exe pong.bin pong.sym
+
+echo "== SPORTS (EXAMPLES/NETGAME/sports.asm): Tennis, Hockey, Squash y Practice en red, con opciones (tarda: unos 10 min por escenario)"
+cd .. || exit 1
+cp test_z80sports.cpp tmp2/
+(cd ../../EXAMPLES/NETGAME && pasmo sports.asm "$OLDPWD/tmp2/sports.bin" "$OLDPWD/tmp2/sports.sym") || exit 1
+[ "$(stat -c %s tmp2/sports.bin)" -le 15360 ] || { echo "ERROR sports.bin pasa de \$8000"; exit 1; }
+cd tmp2 || exit 1
+g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80sports.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80sports.exe || exit 1
+./test_z80sports.exe sports.bin sports.sym

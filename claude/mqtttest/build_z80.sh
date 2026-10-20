@@ -87,3 +87,28 @@ cp test_z80scrabblegame.cpp scrabble_ref.h tmp2/
 cd tmp2 || exit 1
 g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80scrabblegame.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80scrabblegame.exe || exit 1
 ./test_z80scrabblegame.exe scrabble.bin "../../../SD Content/SYS/SDBOOST.ROM" ../../../build/dict/enable1.txt
+
+echo "== NETLAT (EXAMPLES/NETLAT): medir la latencia de la red desde el Z80"
+cd .. || exit 1
+cp test_z80netlat.cpp tmp2/
+(cd ../../EXAMPLES/NETLAT && pasmo netlat.asm "$OLDPWD/tmp2/netlat.bin") || exit 1
+cd tmp2 || exit 1
+g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80netlat.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80netlat.exe || exit 1
+./test_z80netlat.exe netlat.bin
+
+echo "== NETQ (EXAMPLES/NETCHAT/netq.inc): mensajes de red sin esperas para juegos en tiempo real"
+cd .. || exit 1
+cp test_z80nq.cpp tmp2/
+pasmo nqtest.asm tmp2/nqtest.bin || exit 1
+cd tmp2 || exit 1
+g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80nq.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80nq.exe || exit 1
+./test_z80nq.exe nqtest.bin
+
+echo "== PONG (EXAMPLES/NETGAME/pong.asm): el Pong en red, creador e invitado"
+cd .. || exit 1
+cp test_z80pong.cpp tmp2/
+(cd ../../EXAMPLES/NETGAME && pasmo pong.asm "$OLDPWD/tmp2/pong.bin" "$OLDPWD/tmp2/pong.sym") || exit 1
+[ "$(stat -c %s tmp2/pong.bin)" -le 8192 ] || { echo "ERROR pong.bin pasa de \$8000"; exit 1; }
+cd tmp2 || exit 1
+g++ -std=gnu++17 -O1 -Wno-unused-function -DMOCK_REAL_MD -I. -I"$Z80SRC/z80" -I"$Z80SRC" test_z80pong.cpp NET_MQTT.cpp z80.o z80_ops.o -o test_z80pong.exe || exit 1
+./test_z80pong.exe pong.bin pong.sym

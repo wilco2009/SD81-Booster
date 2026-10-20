@@ -230,6 +230,14 @@ static uint8_t tube_in() {
 }
 
 // ------------------------------------------------------------ el Z80
+static long instr_total = 0;
+static uint32_t time_extra = 0;                    // ms que "pasan" mientras el Z80 no corre (el programa pinta)
+static int slowdown = getenv("SLOWDOWN") ? atoi(getenv("SLOWDOWN")) : 1;   // el Z80 corre N veces mas despacio (SLOW)
+// el bit 0 del puerto $AF: VSYNC, a 50 Hz exactos (segun el tiempo simulado, con microsegundos), alto los primeros 512 us de cada 20 ms
+static uint64_t sim_us() { return (uint64_t)instr_total * 5000ULL * (uint64_t)slowdown / 3250ULL + (uint64_t)time_extra * 1000ULL; }
+static int vsync_d0() { return (sim_us() % 20000ULL) < 512 ? 1 : 0; }
+// FRAMES ($4034-$4035): en Superfast la FPGA lo decrementa en cada VSYNC (50 Hz); aqui sale del tiempo simulado
+static uint16_t frames_reg() { static const bool fixed = getenv("NOFRAMES") != nullptr; return fixed ? (uint16_t)0x1234 : (uint16_t)(0 - sim_us() / 20000ULL); }   // NOFRAMES=1: FRAMES no se mueve (prueba del ritmo por VSYNC)
 static uint8_t mem[65536];
 // Los sprites por hardware (Apendice H del manual): los POKEs 2100-2128 llegan aqui. 64 sprites de 8x8, seleccionados con 2100; X (9 bits) e Y
 // llevan sumados 32 pixeles; el color, el patron y la mascara son 8 bytes cada uno (una fila por byte)
@@ -251,14 +259,14 @@ static uint8_t keyrows[8];                      // teclas pulsadas por fila (bit
 extern "C" {
 int  z80_contend_wrapper(int, int, int) { return 0; }
 int  z80_contend_io_wrapper(int, int, int) { return 0; }
-BYTE z80_readbyte_wrapper(int a) { return mem[a & 0xFFFF]; }
+BYTE z80_readbyte_wrapper(int a) { a &= 0xFFFF; if (a == 16436) return frames_reg() & 255; if (a == 16437) return frames_reg() >> 8; return mem[a]; }
 BYTE z80_readoperandbyte_wrapper(int a) { return mem[a & 0xFFFF]; }
 BYTE z80_opcode_fetch_wrapper(int a) { z80_fetch_is_m1 = 0; return mem[a & 0xFFFF]; }
 void z80_writebyte_wrapper(int a, int d) { a &= 0xFFFF; mem[a] = (uint8_t)d; if (a >= 2100 && a <= 2128) spr_write(a, (uint8_t)d); }
 void z80_writeport_wrapper(int port, int d, int*) { if ((port & 0xFF) == 0xA7) tube_out((uint8_t)d); }
 BYTE z80_readport_wrapper(int port, int*) {
   int lo = port & 0xFF;
-  if (lo == 0xAF) return clk ? 0x80 : 0x00;
+  if (lo == 0xAF) return (clk ? 0x80 : 0x00) | vsync_d0();    // D7 = el reloj del tubo, D0 = VSYNC (50 Hz, alto 0,5 ms: 8 lineas)
   if (lo == 0xA7) return tube_in();
   if (lo == 0xFE) {                              // el teclado del ZX81: B = la fila (0 = elegida), bits 0-4 a 0 = pulsada
     uint8_t v = 0x1F;
@@ -269,9 +277,6 @@ BYTE z80_readport_wrapper(int port, int*) {
 }
 }
 
-static long instr_total = 0;
-static uint32_t time_extra = 0;                    // ms que "pasan" mientras el Z80 no corre (el programa pinta)
-static int slowdown = getenv("SLOWDOWN") ? atoi(getenv("SLOWDOWN")) : 1;   // el Z80 corre N veces mas despacio (SLOW)
 static const long MAXI = 400000000L;
 // CALL addr desde el exterior: la direccion de retorno es una trampa con HALT en $0100
 static bool z80_call(uint16_t addr) {
@@ -357,6 +362,15 @@ void mock_broker_rx(const uint8_t* b, size_t n) {
         if (p.qos == 1) { size_t k = mqtt::puback(out, sizeof(out), p.id); send_to_client(out, k); }
         if (p.retain) { if (s.data.empty()) retained.erase(s.topic); else retained[s.topic] = s.data; }
         if (subscribed(s.topic)) deliver(s.topic, s.data, false);    // el broker me devuelve lo mio
+        break;
+      }
+      case mqtt::T_UNSUBSCRIBE: {
+        s.kind = "UNSUBSCRIBE";
+        uint16_t tl = (uint16_t)((pk.body[2] << 8) | pk.body[3]);
+        s.topic = std::string((const char*)pk.body + 4, tl);
+        filters.erase(std::remove(filters.begin(), filters.end(), s.topic), filters.end());
+        uint8_t ua[4] = {0xB0, 0x02, pk.body[0], pk.body[1]};
+        send_to_client(ua, 4);
         break;
       }
       case mqtt::T_PINGREQ: { s.kind = "PINGREQ"; uint8_t pr[2] = {0xD0, 0}; send_to_client(pr, 2); break; }

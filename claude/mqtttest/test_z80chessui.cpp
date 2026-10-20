@@ -185,6 +185,7 @@ static bool key_pos(char c, KeyPos* k) {
 }
 static void press(char c, uint32_t hold_ms = 120) {
   KeyPos k;
+  run_ms(60);                                          // una persona no pulsa en el mismo instante en que sale el texto
   if (c == 8) { keyrows[0] |= 1; keyrows[4] |= 1; run_ms(hold_ms); keyrows[0] = keyrows[4] = 0; run_ms(120); return; }
   if (!key_pos(c, &k)) { printf("ERROR tecla desconocida %d\n", c); errors++; return; }
   keyrows[k.row] |= (uint8_t)(1 << k.bit);

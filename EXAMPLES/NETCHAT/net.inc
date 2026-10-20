@@ -92,6 +92,7 @@ V_MAC       equ NB_BASE+672     ; (8) HMAC truncado
 V_RND       equ NB_BASE+680     ; (8) bytes aleatorios
 V_WK        equ NB_BASE+688     ; (192) clave (64) + cuerpo (hasta 120)
 V_RXBUF     equ NB_BASE+880     ; (128) lo que trae NET_READ
+V_SUB       equ NB_BASE+250     ; subcuenta de rx_get: 4 esperas de ~5 ms = un paso de V_TMO
 
 ; =====================================================================
 ;  El tubo: comandos 66/67 del MCU (las de EXAMPLES/TELNET)
@@ -175,6 +176,14 @@ dl_lp:      dec  bc
             jr   nz,dl_lp
             ret
 
+; ~5 ms: la espera de rx_get entre dos lecturas
+delay5:     ld   bc,625
+d5_lp:      dec  bc
+            ld   a,b
+            or   c
+            jr   nz,d5_lp
+            ret
+
 ; HL = datos, E = cuantos (0-255). Reintenta si el modem no acepta
 tx_bytes:   ld   d,40
 tb_lp:      ld   a,e
@@ -216,7 +225,8 @@ tx_cr:      ld   hl,s_cr
             ld   e,1
             jp   tx_bytes
 
-; siguiente byte recibido en A; CF = 1 si se agota V_TMO (pasos de ~20 ms)
+; siguiente byte recibido en A; CF = 1 si se agota V_TMO (pasos de ~20 ms). Entre dos lecturas espera ~5 ms (no 20): la
+; respuesta del ESP32 se recoge antes; V_TMO sigue contando de 20 en 20 ms (baja una vez cada cuatro esperas)
 rx_get:     ld   a,(V_RXN)
             or   a
             jr   nz,rg_have
@@ -226,13 +236,18 @@ rg_try:     ld   hl,V_RXBUF
             ld   a,b
             or   a
             jr   nz,rg_got
+            ld   a,(V_SUB)
+            inc  a
+            and  3
+            ld   (V_SUB),a
+            jr   nz,rg_w
             ld   hl,(V_TMO)
             ld   a,h
             or   l
             jr   z,rg_to
             dec  hl
             ld   (V_TMO),hl
-            call delay20
+rg_w:       call delay5
             jr   rg_try
 rg_got:     ld   (V_RXN),a
             ld   hl,V_RXBUF
@@ -478,6 +493,29 @@ ar_go:      ld   hl,(V_RAWP)
             call tx_bytes
             jp   at_wait
 ar_to:      ld   a,2
+            or   a
+            ret
+
+; Como at_raw, pero SIN esperar el '>': el comando, el CR y los datos salen seguidos (el ESP32 los toma como datos en
+; cuanto procesa la linea) y se ahorra una ida y vuelta entera del puente. Se llega a at_wait habiendo consumido el '>'.
+; Si el modem contesta ERROR, los datos se han colado como un comando sin terminar: se cierra con un CR y se tira lo que conteste.
+at_raw_p:   ld   (V_TMO),de
+            call tx_str
+            call tx_cr
+            ld   hl,(V_RAWP)
+            ld   a,(V_RAWL)
+            ld   e,a
+            call tx_bytes
+arp_prompt: call rx_get
+            jr   c,ar_to
+            cp   '>'
+            jp   z,at_wait
+            cp   'E'
+            jr   nz,arp_prompt
+            call rx_line            ; el resto de ERROR
+            call tx_cr              ; cierra los datos sueltos
+            call flush_rx
+            ld   a,1
             or   a
             ret
 

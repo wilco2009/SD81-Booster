@@ -57,7 +57,7 @@ public:
 };
 
 enum { WL_CONNECTED = 3, WL_DISCONNECTED = 6 };
-struct WiFiMock { int status() { return mock_wifi_ok ? WL_CONNECTED : WL_DISCONNECTED; } static bool mock_wifi_ok; };
+struct WiFiMock { void setSleep(bool) {} int status() { return mock_wifi_ok ? WL_CONNECTED : WL_DISCONNECTED; } static bool mock_wifi_ok; };
 extern WiFiMock WiFi;
 
 // Broker falso: lo que escribe el cliente va a mock_broker_rx() (lo define la prueba). Cada

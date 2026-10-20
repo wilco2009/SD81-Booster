@@ -182,6 +182,12 @@ En «La librería net.inc y el controlador game.inc», después de la tabla de r
 - **Apéndice H (Sprites):** una línea en «Capacidad» o al final: «El Scrabble usa tres sprites (el cursor y dos flechas) y hace parpadear el cursor
   cambiando su máscara a 0, de modo que no borra ningún punto del fondo mientras está apagado.»
 
+### SPORTS: deportes en red (EXAMPLES/NETGAME/sports.asm, 20/10/2026)
+
+Programa de juegos en red de tiempo real (Tennis, Hockey, Squash y Practice, con opciones de palas, bola y ángulos), que se carga con `SPORTS.B81` en $4400. Hay que
+describirlo donde se habla de los juegos en red (junto al Scrabble): los juegos, las teclas (Q/A, P ping, X salir, ENTER nueva partida), que las opciones viajan en la
+primera letra del código de sala, que Practice no usa red y que la tecla P enseña el ping en ms. Va a la SD en la carpeta de los juegos en red.
+
 ### El joystick ya no pausa el depurador (FPGA, sim_int rev 0.18)
 
 Decidido el 19/10/2026 al probar el Pong con joystick: un contacto o rebote que daba arriba y abajo a la vez pausaba el programa en pleno juego. Se quita la pausa por el

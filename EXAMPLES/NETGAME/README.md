@@ -1,4 +1,4 @@
-# NETGAME: juegos por turnos en red (capa C): 4 en raya, ajedrez y Scrabble
+# NETGAME: juegos en red: 4 en raya, ajedrez, Scrabble y deportes (SPORTS)
 
 Capa C de `claude/planning/juego_en_red.md`: el controlador común de una partida por turnos entre dos ZX81
 (`game.inc`), las reglas del primer juego (`connect4.inc`) y el juego (`connect4.asm`, con la pantalla gráfica). Va encima de la
@@ -138,6 +138,27 @@ manda esa parte) y `G_BIG = 1` (el estado no cabe en un mensaje de 100 bytes: va
 en `GM_TMP` y se cargan cuando están todos; el resumen lo calcula el juego, `g_hash`, sin copiar el estado). Al mandar el estado, si la
 última jugada fue mía se vuelve a mandar al final, para que sea lo último retenido en el broker. La jugada del Scrabble es
 `[L][tipo][datos]`: jugar (1: x, y, sentido, n y las fichas), pasar (2) o cambiar (3: n y las fichas).
+
+## Deportes en red (SPORTS)
+
+```
+pasmo sports.asm sports.bin sports.sym        (o compila_sports.bat, que lo copia a SD81/NETGAMES/SPORTS del emulador)
+```
+
+Un solo programa (`SPORTS.B81`, en **`$4400`**, `CLEAR 17407`, unos 8,9 KB) con los deportes del AY-3-8500, a **tiempo real** y con el hardware de sprites:
+**Tennis** (una pala por jugador y la red), **Hockey** (dos palas por jugador, el delantero y el portero, que se mueven juntas; las paredes de los extremos
+rebotan salvo en la portería, un hueco de 96 px, donde es gol), **Squash** (una pared a la derecha; los dos se turnan para devolver la bola) y **Practice**
+(solo, sin red: racha de golpes y mejor racha). Gana quien llega a 15; saca el que ha perdido el tanto (regla sin comprobar contra el original). Antes de crear la
+sala se elige el juego y las **opciones** (palas normales o pequeñas, bola lenta o rápida, ángulos suaves o amplios): viajan en la **primera letra del código de sala**
+(`A` Tennis, `B` Hockey, `C` Squash, más las opciones), así que el invitado no tiene que elegir nada.
+
+- **Teclas:** Q/A (o el joystick) mueven la pala; **P** enseña el ping (ms) abajo y, en la fila 1, `R nnnn A nnnn` (mensajes del rival recibidos y aceptados: sirve para saber
+  si un corte es de la red o de los filtros); **X** sale; ENTER, al acabar, nueva partida (la decide el creador).
+- **Cómo funciona:** la bola es de quien la recibe: el jugador hacia el que va decide con su pala y su bola si golpea, rebota o es gol, y los golpes y rebotes se cuentan
+  (`P_HC`) en el mensaje de 15 bytes que cada uno manda cada fotograma; el otro adopta la bola y la adelanta medio ping. Usa `netq.inc`, la capa de red que no espera
+  (ver `claude/planning/latencia_red.md`). `pong.asm` es el Tennis solo, el antecesor.
+- **Pruebas en el PC:** `claude/mqtttest/test_z80sports.cpp` (en `build_z80.sh`): cada juego y las opciones, con el Z80 de creador y de invitado frente a un rival
+  escrito en C++, y el Practice.
 
 ## Guardar y seguir otro día (`savegame.inc`)
 

@@ -11,6 +11,15 @@
 
 #define NET_POLL_IDLE_MS     250   // sin conexion: lo justo para recoger un ATDT
 #define NET_POLL_ACTIVE_MS    15   // con conexion: ~8,5 KB/s por sentido de techo
+// En RAFAGA (hubo datos hace poco, en cualquier sentido, o hay algo por entregar): una trama cada 3 ms. El STM32 solo contesta, asi que
+// un sondeo cada 15 ms hacia esperar hasta 15 ms a todo lo que el Z80 escribia y otros 15 a la respuesta (un juego en tiempo real lo
+// nota). La rafaga dura NET_BURST_POLLS sondeos sin datos y despues se vuelve a los 15 ms: en reposo, igual que antes.
+#define NET_POLL_FAST_MS       3
+#define NET_BURST_POLLS       12
+static uint8_t burst = 0;
+// 1 = con conexion se desactiva el ahorro de energia del WiFi (WiFi.setSleep(false)): menos espera a las balizas, pero en las pruebas del Pong (19/10/2026) el juego
+// fue peor (a golpes) que sin ello. 0 = el comportamiento de siempre (puesto a 0 mientras se aclara).
+#define NET_WIFI_NOSLEEP       0
 
 static WiFiClient client;
 static uint8_t    state = NET_ST_IDLE;
@@ -332,6 +341,7 @@ void net_bridge_init() {
   raw_done = nullptr;
   state = NET_ST_IDLE;
   pending_len = 0;
+  burst = 0;
   last_poll = millis();
   at_command_mode = true;
   at_reset_command_state();
@@ -382,7 +392,15 @@ void net_bridge_loop() {
   net_mqtt_loop();               // atiende el socket MQTT, el ping y la reconexion
 
   uint32_t now = millis();
-  uint32_t interval = (state == NET_ST_CONNECTED || net_mqtt_active() || raw_done) ? NET_POLL_ACTIVE_MS : NET_POLL_IDLE_MS;
+  bool active = (state == NET_ST_CONNECTED || net_mqtt_active() || raw_done);
+  // Con conexion, la radio despierta: con el ahorro de energia del WiFi (modem sleep, el de por defecto) el punto de acceso retiene lo que llega
+  // hasta la siguiente baliza (~100 ms) y todo lo que viene del servidor llega tarde y a tirones. Sin conexion vuelve el ahorro.
+#if NET_WIFI_NOSLEEP
+  static bool wifi_awake = false;
+  if (active != wifi_awake) { wifi_awake = active; WiFi.setSleep(!active); }
+#endif
+  uint32_t interval = !active ? NET_POLL_IDLE_MS
+                    : (burst || pending_len > 0 || txq_used() > 0) ? NET_POLL_FAST_MS : NET_POLL_ACTIVE_MS;
   if ((uint32_t)(now - last_poll) < interval) return;
   last_poll = now;
 
@@ -430,7 +448,10 @@ void net_bridge_loop() {
                             rxbuf, &from_z80_len, &rx_free_chunks)) {
     return;   // fallo de transporte: se reintenta lo mismo en la proxima vuelta
   }
+  bool moved = (accepted && pending_len > 0) || from_z80_len > 0;   // viajaron datos en algun sentido
   if (accepted) pending_len = 0;
+  if (moved) burst = NET_BURST_POLLS;
+  else if (burst) burst--;
 
   // Lo que el Z80 haya escrito: en modo comando se interpreta como AT: en
   // modo datos va al socket tal cual (con la deteccion de "+++" por medio).

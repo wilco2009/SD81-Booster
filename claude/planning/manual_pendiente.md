@@ -182,6 +182,13 @@ En «La librería net.inc y el controlador game.inc», después de la tabla de r
 - **Apéndice H (Sprites):** una línea en «Capacidad» o al final: «El Scrabble usa tres sprites (el cursor y dos flechas) y hace parpadear el cursor
   cambiando su máscara a 0, de modo que no borra ningún punto del fondo mientras está apagado.»
 
+### El joystick ya no pausa el depurador (FPGA, sim_int rev 0.18)
+
+Decidido el 19/10/2026 al probar el Pong con joystick: un contacto o rebote que daba arriba y abajo a la vez pausaba el programa en pleno juego. Se quita la pausa por el
+joystick (queda la consola USB, `DBG_`/menu del emulador y el botón QS de 1 a 3 s). Hay que cambiar en el manual, ES y EN (apéndice del depurador, hoy secciones con el texto
+«Pulsar Arriba y Abajo a la vez en el joystick también pausa el programa» y «…con Arriba + Abajo del joystick» en la lista de formas de pausar). Se quita esa frase y esa opción.
+Requiere sintetizar la FPGA y subir `FPGAVERSION.TXT` en la release.
+
 ## Cómo se toca
 
 Flujo docx primero con la skill `docx` (no Opus), en ES y EN a la vez, y regenerar los `.md` que

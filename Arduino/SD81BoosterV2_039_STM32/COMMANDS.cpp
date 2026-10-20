@@ -20,6 +20,7 @@
 #include "WIFI_HANDLER.h"
 #include "B81.h"
 #include "DEBUGGER.h"
+#include "LATSTATS.h"
 
 #define GET_NEXT_CHAR 13
 
@@ -2435,6 +2436,7 @@ void cmd_net_read(){
   uint8_t max = GetByteFromZ80_IT();
 
   uint16_t n = net_bridge_read(copy_buffer, max);
+  if (n > 0) LAT_NET_READ();                // medidas de latencia (LATSTATS.h)
   SendByteToZ80((uint8_t)n);                // confirma 'max' + envia count
   for (uint16_t i=0; i<n; i++)
     SendByteToZ80(copy_buffer[i]);
@@ -2463,6 +2465,7 @@ void cmd_net_write(){
   }
 
   uint16_t accepted = (count > 0) ? net_bridge_write(copy_buffer, count) : 0;
+  if (accepted > 0) LAT_NET_WRITE();        // medidas de latencia (LATSTATS.h)
   SendByteToZ80((uint8_t)accepted);         // confirma ultimo byte + accepted
   SendByteToZ80(net_bridge_status());
   reset_commands();

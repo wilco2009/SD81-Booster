@@ -5,6 +5,7 @@
 #include "RTC.h"
 #include "DEBUGGER.h"
 #include "COMMS.h"                         // vkeys_set (el teclado virtual de la web)
+#include "LATSTATS.h"
 
 // Todas las peticiones las inicia el ESP32; el STM32 solo responde. Handles
 // propios (independientes de f_handle[]/f_opened[], que usa el interprete de
@@ -514,6 +515,7 @@ uint8_t  net_bridge_status()    { return net_status; }
 // del socket es el ESP32. El STM32 solo lo memoriza para poder contestarselo
 // al Z80 cuando pregunte con los comandos MCU.
 static void handle_net_poll(const uint8_t* payload, uint16_t len) {
+  LAT_POLL_SCOPE();                         // medidas de latencia (LATSTATS.h): nada si LAT_STATS = 0
   if (len < 3) return;                      // trama corta: ni respondemos, que reintente
   uint8_t  in_flags = payload[0];
   net_status         = payload[1];
@@ -550,6 +552,7 @@ static void handle_net_poll(const uint8_t* payload, uint16_t len) {
         net_rx_head = (uint16_t)((net_rx_head + 1) & NET_BUF_MASK);
       }
       net_seq_in = in_seq;
+      LAT_NET_IN();
     }
   }
 
@@ -570,6 +573,7 @@ static void handle_net_poll(const uint8_t* payload, uint16_t len) {
     out_len = net_tx_used();
     if (out_len > WIFI_PROTO_NET_CHUNK) out_len = WIFI_PROTO_NET_CHUNK;
     net_tx_inflight = out_len;
+    if (out_len > 0) LAT_NET_OFFER();
   }
 
   tx_payload[0] = (uint8_t)((net_seq_out ? WIFI_PROTO_NET_SEQ : 0) |

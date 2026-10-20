@@ -11,6 +11,8 @@ SdFile VGMFile;
 uint8_t retries = 0;
 uint32_t vgm_data_start = 0x100;  // fallback if the header field can't be read
 char vgm_path[MAX_FILENAME_LEN] = "";   // el VGM abierto (para los snapshots)
+static uint32_t vgm_due_ms = 0;         // plazo de la siguiente orden (ver vgm_wait_samples); 0 = al abrir, para resincronizar
+static uint32_t vgm_due_frac = 0;       // resto, en milesimas de muestra
 
 
 uint8_t openVGM(char* s){
@@ -21,6 +23,8 @@ uint8_t openVGM(char* s){
 
   retries = 0;
   ti_VGM = 0;
+  vgm_due_ms = 0;                         // la primera espera se sincroniza con el reloj
+  vgm_due_frac = 0;
   log_3("OPEN VGM %s", s);
   if (VGMFile.isOpen()) VGMFile.close();
 
@@ -63,14 +67,28 @@ void stopVGM(){
   VGMFile.seekSet(0);
 }
 
+// Plazo de la siguiente orden. Antes era millis()+espera: se contaba desde el momento en que se procesaba, no desde el plazo anterior,
+// y cada retraso del bucle (un comando del Z80, una trama del ESP32, la SD) se acumulaba: la musica iba mas lenta cuanto mas
+// ocupado estaba el STM32. Ahora el plazo avanza exactamente `samples` muestras (a 44100/s, con el resto fraccionario) desde el
+// anterior: un retraso se recupera en las siguientes ordenes. Si el retraso pasa de 100 ms (pausa, SD lenta, empezar de cero) no
+// se intenta recuperar a rafagas: se vuelve a sincronizar con el reloj.
+
+static void vgm_wait_samples(uint32_t samples){
+  uint32_t now = millis();
+  if ((int32_t)(now - vgm_due_ms) > 100) { vgm_due_ms = now; vgm_due_frac = 0; }
+  uint32_t t = samples * 1000 + vgm_due_frac;       // samples <= 65535: cabe en 32 bits
+  vgm_due_ms += t / 44100;
+  vgm_due_frac = t % 44100;
+  ti_VGM = vgm_due_ms;
+}
+
 void read_next_VGM_command(){
   int16_t result;
   uint16_t samples;
   uint8_t reg;
   uint8_t val;
 
-  
-  ti_VGM = millis();
+
   result = VGMFile.read();
 
   if (result >=0) retries = 0;
@@ -103,16 +121,16 @@ void read_next_VGM_command(){
     case 0x61:              // Wait n samples, n can range from 0 to 65535 (approx 1.49 seconds). Longer pauses than this are represented by multiple wait commands. (44100samp/s)
       samples = VGMFile.read()+256*VGMFile.read();
       ti = (uint32_t) samples*1000/44100;
-      ti_VGM = millis()+ti;
+      vgm_wait_samples(samples);
       log_2("WAIT %lu ms samples=%u", ti,samples);
      
       break;
     case 0x62:             // wait 735 samples (60th of a second), a shortcut for 0x61 0xdf 0x02
-      ti_VGM = millis()+17;  
+      vgm_wait_samples(735);
       log_2("WAIT 17 ms");
       break;
     case 0x63:             // wait 882 samples (50th of a second), a shortcut for 0x61 0x72 0x03
-      ti_VGM = millis()+20;
+      vgm_wait_samples(882);
       log_2("WAIT 20 ms");
       break;
     case 0xA0:             // AY8910, write value dd to register aa

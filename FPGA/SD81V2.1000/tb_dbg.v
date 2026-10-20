@@ -422,14 +422,13 @@ module tb_dbg;
 		dbg_exit(16'h6605);
 		m1(16'h6605, 8'h00);
 
-		// --- joystick: arriba y abajo a la vez ---
+		// --- joystick: arriba y abajo a la vez ya NO pausa (rev 0.18) ---
 		up_n = 0; #2000 down_n = 0;
 		repeat (4) @(posedge clk);
-		m1(16'h6700, 8'h00);
-		dbg_enter(16'h6700, 3'd2);
+		m1(16'h6700, 8'h00); expect_mem(8'h00, "joystick: arriba+abajo no pausa");
+		repeat (4) @(posedge clk);
+		m1(16'h6701, 8'h00); expect_mem(8'h00, "joystick: sigue sin pausar");
 		up_n = 1; down_n = 1;
-		dbg_exit(16'h6700);
-		m1(16'h6700, 8'h00); expect_mem(8'h00, "joystick: vuelta");
 
 		// --- anidado: breakpoint por software dentro de la rutina de interrupcion ---
 		en_pulse = 1; #400 en_pulse = 0;						// POKE 2040,1

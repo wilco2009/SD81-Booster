@@ -117,6 +117,10 @@
 //  system_clk, con tr_go sincronizado. El puntero (la entrada siguiente)
 //  se lee con los indices 7/8: el MCU lee el anillo al parar
 //
+// Revision 0.18 - Se quita la pausa por el joystick (arriba y abajo a la vez): un contacto o un rebote
+//                 que daba las dos direcciones a la vez paraba el programa en pleno juego. Se pausa
+//                 desde la consola USB o el boton QS. Las entradas joy_up_n y joy_down_n siguen en el
+//                 puerto (sin uso) para no tocar SD81.v
 // Revision 0.17 - Indices 13 y 14: el estado REAL de los registros de configuracion de la FPGA
 //                 (13: bit 0 MC45, 1 nMODE48K, 2 nQS_en, 3 FULL_PAGING, 4 128 caracteres, 5 256
 //                 caracteres, 6 ROMLOCK, 7 monitor cargado) y el byte bajo del registro de
@@ -194,7 +198,7 @@ module sim_int(
 	input wire nRFSH,
 	input wire dbg_loaded,				// orden 9 del MCU: monitor en la pagina 63
 	input wire dbg_pause_tgl,			// orden 8 del MCU: pausa (al conmutar)
-	input wire joy_up_n,				// joystick: arriba+abajo a la vez = pausa
+	input wire joy_up_n,				// (sin uso desde la 0.18: el joystick ya no pausa)
 	input wire joy_down_n,
 	output reg [7:0] data_out,
 	output reg enable_out,				// servir data_out en esta lectura
@@ -266,7 +270,7 @@ module sim_int(
 	reg lvl = 1'b0;				// la ultima ruptura fue dentro de una interrupcion
 	reg skip = 1'b0;			// la primera instruccion al continuar no rompe
 	reg pause_pend = 1'b0;		// pausa pendiente
-	reg [1:0] pause_src = 2'd0;	// 1 MCU, 2 joystick, 3 trampa
+	reg [1:0] pause_src = 2'd0;	// 1 MCU, 3 trampa (el 2, el joystick, ya no se usa)
 	reg watch_pend = 1'b0;		// punto de vigilancia disparado
 	reg step_on = 1'b0;			// contando instrucciones
 	reg [15:0] step_cnt = 16'd0;
@@ -294,7 +298,6 @@ module sim_int(
 	reg [5:0] dptr = 6'd0;		// la pagina que devuelve el indice 6
 	reg dirty_rd_prev = 1'b0;
 	reg [2:0] tgl_s = 3'b000;
-	reg [2:0] joy_s = 3'b000;
 	reg [7:0] bptr_lo = 8'd0;
 	reg bram_rd_prev = 1'b0;
 	reg bram_wr_go = 1'b0;		// este OUT es el dato del registro 7
@@ -510,7 +513,6 @@ module sim_int(
 			io_prev <= 1'b0;
 			armed_s <= 2'b00;
 			tgl_s <= 3'b000;
-			joy_s <= 3'b000;
 			bptr_lo <= 8'd0;
 			bram_ptr <= 16'd0;
 			bram_rd_prev <= 1'b0;
@@ -527,7 +529,6 @@ module sim_int(
 			armed_s <= {armed_s[0], dbg_loaded};
 			tren_s <= {tren_s[0], trace_en};
 			tgl_s <= {tgl_s[1:0], dbg_pause_tgl};
-			joy_s <= {joy_s[1:0], ~joy_up_n & ~joy_down_n};
 			dphase_n <= dphase;
 
 			// el puntero de la BRAM avanza al acabar cada IN del indice 2
@@ -560,14 +561,10 @@ module sim_int(
 			if (dbg_idle && dphase_n == dEPI)
 				skip <= 1'b1;
 
-			// pausa desde el MCU (al conmutar) o el joystick (al pulsar)
+			// pausa desde el MCU (al conmutar)
 			if (armed & dbg_idle & (tgl_s[2] ^ tgl_s[1])) begin
 				pause_pend <= 1'b1;
 				pause_src <= 2'd1;
-			end
-			if (armed & dbg_idle & joy_s[1] & ~joy_s[2]) begin
-				pause_pend <= 1'b1;
-				pause_src <= 2'd2;
 			end
 
 			// puntos de vigilancia (lectura, escritura, E/S)

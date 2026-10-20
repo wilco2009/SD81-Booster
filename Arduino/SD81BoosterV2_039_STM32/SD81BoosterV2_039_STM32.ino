@@ -30,6 +30,7 @@
 #include "z80-disassembler.h"
 #include "TEMP.h"
 #include "WIFI_HANDLER.h"
+#include "LATSTATS.h"
 #include "DEBUGGER.h"
 
 extern "C" uint32_t SystemCoreClock;
@@ -614,6 +615,7 @@ void process_serial_commands(void){
 void loop() { // Loop for test PLAY command
     // Actualiza el parser de música y el emulador AY en cada ciclo
   setjmp(jbuf);
+  LAT_LOOP_BEGIN();                       // medidas de latencia (LATSTATS.h): nada si LAT_STATS = 0
   if (reseted){
 //    configure_interrupts();
     reseted = false;
@@ -649,12 +651,16 @@ void loop() { // Loop for test PLAY command
   set_SDLed(LED_OFF);
   data_ready = false;
   read_data();
+  LAT_END(LAT_S_READ);
   // call to active command handler
   if (command_active<=LAST_COMMAND) {
     // DBG_POLL (depurador) se queda activo mientras el monitor espera una
     // orden y se le llama en cada vuelta: no se registra, o el log se
     // llenaria y taparia la consola
-    bool log_cmd = (command_active != CMD_DBG_POLL);
+    // Los comandos del tubo de red (66 leer, 67 escribir) tambien se saltan el log: un juego en tiempo real manda decenas por fotograma y cada
+    // uno sacaba dos lineas ("COMMAND=" y "AFTER COMMAND=") por el puerto USB: el tiempo de cada comando y, si nadie lee el USB, esperas
+    // que se acumulaban (el Pong de la red iba a tirones cada vez mas)
+    bool log_cmd = (command_active != CMD_DBG_POLL && command_active != 66 && command_active != 67);
     if (log_cmd) log_1("ℹ️ COMMAND=%d",command_active);
     (*commands[command_active])();
     if (log_cmd) log_1("ℹ️ AFTER COMMAND=%d",command_active);
@@ -664,10 +670,16 @@ void loop() { // Loop for test PLAY command
       command_active = CMD_IDLE;
     }
   }
+  LAT_END(LAT_S_CMD);
   process_serial_commands();
+  LAT_END(LAT_S_SER);
   wifi_handler_poll();
+  LAT_END(LAT_S_WIFI);
   play_parser_update();
-  idle_tasks(); 
+  LAT_END(LAT_S_PLAY);
+  idle_tasks();
+  LAT_END(LAT_S_IDLE);
+  LAT_LOOP_END();
 }
 
 // void loop_bak() {

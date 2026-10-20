@@ -15,7 +15,8 @@ Uso:
     python make_dict.py enable1.txt DICT.DIC                  # una lista real (solo A-Z; el resto se descarta)
     python make_dict.py --synthetic 500000 DICT.DIC           # N palabras al azar: para medir tiempos
     python make_dict.py --lang es fise-2.txt DICTES.DIC       # castellano (lista en UTF-8, sin tildes, con la n con tilde)
-    opciones: --minlen 2  --maxlen 15  --seed 1  --lang en|es
+    python make_dict.py --lang es --no-enclitics hunspell.txt DICTES.DIC   # lista que trae damelo, lavandose... (se quitan)
+    opciones: --minlen 2  --maxlen 15  --seed 1  --lang en|es  --no-enclitics
 
 Alfabeto: en ingles, A-Z. En castellano (--lang es) cada FICHA es un byte: A-Z, la N con tilde = '[', CH = backslash,
 LL = ']' y RR = '^' (los bytes que usa EXAMPLES/NETGAME/scrabble.inc). Como en el Scrabble en castellano, CH, LL y RR
@@ -61,18 +62,136 @@ def tiles_es(line):
     return "".join(out).encode("ascii") if out else None
 
 
-def load_words(path, minlen, maxlen, lang="en"):
+# --- Formas verbales con pronombres enclíticos (dámelo, lavándose...) -----------------------------
+# El Scrabble en castellano no las admite (FISE-2 no lleva ninguna), pero listas como las de Hunspell las
+# generan todas (un tercio de la lista). Se detectan sin diccionario de verbos: un tema que parece una forma
+# verbal (infinitivo, gerundio, imperativo) con el que el propio listado trae pronombres dobles (-melo, -selo...).
+# Sobre FISE-2 marca 33 palabras de 636.599 (falsos positivos); la lista se pasa ya sin tildes ni mayúsculas.
+_PRON = ["me", "te", "se", "nos", "os", "lo", "la", "los", "las", "le", "les"]
+_PRON2 = [a + b for a in ("me", "te", "se", "nos", "os", "le", "les") for b in ("lo", "la", "los", "las")]
+_PSUF = sorted(set(_PRON + _PRON2), key=len, reverse=True)
+_SHAPES = ("ar", "er", "ir", "ndo", "ad", "ed", "id", "a", "e", "an", "en", "amos", "emos", "imos")
+_DBL = ["melo", "mela", "melos", "melas", "telo", "tela", "selo", "sela", "selos", "selas", "noslo", "nosla", "oslo", "osla"]
+
+
+_ACC = str.maketrans("áéíóúü", "aeiouu")
+
+
+def strip_accents(w):
+    return w.translate(_ACC)
+
+
+def plural(w):
+    """Plural regular, para las entradas marcadas /S| de la lista."""
+    if w.endswith("z"):
+        return w[:-1] + "ces"
+    if w.endswith(("ón", "án", "én", "ín", "ún")):
+        return w[:-2] + strip_accents(w[-2]) + "nes"
+    return w + ("s" if w[-1] in "aeiouáéíóú" else "es")
+
+
+def _stems(w):
+    for p in _PSUF:
+        if len(w) < len(p) + 3 or not w.endswith(p):
+            continue
+        s = w[:-len(p)]
+        yield s, p
+        if p[:3] == "nos" or p[:2] == "se":      # vamonos = vamos + nos (se pierde la s)
+            yield s + "s", p
+        if p[:2] == "os":                        # sentaos = sentad + os (se pierde la d)
+            yield s + "d", p
+
+
+def is_enclitic(raw, words, rec=True):
+    """raw: la palabra como viene en la lista (puede llevar tilde); words: todas las palabras sin tildes."""
+    w = strip_accents(raw)
+    for p in _PSUF:
+        # gerundio + pronombre (lavandose, preveniendolas): con tilde no hay palabras normales asi
+        if w != raw and w.endswith(p) and w[:-len(p)].endswith(("ando", "iendo", "yendo")) and len(w) > len(p) + 5:
+            return True
+        # voseo (servila, erigilo, presentime): tema en -i que admite casi todos los pronombres
+        if w.endswith(p) and len(w) > len(p) + 3 and w[-len(p) - 1] == "i":
+            s = w[:-len(p)]
+            if s not in words and sum(1 for q in ("me", "te", "se", "nos", "os", "le", "les") if s + q in words) >= 2:
+                return True
+    if w != raw:
+        # con tilde (dámelo, lavándose, mudémonos): el tema, sin tilde, existe y parece una forma verbal
+        for p in _PSUF:
+            if not (w.endswith(p) and len(w) > len(p) + 2):
+                continue
+            s = w[:-len(p)]
+            for c in (s, s + "s", s + "d"):
+                if c not in words or not c.endswith(_SHAPES):
+                    continue
+                if c.endswith(("ar", "er", "ir")) and p == "se":     # lavarse: infinitivo reflexivo
+                    continue
+                if c.endswith("ndo") or (c.endswith("mos") and p in ("nos", "se")):
+                    return True
+                if sum(1 for q in _DBL if c + q in words) >= 1 or sum(1 for q in _PRON if c + q in words) >= 3:
+                    return True
+        return False
+    for p in ("se", "me", "te", "nos", "os"):
+        if w.endswith("ando" + p) and len(w) >= 9:
+            return True
+    for p in _PSUF:
+        if w.endswith(p) and w[:-len(p)].endswith(("iendo", "yendo")) and len(w) > len(p) + 5:
+            return True
+    for s, p in _stems(w):
+        if s not in words or not s.endswith(_SHAPES):
+            continue
+        if p == "se" and s.endswith(("ar", "er", "ir")):      # lavarse: infinitivo reflexivo, palabra del lexico
+            continue
+        if p == "se" and s.endswith("a"):                     # ensuciase: subjuntivo
+            continue
+        if s.endswith(("an", "en")) and p[:2] in ("te", "os"):  # cortante, culminante
+            continue
+        if s.endswith(("ad", "ed", "id")) and p in ("os", "se", "te"):
+            continue
+        if s.endswith("mos") and p in ("nos", "se") and len(s) >= 5:
+            return True
+        # plural de otra palabra (formales, tiranos): no es un enclitico
+        if w.endswith("s") and w[:-1] in words and not (rec and len(w) > 6 and is_enclitic(w[:-1], words, False)):
+            continue
+        if sum(1 for q in _DBL if (s + q) in words) >= 2:
+            return True
+        if s.endswith(("an", "en")) and sum(1 for q in _PRON if (s + q) in words) >= 5:
+            return True
+    return False
+
+
+def load_words(path, minlen, maxlen, lang="en", no_enclitics=False, keep=(), drop=()):
     words = set()
     dropped = 0
     conv = tiles_es if lang == "es" else tiles_en
     encoding = "utf-8" if lang == "es" else "latin-1"
     with open(path, encoding=encoding) as f:
-        for line in f:
-            w = conv(line)
-            if w is None or not (minlen <= len(w) <= maxlen):
-                dropped += 1
+        lines = [ln.strip() for ln in f]
+    if lang == "es":
+        # Listas de un corrector ortografico: palabras con tilde, nombres propios en mayuscula y entradas "palabra/S|"
+        # (plural regular sin formar). Solo valen las minusculas; las tildes se quitan (el Scrabble no las usa).
+        out = []
+        for ln in lines:
+            if ln.endswith("/S|"):
+                ln = ln[:-3]
+                out.append(plural(ln))
+            elif ln != ln.lower():
                 continue
-            words.add(w)
+            out.append(ln)
+        lines = out
+        if no_enclitics:
+            plain = {strip_accents(ln) for ln in lines}
+            kept = [ln for ln in lines if strip_accents(ln) in keep or not is_enclitic(ln, plain)]
+            print(f"enclíticos quitados: {len(lines) - len(kept)}", file=sys.stderr)
+            lines = kept
+        lines = [strip_accents(ln) for ln in lines]
+        if drop:
+            lines = [ln for ln in lines if ln not in drop]
+    for line in lines:
+        w = conv(line)
+        if w is None or not (minlen <= len(w) <= maxlen):
+            dropped += 1
+            continue
+        words.add(w)
     return sorted(words), dropped
 
 
@@ -85,6 +204,13 @@ def synthetic(n, minlen, maxlen, seed):
     return sorted(words)
 
 
+def read_set(path):
+    if not path:
+        return frozenset()
+    with open(path, encoding="utf-8") as f:
+        return frozenset(strip_accents(ln.strip().lower()) for ln in f if ln.strip() and not ln.startswith("#"))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("paths", nargs="+", help="lista de palabras y fichero de salida (con --synthetic, solo el de salida)")
@@ -93,6 +219,9 @@ def main():
     ap.add_argument("--maxlen", type=int, default=15)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--lang", choices=["en", "es"], default="en", help="alfabeto de la lista de palabras")
+    ap.add_argument("--keep", metavar="FICHERO", help="(es) palabras que --no-enclitics no debe quitar (una por linea)")
+    ap.add_argument("--drop", metavar="FICHERO", help="(es) palabras que se quitan siempre (abreviaturas...; una por linea)")
+    ap.add_argument("--no-enclitics", action="store_true", help="(es) quita las formas verbales con pronombres pegados (damelo, lavandose)")
     a = ap.parse_args()
     if a.maxlen > REC - 1:
         ap.error("maxlen no puede pasar de 15")
@@ -106,7 +235,7 @@ def main():
         if len(a.paths) != 2:
             ap.error("hacen falta la lista de palabras y el fichero de salida")
         dst = a.paths[1]
-        words, dropped = load_words(a.paths[0], a.minlen, a.maxlen, a.lang)
+        words, dropped = load_words(a.paths[0], a.minlen, a.maxlen, a.lang, a.no_enclitics, read_set(a.keep), read_set(a.drop))
     with open(dst, "wb") as f:
         f.write(MAGIC + struct.pack("<I", len(words)) + bytes(REC - 12))
         for w in words:

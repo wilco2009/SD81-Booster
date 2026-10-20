@@ -53,6 +53,25 @@ ninguna palabra; con enable1 se descartan unas 4.000 (las de menos de 2 o más d
 
 **3. Copiar** `DICTEN.DIC` y/o `DICTES.DIC` a la carpeta del juego en la SD.
 
+## Castellano con una lista de corrector ortográfico (Hunspell)
+
+El convertidor también acepta listas de un corrector ortográfico, con tildes, nombres propios en mayúscula, entradas `palabra/S|` (plural sin
+formar) y, sobre todo, **todas las formas verbales con pronombres pegados** (`dámelo`, `lavándose`...), que el Scrabble no admite (FISE-2 no
+lleva ninguna). Para una lista así:
+
+```
+python TOOLS/make_dict.py --lang es --no-enclitics --keep TOOLS/dict_es_keep.txt --drop TOOLS/dict_es_drop.txt lista.txt DICTES.DIC
+```
+
+- Se descartan las líneas con mayúsculas, se expanden los `/S|` y se quitan las tildes (la ñ se conserva).
+- `--no-enclitics` quita los enclíticos: detecta una forma con pronombre pegado cuyo tema existe en la lista y admite pronombres dobles
+  (`-melo`, `-selo`...), más los gerundios y el voseo. Los infinitivos reflexivos (`lavarse`, `arrepentirse`) **se conservan**. Es una
+  heurística: contrastada con FISE-2 quitaría 978 palabras válidas (`parte`, `regalos`, `tranquilo`...), que se recuperan con
+  `--keep` (`TOOLS/dict_es_keep.txt`); quedan sin detectar unos miles de enclíticos de raíz irregular.
+- `--drop` quita siempre las palabras de `TOOLS/dict_es_drop.txt`: abreviaturas (`km`, `etc`, `pag`), extranjerismos dudosos, interjecciones y
+  enclíticos cortos (`dale`, `irse`), validados a mano.
+- Con la lista usada en las pruebas salen unas 562.800 palabras (8,6 MB).
+
 ## Qué hace el convertidor
 
 - **Formato del `.DIC`:** registros de 16 bytes. El primero es la cabecera (`SDICT01`, el número de palabras) y los demás, una palabra cada

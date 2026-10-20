@@ -57,7 +57,9 @@ ninguna palabra; con enable1 se descartan unas 4.000 (las de menos de 2 o más d
 
 El convertidor también acepta listas de un corrector ortográfico, con tildes, nombres propios en mayúscula, entradas `palabra/S|` (plural sin
 formar) y, sobre todo, **todas las formas verbales con pronombres pegados** (`dámelo`, `lavándose`...), que el Scrabble no admite (FISE-2 no
-lleva ninguna). Para una lista así:
+lleva ninguna). La lista usada en las pruebas viene del diccionario ortográfico de castellano de Hunspell (`dictionaries/es` en
+<https://github.com/wooorm/dictionaries>), © Santiago Bosio, con licencia **GPL-3+ o LGPL-3+ o MPL-1.1+** (a elegir). La lista de las pruebas es una
+versión derivada (palabras ya conjugadas y plurales formados, con algunos defectos corregidos a mano). Para una lista así:
 
 ```
 python TOOLS/make_dict.py --lang es --no-enclitics --keep TOOLS/dict_es_keep.txt --drop TOOLS/dict_es_drop.txt lista.txt DICTES.DIC
@@ -91,6 +93,9 @@ python TOOLS/make_dict.py --lang es --no-enclitics --keep TOOLS/dict_es_keep.txt
 build them once with `TOOLS/make_dict.py` and copy `DICTEN.DIC` (English) and/or `DICTES.DIC` (Spanish) to the game's folder.
 
 - English: the public-domain **ENABLE** word list, <https://github.com/dolph/dictionary> (`enable1.txt`).
+- Spanish (free licence): the Hunspell Spanish spelling dictionary, <https://github.com/wooorm/dictionaries> (`dictionaries/es`,
+  © Santiago Bosio, GPL-3+ / LGPL-3+ / MPL-1.1+). Expand it to a plain word list and convert it with
+  `--lang es --no-enclitics --keep TOOLS/dict_es_keep.txt --drop TOOLS/dict_es_drop.txt` (see the Spanish section above).
 - Spanish: the official **FISE-2** (2009) / **FILE 2017** word lists, collected in
   <https://github.com/kamilmielnik/scrabble-dictionaries/tree/master/spanish>. That repository declares no license for them, so they
   are not redistributed here: download them from their source and check their terms.

@@ -3,13 +3,13 @@
 ## Por hacer
 1. HECHO (sin probar en placa): freezeScripts en cutscene y cursorCommand (bit 7 del estado de ranura; unfreeze en endCutscene).
 2. HECHO (sin probar en placa): nombres de actor en la frase (actorOps 3 guarda pagina+direccion de la cadena en ACTNAME).
-3. Orden del inventario por recogida.
+3. HECHO (sin probar en placa): inventario en el orden de las ranuras de ScummVM (INVSL en $D924, 48 ranuras; pickupObject usa la primera libre, setOwnerOf 0 la libera).
 4. HECHO y PROBADO en placa (2026-10-23, perfecta y sin perdida de velocidad): prioridad de personajes POR PIXEL. DATA.BIN lleva la mascara original de cada sala (lfl2gfx.mask_blob, tramos por tira; ROOMDIR+13 = pagina y direccion); actors.asm (mask_px.inc) decodifica en BACKBUF la ventana bajo el personaje y quita de la mascara de cada celda de sprite los pixeles que tapa la sala. Hay que regenerar DATA.BIN (pack_data.py).
-5. Mas poses y boca alternando (TALK_STOP).
+5. Boca alternando HECHA (8 fotogramas abierta, 8 en reposo; sin probar en placa). Mas poses de caminar: pendiente.
 6. Host ops: HECHOS setObjectName, getClosestObjActor, setBoxFlags, lights (solo la variable 12; sin efecto de oscuridad en pantalla), getObjPreposition, restart.
    Sin hacer y sin uso en MM: setObjPreposition, ifClassOfIs (no aparece en scripts globales), switchCostumeSet; roomOps (1 uso), saveLoadGame (5 usos, script 163), oscuridad/linterna de lights.
 7. NMI/RST dentro del overlay.
-8. Constantes de columnas/filas de verbos a game_layout.inc.
+8. HECHO: constantes de columnas/filas de verbos en game_layout.inc (VERB_COLMUL/ADD/SHIFT, VERB_ROWSUB; la pantalla debe verse igual).
 9. SONIDO (efectos y musica; hoy nada).
 
 ## Probado en placa (2026-10-23)
@@ -17,6 +17,9 @@
 - restart: el usuario lo probara mas adelante (hay que acabar el juego).
 
 ## Hecho pero SIN probar en placa
+- Inventario por orden de recogida (recoge varios objetos con distintos ninos y mira el orden; 'give' entre ninos mantiene la ranura).
+- Boca abriendose y cerrandose al hablar.
+- Constantes de verbos en game_layout.inc (los verbos deben estar donde siempre).
 - Arreglo GD_RAW (sin inicializar: getDist no devolvia nada -> "I can't reach it" al cambiar de sala). Comprobar que se puede salir por las puertas.
 - Teclas 1-3: reenviaban ASCII y elegian objeto; ahora mandan 1-3 (el script 4 cambia de niño con VAR_KEYPRESS 1-3 si VAR_CURSORSTATE = 1).
 - Congelar scripts en cutscenes: en una cutscene los demas scripts se paran (p.ej. no deben moverse otros personajes) y siguen al acabar.

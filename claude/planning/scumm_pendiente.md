@@ -4,7 +4,7 @@
 1. HECHO (sin probar en placa): freezeScripts en cutscene y cursorCommand (bit 7 del estado de ranura; unfreeze en endCutscene).
 2. HECHO (sin probar en placa): nombres de actor en la frase (actorOps 3 guarda pagina+direccion de la cadena en ACTNAME).
 3. Orden del inventario por recogida.
-4. Prioridad de personajes vs objetos: el hardware solo dibuja sprites sobre el fondo; haria falta ocultar celdas de sprite sobre las zonas con mascara (datos de mascara por sala + recorte por celda). Sin hacer, a decidir.
+4. HECHO (sin ver en arnes ni placa): prioridad de personajes. lfl2gfx guarda la mascara de la sala en el .GFX (version 3: una palabra por columna de celdas antes del puntero final); actors.asm oculta las celdas de sprite cuyo centro cae en una celda con mascara si la caja del personaje tiene mascara. Hay que copiar los .GFX regenerados a la SD.
 5. Mas poses y boca alternando (TALK_STOP).
 6. Host ops: HECHOS setObjectName, getClosestObjActor, setBoxFlags, lights (solo la variable 12; sin efecto de oscuridad en pantalla), getObjPreposition, restart.
    Sin hacer y sin uso en MM: setObjPreposition, ifClassOfIs (no aparece en scripts globales), switchCostumeSet; roomOps (1 uso), saveLoadGame (5 usos, script 163), oscuridad/linterna de lights.
@@ -17,6 +17,7 @@
 - restart: el usuario lo probara mas adelante (hay que acabar el juego).
 
 ## Hecho pero SIN probar en placa
+- Prioridad de personajes (sala 1: pilares y barandilla; umbral: mas de la mitad de los pixeles de la celda).
 - Arreglo GD_RAW (sin inicializar: getDist no devolvia nada -> "I can't reach it" al cambiar de sala). Comprobar que se puede salir por las puertas.
 - Teclas 1-3: reenviaban ASCII y elegian objeto; ahora mandan 1-3 (el script 4 cambia de niño con VAR_KEYPRESS 1-3 si VAR_CURSORSTATE = 1).
 - Congelar scripts en cutscenes: en una cutscene los demas scripts se paran (p.ej. no deben moverse otros personajes) y siguen al acabar.

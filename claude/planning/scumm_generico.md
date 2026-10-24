@@ -31,5 +31,6 @@ Secciones: version SCUMM (v2), limites (actores, objetos, inventario, ranuras), 
 - Herramientas: pack_data toma los trajes que existan (1-63) y la escala de personajes de [trajes] escala del perfil (games/maniac.cfg); DATA.BIN identico.
 
 ## Pendiente del plan
-- costume2 (anims de hablar 4-7), lfl2gfx y vmcommon (NUM_OBJECTS/NUM_ACTORS) aun con constantes de MM en las herramientas.
+- costume2 (anims de hablar 4-7 por actor, las fija el juego con actorOps/TALK_START), lfl2gfx y vmcommon (NUM_OBJECTS 780 / NUM_ACTORS 25 son capacidades del motor) aun con constantes de MM en las herramientas: se resolveran al probar Zak, no antes.
+- Revision de ui.asm hecha (2026-10-24): arreglados ui_label (DE), ui_inv_count (B) y la preposicion (DE); el resto de lecturas del perfil no pisa registros vivos.
 - Probar con Zak McKracken v2 (hacen falta sus ficheros).

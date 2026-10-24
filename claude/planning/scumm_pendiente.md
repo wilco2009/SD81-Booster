@@ -18,6 +18,7 @@ Regla del proyecto: el interprete es generico; lo propio de un juego va solo en 
 - 2026-10-24: boca alternando, constantes de verbos, y todo tras pasar el perfil de juego a DATA.BIN: sigue funcionando.
 
 ## Hecho pero SIN probar en placa
+- Cache de paginas por demanda (2026-10-24): DATA.BIN se queda abierto (handle del MCU) y map_page trae cada pagina virtual de 6 KB con F_SEEK+F_READ; 47 paginas fisicas (16-62 menos la 50 del overlay), desalojo por reloj. Probada en el arnes con MM y Zak (pantalla y variables identicas con una cache de 8 paginas). En placa: comprobar el tiempo de los cambios de sala y que no cuelgue (handle abierto, 4 como maximo en el MCU).
 - Sonido: copiar a la SD SCUMM\SND\*.VGM (preview\snd) y el DATA.BIN nuevo (--sounds). Efectos y musica deben sonar; prioridad: un sonido bajo no corta uno alto; los repetibles vuelven despues.
 - Inventario por orden de recogida (solo hay la llave; probar cuando haya mas objetos: 'give' entre ninos mantiene la ranura).
 - Boca con dos poses sin mover las piernas (trajes 1, 3, 4, 5, 8, 12-14, 16-22, 24).

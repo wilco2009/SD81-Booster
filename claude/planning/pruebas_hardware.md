@@ -1,12 +1,29 @@
-# Pruebas pendientes en el hardware (15 de octubre de 2026)
+# Pruebas pendientes en el hardware (actualizado el 20 de octubre de 2026)
 
-> ## Dónde nos quedamos (16 de octubre de 2026)
-> Sin acceso al hardware por ahora. Pruebas hechas el 15 de octubre: **1.1 sprites** (A, B y C),
-> **1.2** índices 9-11 (faltan HiRes, Spectrum, doble buffer y `POKE 2057,170`), captura web, **1.3** CP/M
-> (todo menos la traza), **1.4** teclado virtual. **Siguiente al volver a la placa: sección 2 (snapshots)**,
-> empezando por «El snapshot describe lo que se ve» y las páginas escritas; después los paneles de la web
-> (los probará el usuario en detalle), la autoactualización del ESP32 y las secciones 3 a 6.
-> Sin probar todavía: 2, 3, 4 (red con broker real), 5 (juegos en red entre dos placas) y 6.
+> ## Dónde nos quedamos (20 de octubre de 2026)
+> La **v1.7.0** (17 de octubre) salió probada: las secciones 1 a 3, 5 (NETCHAT, 4 en raya y ajedrez entre dos placas) y 6 están hechas
+> (marcadas `[x]` más abajo, con el detalle de cada prueba) y la actualización desde el repositorio funciona con STM32, FPGA y ESP32 a la vez.
+> Lo que queda, por componente (se tacha al probarlo; lo que ya salió bien se pasa a `[x]` en su sección):
+>
+> **Cambios posteriores a la v1.7.0 (commit `5e1e89e` y siguientes). Cargar los tres a la vez:** STM32 con `5e1e89e`, ESP32 con `NET_BRIDGE.cpp`
+> y el arreglo de `WIFI_CLIENT.cpp` (20 de octubre, sin compilar), y FPGA 0.18. Sin el ESP32 nuevo, el Pong y SPORTS van peor.
+> - [ ] **STM32, VGM** (`VGM.cpp`): la música ya no va lenta; comparar un VGM largo con un reloj.
+> - [ ] **STM32, comandos 66/67**: sin log por USB durante una partida en red, y el juego va igual.
+> - [ ] **STM32, `LATSTATS`**: solo con `LAT_STATS 1` (las medidas de `NETLAT`; esperan tus números, ver `latencia_red.md`).
+> - [ ] **FPGA 0.18, joystick**: arriba y abajo a la vez ya no pausa el depurador jugando; la pausa con QS y desde la consola sigue funcionando.
+> - [ ] **ESP32, `NET_BRIDGE.cpp`**: sondeo cada 3 ms mientras viajan datos (15 ms en reposo); el telnet y la web del depurador siguen suaves durante un juego en red.
+> - [ ] **ESP32, `WIFI_CLIENT.cpp`** (comprobación de `dlen` en `read_chunk` y `list_dir`; descarte de respuestas de otro comando): `LOAD *NTP` y la carga de
+>   `WIFI.CFG` siguen bien; el emulador lento en segundo plano ya no tira el módulo WiFi.
+>
+> **Heredado, sin cerrar:**
+> - [ ] **ESP32, web del depurador**: `Trace 100` (arreglo en `DEBUG_PAGE.h`; no consta que se recompilara el ESP32), paneles en detalle y los símbolos que salen en
+>   el sitio incorrecto con el EXPLORER (falta un ejemplo concreto).
+> - [ ] **MQTT, sección 4 entera** (nada probado con broker real): TLS y usuario/contraseña, QoS 1, retenidos y testamento, cola de 8 mensajes, `SHA256`/`HMAC`/`RAND`/`ATZ`,
+>   caída del WiFi y reconexión, 48 h seguidas, y los comandos 66/67 en SLOW y FAST.
+> - [ ] **Juegos en red, solo vistos en el emulador o el PC**: guardar y continuar partida (`CONNECT4.SAV`, `CHESS.SAV`), 4 en raya gráfico, relojes del ajedrez,
+>   Scrabble entre dos placas con los diccionarios de 9 a 13 MB (la búsqueda se midió: unos 40 ms por palabra), Pong y SPORTS (Tennis, Hockey, Squash, Practice).
+> - [ ] `v dir` (HiRes WRX a dirección manual): sin confirmar desde la v1.6.0; no bloquea nada.
+> - [ ] Opcionales: `01 MC45 BLOCKS 4-5` repetido sin el selector M1NOT del clon, y FPGA anterior a 0.08 con el monitor cargado.
 
 Todo lo que se ha hecho **después de la release v1.6.0** (tag `v1.6.0`, commit `eedc6f4`; 29 commits) y
 no se ha probado en la placa, más lo que ya estaba pendiente de antes. Se marca con `[ ]` lo que falta y

@@ -25,8 +25,11 @@ Secciones: version SCUMM (v2), limites (actores, objetos, inventario, ranuras), 
 - Ya salen del motor: filas de inventario/verbos/frase, columnas de verbos, etiquetas cortas, preposiciones, nombre de los ficheros de sala y teclas de digito (valor de VAR_KEYPRESS; el valor de VAR_CUTSCENEEXIT_KEY salta la cutscene). game_data.inc y game_layout.inc eliminados; REMAP1-3 son tablas de v2 en progdata.inc.
 - pack_data.py exige --game perfil.cfg.
 
+## Hecho (2026-10-24, paso 2)
+- Numeros de variable de v2: ENGINE/vars_v2.inc (VAR_TALK_ACTOR, VAR_KEYPRESS...) y ya no hay VARS+n sueltos en el motor; el binario sale identico. Decision: son de la VERSION de SCUMM (iguales en MM y Zak), no del juego; llevarlos al perfil en tiempo de ejecucion costaria codigo y velocidad en los caminos calientes. Otra version (v3+) cambia tambien los opcodes y tendra su propio nucleo.
+- Limites (NACTORS 25, NOBJ 780, NINV 48, NSLOT 24) son capacidades fijas del motor: un juego con menos objetos o actores funciona igual (tablas a cero). Solo hay que comprobar que el juego cabe (pack_data afirma que las tablas caben).
+- Herramientas: pack_data toma los trajes que existan (1-63) y la escala de personajes de [trajes] escala del perfil (games/maniac.cfg); DATA.BIN identico.
+
 ## Pendiente del plan
-- Limites (NACTORS, NOBJ, NINV, NSLOT) como valores del perfil con la capacidad maxima fija en el motor.
-- Numeros de variable y de script (v2 comunes a MM y Zak; el perfil debe poder cambiarlos para otras versiones).
-- Herramientas: pack_data (trajes 1-24), costume2/lfl2gfx (escala 3/4, anims de hablar) leyendo el perfil.
-- Probar con Zak McKracken v2.
+- costume2 (anims de hablar 4-7), lfl2gfx y vmcommon (NUM_OBJECTS/NUM_ACTORS) aun con constantes de MM en las herramientas.
+- Probar con Zak McKracken v2 (hacen falta sus ficheros).

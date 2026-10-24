@@ -1,5 +1,13 @@
 # Investigación: modo Superfast 80 columnas + modo bitmap 256x192x16 colores
 
+> **DOCUMENTO OBSOLETO (marcado 2026-10-21).** No usarlo como fuente del estado actual.
+> - Las **80 columnas (y las de 70) están implementadas y funcionan**: ver el manual
+>   (`LOAD *COL80`/`COL70`/`COL32`, Apéndice F). La sección 1 es la investigación previa.
+> - El **bitmap de 16 colores por píxel NO existe** y no se va a hacer: ocuparía ~48 KB de RAM
+>   y no dejaría espacio para nada más. Lo mismo vale para el color por píxel dentro del
+>   carácter (sección 3).
+> - La rama `feature/superfast-80col` está obsoleta.
+
 Rama: `feature/superfast-80col`. Solo planificación por ahora, nada
 implementado. Objetivo declarado de la rama: investigar mejoras al modo
 de vídeo Superfast, partiendo de que el interface sigue saliendo por
@@ -332,7 +340,8 @@ fila, como ya hacen sprites y el propio modo 0 hoy vía `line_cnt_b` en
 
 ## Estado
 
-Solo planificación, nada implementado todavía en ninguna de las tres
-ideas. Rama `feature/superfast-80col` creada (obsoleta, hay que
+(Obsoleto, ver el aviso al principio: las 80 columnas ya están hechas; las otras
+dos ideas se descartaron.) Texto original: solo planificación, nada implementado
+todavía en ninguna de las tres ideas. Rama `feature/superfast-80col` creada (obsoleta, hay que
 recrearla desde `master` porque ha habido commits desde entonces) y sin
 commits propios de esta investigación.

@@ -3,7 +3,7 @@
 Regla del proyecto: el interprete es generico; lo propio de un juego va solo en el perfil (SCUMM/games/*.cfg). Ver scumm_generico.md.
 
 ## Por hacer
-1. Generico, siguientes pasos (scumm_generico.md): limites (actores, objetos, inventario, ranuras) y numeros de variable/script en el perfil; herramientas (pack_data, costume2, lfl2gfx) leyendo el perfil.
+1. Generico (scumm_generico.md): hecho variables con nombre, limites como capacidades y pack_data con trajes/escala del perfil. Falta costume2 (anims de hablar), lfl2gfx y vmcommon sin constantes de MM, y la prueba con Zak McKracken v2 (hay que conseguir sus ficheros).
 2. Siguiente juego de prueba: Indiana Jones y la Ultima Cruzada EGA o Monkey Island EGA (versiones v3/v4 de SCUMM, no v2): estudiar diferencias (ficheros de recursos, imagen y mascara, trajes, opcodes, sonido) antes de empezar.
 3. SONIDO: HECHO el camino completo (sound2vgm.py -> VGM del AY por sonido; snd.asm: prioridad y cola de Player_V2; MCU reproduce PLAY_VGM/STOP_VGM/LOOP_VGM). Suena en placa. Pendiente: VAR_MUSIC_TIMER (los scripts que sincronizan con la musica), sonidos que no son PCjr (47, 48, 53), tamano de los VGM largos (el 70 ocupa 1,5 MB a 600 s: ahora 180 s) y revisar que el AY suene como el PCjr (ruido en canal libre).
 4. Mas poses de caminar (hoy 2 por direccion); trajes grandes (2, 6, 7, 9, 10, 15, 23) hablan con una sola pose de boca y el 11 sin boca (no caben en 6100 bytes).

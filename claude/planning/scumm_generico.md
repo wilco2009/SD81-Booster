@@ -21,7 +21,7 @@ Secciones: version SCUMM (v2), limites (actores, objetos, inventario, ranuras), 
 4. Probar con un segundo juego v2 (Zak McKracken) como criterio de aceptacion.
 
 ## Hecho (2026-10-24, paso 1 de la opcion A)
-- SCUMM/games/maniac.cfg + TOOLS/gameprofile.py -> bloque PROF de 256 bytes en DATA.BIN (version 2, tablas de 6400 bytes); loader.asm lo copia a PROF (progdata.inc).
+- SCUMM/V2/games/maniac.cfg + TOOLS/gameprofile.py -> bloque PROF de 256 bytes en DATA.BIN (version 2, tablas de 6400 bytes); loader.asm lo copia a PROF (progdata.inc).
 - Ya salen del motor: filas de inventario/verbos/frase, columnas de verbos, etiquetas cortas, preposiciones, nombre de los ficheros de sala y teclas de digito (valor de VAR_KEYPRESS; el valor de VAR_CUTSCENEEXIT_KEY salta la cutscene). game_data.inc y game_layout.inc eliminados; REMAP1-3 son tablas de v2 en progdata.inc.
 - pack_data.py exige --game perfil.cfg.
 

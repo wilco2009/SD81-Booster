@@ -1,6 +1,6 @@
 # SCUMM en HiRes 8x1 de 16 colores (decidido 2026-10-26)
 
-Motivo: con tiles de 8x8 (208 por ventana) Zak pierde mucha calidad. Medido con `SCUMM/TOOLS/medir8x1.py` sobre las 58 salas: el HiRes 8x1 (2 colores por
+Motivo: con tiles de 8x8 (208 por ventana) Zak pierde mucha calidad. Medido con `SCUMM/V2/TOOLS/medir8x1.py` sobre las 58 salas: el HiRes 8x1 (2 colores por
 franja de 8x1, sin tiles) mejora mucho las salas que hoy se pasan del límite (12: 14,9 -> 4,6 %; 13: 21 -> 8; 39: 21 -> 7; 42: 12 -> 4) y casi nada
 las demás. El suelo de 3-5 % es la regla de 2 colores por 8x1, que es la misma. Ventaja extra: los objetos ya no compiten por tiles con el fondo
 (adiós a pool/protect/keep/objprio).

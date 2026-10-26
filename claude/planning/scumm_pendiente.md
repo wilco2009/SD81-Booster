@@ -1,6 +1,6 @@
 # SCUMM: pendiente de hacer y de probar en placa (lista viva, 2026-10-25)
 
-Regla del proyecto: el interprete es generico; lo propio de un juego va solo en el perfil (SCUMM/games/*.cfg). Ver scumm_generico.md.
+Regla del proyecto: el interprete es generico; lo propio de un juego va solo en el perfil (SCUMM/V2/games/*.cfg). Ver scumm_generico.md.
 
 ## Por hacer
 1. Generico (scumm_generico.md): hecho variables con nombre, limites como capacidades y pack_data con trajes/escala del perfil. Falta costume2 (anims de hablar), lfl2gfx y vmcommon sin constantes de MM, y la prueba con Zak McKracken v2 (hay que conseguir sus ficheros).

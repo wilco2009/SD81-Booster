@@ -43,3 +43,15 @@ Resultado esperado de este paso: una cifra de error por imagen y un veredicto so
 
 - Un juego sencillo y bien documentado como primera diana: King's Quest I, Space Quest I o Leisure Suit Larry I (ediciones AGI v2).
 - Comprobar las cabeceras (`12 34`) para confirmar que son v2 y no v3.
+
+## Resultado de la medida del choque de color (2026-10-26, `AGI/V2/TOOLS/medir8x1.py`)
+
+Pixeles cuyo color cambia al dejar 2 colores por celda de 8 (los 2 mas frecuentes; el resto, al mas cercano), sobre las imagenes de KQ1, KQ2, Larry1, PQ1, SQ1 y SQ2 (451 imagenes):
+
+| Geometria | media | mediana | peor |
+|---|---|---|---|
+| A: 160 px de ancho (1 px HiRes por px AGI) | 2,7-3,3 % | 2,6-3,3 % | 6,3-9,3 % |
+| C: estirado a 256 (x1,6), 32 celdas por linea | 1,5-2,0 % | 1,4-1,9 % | 3,6-5,5 % |
+
+Mirando las peores (SQ2 imagen 15, Larry1 imagen 40) el aspecto es practicamente el original. **Se elige la geometria C** (256 de ancho): menos choque, ocupa todo el ancho
+y conserva mejor la proporcion (256/168 = 1,52 frente a ~1,59 del original; con A saldria 0,95). Queda por ver el efecto de los sprites, que se dibujan encima y pueden meter un tercer color en la celda.

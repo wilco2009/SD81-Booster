@@ -1,5 +1,8 @@
 # Datos originales de Sierra y lo derivado de ellos: no se redistribuyen
 /V2/*/
 !/V2/TOOLS/
+!/V2/ENGINE/
 /V2/dump/
 __pycache__/
+*.bin
+*.sym

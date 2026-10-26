@@ -219,7 +219,7 @@ Sin sintetizar del todo ni probado en la placa (SCROLLT para Spectrum y SCROLLH 
   (`reg_top`..`reg_bot`, registros 10 y 11; la máscara de filas de `POKE 2091-2093` no cuenta en vertical), con sus atributos y con las columnas de los búferes de los lados. La fila que sale se guarda en el búfer contrario (T al subir,
   B al bajar) y entra la que el Z80 había dejado en el de entrada (B al subir, T al bajar). Protocolo sin saltos: orden 3 con el fino Y en 7 (la 4 con el fino en 0), y en el cuadro siguiente, ya libre, fino a 0 (o 7) y rellenar el
   búfer de entrada (y la esquina `$1A00`/`$1E40`, y la fila 24 de la rejilla en HiRes modo 1). Tarda 0,8-1,6 ms. Las columnas R y L de la fila que entra quedan como estaban: las escribe el Z80 si las va a ver.
-  Las direcciones de los búferes de arriba y de abajo están en `scroll_hardware_emulador.md`, apartado 7 (para el manual: una tabla de los bufers por modo).
+  Las direcciones de los búferes de arriba y de abajo están en `scroll_hardware_emulador.md`, apartado 7 (para el manual: una tabla de los bufers por modo). Ejemplo: `EXAMPLES/SCROLLM` (Q y A; diagonales con P y O).
 - **Avisos:** con doble buffer, los atributos de HiRes no pasan por el doble buffer (solo el bitmap). Cuidado con el bloque de 8 KB: los búferes ocupan lo que antes sobraba.
 
 ## Cómo se toca

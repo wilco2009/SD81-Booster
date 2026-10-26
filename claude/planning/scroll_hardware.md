@@ -275,7 +275,8 @@ recibe además `reg_top` y `reg_bot` (registros 10 y 11, los mismos que ya usa e
 - **Coste:** región completa, Spectrum 0,88 ms, HiRes sin color 0,78 ms, modo 1 0,88 ms, modo 0 1,57 ms (el mismo orden que el horizontal). Sin BRAM nueva.
 - **Pruebas:** `tb_scroll_motor.v` 197 casos (los 69 horizontales de regresión y 128 verticales: 4 tipos x 2 sentidos x 8 regiones x con y sin paradas, la máscara de filas puesta para ver que no cuenta);
   con 4 mutaciones del motor falla en todas. `tb_dbg.v`: órdenes 3 y 4 por el puerto con la región puesta por los registros 10 y 11.
-- **Sin hacer:** el programa de prueba de la placa (y su arnés en el PC), el emulador, y el manual. Y la comprobación del arbitraje de la BRAM en la placa, que es lo mismo que en la fase 2.
+- **Programa de prueba:** `EXAMPLES/SCROLLM` ampliado (Q arriba, A abajo, diagonales con P y O, V = automático vertical; con HUD usa la región 1-22). Lo que tiene que hacer el Z80: tras subir, rellenar B, la esquina y el L de la fila que entra; tras bajar, T y el R y L de la fila que entra (y en HiRes modo 1 la fila entera de la rejilla); tras un paso horizontal, B y T otra vez (el motor horizontal no los mueve). Su arnés `claude/mqtttest/build_scrollm.sh`: 4.512 cuadros comprobados, 523 movimientos, y con 6 mutaciones (programa y modelo) falla en todas.
+- **Sin hacer:** el emulador, el manual y probarlo en la placa (el arbitraje de la BRAM, que es lo mismo que en la fase 2).
 
 ## Pruebas del scroll (2026-10-26)
 
@@ -286,7 +287,7 @@ recibe además `reg_top` y `reg_bot` (registros 10 y 11, los mismos que ya usa e
 | ModelSim | `tb_scroll_motor.v` | el motor aislado: 69 casos contra un modelo, memoria completa de 64 KB |
 | ModelSim | `tb_dbg.v` | el puerto `$3FEF` (registros 8-11, orden en el 9, estado en el IN 16) con `sim_int`, `scroll_sync` y el motor encadenados |
 | Z80 en el PC | `build_scrollt.sh`, `build_scrollh.sh` | los programas de fase 1 y 1b (35 comprobaciones el primero) |
-| Z80 en el PC | `build_scrollm.sh` | SCROLLM entero con un modelo del motor: HiRes 0 y 1, Spectrum, HUD, doble buffer, ruido y sprites (2.133 cuadros) |
+| Z80 en el PC | `build_scrollm.sh` | SCROLLM entero con un modelo del motor (horizontal, vertical y diagonales): HiRes 0 y 1, Spectrum, HUD, doble buffer, ruido y sprites (4.512 cuadros) |
 | Placa | `EXAMPLES/SCROLLT`, `SCROLLH`, `SCROLLM` | **sin ejecutar todavía** |
 
 Lo que solo se ve en la placa: el arbitraje de los puertos de la BRAM entre el motor, la CPU, el blit y los sprites en `SD81.v` (no se puede simular entero con ModelSim), la

@@ -189,6 +189,8 @@ leen los 34 nodos de las 8 líneas y luego se escriben (el modelo de `tb_scroll_
 esquina, y la fila 24 en modo 1); abajo: mandar la orden 4 cuando el fino Y llega a 0, y en el siguiente ponerlo a 7 y rellenar `T`. Después de un movimiento vertical, las **columnas `R` y `L` de la fila que entra**
 están como estaban (en `B`-`R` entra la esquina; en `T` no hay ni `R` ni `L`): el Z80 tiene que escribirlas si el scroll horizontal las va a mostrar.
 
+Programa de prueba: `EXAMPLES/SCROLLM` (Q / A, diagonales con P y O; con el HUD, región 1-22); su arnés `build_scrollm.sh` lo comprueba cuadro a cuadro y es la referencia del protocolo del Z80 (qué se rellena tras cada movimiento).
+
 Pruebas en el PC: `tb_scroll_motor.v` (128 casos verticales contra un modelo: 4 tipos, 2 sentidos, 8 regiones, con y sin paradas; con 4 errores puestos a propósito falla) y `tb_dbg.v` (orden 3 y 4 por el puerto,
 región por los registros 10 y 11).
 

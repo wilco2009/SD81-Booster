@@ -55,3 +55,8 @@ Pixeles cuyo color cambia al dejar 2 colores por celda de 8 (los 2 mas frecuente
 
 Mirando las peores (SQ2 imagen 15, Larry1 imagen 40) el aspecto es practicamente el original. **Se elige la geometria C** (256 de ancho): menos choque, ocupa todo el ancho
 y conserva mejor la proporcion (256/168 = 1,52 frente a ~1,59 del original; con A saldria 0,95). Queda por ver el efecto de los sprites, que se dibujan encima y pueden meter un tercer color en la celda.
+
+## Conversor de imagenes (2026-10-26, `AGI/V2/TOOLS/agi2hr.py`)
+
+Hecho: `PICnnn.GFX` (formato `AGIP`) con el visual 256x168 en 8x1 y la prioridad a 160x168 en RLE; verificado releyendo el fichero. Los 6 juegos (451 imagenes) convierten con 1,5-2,1 % de pixeles cambiados.
+Los ficheros pesan unos 13,5 KB (bitmap 5376 + atributos 5376 + prioridad ~2,6 KB): 0,9-1,5 MB por juego. Falta decidir si se comprime (RLE de los planos) o si el Z80 dibuja el vector al cargar la sala; depende del tiempo de lectura de la SD, que hay que medir en la placa.

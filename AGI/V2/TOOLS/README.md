@@ -16,3 +16,5 @@ Pendiente: el pincel (`F9`/`FA`) es aproximado, no reproduce el salpicado exacto
 `dump/` y las carpetas de juego estan ignorados por git (datos de Sierra).
 
 `medir8x1.py JUEGO [SALIDA]` mide el choque de color al pasar las imagenes al HiRes 8x1 (2 colores por 8 pixeles) con dos geometrias (160 de ancho o estirado a 256) y deja el PNG de la peor y la mediana. Resultados en `claude/planning/agi_plan.md`.
+
+`agi2hr.py JUEGO SALIDA [--png] [n ...]` convierte las imagenes a `PICnnn.GFX` (formato `AGIP`, descrito en la cabecera del script): visual de 256x168 en HiRes 8x1 (bitmap + atributos, listos para `$A000` y `$C000`) y prioridad a 160x168 con RLE. Cada fichero se relee y se comprueba contra la conversion. Tamano medio: unos 13,5 KB por imagen (algo mas de 1 MB por juego); pixeles cambiados 1,5-2,1 %.

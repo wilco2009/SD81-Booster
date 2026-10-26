@@ -60,3 +60,8 @@ y conserva mejor la proporcion (256/168 = 1,52 frente a ~1,59 del original; con 
 
 Hecho: `PICnnn.GFX` (formato `AGIP`) con el visual 256x168 en 8x1 y la prioridad a 160x168 en RLE; verificado releyendo el fichero. Los 6 juegos (451 imagenes) convierten con 1,5-2,1 % de pixeles cambiados.
 Los ficheros pesan unos 13,5 KB (bitmap 5376 + atributos 5376 + prioridad ~2,6 KB): 0,9-1,5 MB por juego. Falta decidir si se comprime (RLE de los planos) o si el Z80 dibuja el vector al cargar la sala; depende del tiempo de lectura de la SD, que hay que medir en la placa.
+
+## Primer juego: Space Quest I (decidido 2026-10-26)
+
+Las logicas se desensamblan con `AGI/V2/TOOLS/agi_logic.py` y las 506 de los 6 juegos salen bien sincronizadas (101 en SQ1). SQ1 usa 159 de los 190 opcodes definidos (comandos + condiciones + `if`/`goto`) y ninguno que no usen tambien los otros juegos; los 31 que no usa, entre ellos `put`, `put.v`, `obj.in.room`, `compare.strings`, `word.to.string`, `overlay.pic`, `mul`/`div` y casi todo el menu de texto avanzado, pueden quedar para despues. Los mas frecuentes: `if` (4103), `equaln`, `isset`, `assignn`, `print`, `goto`, `said` (1230 en 66 logicas: el parser es central), `position`, `set.view`, `draw`.
+Siguiente: el modelo de referencia del interprete en Python (variables 0-255, banderas 0-255, objetos animados, cola de eventos, parser) para ejecutar SQ1 en PC y comparar luego con el Z80.

@@ -22,3 +22,7 @@ Pendiente: el pincel (`F9`/`FA`) es aproximado, no reproduce el salpicado exacto
 ## Visor en el Z80 (`../ENGINE/`)
 
 `agiview.asm` carga `PICnnn.GFX` de la carpeta actual y lo pone en pantalla (HiRes 8x1, bitmap en `$A000`, atributos en `$C000`); N = siguiente, B = anterior, ESPACIO = salir. Comparte el MCU (`mcu.asm`, copia de la de SCUMM) y se prueba en el arnes de PC de SCUMM con `sh test.sh KQ1` (comprueba que la pantalla final coincide con el fichero, incluido el salto de los huecos). `compila.bat KQ1` ensambla y copia el visor y las imagenes a la SD del emulador (`AGI\V2\`); se carga con `AGIVIEW.B81` desde la carpeta del juego.
+
+## Logicas (bytecode)
+
+`agi_logic.py JUEGO [n ...]` desensambla las logicas (comandos, bloques `if (...) {}` y `goto`, con los mensajes en su sitio); `--check` comprueba que cada una se decodifica entera y que los saltos caen en limites de instruccion; `--stats` cuenta los opcodes usados. Resultado: las 506 logicas de los 6 juegos (KQ1 90, KQ2 133, Larry1 46, PQ1 118, SQ1 101, SQ2 118) se decodifican sin errores, lo que valida la tabla de 170 comandos y 18 condiciones (sobre todo el numero de argumentos de cada uno).

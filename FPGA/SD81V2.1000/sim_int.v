@@ -117,6 +117,17 @@
 //  system_clk, con tr_go sincronizado. El puntero (la entrada siguiente)
 //  se lee con los indices 7/8: el MCU lee el anillo al parar
 //
+// Revision 0.20 - Motor de movimiento horizontal del scroll (scroll_motor.v). Registro 9 = orden (1 izquierda,
+//                 2 derecha; 3 y 4 reservados para el vertical): la FPGA la ejecuta en el borrado, desde la linea
+//                 254, antes del blit del doble buffer. IN 16 = estado: bit 7 ocupado (orden pendiente o en
+//                 marcha), bit 6 pendiente (aun no ha empezado), bit 5 en marcha. Una orden dada con el motor
+//                 ocupado se IGNORA. La orden y el estado cruzan entre el reloj del Z80 y system_clk con
+//                 tres "toggles" (orden, empezar, acabar), asi que el ocupado sube en cuanto se escribe la orden
+// Revision 0.19 - Registros del scroll por hardware (spec_scroll_addr.v, claude/planning/scroll_hardware.md):
+//                 el selector del IN pasa a 5 bits (OUT $20+n -> indice 16+n) y aparecen los registros 8-23
+//                 (OUT $40+r, y el OUT siguiente es el dato del registro 8+r): 8 = fino Y (0-7), 10/11 = primera
+//                 y ultima fila de la region que se mueve (0-23, por defecto 0 y 23). IN 17/18/19 los leen y el
+//                 16 sera el estado del motor (de momento 0). Lo de antes ($00-$0F, $10, $80+r) no cambia
 // Revision 0.18 - Se quita la pausa por el joystick (arriba y abajo a la vez): un contacto o un rebote
 //                 que daba las dos direcciones a la vez paraba el programa en pleno juego. Se pausa
 //                 desde la consola USB o el boton QS. Las entradas joy_up_n y joy_down_n siguen en el
@@ -226,7 +237,14 @@ module sim_int(
 	input wire [7:0] cfg_flags,			// registros de configuracion de la FPGA (indice 13)
 	input wire [7:0] cfg_raw,			// byte bajo del registro de desplazamiento de configuracion (indice 14)
 	output reg tr_go = 1'b0,			// esta M1 se apunta (desde la subida de T2 hasta su final)
-	output wire [15:0] tr_pc			// su direccion
+	output wire [15:0] tr_pc,			// su direccion
+	output reg [2:0] scr_fine_y = 3'd0,		// scroll fino vertical (Spectrum), registro 8 (ver spec_scroll_addr.v)
+	output reg [4:0] scr_reg_top = 5'd0,	// region vertical que se mueve: primera fila (registro 10)
+	output reg [4:0] scr_reg_bot = 5'd23,	// ... y ultima (registro 11)
+	output reg [2:0] scr_cmd = 3'd0,		// orden del motor de scroll (registro 9); estable cuando scr_cmd_tog cambia
+	output reg scr_cmd_tog = 1'b0,			// cambia con cada orden aceptada
+	input wire scr_tstart,					// de system_clk: el motor ha aceptado la orden (copia de scr_cmd_tog)
+	input wire scr_tdone					// de system_clk: el motor ha acabado (copia de scr_cmd_tog)
     );
 
 	// ---------------------------------------------------------------
@@ -277,15 +295,19 @@ module sim_int(
 	reg [7:0] step_lo = 8'd0;
 	reg [15:0] cmp_addr = 16'd0;
 	reg [2:0] cmp_mode = 3'd0;
-	reg [3:0] ridx = 4'd0;		// lo que devuelve IN
+	reg [4:0] ridx = 5'd0;		// lo que devuelve IN (0-15: $00-$0F; 16-31: $20-$2F)
 	reg wexp = 1'b0;			// el OUT siguiente es el dato de wreg
 	reg [2:0] wreg = 3'd0;
+	reg wexp2 = 1'b0;			// el OUT siguiente es el dato del registro 8+wreg2 ($40+r)
+	reg [3:0] wreg2 = 4'd0;
 	reg nmi_brk = 1'b0;			// el programa estaba en SLOW al parar (bit 6 del estado)
 	reg [15:0] nmi_age = 16'hFFFF;	// ciclos desde la ultima M1 en $0066 (la NMI de una linea)
 	reg dspin = 1'b0;			// esta M1 (un FF fuera de la ventana) recibe JR $
 	reg dspin_op = 1'b0;		// y la lectura siguiente, su operando FE
 	reg spin_pend = 1'b0;		// un FF esperando a la NMI (rompe en ella, motivo 7)
 	reg io_prev = 1'b0;
+	reg [1:0] mst_s = 2'b00;	// scr_tstart / scr_tdone vienen de system_clk
+	reg [1:0] mdn_s = 2'b00;
 	reg [1:0] armed_s = 2'b00;	// dbg_loaded viene del dominio de CFG_CLK
 	// paginas escritas: RAM distribuida de 64x1 con dos puertos (2 LUTs);
 	// se borra recorriendola con un contador (64 ciclos)
@@ -380,8 +402,8 @@ module sim_int(
 	assign dbg_win = (dphase == dMON) | ((dphase == dCALLED) & ~nM1);
 	// IN del indice 2 de $3FEF: mientras dura, el puerto A de la BRAM lee en
 	// bram_ptr (lo hace SD81.v; el blit del doble buffer espera)
-	assign bram_rd = ~nIORQ & ~nRD & nM1 & (addr == 16'h3FEF) & (ridx == 4'd2);
-	wire dirty_rd = ~nIORQ & ~nRD & nM1 & (addr == 16'h3FEF) & (ridx == 4'd6);
+	assign bram_rd = ~nIORQ & ~nRD & nM1 & (addr == 16'h3FEF) & (ridx == 5'd2);
+	wire dirty_rd = ~nIORQ & ~nRD & nM1 & (addr == 16'h3FEF) & (ridx == 5'd6);
 	wire dirty_bit = dmem[dptr];
 	always @(negedge iclock)
 		if (dclr_run | sram_wr)
@@ -458,24 +480,34 @@ module sim_int(
 		end
 	end
 
+	// Estado del motor de scroll: la orden sube el ocupado en cuanto se escribe (scr_cmd_tog es de este
+	// dominio), lo bajan el "empezar" y el "acabar" de system_clk al llegar
+	wire scr_pend = scr_cmd_tog ^ mst_s[1];
+	wire scr_run  = mst_s[1] ^ mdn_s[1];
+	wire scr_busy = scr_cmd_tog ^ mdn_s[1];
+
 	always @(*) begin
 		case (ridx)
-			4'd0:  port_out = {armed, nmi_brk, lvl, 2'b00, reason};
-			4'd1:  port_out = sim_status;
-			4'd2:  port_out = bram_data;
-			4'd3:  port_out = chroma_reg;
-			4'd4:  port_out = ay_sel_a;
-			4'd5:  port_out = ay_sel_b;
-			4'd6:  port_out = {7'd0, dirty_bit};
-			4'd7:  port_out = tr_ptr[7:0];
-			4'd8:  port_out = {6'd0, tr_ptr[9:8]};
-			4'd9:  port_out = vid_status;
-			4'd10: port_out = {5'd0, vid_front};
-			4'd11: port_out = 8'hC4;				// esta FPGA tiene los indices 9 y 10
-			4'd12: port_out = {7'b1010100, blk0_w};	// $A8 | bloque 0 en RAM (el patron dice que existe)
-			4'd13: port_out = cfg_flags;
-			4'd14: port_out = cfg_raw;
-			4'd15: port_out = 8'h52;
+			5'd0:  port_out = {armed, nmi_brk, lvl, 2'b00, reason};
+			5'd1:  port_out = sim_status;
+			5'd2:  port_out = bram_data;
+			5'd3:  port_out = chroma_reg;
+			5'd4:  port_out = ay_sel_a;
+			5'd5:  port_out = ay_sel_b;
+			5'd6:  port_out = {7'd0, dirty_bit};
+			5'd7:  port_out = tr_ptr[7:0];
+			5'd8:  port_out = {6'd0, tr_ptr[9:8]};
+			5'd9:  port_out = vid_status;
+			5'd10: port_out = {5'd0, vid_front};
+			5'd11: port_out = 8'hC4;				// esta FPGA tiene los indices 9 y 10
+			5'd12: port_out = {7'b1010100, blk0_w};	// $A8 | bloque 0 en RAM (el patron dice que existe)
+			5'd13: port_out = cfg_flags;
+			5'd14: port_out = cfg_raw;
+			5'd15: port_out = 8'h52;
+			5'd16: port_out = {scr_busy, scr_pend, scr_run, 5'd0};	// estado del motor de scroll
+			5'd17: port_out = {5'd0, scr_fine_y};
+			5'd18: port_out = {3'd0, scr_reg_top};
+			5'd19: port_out = {3'd0, scr_reg_bot};
 			default: port_out = 8'h00;
 		endcase
 	end
@@ -502,9 +534,18 @@ module sim_int(
 			step_lo <= 8'd0;
 			cmp_addr <= 16'd0;
 			cmp_mode <= 3'd0;
-			ridx <= 4'd0;
+			ridx <= 5'd0;
 			wexp <= 1'b0;
 			wreg <= 3'd0;
+			wexp2 <= 1'b0;
+			wreg2 <= 4'd0;
+			scr_fine_y <= 3'd0;
+			scr_reg_top <= 5'd0;
+			scr_reg_bot <= 5'd23;
+			scr_cmd <= 3'd0;
+			scr_cmd_tog <= 1'b0;
+			mst_s <= 2'b00;
+			mdn_s <= 2'b00;
 			nmi_brk <= 1'b0;
 			nmi_age <= 16'hFFFF;
 			dspin <= 1'b0;
@@ -527,6 +568,8 @@ module sim_int(
 			tr_go <= 1'b0;
 		end else begin
 			armed_s <= {armed_s[0], dbg_loaded};
+			mst_s <= {mst_s[0], scr_tstart};
+			mdn_s <= {mdn_s[0], scr_tdone};
 			tren_s <= {tren_s[0], trace_en};
 			tgl_s <= {tgl_s[1:0], dbg_pause_tgl};
 			dphase_n <= dphase;
@@ -575,7 +618,19 @@ module sim_int(
 			io_prev <= io_wr;
 			if (io_wr & ~io_prev) begin
 				if (addr == 16'h3FEF) begin
-					if (wexp) begin
+					if (wexp2) begin
+						wexp2 <= 1'b0;
+						case (wreg2)
+							4'd0: scr_fine_y <= data[2:0];		// registro 8
+							4'd1: if (~scr_busy && data[2:0] != 3'd0) begin		// registro 9: orden del motor (se ignora si esta ocupado)
+								scr_cmd <= data[2:0];
+								scr_cmd_tog <= ~scr_cmd_tog;
+							end
+							4'd2: scr_reg_top <= data[4:0];		// registro 10
+							4'd3: scr_reg_bot <= data[4:0];		// registro 11
+							default: ;
+						endcase
+					end else if (wexp) begin
 						wexp <= 1'b0;
 						case (wreg)
 							3'd0: cmp_addr[7:0] <= data;
@@ -599,8 +654,13 @@ module sim_int(
 							pause_src <= 2'd3;
 						end
 					end else if (data[7:4] == 4'd0) begin
-						ridx <= data[3:0];
+						ridx <= {1'b0, data[3:0]};
 						if (data[3:0] == 4'd6) dptr <= 6'd0;	// las paginas, desde la 0
+					end else if (data[7:4] == 4'd2) begin		// $20+n: IN devuelve el indice 16+n
+						ridx <= {1'b1, data[3:0]};
+					end else if (data[7:5] == 3'b010) begin		// $40+r: el OUT siguiente es el registro 8+r
+						wexp2 <= 1'b1;
+						wreg2 <= data[3:0];
 					end
 				end
 			end

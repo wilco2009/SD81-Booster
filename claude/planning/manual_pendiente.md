@@ -195,6 +195,28 @@ joystick (queda la consola USB, `DBG_`/menu del emulador y el botón QS de 1 a 3
 «Pulsar Arriba y Abajo a la vez en el joystick también pausa el programa» y «…con Arriba + Abajo del joystick» en la lista de formas de pausar). Se quita esa frase y esa opción.
 Requiere sintetizar la FPGA y subir `FPGAVERSION.TXT` en la release.
 
+### Scroll por hardware (HiRes nativo y Spectrum; FPGA rama `fpga-scroll`, 26/10/2026)
+
+Sin sintetizar del todo ni probado en la placa (SCROLLT para Spectrum y SCROLLH para HiRes nativo, en `EXAMPLES/`); esto es lo que habrá que explicar cuando esté. Diseño en
+`scroll_hardware.md`; lo del emulador, en `scroll_hardware_emulador.md`. Nuevo apartado en «Vídeo» (junto al scroll fino de `POKE 2090`) y entradas en las tablas de POKEs y de puertos:
+
+- **Qué es:** la pantalla es una ventana sobre la memoria, con fino X (0-7 px, `POKE 2090`, ya existente) y fino Y (0-7 líneas, puerto del depurador), más una **columna 33** y una **fila 25**
+  que no están en el bitmap sino en búferes de entrada; el Z80 regenera lo que entra. Solo en los modos Superfast **HiRes nativo y Spectrum** (no en texto).
+- **Puerto `$3FEF` ampliado (sim_int 0.19):** `OUT $20+n` elige el índice 16+n de lectura; `OUT $40+r` y el dato escriben el registro 8+r: 8 = fino Y (0-7), 10 = fila superior de la región, 11 = fila inferior;
+  lectura 17-19 devuelve esos registros. Registro 9 (orden) y estado/ocupado (IN 16) llegarán con el motor de movimiento.
+- **Región vertical:** solo las filas `superior..inferior` (0-23) se mueven en vertical; las demás se quedan fijas (marcadores, puntuación). La máscara de filas de `POKE 2091-2093` sigue mandando en horizontal.
+- **Búferes de entrada (dentro del bloque de 8 KB de la pantalla, en la zona que sobra):** Spectrum `$1B00-$1E48`; HiRes nativo `$1800-$1A06`, tanto en el bitmap como en el área de atributos de modo 0 (`$C000+`).
+  Atributos de modo 1 (8x8): la columna 33 es el hueco del NEWLINE (paso 33) y la fila 25 es la fila 24 de la rejilla.
+- **El fino mueve la visualización, no la memoria:** el atributo viaja con su bitmap, también en vertical. El movimiento grueso (el motor, fase 2) moverá la memoria y los atributos; entonces la pantalla es de solo escritura para el Z80
+  (la RAM externa y lo que se ve dejan de coincidir).
+- **Motor de movimiento horizontal (fase 2, 26/10/2026):** el scroll grueso. Cuando el fino llega a 7 (o a 0 al ir a la derecha), el Z80 manda una orden y la FPGA mueve la memoria **un byte**:
+  `OUT (C),$41` y `OUT (C),n` con `BC = $3FEF` (registro 9; n = 1 izquierda, 2 derecha; 3 y 4 reservadas para el vertical). Estado: `OUT (C),$20` y `IN A,(C)`: bit 7 ocupado, bit 6 pendiente, bit 5 en marcha.
+  Se ejecuta en el borrado, desde la línea 254 (hasta 1,5 ms), antes del blit del doble buffer; una orden con el motor ocupado se ignora; el Z80 no debe escribir en la pantalla mientras corre.
+  Mueve el bloque HFILE, el bitmap y los atributos (Spectrum; HiRes con color: modo 0 los 6 KB de `$C000`, modo 1 la rejilla de 33), respetando la máscara de filas de `POKE 2091-2093`. El byte que sale se guarda en el
+  búfer del lado contrario (ir y volver no obliga a regenerar); lo que entra lo escribe el Z80, que rellena el búfer del lado de entrada después de cada movimiento. Protocolo sin saltos: orden con el fino en 7 (o 0), y en
+  el cuadro siguiente, ya libre, fino a 0 (o 7). Ejemplo: `EXAMPLES/SCROLLM`. Después del primer movimiento la RAM externa del Z80 ya no coincide con lo que se ve.
+- **Avisos:** con doble buffer, los atributos de HiRes no pasan por el doble buffer (solo el bitmap). Cuidado con el bloque de 8 KB: los búferes ocupan lo que antes sobraba.
+
 ## Cómo se toca
 
 Flujo docx primero con la skill `docx` (no Opus), en ES y EN a la vez, y regenerar los `.md` que

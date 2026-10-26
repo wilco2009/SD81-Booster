@@ -264,6 +264,15 @@ module SD81(
 	reg [12:0] blit_cnt = 13'd0;
 	reg old_blit_start = 1'b0;
 	wire [2:0] vpage = dbuf_en ? front_blk : HFILE[15:13];
+	reg blit_hold = 1'b0;			// el blit espera a que acabe el motor de scroll
+	// --- motor de movimiento del scroll (scroll_motor.v, claude/planning/scroll_hardware.md) ---
+	wire [2:0] scr_cmd;				// orden (registro 9 del puerto $3FEF, dominio del Z80)
+	wire scr_cmd_tog;				// cambia con cada orden aceptada
+	wire mot_tstart;				// copia de scr_cmd_tog cuando el motor acepta la orden (pendiente -> en marcha)
+	wire mot_tdone;					// ... y cuando acaba
+	wire mot_run, mot_we, mot_done, mot_go;
+	wire [15:0] mot_addr;
+	wire [7:0] mot_wdata;
 	wire [15:0] FRAMES_addr = 16'd16436;
 	wire lFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr) && (sfast_mode_en==1) && (sfSP_en==0) && !block0Writable;
 	wire hFRAMES_read = (nMREQ==0) && (nRD==0) && (Addr==FRAMES_addr+1) && (sfast_mode_en==1) && (sfSP_en==0) && !block0Writable;
@@ -916,7 +925,7 @@ Port $7FEF (01111111 11101111) - IN:
 		.hsync(hsync),
 		.pixel_cnt(pixel_cnt),
 		.limit(sf80_en ? 10'd195 : 10'd120),
-		.blit_busy(blit_run),
+		.blit_busy(blit_run | mot_run | blit_hold),
 		.pos_x(spr_pos_x),
 		.pos_y(spr_pos_y),
 		.row_ok(spr_screen_y < 9'd192),
@@ -945,7 +954,7 @@ Port $7FEF (01111111 11101111) - IN:
 	// control y las tablas de sprites, y CP/M los pisaria. La traza, el MCU (BRAMW) y el doble buffer
 	// escriben por sus ramas y no se ven afectados.
 	wire cpu_blk0_ram_wr = blk0_w_eff & ~Addr[15] & ~Addr[14] & ~Addr[13];
-	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): tr_we?1'b1: blit_we?1'b1: dbg_bram_wr?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon_ram & ~spr_oob_wr & ~cpu_blk0_ram_wr)? ~nWR:1'b0;
+	wire shadowram_we = ~nRESET?(~nWRx & ~dbg_load_blk): tr_we?1'b1: blit_we?1'b1: mot_we?1'b1: dbg_bram_wr?1'b1: (isAttrMem & ~dbuf_wr_mask & ~dbg_mon_ram & ~spr_oob_wr & ~cpu_blk0_ram_wr)? ~nWR:1'b0;
 	// Sprites: los POKEs 2101-2128 son los mismos para los 32 (2100 elige
 	// cual), asi que en la sombra no se guardan en su direccion sino en
 	// $0C00 + sprite*32 + campo: la copia de los 32 sprites, que la FPGA no
@@ -957,8 +966,8 @@ Port $7FEF (01111111 11101111) - IN:
 	wire spr_oob_wr    = sprite_poke_wr && (Addr >= SPR_BASE_ADDR) && (spr_sel[7:6] != 2'd0);
 	wire [4:0] spr_mirror_field = Addr[4:0] - SPR_BASE_ADDR[4:0];
 	wire [15:0] cpu_sh_addr = spr_mirror_wr ? {spr_sel[5] ? 6'b000110 : 6'b000011, spr_sel[4:0], spr_mirror_field} : Addr[15:0];
-	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]: tr_we?tr_waddr: blit_we?blit_waddr: (dbg_bram_rd|dbg_bram_wr)?dbg_bram_ptr: nRFSH?cpu_sh_addr:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
-	wire [7:0] shadowram_din = tr_we? tr_wdata: blit_we? v_dout: data;
+	wire [15:0] shadowram_addr = ~nRESET?Addrx[15:0]: tr_we?tr_waddr: blit_we?blit_waddr: mot_we?mot_addr: (dbg_bram_rd|dbg_bram_wr)?dbg_bram_ptr: nRFSH?cpu_sh_addr:{6'b110000,char_latch[7],char_latch[5:0],line_cnt[2:0]};
+	wire [7:0] shadowram_din = tr_we? tr_wdata: blit_we? v_dout: mot_we? mot_wdata: data;
 	wire [8:0] SCR_START_Y = 62;
 	wire [8:0] SCR_START_X = 122;
 	wire [8:0] SCR_END_Y = SCR_START_Y+191;
@@ -1045,7 +1054,7 @@ Port $7FEF (01111111 11101111) - IN:
 		.douta(shadowram_dout),
 		.clkb(system_clk),
 		.web(1'b0),						// channel only for read
-		.addrb(spr_ev_rd ? spr_ev_raddr : (blit_run ? blit_raddr : v_addr)),	// sprites (borde horizontal) o blit (blanking) o video
+		.addrb(spr_ev_rd ? spr_ev_raddr : (blit_run ? blit_raddr : (mot_run ? mot_addr : v_addr))),	// sprites (borde horizontal) o blit / motor de scroll (blanking) o video
 		.doutb(v_dout)
 	);
 
@@ -1055,10 +1064,21 @@ Port $7FEF (01111111 11101111) - IN:
 	// (~7.6ms). El video esta ocioso fuera del area activa, asi que el puerto B
 	// es del blit; el puerto A se roba solo cuando la CPU no escribe.
 	wire blit_start_line = (line_cnt == 9'd254);		// justo tras el area activa (SCR_END_Y=253)
+	wire blit_edge = blit_start_line & ~old_blit_start;
 	always @(posedge system_clk) begin
 		old_blit_start <= blit_start_line;
-		if (~dbuf_en | ~sfast_mode_en | ~auto_blit_en) blit_run <= 1'b0;
-		else if (blit_start_line & ~old_blit_start) begin
+		if (~dbuf_en | ~sfast_mode_en | ~auto_blit_en) begin
+			blit_run <= 1'b0;
+			blit_hold <= 1'b0;
+		end else if (blit_edge) begin
+			if (mot_go | mot_run) blit_hold <= 1'b1;		// el motor de scroll va primero
+			else begin
+				blit_run <= 1'b1;
+				blit_cnt <= 13'd0;
+				blit_phase <= 1'b0;
+			end
+		end else if (blit_hold & mot_done) begin
+			blit_hold <= 1'b0;
 			blit_run <= 1'b1;
 			blit_cnt <= 13'd0;
 			blit_phase <= 1'b0;
@@ -1072,6 +1092,25 @@ Port $7FEF (01111111 11101111) - IN:
 		end
 	end
 	
+	// --- motor de movimiento del scroll (scroll_motor.v) ---
+	// La orden (registro 9 del puerto $3FEF) se ejecuta en el borrado, desde la linea 254 como el blit, y el blit del
+	// doble buffer espera a que acabe. El motor mueve el bloque HFILE (el que escribe el Z80), no el de delante.
+	// La orden y el estado cruzan de dominio con tres toggles (orden de sim_int, empezar y acabar), ver scroll_sync.v.
+	scroll_sync scroll_sync_inst (
+		.clk(system_clk), .rst(~nRESET), .cmd_tog(scr_cmd_tog), .blit_edge(blit_edge),
+		.mot_run(mot_run), .mot_done(mot_done), .mot_go(mot_go), .tstart(mot_tstart), .tdone(mot_tdone));
+	// atributo de la fila 0, columna 0 del modo 1 (el de attr_addr_m1 sin fila ni columna)
+	wire [15:0] mot_dfile_p1 = DFILE_eff + 16'd1;
+	wire [15:0] mot_a1_base = attr_ovr_en ? (ATTR_BASE_OVERRIDE + 16'd1) : {1'b1, mot_dfile_p1[14:0]};
+	scroll_motor scroll_motor_inst (
+		.clk(system_clk), .rst(~nRESET), .start(mot_go), .dir(scr_cmd[1:0]),
+		.mode_sp(sfSP_en), .mode_hr(sfHR_en),
+		.attr0_en(color_enable & ~color_mode), .attr1_en(color_enable & color_mode),
+		.blk(HFILE[15:13]), .a1_base(mot_a1_base),
+		.row_en({sf_hscroll_rows_h, sf_hscroll_rows_m, sf_hscroll_rows_l}),
+		.sh_busy(sh_busy), .rdata(v_dout),
+		.run(mot_run), .addr(mot_addr), .we(mot_we), .wdata(mot_wdata), .done(mot_done));
+
 	// El offset solo se suma en Superfast (cualquier submodo); en nativo
 	// col_cnt_b_offset es siempre 0 y todo queda exactamente igual que antes
 	// de anadir el scroll horizontal fino.
@@ -1130,10 +1169,32 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [2:0] line_cnt_b = {line_cnt - SCR_START_Y}[2:0];
 	reg [4:0]scr_col1=0;
 	reg [4:0]scr_col2=0;
+	// Como scr_col1 pero con el bit 5: 32 es la columna extra de la derecha del scroll fino (Spectrum)
+	reg [5:0]scr_col1x=0;
 	
-	wire [12:0] hr_addr = {scr_row,line_cnt_b,scr_col1};
-	wire [15:0] attr_addr_m0 = sfHR_en?{3'b110,hr_addr}:	// attribute area for superfast Hires native mode
-										sfSP_en?{vpage,3'b110,scr_row,scr_col1}:	// attribute area for superfast spectrum mode (front si dbuf)
+	// Spectrum: direcciones del bitmap y del atributo con el scroll fino vertical y la columna / fila extra
+	// (claude/planning/scroll_hardware.md). Sin scroll (fine_y = 0 y columna < 32) son las de siempre.
+	wire [2:0] scr_fine_y;
+	wire [4:0] scr_reg_top;
+	wire [4:0] scr_reg_bot;
+	wire [12:0] sp_bm_addr;
+	wire [12:0] sp_at_addr;
+	spec_scroll_addr spec_scroll_addr_inst (
+		.row(scr_row), .line(line_cnt_b), .col(scr_col1x), .fine_y(scr_fine_y),
+		.reg_top(scr_reg_top), .reg_bot(scr_reg_bot), .bm_addr(sp_bm_addr), .at_addr(sp_at_addr));
+
+	// HiRes nativo: direccion del bitmap lineal ({fila,linea,columna}) con el scroll fino vertical y la
+	// columna / fila extra (claude/planning/scroll_hardware.md). hr_off vale para el bitmap ({vpage,hr_off})
+	// y para el atributo de modo 0 ({3'b110,hr_off}); hr_src_row es la fila de origen del atributo de modo 1.
+	// Sin scroll (fine_y = 0 y columna < 32) es la de siempre.
+	wire [12:0] hr_off;
+	wire [4:0] hr_src_row;
+	wire hr_below;
+	lin_scroll_addr lin_scroll_addr_inst (
+		.row(scr_row), .line(line_cnt_b), .col(scr_col1x), .fine_y(scr_fine_y),
+		.reg_top(scr_reg_top), .reg_bot(scr_reg_bot), .off(hr_off), .src_row(hr_src_row), .below(hr_below));
+	wire [15:0] attr_addr_m0 = sfHR_en?{3'b110,hr_off}:	// attribute area for superfast Hires native mode (parallel al bitmap, bloque 6), con scroll fino: ver lin_scroll_addr.v
+										sfSP_en?{vpage,sp_at_addr}:	// attribute area for superfast spectrum mode (front si dbuf), con scroll fino: ver spec_scroll_addr.v
 										SEL_256CHARS?{5'b11000,char_latch_fast[7],char_latch_fast[6],char_latch_fast[5:0],line_cnt_b}: // 256 chars: tabla de color de 2K (0xC000-0xC7FF)
 										{6'b110000,char_latch_fast[7],char_latch_fast[5:0],line_cnt_b}; // attr area for superfast text mode (128/64 chars, 0xC000-0xC3FF)
 										
@@ -1190,7 +1251,10 @@ Port $7FEF (01111111 11101111) - IN:
 	// anchos del modo ancho; el de 32 columnas no se toca.
 	wire [6:0] attr_col_80 = (scr_col_80!=7'd0) ? scr_col_80-7'd1
 															 : scr_col_80;
+	// HiRes nativo: fila de origen (fino Y) y columna 0-32 (la 32 es el hueco del NEWLINE, paso 33);
+	// la fila 24 es la de entrada de abajo. Sin scroll es la misma cuenta de siempre.
 	wire [15:0] attr_rel_addr = sf80_en ? (row_stride_80+attr_col_80)
+													  : sfHR_en ? ({hr_src_row,5'b00000} + hr_src_row + scr_col1x)
 													  : ({scr_row,5'b00000} + scr_row+scr_col2);
 	// Sin override (de siempre): misma direccion que el caracter pero con
 	// el bit 15 a 1, o sea $8000 + (direccion del caracter mod 32K) --
@@ -1214,8 +1278,8 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [5:0] scr_col_x = hscroll_active ? sf_col_idx : {1'b0,scr_col};
 	// DFILE_eff (no DFILE): ver POKE 2096/2097/2098 mas arriba.
 	wire [15:0] char_addr = DFILE_eff+16'd1+{scr_row,5'b00000} + scr_row+scr_col_x;
-	wire [15:0] scan_addr = sfHR_en? {vpage,hr_addr}:	// superfast HR native mode (front si dbuf)
-									sfSP_en?	{vpage,hr_addr[12:11],hr_addr[7:5],hr_addr[10:8],hr_addr[4:0]}: // superfast HR spectrum mode (front si dbuf)
+	wire [15:0] scan_addr = sfHR_en? {vpage,hr_off}:	// superfast HR native mode (front si dbuf), con scroll fino: ver lin_scroll_addr.v
+									sfSP_en?	{vpage,sp_bm_addr}: // superfast HR spectrum mode (front si dbuf), con scroll fino: ver spec_scroll_addr.v
 									SEL_256CHARS? {ROMTABLE[15:11],char_latch_fast[7],char_latch_fast[6],char_latch_fast[5:0],line_cnt_b}: // 256 chars: tabla alineada a 2K
 									{ROMTABLE[15:10],SEL_128CHARS?char_latch_fast[7]:ROMTABLE[9],char_latch_fast[5:0],line_cnt_b}; //superfast textmode
 									
@@ -1263,6 +1327,7 @@ Port $7FEF (01111111 11101111) - IN:
 					scr_row = {line_cnt-SCR_START_Y}[8:3];
 					scr_col = {pixel_cnt_sf+0-SCR_START_X}[8:3];
 					scr_col1 = {pixel_cnt_sf-6-SCR_START_X}[8:3];
+					scr_col1x = {pixel_cnt_sf-6-SCR_START_X}[8:3];
 					scr_col2 = {pixel_cnt_sf-6-SCR_START_X}[8:3];
 					// PRUEBA modo ancho: mismo indice de fila (scr_row), columna
 					// aparte. Con 8 pixeles se saca dividiendo por 8 (gratis,
@@ -1866,7 +1931,14 @@ assign DEBUG_RDY = 1'b0;
 		.cfg_flags({dbg_loaded, PORTS_LOCKED, SEL_256CHARS, SEL_128CHARS, FULL_PAGING, nQS_en, nMODE48K, EN_MC45}),
 		.cfg_raw(cfg_raw),
 		.tr_go(tr_go),
-		.tr_pc(tr_pc)
+		.tr_pc(tr_pc),
+		.scr_fine_y(scr_fine_y),
+		.scr_reg_top(scr_reg_top),
+		.scr_reg_bot(scr_reg_bot),
+		.scr_cmd(scr_cmd),
+		.scr_cmd_tog(scr_cmd_tog),
+		.scr_tstart(mot_tstart),
+		.scr_tdone(mot_tdone)
 	);
 
 	// Traza: escribe en la sombra lo que decide sim_int

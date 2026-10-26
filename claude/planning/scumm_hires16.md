@@ -26,12 +26,34 @@ El codigo NO puede pasar de `$8000` (la ULA del ZX81 mete NOPs): el bloque 4 es 
 
 Paginas fisicas: la sala usa la 8-13 (48 KB; los .GFX miden hasta 44 KB); la cache de DATA.BIN, la 16-62 (la 50 es el overlay).
 
-## Estado (2026-10-26)
+## Estado (2026-10-26, fusionado en `main` de SCUMM; etiqueta `tiles-final` = la ultima version de tiles)
 
-- Hecho y verificado en el arnes (`ENGINE/test/test_scumm`, `check_hr.py`): reubicacion de variables, `hr.asm` (carga de sala en paginas, columnas con
-  objetos, dibujado completo, scroll fino + motor con relleno de los bufers, salto de camara), modelo del motor en el arnes, `render_screen.py` en HiRes.
-- Sin hacer (fase 3): capa de texto (interfaz, mensajes, verbos, inventario, errores) sobre la rejilla `DFILE`, oscuridad (`dark.asm`), el cursor de tinta,
-  actualizar solo el rectangulo de un objeto al cambiar de estado (hoy se redibuja la ventana entera).
+Hecho y verificado en el arnes (pantalla de la FPGA simulada, `check_hr.py`, equivalencia de la VM 2912/2912, guardar/cargar):
+- Conversor `TOOLS/lfl2hr.py` (formato en `TOOLS/LFL2HR.md`), `ENGINE/hr.asm`, `hrui.asm`, `dark.asm`, cache de sprites en `actors.asm`.
+- Probado en la placa por el usuario: la sala se ve, el scroll fino va bien, el cursor sin parpadeos, el cambio de sala. Sin probar en la placa: el nombre de Dave (arreglado), oscuridad y linterna,
+  color de los mensajes, guardar/cargar con la nueva disposicion de memoria, Maniac Mansion en HiRes.
+
+Decisiones tomadas por el camino:
+- **Scroll**: la orden del motor (`OUT $41,1|2`) se manda al FINAL de la vuelta del bucle principal y se espera a que acabe (`hr_end`); el fino (POKE 2090) se cambia justo
+  despues, con el haz en el borrado vertical. Si se hiciera al principio de la vuelta, una vuelta de mas de un fotograma (lo normal: ~10.000 instrucciones, el motor
+  espera `VAR_TIMER_NEXT` jiffies) dejaria ver memoria movida con el fino viejo (salto de 8 px). Dentro de la columna el fino se mueve al principio de la vuelta (`hr_frame`).
+  Una solucion mejor, si se toca la FPGA: que `POKE 2090` se retenga hasta el VSYNC.
+- **La camara** tiene dos posiciones: la logica (`gf_cam`/`gf_fine`, la que piden los scripts) y la del hardware (`hv_cam`/`hv_fine`); los actores usan la del hardware.
+- **Objetos**: un cambio de estado solo recompone las columnas de los objetos cuyo "se dibuja" ha cambiado (`hr_objupd`); el redibujado completo (~130 ms) solo al entrar en la sala,
+  saltar la camara o cambiar las luces.
+- **Texto**: 40 columnas de 6 px (fuente `font6.bin` = `EXAMPLES/EXPLORER/specfont6.bin`, 5 px de dibujo + 1 de separacion), 4 caracteres = 3 bytes; la interfaz escribe en `UIVB`
+  (40 x 8) y los mensajes en `MSGB` (4 x 40); `hr_ui` pinta lo que cambia. El texto va en blanco; los mensajes con el color de habla del actor.
+- **Oscuridad**: se pone a 0 el atributo de lo que queda fuera de la ventana de la linterna (`dk_mask`, llamado por `hr_put` con `hv_dark`); el bitmap no se toca.
+- **Cache de sprites**: un actor quieto y sin hablar con la misma firma que en el fotograma anterior no reescribe sus sprites (un actor que camina o habla avanza su contador
+  de animacion al dibujarse: no se puede saltar).
+- Los verbos con espacios delante en el texto (el de Dave: `"        Dave "`) pierden los espacios y avanzan la columna.
+
+Pendiente:
+- Probar en la placa: Maniac Mansion en HiRes, oscuridad, colores de los mensajes, guardar/cargar, el temblequeo restante del scroll en zonas pesadas.
+- Colores del texto de los verbos (resalte) y de las flechas del inventario (hoy blancos).
+- Rendimiento: la vuelta del bucle principal sigue algo por encima de un fotograma en zonas con actores (el dibujo de actores por celdas es lo mas caro).
+- El codigo residente acaba en `$7FAF`: quedan ~80 bytes antes de `$8000`; lo nuevo, al overlay.
+- Scroll vertical y mover los atributos en el emulador (EightyOne): fuera de alcance.
 
 ## Modelo de datos de la sala
 

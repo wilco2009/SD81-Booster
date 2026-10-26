@@ -646,6 +646,7 @@ uint32_t fsize2;
     } else {
       strcpy(tmp,params);
     }
+    remove_dotdirs(tmp);    // SdFat no resuelve "..": LOAD "../SCUMM.BIN"
     if (!sd.exists(tmp)) {
       log_0("file %s does not exist.\n\r",tmp);
       strcat(tmp,".P");
@@ -791,7 +792,8 @@ uint8_t error_code;
     } else {
       strcpy(tmp,params);
     }
-    
+    remove_dotdirs(tmp);
+
     boolean opened = Sfile.open(tmp,O_CREAT|O_WRITE|O_TRUNC);
   
     // read file length
@@ -889,6 +891,7 @@ void cmd_type(){
     }
     Serial.println(tmp);
   }
+  remove_dotdirs(tmp);
   if (!sd.exists(tmp)) {
     log_0("file %s does not exist.\n\r",tmp);
     strcat(tmp,".TXT");

@@ -215,8 +215,7 @@ derecha), el Z80 manda una orden por el puerto `$3FEF` y la FPGA mueve la memori
 
 ### Qué hace
 
-- Orden: `OUT $41` y el dato en el puerto `$3FEF` (registro 9): **1 = izquierda, 2 = derecha**; 3 y 4 (arriba / abajo) quedan reservadas para la fase 3 y se
-  aceptan sin hacer nada. La orden 0 no hace nada. Una orden dada con el motor **ocupado se ignora**.
+- Orden: `OUT $41` y el dato en el puerto `$3FEF` (registro 9): **1 = izquierda, 2 = derecha**; 3 y 4 (arriba / abajo) son la fase 3 (más abajo). La orden 0 no hace nada. Una orden dada con el motor **ocupado se ignora**.
 - Estado: `OUT $20` y `IN` (índice 16): bit 7 **ocupado** (pendiente o en marcha), bit 6 pendiente, bit 5 en marcha. Sube en cuanto se escribe la orden.
 - Cuándo: el motor arranca en el flanco de la **línea 254** (como el blit) si hay una orden pendiente; si el doble buffer AUTO está activo, el blit **espera** a que
   acabe el motor. Una orden dada después de la línea 254 espera al cuadro siguiente.
@@ -259,9 +258,24 @@ Sin simular `SD81.v` entero (ModelSim no lo compila: referencias hacia delante q
 
 ### Lo que NO está
 
-- Vertical (fase 3): movimiento por filas de la región con el búfer de arriba y de abajo. Y que **R y L se muevan en vertical** (hoy el Z80 los rellena tras un movimiento vertical).
+- (El vertical está hecho: fase 3, más abajo.)
 - El emulador (ver `scroll_hardware_emulador.md`) y el manual.
 - Síntesis y prueba en la placa: sin ver todavía los recursos del motor (estimación 100-200 LUTs; los slices estaban al 78 %).
+
+## Fase 3: motor VERTICAL (2026-10-26, rama `fpga-scroll`, probado en ModelSim; sin sintetizar ni probar en la placa)
+
+Pedido del usuario: «faltaría el scroll vertical». Va dentro de `scroll_motor.v` (no hay módulo nuevo): las órdenes 3 (arriba) y 4 (abajo) del registro 9, el resto igual que la fase 2. El módulo
+recibe además `reg_top` y `reg_bot` (registros 10 y 11, los mismos que ya usa el dibujo) y `dir` pasa a 3 bits. Detalle de la cadena, de los nodos que no existen y de las direcciones: `scroll_hardware_emulador.md`, apartado 7.
+
+- **Región, no máscara:** solo se mueven las filas `reg_top..reg_bot` (`reg_bot` > 23 cuenta como 23); la máscara de filas (2091-2093) no cuenta en vertical. Región vacía: termina sin mover nada.
+- **Orden:** por pares `(r-1, r)`, ascendente al subir y descendente al bajar, así cada fila se lee antes de pisarse. FSM: los estados de la fase 2 más `S_SEEK` (coloca `r` y `rowbase` en el
+  primer par; 1 ciclo por fila) y `S_NXT` (un nodo que no existe: dos ciclos, sin escribir).
+- **Qué entra y qué sale:** arriba, `T <- fila_top` y `fila_bot <- B`; abajo, `B <- fila_bot` y `fila_top <- T`. Lo que entra lo escribe el Z80 antes; el búfer de entrada se rellena después, como en horizontal.
+- **R y L viajan con su fila.** Los extremos que no existen se saltan: `L` no tiene `T` ni `B`; `R` no tiene `T` y su `B` es la esquina; HiRes modo 1 no tiene `L` ni `T` y su `B` es la fila 24 de la rejilla.
+- **Coste:** región completa, Spectrum 0,88 ms, HiRes sin color 0,78 ms, modo 1 0,88 ms, modo 0 1,57 ms (el mismo orden que el horizontal). Sin BRAM nueva.
+- **Pruebas:** `tb_scroll_motor.v` 197 casos (los 69 horizontales de regresión y 128 verticales: 4 tipos x 2 sentidos x 8 regiones x con y sin paradas, la máscara de filas puesta para ver que no cuenta);
+  con 4 mutaciones del motor falla en todas. `tb_dbg.v`: órdenes 3 y 4 por el puerto con la región puesta por los registros 10 y 11.
+- **Sin hacer:** el programa de prueba de la placa (y su arnés en el PC), el emulador, y el manual. Y la comprobación del arbitraje de la BRAM en la placa, que es lo mismo que en la fase 2.
 
 ## Pruebas del scroll (2026-10-26)
 

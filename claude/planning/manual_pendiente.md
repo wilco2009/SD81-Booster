@@ -210,11 +210,16 @@ Sin sintetizar del todo ni probado en la placa (SCROLLT para Spectrum y SCROLLH 
 - **El fino mueve la visualización, no la memoria:** el atributo viaja con su bitmap, también en vertical. El movimiento grueso (el motor, fase 2) moverá la memoria y los atributos; entonces la pantalla es de solo escritura para el Z80
   (la RAM externa y lo que se ve dejan de coincidir).
 - **Motor de movimiento horizontal (fase 2, 26/10/2026):** el scroll grueso. Cuando el fino llega a 7 (o a 0 al ir a la derecha), el Z80 manda una orden y la FPGA mueve la memoria **un byte**:
-  `OUT (C),$41` y `OUT (C),n` con `BC = $3FEF` (registro 9; n = 1 izquierda, 2 derecha; 3 y 4 reservadas para el vertical). Estado: `OUT (C),$20` y `IN A,(C)`: bit 7 ocupado, bit 6 pendiente, bit 5 en marcha.
+  `OUT (C),$41` y `OUT (C),n` con `BC = $3FEF` (registro 9; n = 1 izquierda, 2 derecha, 3 arriba, 4 abajo). Estado: `OUT (C),$20` y `IN A,(C)`: bit 7 ocupado, bit 6 pendiente, bit 5 en marcha.
   Se ejecuta en el borrado, desde la línea 254 (hasta 1,5 ms), antes del blit del doble buffer; una orden con el motor ocupado se ignora; el Z80 no debe escribir en la pantalla mientras corre.
   Mueve el bloque HFILE, el bitmap y los atributos (Spectrum; HiRes con color: modo 0 los 6 KB de `$C000`, modo 1 la rejilla de 33), respetando la máscara de filas de `POKE 2091-2093`. El byte que sale se guarda en el
   búfer del lado contrario (ir y volver no obliga a regenerar); lo que entra lo escribe el Z80, que rellena el búfer del lado de entrada después de cada movimiento. Protocolo sin saltos: orden con el fino en 7 (o 0), y en
   el cuadro siguiente, ya libre, fino a 0 (o 7). Ejemplo: `EXAMPLES/SCROLLM`. Después del primer movimiento la RAM externa del Z80 ya no coincide con lo que se ve.
+- **Motor de movimiento vertical (fase 3, 26/10/2026):** las órdenes **3 (arriba: el contenido sube)** y **4 (abajo: el contenido baja)** del mismo registro 9. Mueve **una fila de texto** (8 líneas) de las filas de la **región**
+  (`reg_top`..`reg_bot`, registros 10 y 11; la máscara de filas de `POKE 2091-2093` no cuenta en vertical), con sus atributos y con las columnas de los búferes de los lados. La fila que sale se guarda en el búfer contrario (T al subir,
+  B al bajar) y entra la que el Z80 había dejado en el de entrada (B al subir, T al bajar). Protocolo sin saltos: orden 3 con el fino Y en 7 (la 4 con el fino en 0), y en el cuadro siguiente, ya libre, fino a 0 (o 7) y rellenar el
+  búfer de entrada (y la esquina `$1A00`/`$1E40`, y la fila 24 de la rejilla en HiRes modo 1). Tarda 0,8-1,6 ms. Las columnas R y L de la fila que entra quedan como estaban: las escribe el Z80 si las va a ver.
+  Las direcciones de los búferes de arriba y de abajo están en `scroll_hardware_emulador.md`, apartado 7 (para el manual: una tabla de los bufers por modo).
 - **Avisos:** con doble buffer, los atributos de HiRes no pasan por el doble buffer (solo el bitmap). Cuidado con el bloque de 8 KB: los búferes ocupan lo que antes sobraba.
 
 ## Cómo se toca

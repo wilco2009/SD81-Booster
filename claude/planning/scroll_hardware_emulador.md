@@ -17,7 +17,7 @@ Los puntos 1 a 6 de «Pendiente» están hechos (marcados abajo con ✅). Lo que
 - **No hecho (es del firmware, no del emulador):** ampliar `SCROLL` y el comando de la consola del depurador del MCU (`mcu/DEBUGGER.cpp`) con los registros
   nuevos. El emulador **sí** guarda y restaura sus propias instantáneas con una línea nueva `SCROLLY` (fino Y, fila superior, fila inferior; ver 3). Las
   instantáneas hechas por el depurador del hardware, mientras no los incluyan, pierden el fino Y al restaurarse.
-- **Motor vertical (órdenes 3 y 4):** se aceptan y no hacen nada, a la espera de la fase 3.
+- **Motor vertical (órdenes 3 y 4):** ya está en la FPGA (fase 3, 2026-10-26); en el emulador **falta**: ver el apartado 7.
 
 ## Lo que el emulador ya tiene
 
@@ -147,6 +147,50 @@ La FPGA lo hace en `scroll_motor.v` / `scroll_sync.v` / `sim_int.v` 0.20 (detall
 ✅ El emulador queda igual que la FPGA de esta rama; el manual sigue en `manual_pendiente.md` (no es parte del emulador).
 
 Anotado en `manual_pendiente.md` (sección «Scroll por hardware»). El emulador es una de las tres cosas que hay que mantener iguales (FPGA, emulador, manual).
+
+### 7. Motor vertical (fase 3, escrito en la FPGA el 2026-10-26, probado en ModelSim; sin sintetizar ni probar en la placa)
+
+Órdenes del registro 9: **3 = arriba** (el contenido sube: cada fila toma la de debajo, entra por abajo) y **4 = abajo** (el contenido baja, entra por arriba). Todo lo demás
+(pendiente / ocupado, arranque en la línea 254, el bloque HFILE, sin efecto en texto ni sin Superfast, orden ignorada con el motor ocupado) es igual que en el horizontal.
+La orden con la región vacía (`reg_top > min(reg_bot, 23)`) termina al instante sin mover nada. `reg_bot` mayor que 23 cuenta como 23. **La máscara de filas (POKE 2091-2093) no cuenta
+en vertical**: solo la región (registros 10 y 11).
+
+**Cadena de filas:** `T  fila_top ... fila_bot  B`, con `T` = búfer de arriba y `B` = búfer de abajo.
+
+- Arriba: `T <- fila_top`, `fila_r <- fila_r+1` (r de top a bot-1), `fila_bot <- B`. El `B` queda como estaba (el Z80 lo rellena después); lo que sale se guarda en `T`.
+- Abajo: `B <- fila_bot`, `fila_r <- fila_r-1` (r de bot a top+1), `fila_top <- T`. `T` queda como estaba; lo que sale se guarda en `B`.
+- Cada «fila» es la fila de texto entera: 8 líneas de bitmap, en los 34 nodos `L, m0..m31, R` (los de los bufers de los lados viajan con su fila). En los atributos de Spectrum y de
+  HiRes modo 1, una sola línea por fila; en HiRes modo 0, 8 líneas como el bitmap (área de `$C000`, bloque 6).
+
+**Qué nodos no existen** (el movimiento no los toca, quedan como estaban):
+
+| Par | `L` | `m0..m31` | `R` |
+|---|---|---|---|
+| con `T` (arriba: `T <- fila_top`; abajo: `fila_top <- T`) | no existe | `T` | no existe |
+| con `B` (arriba: `fila_bot <- B`; abajo: `B <- fila_bot`) | no existe | `B` | **la esquina** (`$1A00+k` HiRes, `$1E40+k` Spectrum, atributo `$1E48`) |
+| dos filas de la región | su fila | su fila | su fila |
+| HiRes **modo 1** (atributos 8x8) | no hay `L` | `T` no existe: el par con `T` no hace nada. `B` = la **fila 24** de la rejilla (`base + 24*33`), aunque la región acabe antes | columna 32 de esa fila |
+
+Direcciones de los búferes de arriba y de abajo (dentro del bloque de la pantalla; las mismas que ya usa el dibujo para `B` y las de `lin_scroll_addr.v` / `spec_scroll_addr.v` para `T`):
+
+| | Bitmap `T` | Bitmap `B` | Atributo `T` | Atributo `B` |
+|---|---|---|---|---|
+| Spectrum | `$1F00 + k*32 + col` | `$1D00 + k*32 + col` | `$1E20 + col` | `$1E00 + col` |
+| HiRes | `$1D00 + k*32 + col` | `$1900 + k*32 + col` | modo 0: lo mismo en `$C000+` | modo 0: lo mismo en `$C000+` |
+
+`k` va de 0 a 7 (el dibujo solo usa 0-6 de `B`). Las esquinas: HiRes `$1A00 + k`, Spectrum `$1E40 + k` y atributo `$1E48`.
+
+**Orden de recorrido (importa solo si el emulador mueve en sitio):** por pares `(fila r-1, fila r)`, de `r = top` hasta `r = bot+1` si es arriba y al revés si es abajo; en cada par primero se
+leen los 34 nodos de las 8 líneas y luego se escriben (el modelo de `tb_scroll_motor.v` coge una instantánea de la cadena y la aplica entera, que da el mismo resultado).
+
+**Duración** (a 26 MHz, 3 ciclos por byte, región completa): Spectrum 22.926 ciclos = 0,88 ms; HiRes sin color 20.378 = 0,78 ms; HiRes modo 1 22.821 = 0,88 ms; HiRes modo 0 40.755 = 1,57 ms.
+
+**Protocolo desde el Z80 (sin saltos), igual que en horizontal:** arriba: mandar la orden 3 en el cuadro en que el fino Y llega a 7, dejarlo, y en el siguiente (libre) ponerlo a 0 y rellenar `B` (y la
+esquina, y la fila 24 en modo 1); abajo: mandar la orden 4 cuando el fino Y llega a 0, y en el siguiente ponerlo a 7 y rellenar `T`. Después de un movimiento vertical, las **columnas `R` y `L` de la fila que entra**
+están como estaban (en `B`-`R` entra la esquina; en `T` no hay ni `R` ni `L`): el Z80 tiene que escribirlas si el scroll horizontal las va a mostrar.
+
+Pruebas en el PC: `tb_scroll_motor.v` (128 casos verticales contra un modelo: 4 tipos, 2 sentidos, 8 regiones, con y sin paradas; con 4 errores puestos a propósito falla) y `tb_dbg.v` (orden 3 y 4 por el puerto,
+región por los registros 10 y 11).
 
 ## Observaciones que NO se implementan todavía (por decisión del usuario, a comprobar en la placa)
 

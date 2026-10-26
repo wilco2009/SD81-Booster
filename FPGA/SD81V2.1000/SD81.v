@@ -271,6 +271,8 @@ module SD81(
 	wire mot_tstart;				// copia de scr_cmd_tog cuando el motor acepta la orden (pendiente -> en marcha)
 	wire mot_tdone;					// ... y cuando acaba
 	wire mot_run, mot_we, mot_done, mot_go;
+	wire [4:0] scr_reg_top;			// region vertical (registros 10 y 11): la usan el video y el motor
+	wire [4:0] scr_reg_bot;
 	wire [15:0] mot_addr;
 	wire [7:0] mot_wdata;
 	wire [15:0] FRAMES_addr = 16'd16436;
@@ -1103,11 +1105,12 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [15:0] mot_dfile_p1 = DFILE_eff + 16'd1;
 	wire [15:0] mot_a1_base = attr_ovr_en ? (ATTR_BASE_OVERRIDE + 16'd1) : {1'b1, mot_dfile_p1[14:0]};
 	scroll_motor scroll_motor_inst (
-		.clk(system_clk), .rst(~nRESET), .start(mot_go), .dir(scr_cmd[1:0]),
+		.clk(system_clk), .rst(~nRESET), .start(mot_go), .dir(scr_cmd),
 		.mode_sp(sfSP_en), .mode_hr(sfHR_en),
 		.attr0_en(color_enable & ~color_mode), .attr1_en(color_enable & color_mode),
 		.blk(HFILE[15:13]), .a1_base(mot_a1_base),
 		.row_en({sf_hscroll_rows_h, sf_hscroll_rows_m, sf_hscroll_rows_l}),
+		.reg_top(scr_reg_top), .reg_bot(scr_reg_bot),
 		.sh_busy(sh_busy), .rdata(v_dout),
 		.run(mot_run), .addr(mot_addr), .we(mot_we), .wdata(mot_wdata), .done(mot_done));
 
@@ -1175,8 +1178,6 @@ Port $7FEF (01111111 11101111) - IN:
 	// Spectrum: direcciones del bitmap y del atributo con el scroll fino vertical y la columna / fila extra
 	// (claude/planning/scroll_hardware.md). Sin scroll (fine_y = 0 y columna < 32) son las de siempre.
 	wire [2:0] scr_fine_y;
-	wire [4:0] scr_reg_top;
-	wire [4:0] scr_reg_bot;
 	wire [12:0] sp_bm_addr;
 	wire [12:0] sp_at_addr;
 	spec_scroll_addr spec_scroll_addr_inst (

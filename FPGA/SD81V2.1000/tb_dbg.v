@@ -91,8 +91,8 @@ module tb_dbg;
 	end
 	scroll_sync ssy (.clk(sysclk), .rst(~nreset), .cmd_tog(scr_cmd_tog), .blit_edge(be), .mot_run(m_run),
 		.mot_done(m_done), .mot_go(m_go), .tstart(m_tstart), .tdone(m_tdone));
-	scroll_motor smo (.clk(sysclk), .rst(~nreset), .start(m_go), .dir(scr_cmd[1:0]), .mode_sp(1'b0), .mode_hr(1'b1),
-		.attr0_en(1'b0), .attr1_en(1'b0), .blk(3'd4), .a1_base(16'h0000), .row_en(24'h000001), .sh_busy(1'b0),
+	scroll_motor smo (.clk(sysclk), .rst(~nreset), .start(m_go), .dir(scr_cmd), .mode_sp(1'b0), .mode_hr(1'b1),
+		.attr0_en(1'b0), .attr1_en(1'b0), .blk(3'd4), .a1_base(16'h0000), .row_en(24'h000001), .reg_top(scr_reg_top), .reg_bot(scr_reg_bot), .sh_busy(1'b0),
 		.rdata(m_rdata), .run(m_run), .addr(m_addr), .we(m_we), .wdata(m_wdata), .done(m_done));
 	trace_wr tw (.clk(sysclk), .tr_go(tr_go), .tr_pc(tr_pc), .ptr(tr_ptr), .we(tr_we), .waddr(tr_waddr), .wdata(tr_wdata));
 
@@ -645,19 +645,56 @@ module tb_dbg;
 					if (mmem[16'h8000 + q * 32 + c] !== pat(16'h8000 + q * 32 + c)) ok = 0;
 			end
 			expect_val(ok, 1, "motor: izquierda y derecha = como estaba");
-			// la orden 0 no hace nada y la 3 se acepta y termina sin mover (reservada)
+			// la orden 0 no hace nada y la 5 (sin uso) se acepta y termina sin mover
 			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h00);
 			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
 			expect_val(got, 8'h00, "motor: la orden 0 no hace nada");
-			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h03);
+			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h05);
 			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
-			expect_val(got, 8'hC0, "motor: la orden 3 (reservada) entra");
+			expect_val(got, 8'hC0, "motor: la orden 5 (sin uso) entra");
 			t = 0;
 			while (got[7] && t < 200) begin repeat (400) @(posedge sysclk); io_out(16'h3FEF, 8'h20); io_in(16'h3FEF); t = t + 1; end
 			expect_val(got, 8'h00, "motor: ... y termina");
 			ok = 1;
 			for (q = 0; q < 8; q = q + 1) if (mmem[16'h8000 + q * 32] !== pat(16'h8000 + q * 32)) ok = 0;
-			expect_val(ok, 1, "motor: la orden 3 no mueve nada");
+			expect_val(ok, 1, "motor: la orden 5 no mueve nada");
+			// vertical, orden 3 (arriba) con la region = filas 0 y 1 (registros 10 y 11 por el puerto)
+			for (q = 0; q < 65536; q = q + 1) mmem[q] = pat(q);
+			io_out(16'h3FEF, 8'h42); io_out(16'h3FEF, 8'd0);
+			io_out(16'h3FEF, 8'h43); io_out(16'h3FEF, 8'd1);
+			expect_val(scr_reg_bot, 1, "motor: region, ultima fila = 1");
+			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h03);
+			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+			expect_val(got, 8'hC0, "motor: la orden 3 (arriba) entra");
+			t = 0;
+			while (got[7] && t < 300) begin repeat (400) @(posedge sysclk); io_out(16'h3FEF, 8'h20); io_in(16'h3FEF); t = t + 1; end
+			expect_val(got, 8'h00, "motor: ... y termina");
+			ok = 1;
+			for (q = 0; q < 8; q = q + 1) begin : vlines
+				integer c;
+				for (c = 0; c < 32; c = c + 1) begin
+					if (mmem[16'h8000 + q * 32 + c] !== pat(16'h8000 + (q + 8) * 32 + c)) ok = 0;		// fila 0 <- fila 1
+					if (mmem[16'h8000 + (q + 8) * 32 + c] !== pat(16'h9900 + q * 32 + c)) ok = 0;	// fila 1 <- bufer de abajo
+					if (mmem[16'h9D00 + q * 32 + c] !== pat(16'h8000 + q * 32 + c)) ok = 0;			// bufer de arriba <- fila 0
+					if (mmem[16'h8000 + (q + 16) * 32 + c] !== pat(16'h8000 + (q + 16) * 32 + c)) ok = 0;	// la fila 2 no se toca
+				end
+			end
+			expect_val(ok, 1, "motor: arriba filas 0-1 y bufers");
+			// abajo (orden 4): deshace el movimiento anterior
+			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h04);
+			t = 0;
+			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+			while (got[7] && t < 300) begin repeat (400) @(posedge sysclk); io_out(16'h3FEF, 8'h20); io_in(16'h3FEF); t = t + 1; end
+			expect_val(got, 8'h00, "motor: la orden 4 termina");
+			ok = 1;
+			for (q = 0; q < 8; q = q + 1) begin : vlines2
+				integer c;
+				for (c = 0; c < 32; c = c + 1) begin
+					if (mmem[16'h8000 + q * 32 + c] !== pat(16'h8000 + q * 32 + c)) ok = 0;
+					if (mmem[16'h8000 + (q + 8) * 32 + c] !== pat(16'h8000 + (q + 8) * 32 + c)) ok = 0;
+			end
+			end
+			expect_val(ok, 1, "motor: arriba y abajo = como estaba");
 		end
 
 		if (errors == 0) $display("TODO OK");

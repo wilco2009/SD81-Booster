@@ -11,10 +11,10 @@
 // escritura de mas se vea. Cada caso lanza una orden, espera el pulso `done` y compara TODA la
 // memoria con la que sale del modelo (escrito con aritmetica ordinaria, sin concatenaciones):
 //   - Spectrum, HiRes solo bitmap, HiRes con atributos de modo 0 y de modo 1
-//   - izquierda y derecha
+//   - izquierda y derecha, arriba y abajo (la region de filas del vertical, con bufers T, B y esquina)
 //   - mascaras de filas, bloques de pantalla, bases de atributos de modo 1
 //   - con paradas aleatorias de sh_busy (la CPU escribiendo) y sin ellas
-//   - ordenes sin efecto (texto, direccion 0 y 3) y una orden dada con el motor en marcha
+//   - ordenes sin efecto (texto, direccion 0 y 5) y una orden dada con el motor en marcha
 //////////////////////////////////////////////////////////////////////////////////
 module tb_scroll_motor;
 
@@ -23,7 +23,8 @@ module tb_scroll_motor;
 	reg rst = 1'b1;
 
 	reg start = 1'b0;
-	reg [1:0] dir = 2'd0;
+	reg [2:0] dir = 3'd0;
+	reg [4:0] reg_top = 5'd0, reg_bot = 5'd23;
 	reg mode_sp = 1'b0, mode_hr = 1'b0, attr0_en = 1'b0, attr1_en = 1'b0;
 	reg [2:0] blk = 3'd4;
 	reg [15:0] a1_base = 16'h0000;
@@ -36,7 +37,7 @@ module tb_scroll_motor;
 
 	scroll_motor dut (.clk(clk), .rst(rst), .start(start), .dir(dir), .mode_sp(mode_sp), .mode_hr(mode_hr),
 		.attr0_en(attr0_en), .attr1_en(attr1_en), .blk(blk), .a1_base(a1_base), .row_en(row_en),
-		.sh_busy(sh_busy), .rdata(rdata), .run(run), .addr(addr), .we(we), .wdata(wdata), .done(done));
+		.reg_top(reg_top), .reg_bot(reg_bot), .sh_busy(sh_busy), .rdata(rdata), .run(run), .addr(addr), .we(we), .wdata(wdata), .done(done));
 
 	reg [7:0] mem [0:65535];
 	reg [7:0] expm [0:65535];
@@ -63,7 +64,9 @@ module tb_scroll_motor;
 
 	// ---- modelo ----
 	integer cfg_kind;		// 0 Spectrum, 1 HiRes bitmap, 2 HiRes + modo 0, 3 HiRes + modo 1
-	integer cfg_dir;		// 1 izquierda, 2 derecha
+	integer cfg_dir;		// 1 izquierda, 2 derecha, 3 arriba, 4 abajo
+	integer cfg_top, cfg_bot;	// region del vertical (la del modelo)
+	integer rg_top = 0, rg_bot = 23;	// region que se pone en el motor en el caso siguiente
 	integer cfg_blk;
 	integer cfg_a1;
 
@@ -83,6 +86,79 @@ module tb_scroll_motor;
 			for (q = 2; q <= 33; q = q + 1) expm[chain[q]] = tmp[q - 1];
 			if (chain[0] >= 0) expm[chain[1]] = tmp[0];
 			expm[chain[33]] = tmp[32];
+		end
+	end
+	endtask
+
+
+	// ---- modelo vertical ----
+	// direccion del byte de la columna q (0 = L, 1..32 = m0..m31, 33 = R) y la linea k en el hueco `slot`:
+	// 0 = bufer de arriba (T), 1 = la fila rr, 2 = bufer de abajo (B). -1 = no existe.
+	// att = 1: el area de atributos (Spectrum: una linea por fila; HiRes modo 0: la misma geometria en $C000;
+	// HiRes modo 1: la rejilla de 33 por fila)
+	function integer vaddr(input integer kind, input integer att, input integer slot, input integer rr, input integer k, input integer q);
+		integer yy, cc, bse;
+	begin
+		cc = q - 1; yy = rr * 8 + k; bse = cfg_blk * 8192;
+		vaddr = -1;
+		if (kind == 0 && att == 0) begin
+			if (slot == 1) vaddr = (q == 0) ? bse + 16'h1C00 + yy : (q == 33) ? bse + 16'h1B00 + yy :
+			                       bse + (yy / 64) * 2048 + (yy % 8) * 256 + ((yy / 8) % 8) * 32 + cc;
+			else if (slot == 0 && q >= 1 && q <= 32) vaddr = bse + 16'h1F00 + k * 32 + cc;
+			else if (slot == 2) begin
+				if (q >= 1 && q <= 32) vaddr = bse + 16'h1D00 + k * 32 + cc;
+				else if (q == 33) vaddr = bse + 16'h1E40 + k;
+			end
+		end else if (kind == 0) begin
+			if (slot == 1) vaddr = (q == 0) ? bse + 16'h1CC0 + rr : (q == 33) ? bse + 16'h1BC0 + rr : bse + 16'h1800 + rr * 32 + cc;
+			else if (slot == 0 && q >= 1 && q <= 32) vaddr = bse + 16'h1E20 + cc;
+			else if (slot == 2) begin
+				if (q >= 1 && q <= 32) vaddr = bse + 16'h1E00 + cc;
+				else if (q == 33) vaddr = bse + 16'h1E48;
+			end
+		end else if (kind == 3 && att == 1) begin	// atributos de modo 1: la rejilla; no hay L ni T
+			if (slot == 1 && q >= 1) vaddr = (cfg_a1 + rr * 33 + cc) & 65535;
+			else if (slot == 2 && q >= 1) vaddr = (cfg_a1 + 24 * 33 + cc) & 65535;
+		end else begin								// HiRes lineal (bitmap, y atributos de modo 0)
+			if (att) bse = 16'hC000;
+			if (slot == 1) vaddr = (q == 0) ? bse + 16'h1C00 + yy : (q == 33) ? bse + 16'h1800 + yy : bse + yy * 32 + cc;
+			else if (slot == 0 && q >= 1 && q <= 32) vaddr = bse + 16'h1D00 + k * 32 + cc;
+			else if (slot == 2) begin
+				if (q >= 1 && q <= 32) vaddr = bse + 16'h1900 + k * 32 + cc;
+				else if (q == 33) vaddr = bse + 16'h1A00 + k;
+			end
+		end
+	end
+	endfunction
+
+	integer vs [0:26];
+	reg [7:0] vt [0:26];
+	task vmodel;
+		integer att, nl, q, kk2, s, nr, top, bot;
+	begin
+		for (a = 0; a < 65536; a = a + 1) expm[a] = mem[a];
+		top = cfg_top; bot = (cfg_bot > 23) ? 23 : cfg_bot;
+		if (top <= bot) begin
+			nr = bot - top + 1;
+			for (att = 0; att < 2; att = att + 1)
+				if (att == 0 || cfg_kind == 0 || cfg_kind == 2 || cfg_kind == 3) begin
+					nl = (att == 1 && (cfg_kind == 0 || cfg_kind == 3)) ? 1 : 8;
+					for (kk2 = 0; kk2 < nl; kk2 = kk2 + 1)
+					for (q = 0; q < 34; q = q + 1)
+					begin
+						for (s = 0; s <= nr + 1; s = s + 1) begin
+							if (s == 0) vs[s] = vaddr(cfg_kind, att, 0, 0, kk2, q);
+							else if (s == nr + 1) vs[s] = vaddr(cfg_kind, att, 2, 0, kk2, q);
+							else vs[s] = vaddr(cfg_kind, att, 1, top + s - 1, kk2, q);
+							vt[s] = (vs[s] >= 0) ? expm[vs[s]] : 8'h00;
+						end
+						if (cfg_dir == 3) begin
+							for (s = 0; s <= nr; s = s + 1) if (vs[s] >= 0 && vs[s + 1] >= 0) expm[vs[s]] = vt[s + 1];
+						end else begin
+							for (s = 1; s <= nr + 1; s = s + 1) if (vs[s] >= 0 && vs[s - 1] >= 0) expm[vs[s]] = vt[s - 1];
+						end
+					end
+				end
 		end
 	end
 	endtask
@@ -135,17 +211,19 @@ module tb_scroll_motor;
 		integer tmo;
 	begin
 		cfg_kind = kind; cfg_dir = d; cfg_blk = b; cfg_a1 = a1b;
+		cfg_top = rg_top; cfg_bot = rg_bot; reg_top = rg_top; reg_bot = rg_bot;
 		mode_sp = (kind == 0); mode_hr = (kind != 0);
 		attr0_en = (kind == 2); attr1_en = (kind == 3);
 		blk = b; a1_base = a1b; row_en = mask; stalls = st;
 		fill;
-		model;
+		if (d >= 3) vmodel; else model;
 		n_done = 0;
 		@(negedge clk); dir = d; start = 1'b1;
 		@(negedge clk); start = 1'b0;
 		tmo = 0; ncyc = 0;
 		while (n_done == 0 && tmo < 400000) begin @(negedge clk); tmo = tmo + 1; end
 		ncyc = tmo;
+		if (d >= 3 && !st && rg_top == 0 && rg_bot == 23) $display("vertical, tipo %0d, orden %0d, region 0-23: %0d ciclos", kind, d, ncyc);
 		repeat (8) @(negedge clk);
 		if (kind == 0 && !st && mask == 24'hFFFFFF && d == 1) ncyc_sp0 = ncyc;
 		cases = cases + 1;
@@ -164,7 +242,9 @@ module tb_scroll_motor;
 	end
 	endtask
 
-	integer kk, dd, mm, ss;
+	integer kk, dd, mm, ss, rr;
+	integer rtop [0:7];
+	integer rbot [0:7];
 	reg [23:0] masks [0:3];
 	integer blks [0:2];
 	integer a1bs [0:2];
@@ -183,14 +263,33 @@ module tb_scroll_motor;
 			run_case(kk, dd, blks[(mm + kk) % 3], a1bs[(mm + dd) % 3], masks[mm], ss);
 		$display("duracion de un movimiento sin paradas, Spectrum, todas las filas: %0d ciclos", ncyc_sp0);
 
+		// vertical: 4 tipos x 2 sentidos x 8 regiones (completa, interior, de una fila, en los extremos,
+		// con reg_bot pasado de 23, vacia y fuera de pantalla) x paradas; la mascara de filas no cuenta
+		rtop[0] = 0;  rbot[0] = 23;
+		rtop[1] = 3;  rbot[1] = 17;
+		rtop[2] = 5;  rbot[2] = 5;
+		rtop[3] = 0;  rbot[3] = 0;
+		rtop[4] = 23; rbot[4] = 23;
+		rtop[5] = 7;  rbot[5] = 30;
+		rtop[6] = 10; rbot[6] = 4;
+		rtop[7] = 30; rbot[7] = 31;
+		for (kk = 0; kk < 4; kk = kk + 1)
+		for (dd = 3; dd <= 4; dd = dd + 1)
+		for (rr = 0; rr < 8; rr = rr + 1)
+		for (ss = 0; ss < 2; ss = ss + 1) begin
+			rg_top = rtop[rr]; rg_bot = rbot[rr];
+			run_case(kk, dd, blks[(rr + kk) % 3], a1bs[(rr + dd) % 3], masks[rr % 4], ss);
+		end
+		rg_top = 0; rg_bot = 23;
+
 		// ordenes sin efecto: la memoria no cambia y done sale igual
 		cfg_kind = 1; cfg_dir = 1; cfg_blk = 4; cfg_a1 = 0;
 		for (kk = 0; kk < 4; kk = kk + 1) begin
 			fill; for (a = 0; a < 65536; a = a + 1) expm[a] = mem[a];
 			mode_sp = (kk == 1); mode_hr = (kk == 2); attr0_en = 1'b0; attr1_en = 1'b0; stalls = 1'b0;
 			row_en = 24'hFFFFFF; n_done = 0;
-			// 0: direccion 0, 1: texto (ni Spectrum ni HiRes), 2: direccion 3, 3: direccion 0 en Spectrum
-			@(negedge clk); dir = (kk == 0) ? 2'd0 : (kk == 2) ? 2'd3 : (kk == 3) ? 2'd0 : 2'd1; start = 1'b1;
+			// 0: direccion 0, 1: texto (ni Spectrum ni HiRes), 2: direccion 5, 3: direccion 0 en Spectrum
+			@(negedge clk); dir = (kk == 0) ? 3'd0 : (kk == 2) ? 3'd5 : (kk == 3) ? 3'd0 : 3'd1; start = 1'b1;
 			if (kk == 1) begin mode_sp = 1'b0; mode_hr = 1'b0; end
 			if (kk == 3) begin mode_sp = 1'b1; end
 			@(negedge clk); start = 1'b0;

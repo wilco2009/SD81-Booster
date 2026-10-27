@@ -15,6 +15,7 @@
 // de este fichero (espeja toda la salida a /SYS/ESP32LOG.TXT ademas del
 // USB) - no debe afectar a las cabeceras de las librerias de arriba.
 #include "SD_LOG.h"
+#include "DIAG.h"
 
 // Fixed path on the SD card for a pending ESP32 firmware image. If present at
 // boot, it gets flashed via the Update library and deleted on success - same
@@ -1060,20 +1061,75 @@ void check_ip_file_retry() {
 }
 
 #define WIFI_CONNECT_TIMEOUT_MS 10000   // per-network timeout while trying candidates in turn
+#define WIFI_WEAK_RSSI          -75     // por debajo de esto se repite el escaneo buscando un punto de acceso mejor
+#define WIFI_SCAN_TRIES         3
 
-// Tries WiFi.begin(ssid, pass), waiting up to WIFI_CONNECT_TIMEOUT_MS. Returns
-// true if connected. On failure, disconnects cleanly before returning so the
-// next candidate starts from a clean state.
-bool try_connect(const char* ssid_try, const char* pass_try) {
-  Serial.print("Trying network: "); Serial.println(ssid_try);
-  WiFi.begin(ssid_try, pass_try);
+// Espera hasta WIFI_CONNECT_TIMEOUT_MS a que se conecte (un punto por cada 300 ms).
+static bool wait_wifi_connected() {
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
     delay(300);
     Serial.print(".");
   }
   Serial.println();
-  if (WiFi.status() == WL_CONNECTED) return true;
+  return WiFi.status() == WL_CONNECTED;
+}
+
+// Tries WiFi.begin(ssid, pass), waiting up to WIFI_CONNECT_TIMEOUT_MS. Returns
+// true if connected. On failure, disconnects cleanly before returning so the
+// next candidate starts from a clean state.
+//
+// Con una malla (varios puntos de acceso con el mismo nombre) el escaneo que hace WiFi.begin por dentro se pierde alguna respuesta de vez en
+// cuando y el ESP32 acaba en el repetidor lejano (visto: 1 de cada 6 arranques, a -84 dBm con el bueno a -49). Por eso se escanea aqui
+// (hasta WIFI_SCAN_TRIES veces si lo mejor que se ve es flojo) y se conecta FIJANDO el BSSID del de mas senal. Si no se ve ninguno, o no conecta
+// con ese, se hace el WiFi.begin normal.
+bool try_connect(const char* ssid_try, const char* pass_try) {
+  Serial.print("Trying network: "); Serial.println(ssid_try);
+
+  uint8_t best_bssid[6] = {0};
+  int     best_rssi = -127, best_ch = 0;
+  bool    have_best = false;
+  for (int pass = 0; pass < WIFI_SCAN_TRIES && (!have_best || best_rssi < WIFI_WEAK_RSSI); pass++) {
+    int n = WiFi.scanNetworks(false, true);
+    int seen = 0;
+    for (int i = 0; i < n; i++) {
+      if (WiFi.SSID(i) != ssid_try) continue;
+      seen++;
+#if ESP_DIAG
+      Serial.printf("SCAN: %s canal=%d rssi=%d\n", WiFi.BSSIDstr(i).c_str(), (int)WiFi.channel(i), (int)WiFi.RSSI(i));
+#endif
+      if (!have_best || WiFi.RSSI(i) > best_rssi) {
+        const uint8_t* b = WiFi.BSSID(i);
+        if (b) { memcpy(best_bssid, b, 6); best_rssi = WiFi.RSSI(i); best_ch = WiFi.channel(i); have_best = true; }
+      }
+    }
+#if ESP_DIAG
+    Serial.printf("SCAN: %d redes en total, %d con el nombre %s\n", n, seen, ssid_try);
+#endif
+    WiFi.scanDelete();
+    sdlog_try_flush();   // el buzon del log es pequeno y en setup() nadie lo vuelca hasta loop(): sin esto se pierde lo que sigue
+  }
+
+  bool ok = false;
+  if (have_best) {
+    WiFi.begin(ssid_try, pass_try, best_ch, best_bssid);
+    ok = wait_wifi_connected();
+    if (!ok) {
+      Serial.println("No conecta con el punto de acceso elegido: pruebo sin fijar");
+      WiFi.disconnect();
+    }
+  }
+  if (!ok) {
+    WiFi.begin(ssid_try, pass_try);
+    ok = wait_wifi_connected();
+  }
+#if ESP_DIAG
+  if (ok) {
+    Serial.printf("SCAN: conectado a %s canal=%d rssi=%d\n", WiFi.BSSIDstr().c_str(), (int)WiFi.channel(), (int)WiFi.RSSI());
+    sdlog_try_flush();
+  }
+#endif
+  if (ok) return true;
   WiFi.disconnect(true);
   return false;
 }
@@ -1126,6 +1182,11 @@ void setup() {
   // no reset yet" without extra logic).
   Serial.println("STEP3: connecting to WiFi");
   WiFi.mode(WIFI_STA);
+  // Con una malla de repetidores (mismo nombre de red en varios puntos de acceso) el ESP32 se engancha por defecto al PRIMERO que encuentra,
+  // no al de mejor senal: con el WiFi.begin normal una vez salio a -85/-94 dBm cuando el bueno daba -45. Asi escanea todos los canales
+  // y elige el de mas senal. (Arduino-ESP32 2.x)
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
   bool connected = false;
 
   while (!connected) {
@@ -1158,6 +1219,16 @@ void setup() {
   server.on("/download", HTTP_GET, handleDownload);
   server.on("/proxy", HTTP_GET, handleProxyDownload);
   server.on("/logo.png", HTTP_GET, handleLogo);
+#if ESP_DIAG
+  server.on("/diag", HTTP_GET, []() {   // el historial del diagnostico (DIAG.h), sin pasar por la SD
+    char* tmp = (char*)malloc(DIAG_RING + 1);
+    if (!tmp) { server.send(500, "text/plain", "sin memoria"); return; }
+    size_t n = diag_read(tmp, DIAG_RING);
+    tmp[n] = 0;
+    server.send(200, "text/plain; charset=utf-8", tmp);
+    free(tmp);
+  });
+#endif
   server.on("/ntp", HTTP_GET, handleNtpPage);
   server.on("/ntp/save", HTTP_POST, handleNtpSave);
   server.on("/ntp/sync", HTTP_POST, handleNtpSyncNow);
@@ -1248,11 +1319,16 @@ void check_wifi_reconnect() {
 }
 
 void loop() {
-  server.handleClient();
-  check_ntp_sync_flag();
-  check_ntp_retry();
-  check_wifi_reconnect();
-  check_ip_file_retry();
+  DIAG_TIMED(DG_WEB, server.handleClient());
+  {
+    DIAG_T0();
+    check_ntp_sync_flag();
+    check_ntp_retry();
+    check_wifi_reconnect();
+    check_ip_file_retry();
+    DIAG_SEC(DG_NTPWIFI);
+  }
   net_bridge_loop();
-  sdlog_try_flush();
+  DIAG_TIMED(DG_SDLOG, sdlog_try_flush());
+  DIAG_LOOP();
 }

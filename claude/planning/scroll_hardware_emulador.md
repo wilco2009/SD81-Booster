@@ -17,7 +17,7 @@ Los puntos 1 a 6 de «Pendiente» están hechos (marcados abajo con ✅). Lo que
 - **No hecho (es del firmware, no del emulador):** ampliar `SCROLL` y el comando de la consola del depurador del MCU (`mcu/DEBUGGER.cpp`) con los registros
   nuevos. El emulador **sí** guarda y restaura sus propias instantáneas con una línea nueva `SCROLLY` (fino Y, fila superior, fila inferior; ver 3). Las
   instantáneas hechas por el depurador del hardware, mientras no los incluyan, pierden el fino Y al restaurarse.
-- **Motor vertical (órdenes 3 y 4):** ya está en la FPGA (fase 3, 2026-10-26); en el emulador **falta**: ver el apartado 7.
+- **Motor vertical (órdenes 3 y 4):** ya está en la FPGA (fase 3, 2026-10-26) y ✅ **implementado en el emulador (27/10/2026)**: ver el apartado 7.
 
 ## Lo que el emulador ya tiene
 
@@ -129,7 +129,7 @@ La FPGA lo hace en `scroll_motor.v` / `scroll_sync.v` / `sim_int.v` 0.20 (detall
   | Spectrum | `{y[7:6],y[2:0],y[5:3],c}` / `$1B00+y` / `$1C00+y` | `$1800+r*32+c` / `$1BC0+r` / `$1CC0+r` (siempre, haya o no color) |
 
   Sin efecto si no es HiRes ni Spectrum (texto, o sin Superfast). Con el color apagado en HiRes **no se mueven atributos**.
-- Búferes de la izquierda y de arriba: ya listados arriba. Las órdenes 3 y 4 (vertical) llegarán con la fase 3.
+- Búferes de la izquierda y de arriba: ya listados arriba. Las órdenes 3 y 4 (vertical): apartado 7.
 - El protocolo del programa (orden con el fino en 7 o en 0; al acabar, fino a 0 o a 7 y relleno del búfer de entrada) lo ejercita `EXAMPLES/SCROLLM`; su arnés
   `claude/mqtttest/test_z80scrollm.cpp` tiene un modelo en C++ del motor y del ocupado que se puede portar tal cual.
 
@@ -149,6 +149,8 @@ La FPGA lo hace en `scroll_motor.v` / `scroll_sync.v` / `sim_int.v` 0.20 (detall
 Anotado en `manual_pendiente.md` (sección «Scroll por hardware»). El emulador es una de las tres cosas que hay que mantener iguales (FPGA, emulador, manual).
 
 ### 7. Motor vertical (fase 3, escrito en la FPGA el 2026-10-26, probado en ModelSim; sin sintetizar ni probar en la placa)
+
+✅ **Hecho en el emulador (27/10/2026):** `ScrollAddr::VerticalMove` en `scroll_addr.h` (nodos `L,m0..m31,R` de cada fila, de `T` y de `B`; copia solo donde existen los dos nodos, por pares y en el orden de este apartado; atributos de Spectrum, de HiRes modo 0 y de HiRes modo 1 con `B` = fila 24), llamado desde `ScrollMotorRun()` para las órdenes 3 y 4 (región por los registros 10 y 11, sin máscara de filas). Probado en `tools/test_scroll_addr.cpp` (filas, `T`/`B` e ida y vuelta, bitmap de HiRes y de Spectrum con regiones variadas); los atributos y el programa `SCROLLM` (Q / A) **sin probar todavía** en el emulador ni en la placa.
 
 Órdenes del registro 9: **3 = arriba** (el contenido sube: cada fila toma la de debajo, entra por abajo) y **4 = abajo** (el contenido baja, entra por arriba). Todo lo demás
 (pendiente / ocupado, arranque en la línea 254, el bloque HFILE, sin efecto en texto ni sin Superfast, orden ignorada con el motor ocupado) es igual que en el horizontal.

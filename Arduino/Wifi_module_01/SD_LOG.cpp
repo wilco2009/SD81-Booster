@@ -1,6 +1,7 @@
 #define SD_LOG_IMPLEMENTATION
 #include "SD_LOG.h"
 #include "WIFI_CLIENT.h"
+#include "DIAG.h"
 
 #define SD_LOG_PATH            "/SYS/ESP32LOG.TXT"
 // DEBE caber en un unico WRITE_CHUNK - wifi_client_write_chunk() tiene un
@@ -83,6 +84,7 @@ void sdlog_try_flush() {
 }
 
 void sdlog_close() {
+  DIAG_FLUSH();             // las medidas de DIAG.cpp (si estan compiladas) tambien se guardan antes de reiniciar
   g_last_flush_attempt = 0; // fuerza el volcado aunque no haya pasado SD_LOG_FLUSH_MS
   sdlog_try_flush();
   if (g_handle_open) {
@@ -90,4 +92,22 @@ void sdlog_close() {
     wifi_client_write_close(g_handle, &total);
     g_handle_open = false;
   }
+}
+
+bool sdlog_write_big(const uint8_t* data, size_t len) {
+  if (!g_handle_open) {
+    if (!wifi_client_write_open(SD_LOG_PATH, &g_handle)) return false;
+    g_handle_open = true;
+  }
+  if (g_buf_len > 0) {                       // lo pendiente del buzon pequeno va antes, para no desordenar el log
+    if (!wifi_client_write_chunk(g_handle, g_buf, g_buf_len)) return false;
+    g_buf_len = 0;
+  }
+  while (len > 0) {
+    uint16_t n = len > SD_LOG_BUF_SIZE ? SD_LOG_BUF_SIZE : (uint16_t)len;
+    if (!wifi_client_write_chunk(g_handle, data, n)) return false;
+    data += n; len -= n;
+  }
+  wifi_client_write_sync(g_handle);
+  return true;
 }

@@ -222,6 +222,19 @@ Sin sintetizar del todo ni probado en la placa (SCROLLT para Spectrum y SCROLLH 
   Las direcciones de los búferes de arriba y de abajo están en `scroll_hardware_emulador.md`, apartado 7 (para el manual: una tabla de los bufers por modo). Ejemplo: `EXAMPLES/SCROLLM` (Q y A; diagonales con P y O).
 - **Avisos:** con doble buffer, los atributos de HiRes no pasan por el doble buffer (solo el bitmap). Cuidado con el bloque de 8 KB: los búferes ocupan lo que antes sobraba.
 
+## Modo de 256 colores 160x100 (rama `fpga-mode160`, 27/10/2026)
+
+Sintetizado, sin probar en la placa (ver `pdm_color.md` y `EXAMPLES/MODE160`). Entrada nueva en «Vídeo», y en las tablas de POKEs:
+
+- **Qué es:** `POKE 2045,175`: 160x100 píxeles, un byte por píxel (índice de una paleta de 256 entradas de 16 bits), 16.000 bytes desde `HFILE` (bloque de 8 KB, usar 0-6); cada fila sale en dos líneas de TV.
+  Cada color son cuatro densidades de pulsos 0-15 (R, G, B y BRIGHT, a 208 MHz) que la red de resistencias de la SCART convierte en niveles intermedios: más de 16 colores a la vez.
+- **Paleta:** `POKE 2063,n` (puntero), `POKE 2064,lo` (`{G,B}`) y `POKE 2065,hi` (`{BRIGHT,R}`: escribe y avanza). Sin cargarla, RGB 3-3-2 sin brillo. Los 16 colores de Chroma81 caben exactos (`pal160.py`, fila 7).
+- **Posición:** `POKE 2099,n` (0-15), un paso = 1/3 de píxel. El borde sale del puerto `$7FEF` como en Chroma.
+- **Límites:** sin sprites, scroll fino ni motor, y sin blit / doble buffer en este modo; con la red actual de la placa (BRIGHT común a los tres canales) un color solo es alcanzable si su canal más alto menos el más bajo no pasa de 0,455 V
+  (el máximo de un primario brillante es (1, 0,36, 0,36)). Los pines de vídeo pasan a `SLEW = FAST` en todos los modos.
+- **Visor de fotos (`EXAMPLES/PHOTO`, 27/10/2026):** `png2i16.py` convierte PNG de 160x100 (hasta 256 colores, solo biblioteca estándar) a `IMGnnn.I16` (`I160` + 512 bytes de paleta + 16.000 píxeles) y `PHOTO.BIN` los muestra
+  (N siguiente, B anterior, ESPACIO sale; salta los huecos y da la vuelta). Para el manual: el formato `.I16` y el uso del conversor. Probado en el PC (Z80 + MCU simulado), sin probar en la placa.
+
 ## Cómo se toca
 
 Flujo docx primero con la skill `docx` (no Opus), en ES y EN a la vez, y regenerar los `.md` que

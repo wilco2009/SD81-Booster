@@ -16,7 +16,9 @@
 ;  - Graficos: sprites por hardware (Apendice H): 4 palas de hasta 4 sprites (0-15) y la bola (16).
 ;  - Teclas: Q / 7 = subir, A / 6 = bajar, P = ping, X = salir, ENTER = otra partida (el creador, cuando acaba).
 ;
-;  Mensaje (cada fotograma, los dos igual, 15 bytes): [1][fr][mi pala][sello del otro][edad][flags][tantos izq][tantos der][partida][golpes: contador][golpes seguidos]
+;  El tiempo: FRAMES ($4034, un VSYNC cada 20 ms). Cada vuelta da tantos pasos de fisica como VSYNC hayan pasado (hasta MAX_STEPS) y espera al siguiente; los mensajes
+;  salen cuando cambia algo y, si no, cada SEND_TICKS VSYNC.
+;  Mensaje (los dos igual, 15 bytes): [1][fr][mi pala][sello del otro][edad][flags][tantos izq][tantos der][partida][golpes: contador][golpes seguidos]
 ;  [bola x][bola y][vx][vy]. El contador de golpes sube con cada golpe, cada rebote en una pared de hockey y cada saque del que lo manda.
 ;
 ;  Memoria:   $4400-$7FFF el programa;  $8800- pantalla de texto del lobby;  $9000-$9750 variables;  $A000-$BAFF la pantalla grafica
@@ -88,6 +90,10 @@ P_DBGON     equ PG_BASE+89      ; 1 = la fila de diagnostico (fila 1) esta pinta
 P_RXN       equ PG_BASE+90      ; (2) mensajes del rival que han llegado (0-9999)
 P_ACN       equ PG_BASE+92      ; (2) los que han pasado los filtros (el resto, viejos o de otra partida)
 P_DBG       equ PG_BASE+94      ; (16) texto de diagnostico
+P_TL        equ PG_BASE+120     ; (2) el FRAMES que vi al empezar esta vuelta
+P_NT        equ PG_BASE+122     ; pasos de fisica que quedan por dar en esta vuelta
+P_TX        equ PG_BASE+123     ; VSYNC desde el ultimo mensaje que mande (tope 255)
+P_LSN       equ PG_BASE+124     ; (6) lo ultimo que mande: mi pala, flags, tantos izquierda y derecha, partida, golpes
 DW_R        equ PG_BASE+82      ; (variables de trabajo del dibujo y de la fisica)
 DW_J        equ PG_BASE+83
 DW_X        equ PG_BASE+84
@@ -109,7 +115,10 @@ SPR_COL     equ 2105
 
 WIN_SCORE   equ 15
 SERVE_TO_LOSER equ 1            ; 1 = saca el que ha perdido el tanto (la bola va hacia el); 0 = el que lo ha marcado
-FRDLY       equ 1950            ; la pausa fija de cada fotograma (vueltas de 26 T): el trabajo + esto = ~20 ms
+FRAMES      equ 4034h           ; el contador de VSYNC de la FPGA (Superfast): baja en 1 cada 20 ms, a 50 Hz exactos
+MAX_STEPS   equ 4               ; pasos de fisica como mucho por vuelta (si la vuelta tarda mas, la bola va algo mas despacio, no se lanza de golpe)
+SEND_TICKS  equ 3               ; sin cambios que contar, un mensaje cada 3 VSYNC (60 ms) para que el otro siga mi bola y sepa que sigo aqui
+WAIT_MAX    equ 2000            ; vueltas de espera del VSYNC como mucho (~30 ms, a 48 T cada una): por si FRAMES no corre, que no se cuelgue
 SPR_BALL    equ 16              ; el sprite de la bola; las palas, del 0 al 15: (jugador * 2 + pala) * 4 + trozo
 
             org  17408
@@ -256,6 +265,7 @@ pp_1:       ld   e,(hl)
 practice:   ld   a,1
             ld   (SP_LOCAL),a
             call pg_init
+            call pg_tinit
             jp   pg_loop
 
 ; ---------------------------------------------------------------------
@@ -277,17 +287,23 @@ pl_ok:      call cfg_from_code      ; el juego y las opciones: de la primera let
             xor  a
             ld   (SP_LOCAL),a
             call pg_init
-pg_loop:    ld   hl,P_FR
-            inc  (hl)
-            call pg_keys
-            jp   c,pg_quit
+            call pg_tinit
+; Una vuelta = los VSYNC que han pasado desde la anterior (1, o mas si la vuelta se alargo): la fisica, las teclas y la pala del rival dan tantos pasos
+; como VSYNC (hasta MAX_STEPS), asi la bola va a la misma velocidad en las dos maquinas aunque la red o el STM32 alarguen una vuelta; se dibuja una vez
+; y se espera al siguiente VSYNC. P_FR cuenta VSYNC de verdad (los sellos, el ping y los plazos van en 20 ms).
+pg_loop:    call pg_tick
             call pg_pkey
+pl_step:    call pg_keys
+            jp   c,pg_quit
             call pg_osm
             call pg_phys
+            ld   hl,P_NT
+            dec  (hl)
+            jr   nz,pl_step
             call pg_net
             call pg_draw
             call pg_dbg
-            call pg_delay
+            call pg_wait
             jr   pg_loop
 
 pg_quit:    call pg_sprites_off
@@ -353,11 +369,59 @@ pdb_on:     ld   a,1
             ld   bc,1*256+0
             jp   gprint_at
 
-pg_delay:   ld   bc,FRDLY
-pd_lp:      dec  bc
+; --- el tiempo: FRAMES ($4034) baja con cada VSYNC (Superfast, 50 Hz) ---
+pg_tinit:   ld   hl,(FRAMES)
+            ld   (P_TL),hl
+            ld   a,255              ; el primer mensaje, enseguida
+            ld   (P_TX),a
+            ret
+
+; los VSYNC desde la vuelta anterior: P_FR avanza ese tiempo (hasta 50), P_NT = los pasos de fisica (1 a MAX_STEPS), P_TX acumula
+pg_tick:    ld   hl,(FRAMES)
+            ld   de,(P_TL)
+            ld   (P_TL),hl
+            ex   de,hl              ; HL = el de antes, DE = el de ahora
+            or   a
+            sbc  hl,de              ; FRAMES baja: antes - ahora = VSYNC transcurridos
+            ld   a,h
+            or   a
+            ld   a,50
+            jr   nz,pt_1            ; mas de 255: tope
+            ld   a,l
+            or   a
+            jr   nz,pt_0
+            inc  a                  ; 0: FRAMES no se mueve (parado): cuenta uno
+pt_0:       cp   51
+            jr   c,pt_1
+            ld   a,50
+pt_1:       ld   b,a                ; B = tiempo real transcurrido
+            ld   hl,P_FR
+            add  a,(hl)
+            ld   (hl),a
+            ld   hl,P_TX
+            ld   a,(hl)
+            add  a,b
+            jr   nc,pt_tx
+            ld   a,255
+pt_tx:      ld   (hl),a
             ld   a,b
-            or   c
-            jr   nz,pd_lp
+            cp   MAX_STEPS+1
+            jr   c,pt_st
+            ld   a,MAX_STEPS
+pt_st:      ld   (P_NT),a
+            ret
+
+; espera al siguiente VSYNC (si la vuelta ya duro mas de uno, no espera nada); acotada por si FRAMES no corre
+pg_wait:    ld   a,(P_TL)
+            ld   b,a
+            ld   de,WAIT_MAX
+pw_l:       ld   a,(FRAMES)
+            cp   b
+            ret  nz
+            dec  de
+            ld   a,d
+            or   e
+            jr   nz,pw_l
             ret
 
 ; la primera letra del codigo de la sala (ASCII, en V_CODE) es el indice (0-31) de la tabla de letras: eso es la configuracion (Practice no va por la red: Tennis)
@@ -1254,7 +1318,7 @@ pg_net:     ld   a,(P_LOCAL)
             xor  a
             ld   (P_SIL),a
             ret
-pn_net:     call pg_send
+pn_net:     call pg_send_if
             call nq_pump
 pn_get:     call nq_get
             or   a
@@ -1268,6 +1332,54 @@ pn_done:    ld   hl,P_SIL           ; cuantos fotogramas llevo sin oir al rival
             inc  (hl)
             ret
 
+; manda mi estado si ha cambiado algo (mi pala, los flags, los tantos, la partida o un golpe, rebote o saque: el contador) o, si no, cada SEND_TICKS VSYNC
+pg_send_if: ld   a,(P_TX)
+            cp   SEND_TICKS
+            jr   nc,ps_go
+            ld   hl,P_LSN
+            ld   a,(P_MY)
+            cp   (hl)
+            jr   nz,ps_go
+            inc  hl
+            ld   a,(P_FLAGS)
+            cp   (hl)
+            jr   nz,ps_go
+            inc  hl
+            ld   a,(P_SL)
+            cp   (hl)
+            jr   nz,ps_go
+            inc  hl
+            ld   a,(P_SR)
+            cp   (hl)
+            jr   nz,ps_go
+            inc  hl
+            ld   a,(P_GEN)
+            cp   (hl)
+            jr   nz,ps_go
+            inc  hl
+            ld   a,(P_HC)
+            cp   (hl)
+            ret  z
+ps_go:      xor  a
+            ld   (P_TX),a
+            ld   hl,P_LSN
+            ld   a,(P_MY)
+            ld   (hl),a
+            inc  hl
+            ld   a,(P_FLAGS)
+            ld   (hl),a
+            inc  hl
+            ld   a,(P_SL)
+            ld   (hl),a
+            inc  hl
+            ld   a,(P_SR)
+            ld   (hl),a
+            inc  hl
+            ld   a,(P_GEN)
+            ld   (hl),a
+            inc  hl
+            ld   a,(P_HC)
+            ld   (hl),a
 pg_send:    ld   hl,P_BUF
             ld   (hl),1
             inc  hl

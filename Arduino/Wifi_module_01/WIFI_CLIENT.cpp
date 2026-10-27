@@ -1,4 +1,5 @@
 #include "WIFI_CLIENT.h"
+#include "DIAG.h"
 
 #define STM32_SERIAL           Serial1
 #define STM32_RX_PIN           4
@@ -7,6 +8,14 @@
 #define WIFI_CLIENT_BYTE_TIMEOUT_MS      300
 #define WIFI_CLIENT_SOF_SEARCH_TIMEOUT_MS 500   // limite TOTAL buscando el SOF, no por-byte
 #define WIFI_CLIENT_MAX_RETRIES          3
+// Esperas de NET_POLL (de momento iguales a las de las demas ordenes). NO BAJARLAS SOLAS: probado el 20/10/2026 con 60/150 ms y empeora. El STM32,
+// ante una trama truncada, sigue esperando los bytes que faltan hasta WIFI_FRAME_TIMEOUT_MS (200 ms); si el ESP32 reintenta antes, la peticion nueva
+// se la traga como si fuera la continuacion de la rota, sale con el CRC malo y contesta CMD_FRAME_ERROR, y asi en cadena (rafagas de
+// intentos=3 ok=0 frame_error=1). Ademas el STM32 a veces tarda mas de 50 ms en contestar de verdad (se vio una respuesta a los 59 ms).
+// Para acortar la perdida de una trama hay que bajar a la vez WIFI_FRAME_TIMEOUT_MS del STM32 (a ~20 ms; los bytes de una trama llegan
+// seguidos) y entonces poner aqui ~100 ms.
+#define WIFI_CLIENT_POLL_BYTE_TIMEOUT_MS  WIFI_CLIENT_BYTE_TIMEOUT_MS
+#define WIFI_CLIENT_POLL_SOF_TIMEOUT_MS   WIFI_CLIENT_SOF_SEARCH_TIMEOUT_MS
 
 void wifi_client_init() {
   STM32_SERIAL.begin(STM32_BAUD, SERIAL_8N1, STM32_RX_PIN, STM32_TX_PIN);
@@ -20,39 +29,39 @@ static int wifi_read_byte(uint32_t timeout_ms) {
   return STM32_SERIAL.read();
 }
 
-static bool wifi_client_read_frame_raw(WifiProtoResp* out) {
+static bool wifi_client_read_frame_raw(WifiProtoResp* out, uint32_t byte_ms, uint32_t sof_total_ms) {
   // Busca el SOF con un limite de tiempo TOTAL (no solo por-byte): si llegara
   // ruido continuo que nunca coincide con WIFI_PROTO_SOF, un timeout por-byte
   // solo no bastaria para salir de este bucle.
   uint32_t sof_search_start = millis();
   int b;
   do {
-    if (millis() - sof_search_start > WIFI_CLIENT_SOF_SEARCH_TIMEOUT_MS) return false;
-    b = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
-    if (b < 0) return false;
+    if (millis() - sof_search_start > sof_total_ms) { DIAG_FAIL(1); return false; }   // 1: ni un SOF en 500 ms
+    b = wifi_read_byte(byte_ms);
+    if (b < 0) { DIAG_FAIL(2); return false; }                                                            // 2: silencio
   } while (b != WIFI_PROTO_SOF);
 
-  int cmd    = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
-  int len_lo = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
-  int len_hi = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
-  if (cmd < 0 || len_lo < 0 || len_hi < 0) return false;
+  int cmd    = wifi_read_byte(byte_ms);
+  int len_lo = wifi_read_byte(byte_ms);
+  int len_hi = wifi_read_byte(byte_ms);
+  if (cmd < 0 || len_lo < 0 || len_hi < 0) { DIAG_FAIL(3); return false; }                               // 3: cabecera cortada
 
   uint16_t len = (uint16_t)len_lo | ((uint16_t)len_hi << 8);
-  if (len > WIFI_PROTO_MAX_FRAME_PAYLOAD) return false;
+  if (len > WIFI_PROTO_MAX_FRAME_PAYLOAD) { DIAG_FAIL(4); return false; }                                // 4: longitud absurda
 
   static uint8_t crcbuf[3 + WIFI_PROTO_MAX_FRAME_PAYLOAD];
   crcbuf[0] = (uint8_t)cmd;
   crcbuf[1] = (uint8_t)len_lo;
   crcbuf[2] = (uint8_t)len_hi;
   for (uint16_t i = 0; i < len; i++) {
-    int bb = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
-    if (bb < 0) return false;
+    int bb = wifi_read_byte(byte_ms);
+    if (bb < 0) { DIAG_FAIL(5); return false; }                                                          // 5: falta un byte de los datos
     crcbuf[3 + i] = (uint8_t)bb;
   }
 
-  int crc_byte = wifi_read_byte(WIFI_CLIENT_BYTE_TIMEOUT_MS);
-  if (crc_byte < 0) return false;
-  if ((uint8_t)crc_byte != wifi_proto_crc8(crcbuf, 3 + len)) return false;
+  int crc_byte = wifi_read_byte(byte_ms);
+  if (crc_byte < 0) { DIAG_FAIL(6); return false; }                                                      // 6: falta el CRC
+  if ((uint8_t)crc_byte != wifi_proto_crc8(crcbuf, 3 + len)) { DIAG_FAIL(7); return false; }             // 7: CRC malo
 
   out->raw_cmd = (uint8_t)cmd;
   memcpy(out->payload, &crcbuf[3], len);
@@ -72,18 +81,49 @@ WifiProtoResp wifi_client_request(uint8_t cmd, const uint8_t* payload, uint16_t 
   if (len > 0) memcpy(&buf[3], payload, len);
   uint8_t crc = wifi_proto_crc8(buf, 3 + len);
 
+  const bool quick = (cmd == CMD_NET_POLL);
+  const uint32_t byte_ms = quick ? WIFI_CLIENT_POLL_BYTE_TIMEOUT_MS : WIFI_CLIENT_BYTE_TIMEOUT_MS;
+  const uint32_t sof_ms  = quick ? WIFI_CLIENT_POLL_SOF_TIMEOUT_MS : WIFI_CLIENT_SOF_SEARCH_TIMEOUT_MS;
+  DIAG_FAIL(0);           // el motivo de la primera perdida se queda aunque el reintento salga bien
+
+#if ESP_DIAG
+  uint32_t diag_t0 = millis(); uint8_t diag_ferr = 0, diag_ajenas = 0, diag_tries = 0;
+#endif
   for (int attempt = 0; attempt < WIFI_CLIENT_MAX_RETRIES; attempt++) {
+#if ESP_DIAG
+    diag_tries++;
+#endif
     while (STM32_SERIAL.available()) STM32_SERIAL.read();   // limpia basura antes de mandar
 
     STM32_SERIAL.write(WIFI_PROTO_SOF);
     STM32_SERIAL.write(buf, 3 + len);
     STM32_SERIAL.write(crc);
 
-    if (!wifi_client_read_frame_raw(&resp)) continue;        // timeout -> reintenta
-    if (resp.raw_cmd == CMD_FRAME_ERROR) continue;            // CRC mal en el STM32 -> reintenta
+    // El STM32 responde siempre con el mismo CMD que recibio, y las tramas no
+    // llevan numero de peticion: si tardo mas que el timeout y se reintento, la
+    // respuesta tardia de la peticion anterior (otro CMD, CRC correcto) llegaria
+    // aqui como si fuera la de esta. Las de otro CMD se descartan.
+    bool got = false;
+    for (int stale = 0; stale < 4; stale++) {
+      if (!wifi_client_read_frame_raw(&resp, byte_ms, sof_ms)) break;          // timeout -> reintenta
+#if ESP_DIAG
+      if (resp.raw_cmd == CMD_FRAME_ERROR) diag_ferr++; else if (resp.raw_cmd != cmd) diag_ajenas++;
+#endif
+      if (resp.raw_cmd == CMD_FRAME_ERROR) break;             // CRC mal en el STM32 -> reintenta
+      if (resp.raw_cmd != cmd) continue;                      // respuesta tardia de otra peticion
+      got = true;
+      break;
+    }
+    if (!got) continue;
     resp.ok = true;
+#if ESP_DIAG
+    diag_req(cmd, diag_tries, millis() - diag_t0, true, diag_ferr, diag_ajenas);
+#endif
     return resp;
   }
+#if ESP_DIAG
+  diag_req(cmd, diag_tries, millis() - diag_t0, false, diag_ferr, diag_ajenas);
+#endif
   return resp;   // ok=false, se agotaron los reintentos
 }
 
@@ -117,6 +157,7 @@ bool wifi_client_list_dir(const char* path, void (*on_entry)(const WifiDirEntry&
     uint16_t pos = 3;
     for (uint8_t i = 0; i < count; i++) {
       uint8_t name_len = r.payload[pos++];
+      if ((uint32_t)pos + name_len + 5 > r.len) return false;   // entrada truncada o trama incoherente
       WifiDirEntry e;
       uint8_t n = name_len < sizeof(e.name) - 1 ? name_len : sizeof(e.name) - 1;
       memcpy(e.name, &r.payload[pos], n); e.name[n] = 0;
@@ -174,8 +215,11 @@ bool wifi_client_read_chunk(uint8_t handle, uint32_t offset, uint8_t* buf, uint1
   req[0] = handle;
   memcpy(&req[1], &offset, 4);
   WifiProtoResp r = wifi_client_request(CMD_READ_CHUNK, req, 5);
-  if (!r.ok || r.len < 3 || r.payload[0] != ST_OK) return false;
+  if (!r.ok || r.len < 4 || r.payload[0] != ST_OK) return false;
   uint16_t dlen; memcpy(&dlen, &r.payload[1], 2);
+  // dlen viene de la trama: se comprueba contra la trama (datos + byte de eof) y
+  // contra el buffer del llamador (todos son de WIFI_PROTO_CHUNK_SIZE).
+  if (dlen > WIFI_PROTO_CHUNK_SIZE || (uint32_t)dlen + 4 > r.len) return false;
   memcpy(buf, &r.payload[3], dlen);
   *out_len = dlen;
   *out_eof = r.payload[3 + dlen] != 0;

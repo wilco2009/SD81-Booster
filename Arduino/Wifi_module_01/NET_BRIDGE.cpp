@@ -1,4 +1,5 @@
 #include "NET_BRIDGE.h"
+#include "DIAG.h"
 #include "NET_MQTT.h"
 #include "WIFI_CLIENT.h"
 #include "WIFI_PROTOCOL.h"
@@ -389,7 +390,7 @@ uint16_t    net_bridge_port()  { return port_num; }
 void net_bridge_loop() {
   at_check_escape_timeout();     // vencimiento del guard time de "+++", no depende de que llegue nada
   raw_check_timeout();
-  net_mqtt_loop();               // atiende el socket MQTT, el ping y la reconexion
+  DIAG_TIMED(DG_MQTT, net_mqtt_loop());   // atiende el socket MQTT, el ping y la reconexion
 
   uint32_t now = millis();
   bool active = (state == NET_ST_CONNECTED || net_mqtt_active() || raw_done);
@@ -444,8 +445,11 @@ void net_bridge_loop() {
   bool     accepted;
   uint16_t from_z80_len;
   uint8_t  rxbuf[WIFI_PROTO_NET_CHUNK];
-  if (!wifi_client_net_poll(state, pending, pending_len, &accepted,
-                            rxbuf, &from_z80_len, &rx_free_chunks)) {
+  DIAG_T0();
+  bool poll_ok = wifi_client_net_poll(state, pending, pending_len, &accepted,
+                                      rxbuf, &from_z80_len, &rx_free_chunks);
+  DIAG_SEC(DG_POLL);
+  if (!poll_ok) {
     return;   // fallo de transporte: se reintenta lo mismo en la proxima vuelta
   }
   bool moved = (accepted && pending_len > 0) || from_z80_len > 0;   // viajaron datos en algun sentido

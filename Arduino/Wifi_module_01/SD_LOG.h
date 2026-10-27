@@ -33,6 +33,10 @@ void sdlog_try_flush();
 // ESP.restart() para dejar el fichero bien finalizado.
 void sdlog_close();
 
+// Escribe un bloque grande (varios WRITE_CHUNK seguidos y un WRITE_SYNC) por el fichero del log, conservando el orden con lo
+// que haya pendiente en su buzon pequeno. Lo usa DIAG.cpp para volcar sus medidas. Devuelve false si el STM32 no contesta.
+bool sdlog_write_big(const uint8_t* data, size_t len);
+
 #ifndef SD_LOG_IMPLEMENTATION
 #define Serial SDLog
 #endif

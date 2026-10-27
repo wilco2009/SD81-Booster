@@ -219,6 +219,8 @@ module SD81(
 	//              80*7 = 70*8, asi que los dos ocupan el mismo ancho fisico
 	//              y comparten la calibracion de SCR_START_X_80/shift/trim.
 	reg sf80_en = 1'b0;
+	// Modo 160x100 a 8 bpp con paleta y PDM (POKE 2045,175): usa la temporizacion de 80 columnas (sf80_en = 1)
+	reg sf160_en = 1'b0;
 	reg sf80_char7 = 1'b0;
 	// Colgado de sf80_en para que al salir del modo ancho por cualquier via
 	// (reset u otro POKE 2045) no haga falta apagar sf80_char7 en cada rama.
@@ -543,6 +545,7 @@ Port $7FEF (01111111 11101111) - IN:
 			sfHR_en <= 1'b0;
 			sfSP_en <= 1'b0;
 			sf80_en <= 1'b0;
+			sf160_en <= 1'b0;
 			block0Writable <= 1'b0;		// reset: bloque 0 protegido (ROM)
 			wrx_en <= 1'b0;
 		end else if (poke_wr) begin
@@ -567,18 +570,21 @@ Port $7FEF (01111111 11101111) - IN:
 				sfHR_en <= 1'b0;
 				sfSP_en <= 1'b0;
 				sf80_en <= 1'b0;
+				sf160_en <= 1'b0;
 			end;
 			if ((Addr == 16'd2045) && (data==8'd171)) begin
 				sfast_mode_en <= 1'b1;
 				sfHR_en <= 1'b1;
 				sfSP_en <= 1'b0;
 				sf80_en <= 1'b0;
+				sf160_en <= 1'b0;
 			end
 			if ((Addr == 16'd2045) && (data==8'd172)) begin
 				sfast_mode_en <= 1'b1;
 				sfSP_en <= 1'b1;
 				sfHR_en <= 1'b0;
 				sf80_en <= 1'b0;
+				sf160_en <= 1'b0;
 			end
 			// POKE 2045,173 -> PRUEBA: super fast texto ancho, 70 columnas
 			// de 8 pixeles
@@ -587,6 +593,7 @@ Port $7FEF (01111111 11101111) - IN:
 				sfHR_en <= 1'b0;
 				sfSP_en <= 1'b0;
 				sf80_en <= 1'b1;
+				sf160_en <= 1'b0;
 				sf80_char7 <= 1'b0;
 			end
 			// POKE 2045,174 -> PRUEBA: super fast texto ancho, 80 columnas
@@ -597,13 +604,24 @@ Port $7FEF (01111111 11101111) - IN:
 				sfHR_en <= 1'b0;
 				sfSP_en <= 1'b0;
 				sf80_en <= 1'b1;
+				sf160_en <= 1'b0;
 				sf80_char7 <= 1'b1;
+			end
+			// POKE 2045,175 -> super fast 160x100 a 8 bpp (mode160.v): 256 colores con paleta y PDM
+			if ((Addr == 16'd2045) && (data==8'd175)) begin
+				sfast_mode_en <= 1'b1;
+				sfHR_en <= 1'b0;
+				sfSP_en <= 1'b0;
+				sf80_en <= 1'b1;
+				sf80_char7 <= 1'b0;
+				sf160_en <= 1'b1;
 			end
 			if ((Addr == 16'd2045) && (data==8'd85)) begin
 				sfast_mode_en <= 1'b0;
 				sfHR_en <= 1'b0;
 				sfSP_en <= 1'b0;
 				sf80_en <= 1'b0;
+				sf160_en <= 1'b0;
 				sf80_char7 <= 1'b0;
 			end
 			if (Addr == 16'd2046) border_ink <= data[3:0];
@@ -643,6 +661,19 @@ Port $7FEF (01111111 11101111) - IN:
 	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) sf80_x_shift <= 4'd0;
 		else if (sf80_x_shift_wr) sf80_x_shift <= data[3:0];
+	end
+
+	// POKE 2063 / 2064 / 2065: paleta del modo 160x100 (mode160.v): puntero, byte bajo {G,B} y byte alto {BRIGHT,R}
+	// (este ultimo escribe la entrada y avanza el puntero)
+	wire pal_idx_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2063);
+	wire pal_lo_wr  = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2064);
+	wire pal_hi_wr  = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2065);
+	// POKE 2099 (0-15): posicion horizontal de la imagen del modo 160x100, en ciclos de 13 MHz (3 por pixel); por defecto 8
+	reg [3:0] m160_xadj = 4'd8;
+	wire m160_xadj_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2099);
+	always @(negedge iclock or negedge nRESET) begin
+		if (nRESET==1'b0) m160_xadj <= 4'd8;
+		else if (m160_xadj_wr) m160_xadj <= data[3:0];
 	end
 
 	// POKE 2095 (0-15): recorta el ANCHO activo en caracteres (80-N), por
@@ -912,6 +943,7 @@ Port $7FEF (01111111 11101111) - IN:
 	reg [15:0] ROMTABLE = 16'h1c00;
 	wire [7:0] v_dout;
 	reg [15:0] v_addr;
+	wire [15:0] v_addr_160;		// direccion del modo 160x100 (mode160.v)
 
 	// Motor de sprites por linea: lee la tabla de la sombra por el puerto B
 	// entre el sincronismo horizontal y el pixel 120 (el video empieza en el
@@ -1056,7 +1088,7 @@ Port $7FEF (01111111 11101111) - IN:
 		.douta(shadowram_dout),
 		.clkb(system_clk),
 		.web(1'b0),						// channel only for read
-		.addrb(spr_ev_rd ? spr_ev_raddr : (blit_run ? blit_raddr : (mot_run ? mot_addr : v_addr))),	// sprites (borde horizontal) o blit / motor de scroll (blanking) o video
+		.addrb(spr_ev_rd ? spr_ev_raddr : (blit_run ? blit_raddr : (mot_run ? mot_addr : (sf160_en ? v_addr_160 : v_addr)))),	// sprites (borde horizontal) o blit / motor de scroll (blanking) o video
 		.doutb(v_dout)
 	);
 
@@ -1810,10 +1842,20 @@ assign DEBUG_RDY = 1'b0;
 //	wire cbright = ~video;
 
 	wire ncsync = ~vsync&~hsync&~backporch;
-	assign VRED = color_enable? cred &ncsync: video&ncsync;
-	assign VGREEN = color_enable? cgreen&ncsync: video&ncsync;
-	assign VBLUE = color_enable? cblue&ncsync: video&ncsync;
-	assign BRIGHT = color_enable? cbright&ncsync:1'b0&ncsync;
+	// Modo 160x100 a 8 bpp: los cuatro pines salen de mode160 (PDM a 104 MHz); en los demas modos, como siempre
+	wire m160_r, m160_g, m160_b, m160_w;
+	mode160 mode160_inst (
+		.clk(system_clk), .clk104(CLK104), .rst(~nRESET), .en(sf160_en),
+		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(SCR_START_X_80 + 10'd36 + {6'b0,m160_xadj}), .base_blk(HFILE[15:13]),
+		.v_dout(v_dout), .v_addr(v_addr_160),
+		.wclk(iclock), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .wdata(data),
+		.blank_n(ncsync), .border(border_color),
+		.vred(m160_r), .vgreen(m160_g), .vblue(m160_b), .vbright(m160_w),
+		.img_on_o(), .idx_cur_o(), .lvl_o());
+	assign VRED = sf160_en ? m160_r : color_enable? cred &ncsync: video&ncsync;
+	assign VGREEN = sf160_en ? m160_g : color_enable? cgreen&ncsync: video&ncsync;
+	assign VBLUE = sf160_en ? m160_b : color_enable? cblue&ncsync: video&ncsync;
+	assign BRIGHT = sf160_en ? m160_w : color_enable? cbright&ncsync:1'b0&ncsync;
 	
 	assign CSYNC = luminance;
 /********************************************/

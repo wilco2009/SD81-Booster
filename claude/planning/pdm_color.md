@@ -75,6 +75,28 @@ Por superposición, la tensión de un canal es `V = 0,455 · d + 0,261 · b` (d 
 - Una herramienta que convierta una imagen a 160x100 con paleta propia (necesita Pillow, que no está instalado): `pal160.py` ya tiene el `solve` de RGB a las 4 densidades.
 - El manual: ver `manual_pendiente.md`.
 
+## Paleta de 16 colores para los modos normales (27/10/2026)
+
+Misma salida PDM, pero para el texto, HiRes, Spectrum, sprites y borde: el color de 4 bits `{BRIGHT,G,R,B}` que sale del camino normal (`cbright`, `cgreen`, `cred`, `cblue` en `SD81.v`, ya con
+sprites) indexa una tabla de 16 entradas con el mismo formato que la de 256 (cuatro densidades 0-15). Desactivada, los pines salen del camino digital de siempre: los colores por defecto.
+
+| Dirección | Función |
+|---|---|
+| `POKE 2063,n` | puntero (el mismo de la paleta de 256; para la de 16 cuentan los 4 bits bajos) |
+| `POKE 2064,lo` | byte bajo `{G,B}` (el mismo registro) |
+| `POKE 2066,hi` | byte alto `{BRIGHT,R}`: escribe `pal16[puntero & 15]` y el puntero avanza |
+| `POKE 2067,1` / `2067,0` | activa / desactiva la paleta de 16 (solo cuenta con el color encendido, `$7FEF` bit 5; al reset, desactivada) |
+
+- La tabla arranca con los colores digitales de Chroma (cada canal a 0 o 15, BRIGHT a 0 o 15): activarla sin cargar nada no cambia lo que se ve. Los valores se conservan al desactivarla.
+- Las dos paletas no se pisan: 2065 solo escribe la de 256 y 2066 solo la de 16. Con el modo 160x100 activo manda la de 256 (`use16 = pal16_en & ~en`).
+- Va dentro de `mode160.v` (comparte los modulados PDM): `lvl16 <= pal16[c4]` a 26 MHz, y en `s1` se elige `lvl16` (con la imagen siempre "encendida") o `lvl`. Coste: una RAM distribuida de 16x16 y un multiplexor.
+  El retardo de unos 4 ciclos de 208 MHz (20 ns, un 13 % de un píxel de 6,5 MHz) lo comparte el borrado, que pasa por el mismo camino.
+- Como el camino de 4 bits se muestrea a 26 MHz, un píxel de HiRes (6,5 MHz) son 4 muestras: no hay problema; las transiciones salen igual de limpias.
+- Sintetizada: LUTs 3.889 (67 %), slices 1.272 (88 %), todas las restricciones cumplidas. `tb_mode160.v` (fase 6) y `claude/mqtttest/build_colortest.sh` pasan; 4 de 4 errores puestos a propósito detectados
+  (sin `use16 |` en la imagen, puntero de 3 bits, orden de bits de `c4` cruzado, la de 16 sin ceder al modo 160).
+- Ejemplo: `EXAMPLES/COLORTEST` (tecla P recorre rampas de gris, rojo, verde, azul, amarillo, cian y magenta y luego desactiva, `gen_pal16.py` -> `pal16.inc`).
+- Límites: es la misma red analógica, así que un color solo es alcanzable si su canal más alto menos el más bajo no pasa de 0,455 V; los primarios brillantes saturados se aproximan.
+
 ## Pruebas
 
 - `tb_mode160.v` (`vlog mode160.v tb_mode160.v; vsim -c tb_mode160 -do "run -all; quit"`): paleta por defecto y cargada (con autoincremento y vuelta), geometría (32.000 píxeles por cuadro,

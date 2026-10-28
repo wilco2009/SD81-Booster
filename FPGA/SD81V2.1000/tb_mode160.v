@@ -15,6 +15,9 @@
 //   - la densidad de pulsos de cada pin sobre un color constante (n/15 de R, G, B y BRIGHT)
 //   - el borde (4 bits de Chroma) fuera de la ventana y el borrado a 0 en sincronismos y back porch
 //   - que apagar el modo (en = 0) lo para y lo vuelve a arrancar limpio
+//   - la paleta de 16 colores (en = 0, pal16_en = 1): por defecto reproduce los pines digitales de Chroma, la carga
+//     (2063 / 2064 / 2066, con autoincremento y vuelta modulo 16), que no toca la de 256 ni al reves, la densidad de
+//     pulsos de cada pin, el borrado en los sincronismos, que apagarla deja de sacar c4, y que el modo 160 manda si los dos estan activos
 //////////////////////////////////////////////////////////////////////////////////
 module tb_mode160;
 
@@ -55,23 +58,26 @@ module tb_mode160;
 	reg [2:0] base_blk = 3'd4;
 	localparam [9:0] XS = 10'd246;
 	reg [3:0] border = 4'b1010;				// bright, G, R, B = 1,0,1,0 -> R = bit1, G = bit2, B = bit0, BRIGHT = bit3
-	reg pal_idx_wr = 1'b0, pal_lo_wr = 1'b0, pal_hi_wr = 1'b0;
+	reg pal_idx_wr = 1'b0, pal_lo_wr = 1'b0, pal_hi_wr = 1'b0, pal16_hi_wr = 1'b0;
+	reg pal16_en = 1'b0;
+	reg [3:0] c4 = 4'd0;
 	reg [7:0] wdata = 8'd0;
 	wire vred, vgreen, vblue, vbright;
 	wire img_on;
 	wire [7:0] idx_cur;
 	wire [15:0] lvl;
+	wire [15:0] lvl16;
 	mode160 dut (
 		.clk(clk), .clk104(clk104), .rst(rst), .en(en),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
-		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .wdata(wdata),
-		.blank_n(ncsync), .border(border),
+		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),
+		.blank_n(ncsync), .border(border), .pal16_en(pal16_en), .c4(c4),
 		.vred(vred), .vgreen(vgreen), .vblue(vblue), .vbright(vbright),
-		.img_on_o(img_on), .idx_cur_o(idx_cur), .lvl_o(lvl));
+		.img_on_o(img_on), .idx_cur_o(idx_cur), .lvl_o(lvl), .lvl16_o(lvl16));
 
 	// ---- POKEs de la paleta: un pulso de un ciclo de iclock alrededor de su flanco de bajada ----
-	task poke;			// which: 0 = 2063 (puntero), 1 = 2064 (bajo), 2 = 2065 (alto)
+	task poke;			// which: 0 = 2063 (puntero), 1 = 2064 (bajo), 2 = 2065 (alto de la de 256), 3 = 2066 (alto de la de 16)
 		input [1:0] which;
 		input [7:0] v;
 		begin
@@ -81,9 +87,10 @@ module tb_mode160;
 			pal_idx_wr = (which == 2'd0);
 			pal_lo_wr = (which == 2'd1);
 			pal_hi_wr = (which == 2'd2);
+			pal16_hi_wr = (which == 2'd3);
 			@(negedge iclk);
 			#3;
-			pal_idx_wr = 1'b0; pal_lo_wr = 1'b0; pal_hi_wr = 1'b0;
+			pal_idx_wr = 1'b0; pal_lo_wr = 1'b0; pal_hi_wr = 1'b0; pal16_hi_wr = 1'b0;
 		end
 	endtask
 
@@ -201,6 +208,26 @@ module tb_mode160;
 	end
 
 	integer i, f, lastline;
+	// ---- paleta de 16: modelo y comprobacion de los pines con la tabla de fabrica ----
+	reg [15:0] pal16_model [0:15];
+	reg pat_en = 1'b0;							// c4 cambia con cnt26 (cada 128 ciclos, 4,9 us: dentro de la linea)
+	reg pins16 = 1'b0;							// comprueba pines (fabrica si pat_en, borrado en sincronismos siempre)
+	integer pat_checks = 0;
+	initial for (i = 0; i < 16; i = i + 1)
+		pal16_model[i] = {(i[3] ? 4'd15 : 4'd0), (i[1] ? 4'd15 : 4'd0), (i[2] ? 4'd15 : 4'd0), (i[0] ? 4'd15 : 4'd0)};
+	always @(posedge clk) if (pat_en) c4 <= cnt26[10:7];
+	always @(posedge clk104) if (pins16) begin
+		// con la tabla de fabrica y c4 cambiando cada 128 ciclos: en mitad del tramo estable salen los bits de c4 sin tocar
+		if (pat_en && cnt26[6:0] >= 7'd20 && cnt26[6:0] < 7'd100 && line_cnt >= 20 && pixel_cnt > 200 && pixel_cnt < 800) begin
+			pat_checks = pat_checks + 1;
+			check({vbright, vgreen, vred, vblue} === {c4[3], c4[2], c4[1], c4[0]}, "pal16 de fabrica: los pines son los bits de c4");
+		end
+		if (line_cnt >= 20 && pixel_cnt > 30 && pixel_cnt < 150)
+			check({vbright, vgreen, vred, vblue} === 4'b0000, "pal16: borrado en el sincronismo");
+		if (line_cnt < 8 && pixel_cnt > 200 && pixel_cnt < 700)
+			check({vbright, vgreen, vred, vblue} === 4'b0000, "pal16: borrado en el vsync");
+	end
+
 	reg [15:0] ent;
 	reg [7:0] hi8, lo8;
 	integer dB, dW, tol;
@@ -309,6 +336,127 @@ module tb_mode160;
 		wait (line_cnt == 9'd290);
 		wait (line_cnt == 9'd5 && pixel_cnt > 10'd300);
 		check(imgpix == 160 * 200, "pixeles tras reencender");
+
+		// ---- 6. paleta de 16 colores (en = 0, pal16_en = 1) ----
+		en = 1'b0;
+		geom_en = 1'b0;
+		pins_en = 1'b0;
+		border = 4'b1010;
+		repeat (2000) @(posedge clk);
+		errors_before = errors;
+		// 6a. sin activar, c4 no sale: solo el borde
+		c4 = 4'b1111;
+		wait (line_cnt == 9'd30 && pixel_cnt == 10'd400);
+		repeat (200) @(posedge clk104);
+		check({vbright, vgreen, vred, vblue} === {border[3], border[2], border[1], border[0]}, "pal16 apagada: sale el borde, no c4");
+		// 6b. activada, con la tabla de fabrica: los pines digitales de Chroma, para los 16 colores y con cambios dentro de la linea
+		pal16_en = 1'b1;
+		pat_en = 1'b1;
+		wait (line_cnt == 9'd30 && pixel_cnt == 10'd400);
+		pins16 = 1'b1;
+		wait (line_cnt == 9'd60);
+		pins16 = 1'b0;
+		pat_en = 1'b0;
+		check(pat_checks > 1000, "pal16 de fabrica: se comprobaron los pines");
+		$display("pal16 de fabrica: %0d comprobaciones de pines, %0d errores", pat_checks, errors - errors_before);
+		// 6c. carga con el puntero y autoincremento por 2066: 16 entradas, y una vuelta mas
+		poke(2'd0, 8'd0);
+		for (i = 0; i < 16; i = i + 1) begin
+			hi8 = i * 13 + 5;
+			lo8 = i * 31 + 9;
+			pal16_model[i] = {hi8, lo8};
+			poke(2'd1, lo8);
+			poke(2'd3, hi8);
+		end
+		poke(2'd1, 8'h33);
+		poke(2'd3, 8'h44);
+		pal16_model[0] = 16'h4433;
+		poke(2'd0, 8'd14);						// vuelta modulo 16: 14, 15, 0
+		poke(2'd1, 8'h51); poke(2'd3, 8'h62);
+		poke(2'd1, 8'h73); poke(2'd3, 8'h84);
+		poke(2'd1, 8'h95); poke(2'd3, 8'hA6);
+		pal16_model[14] = 16'h6251;
+		pal16_model[15] = 16'h8473;
+		pal16_model[0] = 16'hA695;
+		for (i = 0; i < 16; i = i + 1) begin
+			c4 = i;
+			repeat (4) @(posedge clk);
+			check(lvl16 === pal16_model[i], "pal16: nivel de cada entrada");
+		end
+		// 6d. la de 16 no toca la de 256 y al reves
+		poke(2'd0, 8'd3);
+		poke(2'd1, 8'hEE); poke(2'd2, 8'hDD);		// pal[3] = DDEE
+		c4 = 4'd3; repeat (4) @(posedge clk);
+		check(lvl16 === pal16_model[3], "pal16: una escritura en la de 256 no la cambia");
+		poke(2'd0, 8'd130);
+		poke(2'd1, 8'h12); poke(2'd3, 8'h34);			// pal16[130 & 15 = 2] = 3412
+		pal16_model[2] = 16'h3412;
+		c4 = 4'd2; repeat (4) @(posedge clk);
+		check(lvl16 === pal16_model[2], "pal16: el puntero usa solo los 4 bits bajos");
+		check(dut.pal[130] === pal_model[130], "pal256: una escritura en la de 16 no la cambia");
+		check(dut.pal[3] === 16'hDDEE, "pal256: su escritura entra");
+		pal_model[3] = 16'hDDEE;
+		// 6e. densidad de cada pin con la entrada 5 = {BRIGHT 6, R 15, G 0, B 8} y la entrada 9 = {BRIGHT 15, R 3, G 15, B 0}
+		poke(2'd0, 8'd5);
+		poke(2'd1, 8'h08); poke(2'd3, 8'h6F);
+		poke(2'd1, 8'h00); poke(2'd3, 8'hF3);			// entrada 6, no se usa
+		poke(2'd0, 8'd9);
+		poke(2'd1, 8'hF0); poke(2'd3, 8'hF3);
+		c4 = 4'd5;
+		wait (line_cnt == 9'd100 && pixel_cnt == 10'd300);
+		repeat (50) @(posedge clk104);
+		slots = 0; hr = 0; hg = 0; hb = 0; hw = 0;
+		meas = 1'b1;
+		repeat (3000) @(posedge clk104);
+		meas = 1'b0;
+		$display("pal16 densidad c4 = 5: %0d ranuras: R %0d G %0d B %0d W %0d", slots, hr, hg, hb, hw);
+		tol = 2 * 15;
+		check(hr >= slots - 2, "pal16 densidad R = 15/15");
+		check(hg == 0, "pal16 densidad G = 0");
+		dB = hb * 15 - slots * 8; dW = hw * 15 - slots * 6;
+		check(dB <= tol && -dB <= tol, "pal16 densidad B = 8/15");
+		check(dW <= tol && -dW <= tol, "pal16 densidad BRIGHT = 6/15");
+		c4 = 4'd9;
+		wait (line_cnt == 9'd101 && pixel_cnt == 10'd300);
+		repeat (50) @(posedge clk104);
+		slots = 0; hr = 0; hg = 0; hb = 0; hw = 0;
+		meas = 1'b1;
+		repeat (3000) @(posedge clk104);
+		meas = 1'b0;
+		dB = hr * 15 - slots * 3;
+		check(dB <= tol && -dB <= tol, "pal16 densidad R = 3/15 (entrada 9)");
+		check(hg >= slots - 2 && hw >= slots - 2 && hb == 0, "pal16 entrada 9: G y BRIGHT a 15/15, B a 0");
+		// 6f. borrado: en el sincronismo todo a 0 aunque c4 sea blanco brillante
+		c4 = 4'b1111;
+		poke(2'd0, 8'd15);
+		poke(2'd1, 8'hFF); poke(2'd3, 8'hFF);
+		pal16_model[15] = 16'hFFFF;
+		pins16 = 1'b1;
+		wait (line_cnt == 9'd140);
+		pins16 = 1'b0;
+		// 6g. con el modo 160 encendido y la de 16 tambien, manda el 160 (el borde y la imagen, no c4)
+		en = 1'b1;
+		geom_en = 1'b1;
+		pins_en = 1'b1;
+		use_def = 1'b0;
+		border = 4'b0110;
+		base_blk = 3'd4;
+		wait (line_cnt == 9'd290);
+		wait (line_cnt == 9'd5 && pixel_cnt > 10'd300);
+		imgpix = 0;
+		wait (line_cnt == 9'd290);
+		wait (line_cnt == 9'd5 && pixel_cnt > 10'd300);
+		check(imgpix == 160 * 200, "modo 160 con pal16 activa: la imagen sigue entera");
+		check(dut.use16 === 1'b0, "modo 160 anula la de 16");
+		en = 1'b0; geom_en = 1'b0; pins_en = 1'b0;
+		// 6h. desactivarla: vuelve a salir solo el borde
+		pal16_en = 1'b0;
+		repeat (2000) @(posedge clk);
+		c4 = 4'b1111;
+		wait (line_cnt == 9'd30 && pixel_cnt == 10'd400);
+		repeat (200) @(posedge clk104);
+		check({vbright, vgreen, vred, vblue} === {border[3], border[2], border[1], border[0]}, "pal16 apagada de nuevo: sale el borde");
+		$display("paleta de 16: %0d errores", errors - errors_before);
 
 		$display("-----");
 		$display("%0d comprobaciones, %0d errores", checks, errors);

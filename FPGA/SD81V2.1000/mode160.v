@@ -13,6 +13,11 @@
 //  - Salida: un modulador de densidad de pulsos de primer orden por pin (VRED, VGREEN, VBLUE, BRIGHT), a 208 MHz
 //    (CLK104: el nombre es historico, el DCM de CLK100 da 208 MHz), de forma que la red de resistencias y el televisor dan niveles intermedios (ver claude/planning/pdm_color.md).
 //    Fuera de la ventana sale el color del borde (los 4 bits de Chroma), y en el borrado todo a 0.
+//  - Paleta de 16 colores para los demas modos (texto, HiRes, Spectrum, sprites, borde): tabla de 16 entradas, indexada por el
+//    color de 4 bits {BRIGHT,G,R,B} que sale del camino normal (c4) y con el mismo formato de entrada que la de 256. Se carga con
+//    2063 (puntero, 4 bits), 2064 (byte bajo) y 2066 (byte alto: escribe y avanza). pal16_en la activa (POKE 2067,1); desactivada, el
+//    camino normal sigue saliendo por los pines sin tocar (colores por defecto). La tabla arranca con los colores digitales de Chroma
+//    (0 o 15 en cada canal), de modo que activarla sin cargar nada no cambia nada.
 //
 // El motor lee la sombra por el puerto B (v_addr), un byte por pixel, con un pixel de adelanto.
 module mode160 (
@@ -31,9 +36,12 @@ module mode160 (
 	input pal_idx_wr,
 	input pal_lo_wr,
 	input pal_hi_wr,
+	input pal16_hi_wr,			// byte alto de la paleta de 16 (escribe pal16[pal_idx[3:0]] y avanza el puntero)
 	input [7:0] wdata,
 	input blank_n,				// 0 durante sincronismos y back porch
 	input [3:0] border,			// color del borde: {bright,G,R,B} (formato Chroma)
+	input pal16_en,				// paleta de 16 colores activa (solo cuenta si en = 0)
+	input [3:0] c4,				// color de 4 bits del camino normal: {bright,G,R,B}
 	output reg vred,
 	output reg vgreen,
 	output reg vblue,
@@ -41,7 +49,8 @@ module mode160 (
 	// observacion (banco de pruebas)
 	output img_on_o,
 	output [7:0] idx_cur_o,
-	output [15:0] lvl_o
+	output [15:0] lvl_o,
+	output [15:0] lvl16_o
 );
 	localparam [8:0] Y0 = 9'd58;				// primera linea de la imagen (centrada en 62..253)
 	localparam [8:0] LINES = 9'd200;
@@ -63,10 +72,18 @@ module mode160 (
 	integer k;
 	initial for (k = 0; k < 256; k = k + 1) pal[k] = def_entry(k[7:0]);
 
+	// Paleta de 16: por defecto, los colores digitales de Chroma (cada canal a 0 o 15, BRIGHT a 0 o 15)
+	reg [15:0] pal16 [0:15];
+	integer k16;
+	initial for (k16 = 0; k16 < 16; k16 = k16 + 1)
+		pal16[k16] = {(k16[3] ? 4'd15 : 4'd0), (k16[1] ? 4'd15 : 4'd0), (k16[2] ? 4'd15 : 4'd0), (k16[0] ? 4'd15 : 4'd0)};
+
 	reg [7:0] pal_idx = 8'd0;
 	reg [7:0] pal_lo = 8'd0;
-	always @(negedge wclk)
+	always @(negedge wclk) begin
 		if (pal_hi_wr) pal[pal_idx] <= {wdata, pal_lo};
+		if (pal16_hi_wr) pal16[pal_idx[3:0]] <= {wdata, pal_lo};
+	end
 	always @(negedge wclk or posedge rst) begin
 		if (rst) begin
 			pal_idx <= 8'd0;
@@ -74,7 +91,7 @@ module mode160 (
 		end else begin
 			if (pal_idx_wr) pal_idx <= wdata;
 			if (pal_lo_wr) pal_lo <= wdata;
-			if (pal_hi_wr) pal_idx <= pal_idx + 8'd1;
+			if (pal_hi_wr | pal16_hi_wr) pal_idx <= pal_idx + 8'd1;
 		end
 	end
 
@@ -93,6 +110,7 @@ module mode160 (
 	reg img_v = 1'b0;						// img_on retrasado un ciclo: el que viaja con lvl a la salida
 	reg ev_d = 1'b0;
 	reg [15:0] lvl = 16'd0;
+	reg [15:0] lvl16 = 16'd0;				// color del camino normal pasado por pal16
 
 	wire [8:0] ly = line_cnt - Y0;
 	wire in_y = (line_cnt >= Y0) && (line_cnt < Y0 + LINES);
@@ -150,6 +168,7 @@ module mode160 (
 		end
 		if (ev_d) lvl <= pal[idx_cur];
 		img_v <= img_on;
+		lvl16 <= pal16[c4];
 	end
 
 	// img_on sube un ciclo de clk antes de que lvl tome el nivel del pixel (idx_cur -> ev_d -> lvl): sin este retardo,
@@ -157,18 +176,21 @@ module mode160 (
 	assign img_on_o = img_v;
 	assign idx_cur_o = idx_cur;
 	assign lvl_o = lvl;
+	assign lvl16_o = lvl16;
 
 	// ---------------- paso a 208 MHz y modulacion ----------------
 	reg blank_r = 1'b0;
 	reg [3:0] border_r = 4'd0;
+	reg use16 = 1'b0;						// paleta de 16 activa (y no estamos en el modo 160)
 	always @(posedge clk) begin
 		blank_r <= blank_n;
 		border_r <= border;
+		use16 <= pal16_en & ~en;
 	end
 	reg [21:0] s1 = 22'd0;
 	reg [21:0] s2 = 22'd0;
 	always @(posedge clk104) begin
-		s1 <= {lvl, img_v, blank_r, border_r};
+		s1 <= {use16 ? lvl16 : lvl, use16 | img_v, blank_r, border_r};
 		s2 <= s1;
 	end
 	wire [3:0] lev_bright = s2[21:18];

@@ -114,6 +114,7 @@ extern FsFile TmpFile;
 extern FsFile f_handle[4];
 extern bool f_opened[4];
 extern char f_path[4][MAX_FILENAME_LEN];   // la ruta de cada uno (para los snapshots)
+void f_handle_close(uint8_t i);            // cierra el handle i, real o virtual (COMMANDS.cpp)
 
 extern const char asc_to_asc81 [];
 

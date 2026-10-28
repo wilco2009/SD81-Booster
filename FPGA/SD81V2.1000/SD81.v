@@ -668,6 +668,15 @@ Port $7FEF (01111111 11101111) - IN:
 	wire pal_idx_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2063);
 	wire pal_lo_wr  = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2064);
 	wire pal_hi_wr  = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2065);
+	// POKE 2066,hi: byte alto de la paleta de 16 colores (modos que no son el 160x100): escribe pal16[puntero] y avanza el puntero
+	// (usa el puntero 2063 y el byte bajo 2064 de la de 256). POKE 2067,1 / 0: paleta de 16 activa / desactivada (colores por defecto)
+	wire pal16_hi_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2066);
+	wire pal16_en_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2067);
+	reg pal16_en = 1'b0;
+	always @(negedge iclock or negedge nRESET) begin
+		if (nRESET==1'b0) pal16_en <= 1'b0;
+		else if (pal16_en_wr) pal16_en <= data[0];
+	end
 	// POKE 2099 (0-15): posicion horizontal de la imagen del modo 160x100, en ciclos de 13 MHz (3 por pixel); por defecto 8
 	reg [3:0] m160_xadj = 4'd8;
 	wire m160_xadj_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2099);
@@ -1844,18 +1853,20 @@ assign DEBUG_RDY = 1'b0;
 	wire ncsync = ~vsync&~hsync&~backporch;
 	// Modo 160x100 a 8 bpp: los cuatro pines salen de mode160 (PDM a 104 MHz); en los demas modos, como siempre
 	wire m160_r, m160_g, m160_b, m160_w;
+	wire pal16_use = pal16_en & color_enable;			// la paleta de 16 solo cuenta con el color encendido
 	mode160 mode160_inst (
 		.clk(system_clk), .clk104(CLK104), .rst(~nRESET), .en(sf160_en),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(SCR_START_X_80 + 10'd36 + {6'b0,m160_xadj}), .base_blk(HFILE[15:13]),
 		.v_dout(v_dout), .v_addr(v_addr_160),
-		.wclk(iclock), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .wdata(data),
-		.blank_n(ncsync), .border(border_color),
+		.wclk(iclock), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .pal16_hi_wr(pal16_hi_wr), .wdata(data),
+		.blank_n(ncsync), .border(border_color), .pal16_en(pal16_use), .c4({cbright, cgreen, cred, cblue}),
 		.vred(m160_r), .vgreen(m160_g), .vblue(m160_b), .vbright(m160_w),
-		.img_on_o(), .idx_cur_o(), .lvl_o());
-	assign VRED = sf160_en ? m160_r : color_enable? cred &ncsync: video&ncsync;
-	assign VGREEN = sf160_en ? m160_g : color_enable? cgreen&ncsync: video&ncsync;
-	assign VBLUE = sf160_en ? m160_b : color_enable? cblue&ncsync: video&ncsync;
-	assign BRIGHT = sf160_en ? m160_w : color_enable? cbright&ncsync:1'b0&ncsync;
+		.img_on_o(), .idx_cur_o(), .lvl_o(), .lvl16_o());
+	wire m160_sel = sf160_en | pal16_use;				// salida de mode160: el modo 160x100 o la paleta de 16 colores
+	assign VRED = m160_sel ? m160_r : color_enable? cred &ncsync: video&ncsync;
+	assign VGREEN = m160_sel ? m160_g : color_enable? cgreen&ncsync: video&ncsync;
+	assign VBLUE = m160_sel ? m160_b : color_enable? cblue&ncsync: video&ncsync;
+	assign BRIGHT = m160_sel ? m160_w : color_enable? cbright&ncsync:1'b0&ncsync;
 	
 	assign CSYNC = luminance;
 /********************************************/

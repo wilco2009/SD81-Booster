@@ -76,6 +76,10 @@ Al abrir un archivo con 8/ENTER:
 - `.TXT` se abre en el visor de texto;
 - `.SCR` se enseña a pantalla completa (el visor pasa un momento a HiRes
   Spectrum y al volver reconstruye la pantalla de texto);
+- `.BMP` y `.I16` se enseñan a pantalla completa en el modo de 160x100 a 256 colores
+  (solo con la FPGA de la rama `fpga-mode160`): el explorador devuelve el nombre y el
+  stub BASIC lanza `IMGVIEW.BIN` (`EXAMPLES/IMGVIEW`); un BMP lo convierte el MCU al
+  abrirlo, y F cambia cómo se coloca;
 - `.VGM` y `.PEB` se cargan en el reproductor (T/Y/U en el panel);
 - cualquier otro se devuelve al BASIC.
 
@@ -113,8 +117,8 @@ de la ROM, el modo CHR elegido y el bloque 7 en su página) y vuelve con
 | N (1-255) | abrir el archivo de N caracteres |
 | N + 256 | editarlo (tecla E) |
 
-El stub BASIC (`SD Content/explorer/EXPLORER.B81`, y su `.P`) monta `F$`
-con el nombre y decide qué hacer según la extensión. Con la tecla E salta a
+El stub BASIC (`SD Content/explorer/EXPLORER.B81`, y su `.P`; el mismo programa va en
+`AUTOEXEC.P`) monta `F$` con el nombre y decide qué hacer según la extensión. Con la tecla E salta a
 la línea 2000, que carga `/EXPLORER/EDIT.BIN` en la misma dirección y lo
 arranca; el editor lee el nombre de `F$`. Al salir de cualquiera de los dos,
 `GOTO 10` vuelve al explorador.

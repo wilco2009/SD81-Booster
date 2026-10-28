@@ -3,8 +3,10 @@
 ;
 ; FPGA de la rama fpga-mode160 (POKE 2045,175; ver claude/planning/pdm_color.md). Solo funciona en la placa con esa FPGA.
 ;
-; Lee IMG001.I16, IMG002.I16... de la carpeta actual (los que genera png2i16.py) y los pone en pantalla.
+; Lee IMG001.I16, IMG002.I16... de la carpeta actual (los que genera png2i16.py o bmp2i16.py) y los pone en pantalla. Si falta el
+; IMGnnn.I16, prueba IMGnnn.BMP: el MCU lo convierte al abrirlo (comando 76: escala a 160x100 y reduce a 256 colores, tarda unos segundos).
 ;   N = la imagen siguiente   B = la anterior   ESPACIO = salir a BASIC
+;   F = cambia como se coloca un BMP y lo vuelve a cargar: estirado (llena la pantalla), con su proporcion (bandas negras) o recortado
 ; Si falta un numero, N / B saltan al siguiente que exista; si no hay otra imagen, se queda la actual.
 ;
 ; Formato .I16 (16.516 bytes): "I160", 512 bytes de paleta (byte bajo {G,B}, alto {BRIGHT,R}: tal cual para POKE 2064 / 2065)
@@ -41,6 +43,7 @@ start:          di
                 ld (2045),a             ; modo 160x100 a 8 bpp
                 xor a
                 ld (down),a
+                ld (fitmode),a
                 inc a
                 ld (cand),a
                 ld (picno),a
@@ -65,7 +68,11 @@ ml_key:         ld b,a
                 ld (down),a
                 bit 0,b
                 jr nz,exit
-                bit 3,b
+                bit 2,b
+                jr z,ml_n
+                call refit
+                jr main_loop
+ml_n:           bit 3,b
                 jr z,ml_b
                 call next
                 jr main_loop
@@ -78,12 +85,30 @@ exit:           ld a,85
                 ld bc,0
                 ret
 
-; teclado: A = bits 0 ESPACIO, 3 N, 4 B (1 = pulsada); Z si no hay ninguna
+; teclado: A = bits 0 ESPACIO, 3 N, 4 B, 2 F (1 = pulsada); Z si no hay ninguna
 scan:           ld a,$7F
                 in a,(254)
                 cpl
                 and $19
+                ld b,a
+                ld a,$FD
+                in a,(254)
+                cpl
+                and 8                   ; F = bit 3 de la fila A-G
+                rrca                    ; -> bit 2
+                or b
                 ret
+
+; F: la siguiente colocacion de los BMP y se vuelve a cargar la imagen actual (a un .I16 no le cambia nada)
+refit:          ld a,(fitmode)
+                inc a
+                cp 3
+                jr c,rf_ok
+                xor a
+rf_ok:          ld (fitmode),a
+                ld a,(picno)
+                ld (cand),a
+                jp try_load
 
 ; la imagen siguiente / anterior que exista (como mucho 255 intentos); Carry si no hay otra y entonces se queda la actual
 next:           ld d,1
@@ -109,12 +134,31 @@ st_ok:          ld a,(cand)
                 or a
                 ret
 
-; pone en pantalla IMGnnn.I16 con nnn = (cand). Carry si no se puede (no existe o no es un .I16) y entonces no se toca la pantalla
+; pone en pantalla IMGnnn.I16 con nnn = (cand), o IMGnnn.BMP si no hay .I16. Carry si no se puede (no existe, no es un .I16 o el BMP no
+; se convierte) y entonces no se toca la pantalla
 try_load:       call mk_name
+                ld hl,nm+7
+                ld (hl),'I'
+                inc hl
+                ld (hl),'1'
+                inc hl
+                ld (hl),'6'
                 ld hl,nm
                 call f_open
                 cp $FF
                 jr nz,tl_open
+                ld hl,nm+7              ; no hay .I16: IMGnnn.BMP
+                ld (hl),'B'
+                inc hl
+                ld (hl),'M'
+                inc hl
+                ld (hl),'P'
+                ld hl,nm
+                ld a,(fitmode)
+                ld e,a
+                call f_open_img
+                cp 4
+                jr c,tl_open
                 scf
                 ret
 tl_open:        ld (fh),a
@@ -195,6 +239,7 @@ nm:             defb "IMG000.I16",0
 magic:          defb "I160"
 down:           defb 0
 fh:             defb 0
+fitmode:        defb 0
 picno:          defb 0
 cand:           defb 0
 hdr:            defb 0,0,0,0

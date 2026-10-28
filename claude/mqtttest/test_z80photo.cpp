@@ -8,19 +8,24 @@
 //   - en esa instantanea la imagen en $8000 ya es la del fichero (bytes 516-16515)
 //   - el modo (POKE 2045,175) se enciende despues de la primera paleta negra y antes de la primera de verdad
 //   - N / B recorren los numeros que existen (saltan huecos y ficheros que no son .I16, y dan la vuelta), y ESPACIO sale con BC = 0
+//   - IMGnnn.BMP (si no hay IMGnnn.I16): el MCU simulado ejecuta el MISMO BMP.cpp del firmware (orden 76) y deja la imagen en un manejador virtual;
+//     F cambia la colocacion (0 estira, 1 conserva la proporcion, 2 recorta) y la recarga; un BMP que no se convierte se salta; no queda ninguna
+//     imagen virtual abierta ni se abre una con otra abierta
 //   - sin imagenes: sale solo, con BC = 1 y el modo apagado (POKE 2045,85)
 //   - no escribe fuera del programa, la imagen, la pila y los POKEs de configuracion
 // NO prueba la FPGA (tb_mode160.v) ni la placa.
 //
 //   ./build_photo.sh        (necesita g++/gcc, pasmo, python y el nucleo Z80 de EightyOne)
 //   test_z80photo photo.bin carpeta_SD secuencia teclas   (secuencia: numeros esperados de IMGnnn, por ejemplo 1,2,4,5,1,5, o "" = sin imagenes;
-//                                                          teclas: una por imagen tras la primera, N / B / S = ESPACIO, por ejemplo NNNNBS)
+//                                                          un BMP lleva su colocacion detras: 6:1; teclas: una por imagen tras la primera,
+//                                                          N / B / F / S = ESPACIO, por ejemplo NNNNBS)
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include "BMP.h"
 extern "C" {
 #include "z80.h"
 int tstates = 0;
@@ -47,7 +52,30 @@ static bool bad_write = false; static uint16_t bad_addr = 0;
 static uint16_t code_hi = 30000;
 static int poke_other = 0; static uint16_t poke_other_addr = 0;
 
-// ---- MCU simulado (ordenes 53 fopen, 55 fread, 57 fclose)
+// ---- BMP.cpp del firmware sobre un fichero
+class FileRd : public BmpReader {
+public:
+  explicit FileRd(FILE* f) : f_(f) { fseek(f_, 0, SEEK_END); size_ = (uint32_t)ftell(f_); fseek(f_, 0, SEEK_SET); }
+  uint32_t size() override { return size_; }
+  bool seek(uint32_t pos) override { return pos <= size_ && fseek(f_, (long)pos, SEEK_SET) == 0; }
+  int read(uint8_t* dst, int n) override { return (int)fread(dst, 1, (size_t)n, f_); }
+private:
+  FILE* f_; uint32_t size_;
+};
+static bool convert_bmp(const std::string& path, int fit, std::vector<uint8_t>& out) {
+  FILE* f = fopen(path.c_str(), "rb");
+  if (!f) return false;
+  out.assign(BMP_I16_SIZE, 0);
+  BmpWork* w = (BmpWork*)malloc(sizeof(BmpWork));
+  BmpError err;
+  FileRd rd(f);
+  bool ok = bmp_to_i16(rd, (uint8_t)fit, out.data(), *w, err);
+  free(w);
+  fclose(f);
+  return ok;
+}
+
+// ---- MCU simulado (ordenes 53 fopen, 55 fread, 57 fclose y 76 fopen de un BMP como .I16)
 static std::string sd_dir;
 static int mcu_clk = 0;
 static std::vector<uint8_t> mcu_out;
@@ -56,16 +84,40 @@ static FILE* mcu_files[8];
 static std::string mcu_name;
 static int mcu_cmd = -1, mcu_cnt = 0, mcu_nlen = 0, mcu_h = 0, mcu_n = 0;
 static int opens_ok = 0, opens_fail = 0;
+static std::vector<uint8_t> mcu_virt; static int mcu_virt_h = -1; static size_t mcu_virt_pos = 0;
+static int bmp_ok = 0, bmp_fail = 0, bmp_busy = 0, bmp_missing = 0; static int bmp_fit_hist[3] = {0, 0, 0};
+static int mcu_free_slot() { for (int i = 0; i < 4; i++) if (!mcu_files[i] && mcu_virt_h != i) return i; return -1; }
 static void mcu_byte(uint8_t b) {
   if (mcu_cmd < 0) { mcu_cmd = b; mcu_cnt = 0; mcu_name.clear(); mcu_nlen = 0; return; }
-  if (mcu_cmd == 53) {
+  if (mcu_cmd == 76) {
+    if (mcu_cnt == 0) { mcu_nlen = b; mcu_cnt = mcu_nlen ? 1 : 2; }
+    else if (mcu_cnt == 1) { mcu_name += (char)b; if ((int)mcu_name.size() == mcu_nlen) mcu_cnt = 2; }
+    else {
+      int fit = b, res;
+      int slot = mcu_free_slot();
+      if (mcu_virt_h >= 0) { res = 0xFC; bmp_busy++; }
+      else if (slot < 0) res = 0xFC;
+      else {
+        std::string path = sd_dir + "/" + mcu_name;
+        FILE* t = fopen(path.c_str(), "rb");
+        if (!t) { res = 0xFF; bmp_missing++; }
+        else {
+          fclose(t);
+          if (convert_bmp(path, fit, mcu_virt)) { mcu_virt_h = slot; mcu_virt_pos = 0; res = slot; bmp_ok++; if (fit >= 0 && fit < 3) bmp_fit_hist[fit]++; }
+          else { res = 0xFE; bmp_fail++; }
+        }
+      }
+      mcu_out.push_back((uint8_t)res);
+      mcu_cmd = -1;
+    }
+  } else if (mcu_cmd == 53) {
     if (mcu_cnt == 0) { mcu_nlen = b; mcu_cnt = 1; }
     else {
       mcu_name += (char)b;
       if ((int)mcu_name.size() == mcu_nlen) {
         FILE* f = fopen((sd_dir + "/" + mcu_name).c_str(), "rb");
         int h = 0xFF;
-        if (f) for (int i = 0; i < 8; i++) if (!mcu_files[i]) { mcu_files[i] = f; h = i; break; }
+        if (f) { int sl = mcu_free_slot(); if (sl >= 0) { mcu_files[sl] = f; h = sl; } else fclose(f); }
         if (h == 0xFF) opens_fail++; else opens_ok++;
         mcu_out.push_back((uint8_t)h);
         mcu_cmd = -1;
@@ -77,12 +129,16 @@ static void mcu_byte(uint8_t b) {
     else {
       mcu_n |= b << 8;
       FILE* f = mcu_files[mcu_h];
-      for (int i = 0; i < mcu_n; i++) { int c = f ? fgetc(f) : 0; mcu_out.push_back(c < 0 ? 0 : c); }
+      if (mcu_h == mcu_virt_h) {
+        for (int i = 0; i < mcu_n; i++) mcu_out.push_back(mcu_virt_pos < mcu_virt.size() ? mcu_virt[mcu_virt_pos++] : 0);
+      } else
+        for (int i = 0; i < mcu_n; i++) { int c = f ? fgetc(f) : 0; mcu_out.push_back(c < 0 ? 0 : c); }
       mcu_out.push_back(0);
       mcu_cmd = -1;
     }
   } else if (mcu_cmd == 57) {
     int h = b & 7;
+    if (h == mcu_virt_h) { mcu_virt_h = -1; mcu_virt.clear(); }
     if (mcu_files[h]) { fclose(mcu_files[h]); mcu_files[h] = nullptr; }
     mcu_out.push_back(0);
     mcu_cmd = -1;
@@ -139,9 +195,17 @@ BYTE z80_readport_wrapper(int port, int*) {
 }
 }
 
-static bool load_i16(int n, uint8_t* pal512, uint8_t* pix) {
+// la imagen que se espera de IMGnnn: el .I16 si existe y si no, el .BMP convertido con esa colocacion
+static bool load_i16(int n, int fit, uint8_t* pal512, uint8_t* pix) {
   char name[64]; snprintf(name, sizeof name, "%s/IMG%03d.I16", sd_dir.c_str(), n);
-  FILE* f = fopen(name, "rb"); if (!f) return false;
+  FILE* f = fopen(name, "rb");
+  if (!f) {
+    snprintf(name, sizeof name, "%s/IMG%03d.BMP", sd_dir.c_str(), n);
+    std::vector<uint8_t> v;
+    if (!convert_bmp(name, fit, v)) return false;
+    memcpy(pal512, v.data() + 4, 512); memcpy(pix, v.data() + 516, 16000);
+    return true;
+  }
   uint8_t hdr[4];
   bool ok = fread(hdr, 1, 4, f) == 4 && !memcmp(hdr, "I160", 4) && fread(pal512, 1, 512, f) == 512 && fread(pix, 1, 16000, f) == 16000;
   fclose(f); return ok;
@@ -150,8 +214,16 @@ static bool load_i16(int n, uint8_t* pal512, uint8_t* pix) {
 int main(int argc, char** argv) {
   if (argc < 3) { printf("uso: test_z80photo photo.bin carpeta_SD [secuencia]\n"); return 2; }
   sd_dir = argv[2];
-  std::vector<int> seq;
-  if (argc > 3) { char* s = argv[3]; while (*s) { seq.push_back(atoi(s)); while (*s && *s != ',') s++; if (*s == ',') s++; } }
+  std::vector<int> seq, seqfit;
+  if (argc > 3) {
+    char* s = argv[3];
+    while (*s) {
+      seq.push_back(atoi(s)); seqfit.push_back(0);
+      while (*s && *s != ',' && *s != ':') s++;
+      if (*s == ':') { s++; seqfit.back() = atoi(s); while (*s && *s != ',') s++; }
+      if (*s == ',') s++;
+    }
+  }
   FILE* f = fopen(argv[1], "rb");
   if (!f) { printf("no encuentro %s\n", argv[1]); return 2; }
   size_t sz = fread(mem + 30000, 1, 0x4000, f); fclose(f);
@@ -165,10 +237,11 @@ int main(int argc, char** argv) {
   z80.pc.w = 30000; z80.halted = 0; z80.iff1 = z80.iff2 = 0;
   z80.ix.w = 0x1234; z80.iy.w = 0x5678;
 
-  // teclas: tras cada imagen cargada (paleta de verdad terminada) se pulsa la siguiente: N = fila 7 bit 3, B = fila 7 bit 4, ESPACIO = fila 7 bit 0
-  std::vector<int> keyseq;
-  const char* kdesc = argc > 4 ? argv[4] : "";                 // por ejemplo "NNNNBS": N, B o S (ESPACIO), una por imagen tras la primera
-  for (size_t i = 0; kdesc[i]; i++) keyseq.push_back(kdesc[i] == 'N' ? 3 : kdesc[i] == 'B' ? 4 : 0);
+  // teclas: tras cada imagen cargada (paleta de verdad terminada) se pulsa la siguiente: N = fila 7 bit 3, B = fila 7 bit 4, ESPACIO = fila 7 bit 0,
+  // F = fila 1 bit 3
+  std::vector<int> keyseq;                                      // fila * 8 + bit
+  const char* kdesc = argc > 4 ? argv[4] : "";                 // por ejemplo "NNNNBS": N, B, F o S (ESPACIO), una por imagen tras la primera
+  for (size_t i = 0; kdesc[i]; i++) keyseq.push_back(kdesc[i] == 'N' ? 7 * 8 + 3 : kdesc[i] == 'B' ? 7 * 8 + 4 : kdesc[i] == 'F' ? 1 * 8 + 3 : 7 * 8 + 0);
   size_t next_key = 0; long press_from = -1, press_to = -1; int cur_bit = 0; size_t last_snaps = 0;
   long guard = 0;
   while (z80.pc.w != 0x0100) {
@@ -178,7 +251,7 @@ int main(int argc, char** argv) {
       if (last_snaps >= 3 && last_snaps % 2 == 1 && next_key < keyseq.size()) { press_from = instr_total + 3000; press_to = press_from + 4000; cur_bit = keyseq[next_key++]; }
     }
     memset(keyrows, 0, sizeof keyrows);
-    if (instr_total >= press_from && instr_total < press_to) keyrows[7] = (uint8_t)(1 << cur_bit);
+    if (instr_total >= press_from && instr_total < press_to) keyrows[cur_bit / 8] = (uint8_t)(1 << (cur_bit % 8));
     if (++guard > 2000000000L) { printf("ERROR: el Z80 no termina (PC=%04X)\n", z80.pc.w); return 1; }
   }
   bool done = (z80.pc.w == 0x0100);
@@ -210,7 +283,7 @@ int main(int argc, char** argv) {
     } else {                                                 // de verdad: la del fichero, con la imagen ya cargada
       uint8_t p512[512], pix[16000];
       int n = seq[i / 2 - 1];
-      if (!load_i16(n, p512, pix)) { printf("  ERROR: no puedo leer IMG%03d.I16 para comparar\n", n); errors++; continue; }
+      if (!load_i16(n, seqfit[i / 2 - 1], p512, pix)) { printf("  ERROR: no puedo leer IMG%03d para comparar\n", n); errors++; continue; }
       for (int k = 0; k < 256; k++) if (s->pal[k] != (uint16_t)((p512[2 * k + 1] << 8) | p512[2 * k])) { pal_bad++; break; }
       if (memcmp(s->img, pix, 16000)) img_bad++;
       if (s->mode != 175) mode_bad++;
@@ -220,7 +293,10 @@ int main(int argc, char** argv) {
   CHECK(pal_bad == 0, "cada paleta de verdad es la del fichero de la imagen que toca (N / B, huecos, fichero malo y vuelta)");
   CHECK(img_bad == 0, "en ese momento la imagen de $8000 ya es la del fichero (no se ve nunca a medias con la paleta buena)");
   CHECK(mode_bad == 0, "con el modo 175 activo en todas las cargas");
-  CHECK(opens_ok >= (int)seq.size(), "se abrieron los ficheros");
+  CHECK(opens_ok + bmp_ok >= (int)seq.size(), "se abrieron los ficheros");
+  CHECK(bmp_busy == 0, "nunca se abre una imagen BMP con otra abierta");
+  CHECK(mcu_virt_h < 0, "no queda ninguna imagen virtual abierta al salir");
+  printf("BMP: %d convertidos (colocacion 0:%d 1:%d 2:%d), %d que no se convierten, %d inexistentes\n", bmp_ok, bmp_fit_hist[0], bmp_fit_hist[1], bmp_fit_hist[2], bmp_fail, bmp_missing);
   printf("aperturas: %d bien, %d fallidas\n", opens_ok, opens_fail);
   printf("%s (%d errores)\n", errors ? "FALLOS" : "TODO OK", errors);
   return errors ? 1 : 0;

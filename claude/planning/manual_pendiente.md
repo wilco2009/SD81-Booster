@@ -234,6 +234,12 @@ Sintetizado, sin probar en la placa (ver `pdm_color.md` y `EXAMPLES/MODE160`). E
   (el máximo de un primario brillante es (1, 0,36, 0,36)). Los pines de vídeo pasan a `SLEW = FAST` en todos los modos.
 - **Visor de fotos (`EXAMPLES/PHOTO`, 27/10/2026):** `png2i16.py` convierte PNG de 160x100 (hasta 256 colores, solo biblioteca estándar) a `IMGnnn.I16` (`I160` + 512 bytes de paleta + 16.000 píxeles) y `PHOTO.BIN` los muestra
   (N siguiente, B anterior, ESPACIO sale; salta los huecos y da la vuelta). Para el manual: el formato `.I16` y el uso del conversor. Probado en el PC (Z80 + MCU simulado), sin probar en la placa.
+- **Paleta de 16 colores (modos normales, 27/10/2026):** `POKE 2063,n` (puntero, 0-15), `POKE 2064,lo` (`{G,B}`), `POKE 2066,hi` (`{BRIGHT,R}`: escribe y avanza) y `POKE 2067,1` / `2067,0` (activa / desactiva). Cada color son cuatro densidades de pulsos 0-15 (R, G, B, BRIGHT) y el índice es el color de Chroma (`{BRIGHT,G,R,B}`, el mismo de los atributos). Desactivada salen los colores por defecto; al activarla sin cargar nada no cambia nada. Vale para texto, HiRes, Spectrum, sprites y borde. Ejemplo: `COLORTEST` (tecla P: rampas de gris, rojo, verde, azul, amarillo, cian y magenta, y OFF). Probada en simulación y con el Z80 en el PC, sintetizada (LUTs 67 %, slices 88 %, restricciones cumplidas) pero sin probar en la placa. Requiere FPGA con `mode160.v` (rama `fpga-mode160`).
+- **BMP directo (comando 76, 28/10/2026):** el visor `PHOTO` y el explorador (`.BMP` y `.I16` con 8 / ENTER: lanza `IMGVIEW.BIN` desde el stub BASIC; tecla F = colocación) abren un `.BMP` y el MCU lo convierte al abrirlo a una imagen de 160x100
+  con paleta de 256 colores (escala por área y cortes de mediana, unos segundos). BMP de 1, 4, 8, 24 y 32 bits sin compresión. Tecla **F** en `PHOTO`: estirado / con su proporción / recortado.
+  Errores en `/MAN/BMPERR.TXT` (`LOAD THEN PRINT "*BMPERR"`): `NOT A BMP FILE`, `BAD BMP HEADER`, `UNSUPPORTED BMP DEPTH`, `UNSUPPORTED BMP (COMPRESSED)`, `BMP TOO LARGE`, `BMP TRUNCATED`, `OUT OF MEMORY`.
+  Para el explorador hacen falta `IMGVIEW.BIN` en `/EXPLORER/` y el `AUTOEXEC.P` / `EXPLORER.P` nuevos (`EXAMPLES/IMGVIEW`, `compila.bat`).
+  Firmware `BMP.cpp` / comando 76 (`LAST_COMMAND` 76) sin compilar ni probar en la placa; el conversor se prueba en el PC (`build_bmp.sh`, `build_photo.sh`). Especificación para el emulador: `bmp_emulador.md`.
 
 ## Cómo se toca
 

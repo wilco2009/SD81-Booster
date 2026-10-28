@@ -105,6 +105,18 @@ def expected_pal(rgb):
 def main():
     mode, d = sys.argv[1], sys.argv[2]
     os.makedirs(d, exist_ok=True)
+    if mode == 'bmp':
+        # IMG006.BMP (300x150, 24 bits: dos veces mas ancha que alta, asi que las tres colocaciones dan imagenes distintas), IMG007.BMP (basura:
+        # no se convierte) e IMG008.BMP (200x200, 32 bits; ademas hay un IMG008.I16, que tiene prioridad)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import test_bmp as tb
+        px = tb.pixels(300, 150)
+        tb.write_bmp(os.path.join(d, 'IMG006.BMP'), 300, 150, 24, tb.pack_rows(px, 24), True)
+        open(os.path.join(d, 'IMG007.BMP'), 'wb').write(bytes((i * 37 + 11) & 255 for i in range(3000)))
+        px = tb.pixels(200, 200)
+        tb.write_bmp(os.path.join(d, 'IMG008.BMP'), 200, 200, 32, tb.pack_rows(px, 32), False)
+        print('escritos IMG006.BMP, IMG007.BMP (mala) e IMG008.BMP')
+        return 0
     if mode == 'make':
         for name, ctype, depth, rows, plte, idx, rgb in images():
             write_png(os.path.join(d, name + '.png'), ctype, depth, rows, plte)

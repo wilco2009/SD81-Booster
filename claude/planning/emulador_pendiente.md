@@ -111,6 +111,21 @@ Reglas que el emulador tiene que respetar:
 - El emulador puede hablar MQTT de verdad por los sockets del PC, o contra un broker simulado. Lo
   que tiene que ver el Z80 es lo mismo.
 
+## 6. Novedades de la rama `fpga-mode160` (28 de octubre de 2026)
+
+Lo que ha entrado desde la lista de arriba (12 de octubre). Cada punto tiene su propio documento con el detalle; ninguno está commiteado todavía en la rama y el emulador
+no tiene nada de esto.
+
+| # | Qué | Documento | Estado |
+|---|---|---|---|
+| 9 | **Hardware de scroll** (HiRes nativo, Spectrum, motor vertical): fino Y, filas superior e inferior, columna 32 real | `scroll_hardware_emulador.md` | **ya implementado en el emulador** (26-27/10/2026); falta compararlo con la placa |
+| 10 | **Modo 160x100 a 256 colores** (`POKE 2045,175`): paleta de 256 (`POKE 2063/2064/2065`), posición (`POKE 2099`), salida PDM de 4 pines | `mode160_emulador.md` | probado en la placa (27/10); el emulador no lo tiene |
+| 11 | **Paleta de 16 colores** para los modos normales y los sprites (`POKE 2066`, `2067`): índice `{BRIGHT,G,R,B}`, desactivada = colores de siempre | `mode160_emulador.md` §3 | sintetizada, **sin probar en la placa** |
+| 12 | **Comando 76 del MCU**: un `.BMP` abierto como `.I16` (escala a 160x100 y 256 colores), con un manejador virtual en fseek / fread / fstat / fclose | `bmp_emulador.md` | firmware sin compilar ni probar en la placa; `BMP.cpp` se puede compilar tal cual en el emulador |
+
+Qué no es del emulador de esto: los sprites en otros modos y el modo mixto con texto (`modos_160_sprites_mixto.md`) son solo un estudio, sin implementar.
+`FPGAVERSION.TXT` sigue en 1.5 y la subirá la próxima release; los ficheros de la FPGA de esta rama (`SD81.bit`, `sd81boster.mcs`) tampoco llevan la versión estampada.
+
 ## Orden sugerido (hecho, salvo el último)
 
 1. Sincronizar `voice_synthesizer.cpp`, `WAV.cpp` y la ROM, y probar `SAY` (desbloquea el commit del sonido).
@@ -119,3 +134,4 @@ Reglas que el emulador tiene que respetar:
 4. Punto 1 (los 12 sprites por línea y los 64): es lo más grande.
 5. La red (§5): los comandos del módem, que necesita cualquier programa de red.
 6. Punto 5 (el teclado virtual), cuando se haya probado en el hardware.
+7. Puntos 10-12 (el modo 160x100, la paleta de 16 y el comando 76), cuando se hayan probado en la placa. El 10 y el 12 son independientes; el 12 es lo más fácil (compilar `BMP.cpp`).

@@ -933,14 +933,19 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [8:0] spr_screen_x = pixel_cnt - spr_x_pixel_base;
 	wire [8:0] spr_screen_y = line_cnt  - spr_y_line_base;
 
+	// Sprites en el modo 160x200 a 4 bpp: la posicion la da mode160 (ver mode160.v)
+	wire m160_spr = sf160_en & sf160_4bpp;
+	wire [8:0] m160_spr_x, m160_spr_y;
+	wire m160_row_ok;
+
 	// Recorte: nada se dibuja fuera de (0,0)-(255,191). Se hace una sola vez
 	// aqui, no dentro de cada slot de linea (1 puerta en vez de 8).
 	wire spr_in_display = (spr_screen_x < 9'd256) && (spr_screen_y < 9'd192);
 
 	// Coordenadas de sprite = pixel de pantalla + 32 (ver cabecera del mapa
 	// de POKEs y sprite_slot.v)
-	wire [8:0] spr_pos_x = spr_screen_x + 9'd32;
-	wire [8:0] spr_pos_y = spr_screen_y + 9'd32;
+	wire [8:0] spr_pos_x = m160_spr ? m160_spr_x : spr_screen_x + 9'd32;
+	wire [8:0] spr_pos_y = m160_spr ? m160_spr_y : spr_screen_y + 9'd32;
 
 	// Sprite activo (POKE 2101): lo guarda aqui la FPGA, no la sombra (que tras
 	// un reset conserva la ROM) y se borra con el reset, como el de cada slot
@@ -957,7 +962,7 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [7:0] sprite_color_final;
 
 	// Recorte final al area visible (ver spr_in_display)
-	wire sprite_active_final = sprite_hit & spr_in_display;
+	wire sprite_active_final = sprite_hit & (m160_spr | spr_in_display);		// en el 160x200 a 4 bpp recorta mode160 (img_on)
 
 	wire isAttrMem = (nM1==1'b1)&&(nMREQ==1'b0) || (nRESET==1'b0);
 		
@@ -984,7 +989,7 @@ Port $7FEF (01111111 11101111) - IN:
 		.blit_busy(blit_run | mot_run | blit_hold),
 		.pos_x(spr_pos_x),
 		.pos_y(spr_pos_y),
-		.row_ok(spr_screen_y < 9'd192),
+		.row_ok(m160_spr ? m160_row_ok : spr_screen_y < 9'd192),
 		.v_dout(v_dout),
 		.ev_rd(spr_ev_rd),
 		.ev_raddr(spr_ev_raddr),
@@ -1869,6 +1874,7 @@ assign DEBUG_RDY = 1'b0;
 	wire pal16_use = pal16_en & color_enable;			// la paleta de 16 solo cuenta con el color encendido
 	mode160 mode160_inst (
 		.clk(system_clk), .clk104(CLK104), .rst(~nRESET), .en(sf160_en), .m4(sf160_4bpp),
+		.spr_hit(sprite_hit), .spr_x(m160_spr_x), .spr_y(m160_spr_y), .spr_row_ok(m160_row_ok),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(SCR_START_X_80 + 10'd36 + {6'b0,m160_xadj}), .base_blk(HFILE[15:13]),
 		.v_dout(v_dout), .v_addr(v_addr_160),
 		.wclk(iclock), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .pal16_hi_wr(pal16_hi_wr), .wdata(data),

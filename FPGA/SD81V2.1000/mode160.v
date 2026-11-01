@@ -22,6 +22,8 @@
 // Variante 4 bpp (POKE 2045,176, entrada m4): 160x200, 80 bytes por fila, 16.000 bytes; el nibble alto es el pixel de la izquierda y
 // el indice (0-15) entra en pal16 (misma tabla y misma carga que los demas modos). Las 200 filas son lineas de TV distintas.
 // Con m4 = 0 el comportamiento es el de siempre.
+// Sprites (solo 4 bpp): spr_x / spr_y / spr_row_ok sustituyen a la posicion que usa el motor de sprites (sprite_engine.v) y el pixel
+// del sprite (spr_hit, color en c4) pisa al del fondo; coordenadas del sprite = pixel de la imagen + 32.
 //
 // El motor lee la sombra por el puerto B (v_addr), un byte por pixel, con un pixel de adelanto.
 module mode160 (
@@ -46,7 +48,11 @@ module mode160 (
 	input blank_n,				// 0 durante sincronismos y back porch
 	input [3:0] border,			// color del borde: {bright,G,R,B} (formato Chroma)
 	input pal16_en,				// paleta de 16 colores activa (solo cuenta si en = 0)
-	input [3:0] c4,				// color de 4 bits del camino normal: {bright,G,R,B}
+	input [3:0] c4,				// color de 4 bits del camino normal: {bright,G,R,B} (con spr_hit, el del sprite)
+	input spr_hit,				// 4 bpp: el motor de sprites pone un pixel ahora (combinacional con spr_x); su color llega por c4
+	output reg [8:0] spr_x,		// 4 bpp: posicion del pixel en pantalla en coordenadas de sprite (columna + 32)
+	output [8:0] spr_y,			// 4 bpp: fila de la linea en coordenadas de sprite (fila + 32)
+	output spr_row_ok,			// la linea es de la imagen
 	output reg vred,
 	output reg vgreen,
 	output reg vblue,
@@ -125,6 +131,8 @@ module mode160 (
 	wire [13:0] rowoff = {row, 6'b0} + {row, 4'b0};				// fila * 80 (8 bpp: fila_doble * 80 = fila * 160)
 	wire [15:0] rowbase = {base_blk, 13'b0} + {2'b0, rowoff};
 	wire [9:0] x_arm = x_start - 10'd4;
+	assign spr_y = line_cnt - (Y0 - 9'd32);
+	assign spr_row_ok = in_y;
 	wire ev = tick & run & (sub == 2'd0);							// principio de pixel (el primero, un pixel antes de la ventana)
 
 	always @(posedge clk) begin
@@ -159,7 +167,10 @@ module mode160 (
 					rd_pend <= 1'b1;
 					sc <= 3'd0;
 				end
-				if (pcnt >= 8'd1) idx_cur <= idx_next;
+				if (pcnt >= 8'd1) begin
+						idx_cur <= idx_next;
+						spr_x <= (pcnt == 8'd1) ? 9'd32 : spr_x + 9'd1;		// coordenada del pixel que entra en idx_cur
+					end
 				if (pcnt == 8'd1) img_on <= 1'b1;
 				if (pcnt == 8'd161) begin
 					img_on <= 1'b0;
@@ -176,7 +187,7 @@ module mode160 (
 		end
 		if (ev_d) lvl <= pal[idx_cur];
 		img_v <= img_on;
-		lvl16 <= pal16[m4e ? idx_cur[3:0] : c4];
+		lvl16 <= pal16[m4e ? ((spr_hit & img_on) ? c4 : idx_cur[3:0]) : c4];
 	end
 
 	// img_on sube un ciclo de clk antes de que lvl tome el nivel del pixel (idx_cur -> ev_d -> lvl): sin este retardo,

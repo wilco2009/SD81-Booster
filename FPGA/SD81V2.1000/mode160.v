@@ -24,8 +24,8 @@
 // Con m4 = 0 el comportamiento es el de siempre.
 // Plano de texto (solo 4 bpp, txt_en): rejilla de 40x25 celdas de 4x8 pixeles de imagen (6x8 de glifo a 2 ciclos de 13 MHz, 12 ciclos
 // por celda), encima de la imagen y de los sprites. En el bloque txt_blk: codigos a +0 (1.000 bytes, fila*40+columna) y fuente a +$0300
-// (+codigo*8+fila de glifo, para los codigos 32-127, bit 7 del byte = pixel de la izquierda, 6 pixeles). Codigo < 32 = celda transparente;
-// bit 7 del codigo = video inverso (tinta y papel cambiados); el resto, tinta o papel opacos. Las lecturas del texto usan los huecos de
+// (+codigo*8+fila de glifo, codigos 32-255 = 224 glifos propios, bit 7 del byte = pixel de la izquierda, 6 pixeles). Codigo < 32 = celda
+// transparente; el bit 7 del codigo ademas invierte el glifo (tinta y papel cambiados), sea cual sea su definicion; el resto, opacos. Las lecturas del texto usan los huecos de
 // los pixeles impares, en los que el 4 bpp ya no necesita leer la imagen.
 // Sprites (solo 4 bpp): spr_x / spr_y / spr_row_ok sustituyen a la posicion que usa el motor de sprites (sprite_engine.v) y el pixel
 // del sprite (spr_hit, color en c4) pisa al del fondo; coordenadas del sprite = pixel de la imagen + 32.
@@ -146,7 +146,7 @@ reg img_on = 1'b0;
 	wire te = txt_en & m4e;
 	wire [4:0] trow = ly[7:3];
 	wire [9:0] trowoff = {trow, 5'b0} + {2'b0, trow, 3'b0};		// fila de texto * 40
-	wire [10:0] gaddr = {tcode[6:0], ly[2:0]} + 11'h300;
+	wire [11:0] gaddr = {tcode, ly[2:0]} + 12'h300;
 	wire txt_on = te & img_on & cact;
 	wire tg = gsh[7] ^ cinv;
 	assign spr_y = line_cnt - (Y0 - 9'd32);
@@ -189,7 +189,7 @@ end
 						rd_pend <= 1'b1;
 						sc <= 3'd0;
 					end else if (te && pcnt[0] && (pcnt >= 8'd250 || pcnt <= 8'd155)) begin		// hueco impar: codigo (4k-3) y fila de glifo (4k-1) de la celda k
-						if (pcnt[1]) v_addr <= {txt_blk, 2'b00, gaddr};
+						if (pcnt[1]) v_addr <= {txt_blk, 1'b0, gaddr};
 						else begin
 							v_addr <= {txt_blk, 3'b000, tptr};
 							tptr <= tptr + 10'd1;
@@ -199,7 +199,7 @@ end
 					end
 					if (te && pcnt < 8'd160 && pcnt[1:0] == 2'b01) begin		// principio de celda: el glifo y su codigo pasan a la salida
 						gsh <= tglyph;
-						cact <= (tcode[6:5] != 2'b00);
+						cact <= (tcode[7:5] != 3'b000);
 						cinv <= tcode[7];
 						gph <= 1'b0;
 					end

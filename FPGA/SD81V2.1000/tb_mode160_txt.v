@@ -92,8 +92,8 @@ module tb_mode160_txt;
 				k = (off - GOFF) / 12;
 				j = ((off - GOFF) % 12) / 2;
 				code = mem[{TB, 13'b0} + (r / 8) * 40 + k];
-				if (code[6:5] != 2'b00) begin
-					glyph = mem[{TB, 13'b0} + 16'h0300 + code[6:0] * 8 + (r % 8)];
+				if (code[7:5] != 3'b000) begin
+					glyph = mem[{TB, 13'b0} + 16'h0300 + code[7:0] * 8 + (r % 8)];
 					bitv = glyph[7 - j] ^ code[7];
 					check(lvl16 === pm[bitv ? TCOL[3:0] : TCOL[7:4]], "pixel de glifo");
 					tpix = tpix + 1;
@@ -102,7 +102,7 @@ module tb_mode160_txt;
 			if (off >= 2 && off < 482 && ((off - 2) % 3) == 0) begin
 				n = (off - 2) / 3;
 				code = mem[{TB, 13'b0} + (r / 8) * 40 + n / 4];
-				if (code[6:5] == 2'b00) begin
+				if (code[7:5] == 3'b000) begin
 					check(lvl16 === pm[nib(r, n)], "imagen en celda transparente");
 					ipix = ipix + 1;
 				end

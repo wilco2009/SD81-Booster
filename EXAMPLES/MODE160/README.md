@@ -67,6 +67,6 @@ hasta 16 colores) deja `pic4.bin` (píxeles) y `pal4.bin` (paleta lista para 206
   de imagen + 32 en X e Y (X 0-159, Y 0-199, es decir sprite X 32-191 / Y 32-231). Pixel de sprite = tinta o papel de su fila, por `pal16`.
 - **Texto 40x25**: `POKE 2068,papel*16+tinta` (índices de `pal16`, por defecto tinta 15 y papel 0) y `POKE 2069,bloque*2+activo` (bloque de 8 KB
   que contiene el texto; el bit 0 lo activa). En ese bloque: **códigos** en `+0` (1.000 bytes, fila*40+columna), **fuente** en `+$0300 + código*8 + fila`
-  (códigos 32-127, 6 píxeles por fila en los bits 7..2). Código `< 32` = celda transparente (se ve la imagen); `>= 32` = celda opaca con tinta y papel;
-  bit 7 del código = vídeo inverso. El texto va por encima de la imagen y de los sprites. Cada celda mide 4x8 píxeles de imagen.
+  (códigos 32-255 = 224 glifos propios, 6 píxeles por fila en los bits 7..2). Código `< 32` = celda transparente (se ve la imagen); `>= 32` = celda opaca con tinta y papel;
+  bit 7 del código = invierte el glifo de ese código (que tiene su propia definición). El texto va por encima de la imagen y de los sprites. Cada celda mide 4x8 píxeles de imagen.
 - Todo simulado en ModelSim (`tb_mode160_4bpp/_spr/_txt`), **sin probar en placa**.

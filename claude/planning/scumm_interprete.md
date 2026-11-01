@@ -7,8 +7,8 @@ Es un diseño inicial. Las cifras de código del Z80 son estimaciones a ojo, sin
 
 | Herramienta | Qué hace |
 |---|---|
-| `SCUMM/TOOLS/scummdis.py` | Desensamblador propio de los 256 opcodes de v2. Las tablas salen de `setupOpcodes` y de los manejadores `o2_*`, `o5_*`, `o3_*`, `o4_*` de ScummVM. Es la especificación del intérprete. |
-| `SCUMM/TOOLS/compara_descumm.py` | Lo compara con `descumm` sobre todos los scripts. |
+| `SCUMM/V2/TOOLS/scummdis.py` | Desensamblador propio de los 256 opcodes de v2. Las tablas salen de `setupOpcodes` y de los manejadores `o2_*`, `o5_*`, `o3_*`, `o4_*` de ScummVM. Es la especificación del intérprete. |
+| `SCUMM/V2/TOOLS/compara_descumm.py` | Lo compara con `descumm` sobre todos los scripts. |
 
 Resultado de la comparación (descumm en listado plano, `-i -e -f -w -b`):
 
@@ -178,8 +178,8 @@ texto, verbos, sonido), empezando por lo que más se usa: `print`, `printEgo`, `
 
 ## 9. Despachador en Z80, ejecutado en el PC (2026-10-21)
 
-Está en `SCUMM/ENGINE/vm.asm` (más `tables.inc`, que genera `SCUMM/TOOLS/gen_vmtables.py`). El arnés de PC
-es `SCUMM/ENGINE/test/` y se lanza con `build_test.sh`.
+Está en `SCUMM/V2/ENGINE/vm.asm` (más `tables.inc`, que genera `SCUMM/V2/TOOLS/gen_vmtables.py`). El arnés de PC
+es `SCUMM/V2/ENGINE/test/` y se lanza con `build_test.sh`.
 
 **Qué hay**
 
@@ -197,7 +197,7 @@ es `SCUMM/ENGINE/test/` y se lanza con `build_test.sh`.
 
 El arnés ejecuta `vm.bin` en el Z80 de EightyOne con la memoria paginada de verdad (64 páginas, 8
 bloques, bloque 0 de solo lectura) y compara la traza de **2162 escenarios** con la de un modelo
-independiente en Python (`SCUMM/TOOLS/vmmodel.py`), que es una transcripción de `script.cpp`,
+independiente en Python (`SCUMM/V2/TOOLS/vmmodel.py`), que es una transcripción de `script.cpp`,
 `script_v2.cpp` y `script_v5.cpp` de ScummVM:
 
 - cada una de las 54 salas (entrada, 30 fotogramas, salida), cada verbo de cada objeto (846 verbos en 358
@@ -248,7 +248,7 @@ exceda su página de 8 KB (lo garantiza el empaquetador, `Packer`).
 
 ## 10. Capa de juego: sonido, mensajes, actores y cambio de sala (2026-10-21)
 
-`SCUMM/ENGINE/game.asm` (incluido desde `vm.asm`) y su modelo en `SCUMM/TOOLS/vmgame.py`. Sustituyen al
+`SCUMM/V2/ENGINE/game.asm` (incluido desde `vm.asm`) y su modelo en `SCUMM/V2/TOOLS/vmgame.py`. Sustituyen al
 anfitrión simulado en 13 opcodes: `print`, `printEgo`, `startSound`, `startMusic`, `stopSound`,
 `stopMusic`, `isSoundRunning`, `putActor`, `putActorInRoom`, `getActorRoom`, `animateActor`, `actorOps`
 y `loadRoom`.
@@ -296,7 +296,7 @@ sala, y el límite de 15 del retardo).
 
 - **2176 de 2176 escenarios idénticos**: las 54 salas con `LOADROOM`, 846 verbos de objeto y 168 scripts
   globales (cada uno con dos semillas de variables), y 40 sintéticos.
-- Hay **41 mutaciones** reproducibles (`SCUMM/ENGINE/test/mutaciones.py`): **38 se detectan**. Las
+- Hay **41 mutaciones** reproducibles (`SCUMM/V2/ENGINE/test/mutaciones.py`): **38 se detectan**. Las
   tres que no: no arrancar el script 5 (su efecto no se ve), no validar el actor que habla cuando
   `VAR_TALK_ACTOR` apunta a uno que no existe, y no comparar el fotograma antes de animar al hablar. Los
   tres cambios no alteran nada observable con los escenarios actuales.
@@ -307,7 +307,7 @@ sigue habiendo margen de optimización en el recorrido de ranuras.
 
 ## 11. Movimiento de los actores (2026-10-21)
 
-`SCUMM/ENGINE/geom.asm` y `walk.asm` (incluidos desde `game.asm`), con su modelo en `vmgame.py`. Pasan de
+`SCUMM/V2/ENGINE/geom.asm` y `walk.asm` (incluidos desde `game.asm`), con su modelo en `vmgame.py`. Pasan de
 llamadas simuladas a Z80: `walkActorTo`, `walkActorToObject`, `walkActorToActor`, `putActorAtObject`,
 `faceActor`, `waitForActor` (con el estado real: espera mientras el actor se mueve) y los consultores
 `getActorX/Y/Moving/Facing/WalkBox/Costume/Elevation` y `setActorElevation`. `getActorX/Y` aceptan también un

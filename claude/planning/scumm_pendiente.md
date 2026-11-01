@@ -1,6 +1,6 @@
 # SCUMM: pendiente de hacer y de probar en placa (lista viva, 2026-10-25)
 
-Regla del proyecto: el interprete es generico; lo propio de un juego va solo en el perfil (SCUMM/games/*.cfg). Ver scumm_generico.md.
+Regla del proyecto: el interprete es generico; lo propio de un juego va solo en el perfil (SCUMM/V2/games/*.cfg). Ver scumm_generico.md.
 
 ## Por hacer
 1. Generico (scumm_generico.md): hecho variables con nombre, limites como capacidades y pack_data con trajes/escala del perfil. Falta costume2 (anims de hablar), lfl2gfx y vmcommon sin constantes de MM, y la prueba con Zak McKracken v2 (hay que conseguir sus ficheros).
@@ -37,3 +37,10 @@ Regla del proyecto: el interprete es generico; lo propio de un juego va solo en 
 - sound2vgm: tope de 1 hora (antes 3 min). El 70 dura 30 min (4,6 MB); Zak sube a 23 MB de VGM.
 - Gancho de depuracion DBG_START ($DC1C, palabra): escribir un numero de script desde el emulador lo arranca en el siguiente fotograma. Final de MM: script 43 (meteorito, sala 51); el 136 lo arranca tras delay(18000).
 - Pendiente: probar en placa todo lo anterior; la equivalencia (build_test.sh, 2912/2912) tras el cambio de state_get/vmmodel.
+
+## 2026-10-26: HiRes 8x1 de 16 colores (rama `hires16`, fusionada en `main`)
+- El motor ya no usa tiles: ver `scumm_hires16.md` (mapa de memoria, decisiones, estado). `lfl2hr.py` sustituye a `lfl2gfx.py` (los `.GFX` de tiles ya no valen); `compila_scumm.bat` copia `preview_hr` / `preview_zak_hr`.
+- Direcciones nuevas (las variables que estaban en `$CC00-$DFFF` se desplazaron -`$4500`): `DBG_START` = `$971C`, `ACTN` = `$971E`, `WINPG` = `$971F`, `ODIRBUF` = `$8B00`, `UI_DIRTY` = `$8800`. Los guardados de partida de antes de este cambio no valen (la cabecera lleva la direccion de `ev_handler`).
+- HECHO en el arnes, SIN probar en la placa: oscuridad y linterna por atributos, color de habla de los mensajes, guardar/cargar (probado con `TS_CALL`), Maniac Mansion en HiRes.
+- Probado en la placa por el usuario: scroll fino (tras cerrar el movimiento al final de la vuelta), cambio de sala sin la imagen en la posicion equivocada, redibujado incremental de objetos, el cursor. NEW KID mostraba DAV: arreglado (los espacios del principio del verbo), falta confirmarlo en la placa.
+- Nombres de fichero: ahora el `.GFX` mide hasta 44 KB (sala 3 de Zak) y va a 6 paginas fisicas (8-13): comprobar el tiempo de carga.

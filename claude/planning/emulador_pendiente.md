@@ -14,8 +14,7 @@ v1.6.0) y la subirá la próxima release.
 
 ## Estado (12 de octubre de 2026)
 
-**El emulador ya tiene todo lo de este documento excepto el teclado virtual (punto 5).** Queda
-pendiente solo eso, hasta que se pruebe en el hardware.
+**El emulador ya tiene todo lo de este documento excepto el teclado virtual (punto 5); el modo 160x200 a 4 bpp (punto 13) se implementó el 1/11/2026 y falta probarlo.** Los puntos 9 a 12 de la sección 6 se hicieron el 26-28 de octubre.
 
 El emulador no tiene acceso al hardware real, así que su fuente se ha migrado para que **use los
 fuentes del hardware real en la medida de lo posible** (el firmware tal cual, no una copia
@@ -111,6 +110,21 @@ Reglas que el emulador tiene que respetar:
 - El emulador puede hablar MQTT de verdad por los sockets del PC, o contra un broker simulado. Lo
   que tiene que ver el Z80 es lo mismo.
 
+## 6. Novedades de la rama `fpga-mode160` (28 de octubre de 2026)
+
+Lo que ha entrado desde la lista de arriba (12 de octubre). Cada punto tiene su propio documento con el detalle. **Estado (1/11/2026): los puntos 9 a 12 están hechos en el emulador y probados por el usuario; queda el 13 (y el 5, el teclado virtual).**
+
+| # | Qué | Documento | Estado |
+|---|---|---|---|
+| 9 | **Hardware de scroll** (HiRes nativo, Spectrum, motor vertical): fino Y, filas superior e inferior, columna 32 real | `scroll_hardware_emulador.md` | ✅ **hecho en el emulador** (26-27/10/2026, con el motor vertical); probado en el emulador, falta compararlo con la placa |
+| 10 | **Modo 160x100 a 256 colores** (`POKE 2045,175`): paleta de 256 (`POKE 2063/2064/2065`), posición (`POKE 2099`), salida PDM de 4 pines | `mode160_emulador.md` | probado en la placa (27/10). ✅ **Hecho en el emulador** (28/10/2026) y probado |
+| 11 | **Paleta de 16 colores** para los modos normales y los sprites (`POKE 2066`, `2067`): índice `{BRIGHT,G,R,B}`, desactivada = colores de siempre | `mode160_emulador.md` §3 | sintetizada, **sin probar en la placa**. ✅ **Hecha en el emulador** (28/10/2026) y probada en él |
+| 12 | **Comando 76 del MCU**: un `.BMP` abierto como `.I16` (escala a 160x100 y 256 colores), con un manejador virtual en fseek / fread / fstat / fclose | `bmp_emulador.md` | ✅ **Hecho en el emulador** (28/10/2026): `BMP.cpp` y el firmware real copiados tal cual; probado en el emulador (el firmware sigue sin probar en la placa) |
+| 13 | **Modo 160x200 a 4 bpp con ventana de imagen, sprites y texto 40x25** (`POKE 2045,176`, `2068-2071`): 4 bpp por `pal16`, filas de texto con imagen `[win_first, win_last)`, sprites 8x8 sobre la imagen, plano de texto con glifos de `ROMTABLE` | `mode160_emulador.md` §5 | sintetizado (rama `fpga-mode160-4bpp`), **sin probar en la placa**; emulador: ✅ **HECHO el 1/11/2026** (`RenderMode160x4`, línea `MODE4` en las instantáneas), pendiente de probar con `MODE160W`/`mode1604` |
+
+Qué no es del emulador de esto: los sprites en el 8 bpp y los modos mixtos de `modos_160_sprites_mixto.md` siguen siendo un estudio; lo que sí hay de sprites y texto con el 4 bpp es el punto 13.
+`FPGAVERSION.TXT` sigue en 1.5 y la subirá la próxima release; los ficheros de la FPGA de esta rama (`SD81.bit`, `sd81boster.mcs`) tampoco llevan la versión estampada.
+
 ## Orden sugerido (hecho, salvo el último)
 
 1. Sincronizar `voice_synthesizer.cpp`, `WAV.cpp` y la ROM, y probar `SAY` (desbloquea el commit del sonido).
@@ -119,3 +133,4 @@ Reglas que el emulador tiene que respetar:
 4. Punto 1 (los 12 sprites por línea y los 64): es lo más grande.
 5. La red (§5): los comandos del módem, que necesita cualquier programa de red.
 6. Punto 5 (el teclado virtual), cuando se haya probado en el hardware.
+7. Puntos 10-12 (el modo 160x100, la paleta de 16 y el comando 76): ✅ hechos. El 13 (el modo 160x200 a 4 bpp): ✅ hecho el 1/11/2026, a falta de probarlo.

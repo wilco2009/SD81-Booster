@@ -147,7 +147,7 @@ void mcustate_apply(void){
     for (int i = 0; i < NUM_THREADS; i++) playing_PEG[i] = false;
   // ficheros: se cierran los de antes y se abren los del snapshot
   for (int i = 0; i < 4; i++) {
-    if (f_opened[i]) { f_handle[i].close(); f_opened[i] = false; }
+    if (f_opened[i]) f_handle_close(i);
     if (in.fh[i] && f_handle[i].open(in.fh_path[i], O_RDWR)) {
       f_handle[i].seekSet(in.fh_pos[i]);
       f_opened[i] = true;

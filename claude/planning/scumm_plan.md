@@ -1,7 +1,7 @@
 # Plan: intérprete SCUMM v2 en el Z80 del SD81 Booster
 
 Estado: planificación, nada implementado salvo el conversor de gráficos de prueba
-(`SCUMM/TOOLS/lfl2gfx.py`). Fecha: 2026-10-21.
+(`SCUMM/V2/TOOLS/lfl2gfx.py`). Fecha: 2026-10-21.
 
 ## 1. Decisiones tomadas
 
@@ -39,7 +39,7 @@ referencia, no se usa).
 - Referencia: `engines/scumm` de ScummVM (`resource*.cpp`, `room.cpp`, `object.cpp`, `script*.cpp`,
   `boxes.cpp`, `gfx.cpp`). Las páginas del wiki de ScummVM están bloqueadas para mi lector.
 
-### 2.1 Formato, ya parseado (fase 1, `SCUMM/TOOLS/scumm2.py`)
+### 2.1 Formato, ya parseado (fase 1, `SCUMM/V2/TOOLS/scumm2.py`)
 
 **Índice `00.LFL`** («Enhanced V2», magia `0100`):
 `u16 magia`, `u16 N` objetos globales, `N` bytes (dueño en los 4 bits bajos, estado en los altos),
@@ -87,7 +87,7 @@ matriz de rutas de `n x (n+1)` bytes.
 `lfl2gfx.py` reduce cada fila de 8 píxeles a 2 colores (modo 0), funde tiles hasta que ninguna ventana
 de 32 columnas pase de 190 tiles distintos, y compara con el original. Resultados de las 53 salas con
 190 tiles: error del 0 al 17,7 % (mediana ~4-5 %). Las peores son la 04 (17,7 %) y la 05 (15,2 %).
-Detalle en `SCUMM/preview/resumen.md`.
+Detalle en `SCUMM/V2/preview/resumen.md`.
 
 ### 3.2 Reglas del hardware que condicionan el diseño
 
@@ -173,7 +173,7 @@ la forma es tinta. Uso en el Z80:
 visible tiene los bytes de su tile en cada posición de cámara. Las 53 salas dan OK.
 Tamaño: de 4,8 a 13,5 KB por sala; 356 KB todas.
 
-**Presupuesto y calidad (2026-10-21):** a la vista de la sala 4 (418 tiles distintos en la peor ventana, casi todos únicos) el presupuesto por ventana sube de 190 a **216**, y los 40 códigos 216-255 se reservan para la fuente de la interfaz (espacio, cifras, letras, `/ : .`). El error de fusión se mide ahora por distancia de color (no por píxeles distintos), pesa más los colores raros de la sala y el coste de fundir un tile crece con la raíz de sus apariciones. Cada sala admite ajustes en `SCUMM/TOOLS/gfx_rooms.cfg` (`protect=x0,y0,x1,y1` protege zonas como rótulos o personajes, `tiles=`, `rarity=`); las zonas protegidas salen en magenta en la banda del original de `preview/salaNN.png`. Alternativas descartadas: bitmap con atributos para las salas malas (el scroll costaría demasiado en el Z80).
+**Presupuesto y calidad (2026-10-21):** a la vista de la sala 4 (418 tiles distintos en la peor ventana, casi todos únicos) el presupuesto por ventana sube de 190 a **216**, y los 40 códigos 216-255 se reservan para la fuente de la interfaz (espacio, cifras, letras, `/ : .`). El error de fusión se mide ahora por distancia de color (no por píxeles distintos), pesa más los colores raros de la sala y el coste de fundir un tile crece con la raíz de sus apariciones. Cada sala admite ajustes en `SCUMM/V2/TOOLS/gfx_rooms.cfg` (`protect=x0,y0,x1,y1` protege zonas como rótulos o personajes, `tiles=`, `rarity=`); las zonas protegidas salen en magenta en la banda del original de `preview/salaNN.png`. Alternativas descartadas: bitmap con atributos para las salas malas (el scroll costaría demasiado en el Z80).
 
 **Códigos ≥ 128 (2026-10-21):** el bit 7 del código de carácter invierte el vídeo también en 256C. El conversor
 guarda al revés (`^ $FF`) la forma de las instancias cuyo código es ≥ 128, y `verify_gfx` lo deshace al
@@ -279,7 +279,7 @@ offline a notas del AY. Se dejan para el final.
 | 0 | Terminar el conversor: coloreado de slots, correspondencia de colores, formato de salida | Que el formato es viable en las 53 salas. **Hecho para el fondo** (2026-10-21, ver 3.5); faltan máscaras y objetos |
 | 1 | Parser de recursos (índice, scripts, objetos) en el PC | Que el modelo de datos está entendido, con volcados comparables con `descumm`. **Hecho** (2026-10-21, ver 2.1 y 2.2); faltan trajes, sonidos e imágenes de objeto |
 | 2 | Intérprete de scripts en el Z80, ejecutado **sin vídeo** en el arnés de PC (como `claude/dbgharness`) | Que ejecuta los scripts de Maniac Mansion sin colgarse y que el reparto en overlays funciona. **Hecho:** desensamblador propio de los opcodes v2, 0 diferencias con descumm en 8578 instrucciones, y primer diseño en [scumm_interprete.md](scumm_interprete.md). **Hecho también:** el despachador en Z80 (3424 B) con arnés de PC: 2162 escenarios idénticos al modelo en Python (sección 9 de scumm_interprete.md). **Hecho también:** la capa de juego (sonido, mensajes, actores, `loadRoom`) con back-end por sucesos, 2176 escenarios idénticos (sección 10). **Falta:** caminos y cajas, trajes, verbos y sentencias, inventario, cutscenes |
-| 3 | Sala en pantalla: carga de tiles, scroll fino y recarga en los bordes | Que el modo 0 con scroll funciona en la placa. **Preparado (2026-10-21):** `SCUMM/VIEWER/roomview.asm` (visor con O/P/B/N, ver su README) y su arnés de PC (`SCUMM/VIEWER/test/run_test.sh`, 9 comprobaciones OK contra la conversión). **Funciona en el emulador (2026-10-21); falta la placa.** Para que la columna que asoma con el scroll fino tenga su tile, el conversor usa ahora ventanas de 33 columnas (`--view 33`, por defecto) y la cámara llega a `npos` (la última posición no tiene columna 33) |
+| 3 | Sala en pantalla: carga de tiles, scroll fino y recarga en los bordes | Que el modo 0 con scroll funciona en la placa. **Preparado (2026-10-21):** `SCUMM/V2/VIEWER/roomview.asm` (visor con O/P/B/N, ver su README) y su arnés de PC (`SCUMM/V2/VIEWER/test/run_test.sh`, 9 comprobaciones OK contra la conversión). **Funciona en el emulador (2026-10-21); falta la placa.** Para que la columna que asoma con el scroll fino tenga su tile, el conversor usa ahora ventanas de 33 columnas (`--view 33`, por defecto) y la cámara llega a `npos` (la última posición no tiene columna 33) |
 | 4 | Objetos, máscaras, actores y trajes | Personajes que andan por la sala |
 | 5 | Verbos, frase y cursor con teclado/joystick | Que se puede jugar |
 | 6 | Sonido | Música y efectos |
@@ -306,6 +306,6 @@ autocompilación por mi parte: compila y flashea el usuario (`feedback_no_autoco
 
 ## 9. Repositorio y licencia
 
-- `SCUMM/V1`, `SCUMM/V2` y `SCUMM/preview` contienen datos de LucasArts y derivados: **añadirlos a
-  `.gitignore`** antes de cualquier commit. `SCUMM/TOOLS` sí es código propio.
+- `SCUMM/V1`, `SCUMM/V2` y `SCUMM/V2/preview` contienen datos de LucasArts y derivados: **añadirlos a
+  `.gitignore`** antes de cualquier commit. `SCUMM/V2/TOOLS` sí es código propio.
 - El conversor y el motor no incluyen datos del juego. Cada usuario aporta los suyos.

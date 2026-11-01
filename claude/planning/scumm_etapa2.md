@@ -1,6 +1,6 @@
 # Etapa 2: el motor en la placa, con texto y actores visibles (2026-10-21)
 
-Hasta ahora el núcleo (`SCUMM/ENGINE`) solo se ha ejecutado en el PC, y el visor (`SCUMM/VIEWER`) solo enseña
+Hasta ahora el núcleo (`SCUMM/V2/ENGINE`) solo se ha ejecutado en el PC, y el visor (`SCUMM/V2/VIEWER`) solo enseña
 salas. Esta etapa los junta: **un programa para el ZX81 que ejecuta los scripts de Maniac Mansion y lo
 enseña**. Se hace por pasos, cada uno comprobable en el PC antes de probarlo en el emulador.
 
@@ -27,7 +27,7 @@ siguen idénticos. Se acabaron los overlays de código: sobra sitio en `$4000-$7
 `/SCUMM/DATA.BIN` a páginas de la RAM extendida (de la 16 en adelante, con `FULLPAGING`). Los `.GFX` se cargan
 por sala. El MCU solo sirve ficheros.
 
-**Fichero `DATA.BIN`** (generado por `SCUMM/TOOLS/pack_data.py`; todo little endian): cabecera de 16 bytes
+**Fichero `DATA.BIN`** (generado por `SCUMM/V2/TOOLS/pack_data.py`; todo little endian): cabecera de 16 bytes
 (`"SDAT"`, versión, número de páginas, primera página, bytes por página) y, tal cual se copian en memoria:
 `SCRDIR` (256 x 3), `OBJOWN` (780), `OBJST` (780) y `ROOMDIR` (64 x 16); relleno hasta 512 y las páginas de 6 KB.
 
@@ -132,7 +132,7 @@ conversor solo hace el fondo: los objetos con imagen son lo que falta, junto con
   escribe bytes en el arnes (para forzar variables).
 - **Pantalla (24 filas):** 0-15 sala, 16 frase, 17-19 verbos, 20-21 inventario (pendiente), 20-23 texto de los mensajes (tapa
   al inventario mientras sale). El original usa 25 filas: frase en la 18, verbos en 19-21, inventario en 22-23.
-- `SCUMM/ENGINE/ui.asm` (incluido al final de `scumm.asm`): `o2_verbOps` (`ui_verbops`: 15 ranuras de 16 bytes con id, columna,
+- `SCUMM/V2/ENGINE/ui.asm` (incluido al final de `scumm.asm`): `o2_verbOps` (`ui_verbops`: 15 ranuras de 16 bytes con id, columna,
   fila, modo y texto; borrar, modo y nuevo), `o2_cursorCommand` (`ui_cursorcmd`: bits `USERSTATE_*` de ScummVM: interfaz de frase /
   inventario / verbos y cursor activo; el bloqueo de scripts no esta), `o2_drawSentence`, `ui_update` (cada fotograma: vuelve a
   escribir la frase si cambian `VAR_SENTENCE_VERB/OBJECT1/OBJECT2/PREPOSITION`), `ui_click` (cur_y >= 128: fila 16 zona 5, filas

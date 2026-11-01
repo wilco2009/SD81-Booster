@@ -3,7 +3,8 @@
 // Con LAT_STATS = 1 el firmware mide y, cada 10 s, saca por el puerto serie (lineas "[LAT] ..."):
 //   - el bucle principal (loop()): cuanto tarda una vuelta (media y maximo) y cuantas pasan de 0,7, 1, 2, 5 y 10 ms: es lo que
 //     espera cualquier trama del ESP32 o tarea de loop() mientras el STM32 hace otra cosa;
-//   - cuanto tarda cada parte del bucle: leer el comando del Z80, ejecutarlo, los comandos serie, wifi_handler_poll (las tramas del
+//   - cuanto tarda cada parte del bucle: l
+// leer el comando del Z80, ejecutarlo, los comandos serie, wifi_handler_poll (las tramas del
 //     ESP32), el parser de musica y las tareas ociosas;
 //   - las tramas NET_POLL del ESP32: el tiempo entre una y la siguiente (su ritmo real, con la espera del STM32 incluida) y lo que
 //     tarda en contestarlas;
@@ -17,7 +18,7 @@
 
 #include <Arduino.h>
 
-#define LAT_STATS 0
+#define LAT_STATS 1
 
 #if LAT_STATS
 enum { LAT_S_READ, LAT_S_CMD, LAT_S_SER, LAT_S_WIFI, LAT_S_PLAY, LAT_S_IDLE, LAT_S_N };

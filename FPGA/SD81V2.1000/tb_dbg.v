@@ -61,11 +61,39 @@ module tb_dbg;
 	wire tr_go;
 	wire [15:0] tr_pc;
 	wire [9:0] tr_ptr;
+	wire [2:0] scr_fine_y;		// registros del scroll (spec_scroll_addr.v)
+	wire [4:0] scr_reg_top, scr_reg_bot;
 	wire tr_we;
 	wire [15:0] tr_waddr;
 	wire [7:0] tr_wdata;
 	reg [7:0] shadow [0:65535];
 	always @(posedge sysclk) if (tr_we) shadow[tr_waddr] <= tr_wdata;
+
+	// motor de scroll: sim_int (orden y estado) -> scroll_sync -> scroll_motor, con una "memoria" de 64 KB y un
+	// pulso blit_edge (la linea 254) cada 20.000 ciclos de system_clk. Solo mueve la fila 0 del bitmap de HiRes
+	wire [2:0] scr_cmd;
+	wire scr_cmd_tog;
+	wire m_tstart, m_tdone, m_go, m_run, m_we, m_done;
+	wire [15:0] m_addr;
+	wire [7:0] m_wdata;
+	reg [7:0] mmem [0:65535];
+	reg [7:0] m_rdata;
+	function [7:0] pat(input [15:0] a);			// el contenido inicial de la memoria
+		pat = a * 7 + (a >> 8) * 13 + 1;
+	endfunction
+	integer be_cnt = 0;
+	reg be = 1'b0;
+	always @(posedge sysclk) begin
+		be_cnt <= (be_cnt == 19999) ? 0 : be_cnt + 1;
+		be <= (be_cnt == 0);
+		m_rdata <= mmem[m_addr];
+		if (m_we) mmem[m_addr] <= m_wdata;
+	end
+	scroll_sync ssy (.clk(sysclk), .rst(~nreset), .cmd_tog(scr_cmd_tog), .blit_edge(be), .mot_run(m_run),
+		.mot_done(m_done), .mot_go(m_go), .tstart(m_tstart), .tdone(m_tdone));
+	scroll_motor smo (.clk(sysclk), .rst(~nreset), .start(m_go), .dir(scr_cmd), .mode_sp(1'b0), .mode_hr(1'b1),
+		.attr0_en(1'b0), .attr1_en(1'b0), .blk(3'd4), .a1_base(16'h0000), .row_en(24'h000001), .reg_top(scr_reg_top), .reg_bot(scr_reg_bot), .sh_busy(1'b0),
+		.rdata(m_rdata), .run(m_run), .addr(m_addr), .we(m_we), .wdata(m_wdata), .done(m_done));
 	trace_wr tw (.clk(sysclk), .tr_go(tr_go), .tr_pc(tr_pc), .ptr(tr_ptr), .we(tr_we), .waddr(tr_waddr), .wdata(tr_wdata));
 
 	m1_tracker trk (
@@ -81,7 +109,9 @@ module tb_dbg;
 		.data_out(fpga_data), .enable_out(fpga_en), .state(si_state),
 		.enabled(si_enabled), .dbg_win(dbg_win), .dbg_mon(dbg_mon), .port_out(port_out),
 		.bram_rd(bram_rd), .bram_wr(bram_wr), .bram_ptr(bram_ptr), .bram_data(bram_data), .chroma_reg(8'h3C), .ay_sel_a(8'h0D), .ay_sel_b(8'h07), .sram_wr(1'b0), .sram_page(6'd0), .dirty_clr(1'b0),
-		.trace_en(trace), .tr_skip(skipv), .tr_ptr(tr_ptr), .vid_status(vid_st), .vid_front(vid_fr), .blk0_w(blk0_w), .cfg_flags(8'h5A), .cfg_raw(8'hA5), .tr_go(tr_go), .tr_pc(tr_pc));
+		.trace_en(trace), .tr_skip(skipv), .tr_ptr(tr_ptr), .vid_status(vid_st), .vid_front(vid_fr), .blk0_w(blk0_w), .cfg_flags(8'h5A), .cfg_raw(8'hA5), .tr_go(tr_go), .tr_pc(tr_pc),
+		.scr_fine_y(scr_fine_y), .scr_reg_top(scr_reg_top), .scr_reg_bot(scr_reg_bot),
+			.scr_cmd(scr_cmd), .scr_cmd_tog(scr_cmd_tog), .scr_tstart(m_tstart), .scr_tdone(m_tdone));
 
 	reg [7:0] got;			// el byte que ha leido la CPU en la ultima lectura
 	reg got_fpga;			// si lo servia la FPGA
@@ -532,6 +562,140 @@ module tb_dbg;
 		expect_val(tr_ptr, 4, "traza: al volver, la instruccion de la ruptura");
 		expect_val({shadow[16'h1007], shadow[16'h1006]}, 16'h4004, "traza: 4004");
 		trace = 0;
+
+		// ---- registros del scroll: OUT $40+r elige el registro 8+r (fino Y $40, region $42 y $43); IN indices $20+n ----
+		expect_val(scr_fine_y, 0, "scroll: fino Y por defecto");
+		expect_val(scr_reg_top, 0, "scroll: region, primera fila por defecto");
+		expect_val(scr_reg_bot, 23, "scroll: region, ultima fila por defecto");
+		io_out(16'h3FEF, 8'h40); io_out(16'h3FEF, 8'h05);			// registro 8 (fino Y) = 5
+		expect_val(scr_fine_y, 5, "scroll: fino Y = 5");
+		io_out(16'h3FEF, 8'h40); io_out(16'h3FEF, 8'hFF);			// solo cuentan los 3 bits bajos
+		expect_val(scr_fine_y, 7, "scroll: fino Y = 7 (enmascarado)");
+		io_out(16'h3FEF, 8'h42); io_out(16'h3FEF, 8'h03);			// registro 10 (primera fila) = 3
+		io_out(16'h3FEF, 8'h43); io_out(16'h3FEF, 8'h13);			// registro 11 (ultima fila) = 19
+		expect_val(scr_reg_top, 3, "scroll: primera fila = 3");
+		expect_val(scr_reg_bot, 19, "scroll: ultima fila = 19");
+		io_out(16'h3FEF, 8'h42); io_out(16'h3FEF, 8'hFF);
+		expect_val(scr_reg_top, 31, "scroll: primera fila enmascarada a 5 bits");
+		io_out(16'h3FEF, 8'h42); io_out(16'h3FEF, 8'h03);
+		io_out(16'h3FEF, 8'h21); io_in(16'h3FEF);
+		expect_val(got, 7, "scroll: IN indice 17 = fino Y");
+		io_out(16'h3FEF, 8'h22); io_in(16'h3FEF);
+		expect_val(got, 3, "scroll: IN indice 18 = primera fila");
+		io_out(16'h3FEF, 8'h23); io_in(16'h3FEF);
+		expect_val(got, 19, "scroll: IN indice 19 = ultima fila");
+		io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+		expect_val(got, 0, "scroll: IN indice 16 = estado (0)");
+		io_out(16'h3FEF, 8'h4F); io_out(16'h3FEF, 8'hFF);			// registro 23: no existe
+		expect_val(scr_fine_y, 7, "scroll: un registro sin uso no toca nada");
+		expect_val(scr_reg_bot, 19, "scroll: ... ni la region");
+		// lo de siempre sigue donde estaba
+		io_out(16'h3FEF, 8'h0F); io_in(16'h3FEF);
+		expect_val(got, 8'h52, "scroll: la firma (indice 15) sigue");
+		io_out(16'h3FEF, 8'h0D); io_in(16'h3FEF);
+		expect_val(got, 8'h5A, "scroll: indice 13 sigue");
+		dreg(3'd0, 8'h34);											// $80+r: los registros de siempre
+		expect_val(scr_fine_y, 7, "scroll: dreg no toca el fino Y");
+		io_out(16'h3FEF, 8'h2F); io_in(16'h3FEF);
+		expect_val(got, 8'h00, "scroll: indice 31 sin uso = 0");
+
+		// ---- motor de movimiento del scroll: registro 9 (OUT $41 y el dato) e indice 16 (OUT $20) ----
+		begin : motor
+			integer q, ok, t;
+			for (q = 0; q < 65536; q = q + 1) mmem[q] = pat(q);
+			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+			expect_val(got, 8'h00, "motor: libre al principio (16 = 0)");
+			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h01);			// registro 9 = 1: izquierda
+			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+			expect_val(got, 8'hC0, "motor: ocupado y pendiente al instante");
+			expect_val(mmem[16'h8000], pat(16'h8000), "motor: aun no se mueve nada");
+			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h02);			// otra orden con el motor ocupado: se ignora
+			expect_val(scr_cmd, 1, "motor: orden con el motor ocupado");
+			t = 0;
+			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+			while (got[6] && t < 40) begin repeat (400) @(posedge sysclk); io_out(16'h3FEF, 8'h20); io_in(16'h3FEF); t = t + 1; end
+			expect_val(got[7], 1, "motor: sigue ocupado (en marcha)");
+			expect_val(got[6], 0, "motor: ya no esta pendiente");
+			expect_val(got[5], 1, "motor: en marcha (16 = $A0)");
+			t = 0;
+			while (got[7] && t < 100) begin repeat (400) @(posedge sysclk); io_out(16'h3FEF, 8'h20); io_in(16'h3FEF); t = t + 1; end
+			expect_val(got, 8'h00, "motor: libre al acabar");
+			// izquierda: m_c <- m_{c+1} para c = 0..30, m31 <- R, L <- m0; solo la fila 0 de texto (8 lineas)
+			ok = 1;
+			for (q = 0; q < 8; q = q + 1) begin : lines
+				integer c;
+				for (c = 0; c < 31; c = c + 1)
+					if (mmem[16'h8000 + q * 32 + c] !== pat(16'h8000 + q * 32 + c + 1)) ok = 0;
+				if (mmem[16'h8000 + q * 32 + 31] !== pat(16'h9800 + q)) ok = 0;
+				if (mmem[16'h9C00 + q] !== pat(16'h8000 + q * 32)) ok = 0;
+			end
+			expect_val(ok, 1, "motor: fila 0 un byte a la izquierda");
+			expect_val(mmem[16'h8100], pat(16'h8100), "motor: la fila 1 no se toca (mascara)");
+			// derecha
+			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h02);
+			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+			expect_val(got, 8'hC0, "motor: segunda orden pendiente");
+			t = 0;
+			while (got[7] && t < 200) begin repeat (400) @(posedge sysclk); io_out(16'h3FEF, 8'h20); io_in(16'h3FEF); t = t + 1; end
+			expect_val(got, 8'h00, "motor: libre al acabar la segunda");
+			ok = 1;
+			for (q = 0; q < 8; q = q + 1) begin : lines2
+				integer c;
+				for (c = 0; c < 32; c = c + 1)
+					if (mmem[16'h8000 + q * 32 + c] !== pat(16'h8000 + q * 32 + c)) ok = 0;
+			end
+			expect_val(ok, 1, "motor: izquierda y derecha = como estaba");
+			// la orden 0 no hace nada y la 5 (sin uso) se acepta y termina sin mover
+			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h00);
+			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+			expect_val(got, 8'h00, "motor: la orden 0 no hace nada");
+			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h05);
+			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+			expect_val(got, 8'hC0, "motor: la orden 5 (sin uso) entra");
+			t = 0;
+			while (got[7] && t < 200) begin repeat (400) @(posedge sysclk); io_out(16'h3FEF, 8'h20); io_in(16'h3FEF); t = t + 1; end
+			expect_val(got, 8'h00, "motor: ... y termina");
+			ok = 1;
+			for (q = 0; q < 8; q = q + 1) if (mmem[16'h8000 + q * 32] !== pat(16'h8000 + q * 32)) ok = 0;
+			expect_val(ok, 1, "motor: la orden 5 no mueve nada");
+			// vertical, orden 3 (arriba) con la region = filas 0 y 1 (registros 10 y 11 por el puerto)
+			for (q = 0; q < 65536; q = q + 1) mmem[q] = pat(q);
+			io_out(16'h3FEF, 8'h42); io_out(16'h3FEF, 8'd0);
+			io_out(16'h3FEF, 8'h43); io_out(16'h3FEF, 8'd1);
+			expect_val(scr_reg_bot, 1, "motor: region, ultima fila = 1");
+			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h03);
+			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+			expect_val(got, 8'hC0, "motor: la orden 3 (arriba) entra");
+			t = 0;
+			while (got[7] && t < 300) begin repeat (400) @(posedge sysclk); io_out(16'h3FEF, 8'h20); io_in(16'h3FEF); t = t + 1; end
+			expect_val(got, 8'h00, "motor: ... y termina");
+			ok = 1;
+			for (q = 0; q < 8; q = q + 1) begin : vlines
+				integer c;
+				for (c = 0; c < 32; c = c + 1) begin
+					if (mmem[16'h8000 + q * 32 + c] !== pat(16'h8000 + (q + 8) * 32 + c)) ok = 0;		// fila 0 <- fila 1
+					if (mmem[16'h8000 + (q + 8) * 32 + c] !== pat(16'h9900 + q * 32 + c)) ok = 0;	// fila 1 <- bufer de abajo
+					if (mmem[16'h9D00 + q * 32 + c] !== pat(16'h8000 + q * 32 + c)) ok = 0;			// bufer de arriba <- fila 0
+					if (mmem[16'h8000 + (q + 16) * 32 + c] !== pat(16'h8000 + (q + 16) * 32 + c)) ok = 0;	// la fila 2 no se toca
+				end
+			end
+			expect_val(ok, 1, "motor: arriba filas 0-1 y bufers");
+			// abajo (orden 4): deshace el movimiento anterior
+			io_out(16'h3FEF, 8'h41); io_out(16'h3FEF, 8'h04);
+			t = 0;
+			io_out(16'h3FEF, 8'h20); io_in(16'h3FEF);
+			while (got[7] && t < 300) begin repeat (400) @(posedge sysclk); io_out(16'h3FEF, 8'h20); io_in(16'h3FEF); t = t + 1; end
+			expect_val(got, 8'h00, "motor: la orden 4 termina");
+			ok = 1;
+			for (q = 0; q < 8; q = q + 1) begin : vlines2
+				integer c;
+				for (c = 0; c < 32; c = c + 1) begin
+					if (mmem[16'h8000 + q * 32 + c] !== pat(16'h8000 + q * 32 + c)) ok = 0;
+					if (mmem[16'h8000 + (q + 8) * 32 + c] !== pat(16'h8000 + (q + 8) * 32 + c)) ok = 0;
+			end
+			end
+			expect_val(ok, 1, "motor: arriba y abajo = como estaba");
+		end
 
 		if (errors == 0) $display("TODO OK");
 		else $display("%0d ERRORES", errors);

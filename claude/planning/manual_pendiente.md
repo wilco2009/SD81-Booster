@@ -195,6 +195,63 @@ joystick (queda la consola USB, `DBG_`/menu del emulador y el botón QS de 1 a 3
 «Pulsar Arriba y Abajo a la vez en el joystick también pausa el programa» y «…con Arriba + Abajo del joystick» en la lista de formas de pausar). Se quita esa frase y esa opción.
 Requiere sintetizar la FPGA y subir `FPGAVERSION.TXT` en la release.
 
+### Scroll por hardware (HiRes nativo y Spectrum; FPGA rama `fpga-scroll`, 26/10/2026)
+
+Sin sintetizar del todo ni probado en la placa (SCROLLT para Spectrum y SCROLLH para HiRes nativo, en `EXAMPLES/`); esto es lo que habrá que explicar cuando esté. Diseño en
+`scroll_hardware.md`; lo del emulador, en `scroll_hardware_emulador.md`. Nuevo apartado en «Vídeo» (junto al scroll fino de `POKE 2090`) y entradas en las tablas de POKEs y de puertos:
+
+- **Qué es:** la pantalla es una ventana sobre la memoria, con fino X (0-7 px, `POKE 2090`, ya existente) y fino Y (0-7 líneas, puerto del depurador), más una **columna 33** y una **fila 25**
+  que no están en el bitmap sino en búferes de entrada; el Z80 regenera lo que entra. Solo en los modos Superfast **HiRes nativo y Spectrum** (no en texto).
+- **Puerto `$3FEF` ampliado (sim_int 0.19):** `OUT $20+n` elige el índice 16+n de lectura; `OUT $40+r` y el dato escriben el registro 8+r: 8 = fino Y (0-7), 10 = fila superior de la región, 11 = fila inferior;
+  lectura 17-19 devuelve esos registros. Registro 9 (orden) y estado/ocupado (IN 16) llegarán con el motor de movimiento.
+- **Región vertical:** solo las filas `superior..inferior` (0-23) se mueven en vertical; las demás se quedan fijas (marcadores, puntuación). La máscara de filas de `POKE 2091-2093` sigue mandando en horizontal.
+- **Búferes de entrada (dentro del bloque de 8 KB de la pantalla, en la zona que sobra):** Spectrum `$1B00-$1E48`; HiRes nativo `$1800-$1A06`, tanto en el bitmap como en el área de atributos de modo 0 (`$C000+`).
+  Atributos de modo 1 (8x8): la columna 33 es el hueco del NEWLINE (paso 33) y la fila 25 es la fila 24 de la rejilla.
+- **El fino mueve la visualización, no la memoria:** el atributo viaja con su bitmap, también en vertical. El movimiento grueso (el motor, fase 2) moverá la memoria y los atributos; entonces la pantalla es de solo escritura para el Z80
+  (la RAM externa y lo que se ve dejan de coincidir).
+- **Motor de movimiento horizontal (fase 2, 26/10/2026):** el scroll grueso. Cuando el fino llega a 7 (o a 0 al ir a la derecha), el Z80 manda una orden y la FPGA mueve la memoria **un byte**:
+  `OUT (C),$41` y `OUT (C),n` con `BC = $3FEF` (registro 9; n = 1 izquierda, 2 derecha, 3 arriba, 4 abajo). Estado: `OUT (C),$20` y `IN A,(C)`: bit 7 ocupado, bit 6 pendiente, bit 5 en marcha.
+  Se ejecuta en el borrado, desde la línea 254 (hasta 1,5 ms), antes del blit del doble buffer; una orden con el motor ocupado se ignora; el Z80 no debe escribir en la pantalla mientras corre.
+  Mueve el bloque HFILE, el bitmap y los atributos (Spectrum; HiRes con color: modo 0 los 6 KB de `$C000`, modo 1 la rejilla de 33), respetando la máscara de filas de `POKE 2091-2093`. El byte que sale se guarda en el
+  búfer del lado contrario (ir y volver no obliga a regenerar); lo que entra lo escribe el Z80, que rellena el búfer del lado de entrada después de cada movimiento. Protocolo sin saltos: orden con el fino en 7 (o 0), y en
+  el cuadro siguiente, ya libre, fino a 0 (o 7). Ejemplo: `EXAMPLES/SCROLLM`. Después del primer movimiento la RAM externa del Z80 ya no coincide con lo que se ve.
+- **Motor de movimiento vertical (fase 3, 26/10/2026):** las órdenes **3 (arriba: el contenido sube)** y **4 (abajo: el contenido baja)** del mismo registro 9. Mueve **una fila de texto** (8 líneas) de las filas de la **región**
+  (`reg_top`..`reg_bot`, registros 10 y 11; la máscara de filas de `POKE 2091-2093` no cuenta en vertical), con sus atributos y con las columnas de los búferes de los lados. La fila que sale se guarda en el búfer contrario (T al subir,
+  B al bajar) y entra la que el Z80 había dejado en el de entrada (B al subir, T al bajar). Protocolo sin saltos: orden 3 con el fino Y en 7 (la 4 con el fino en 0), y en el cuadro siguiente, ya libre, fino a 0 (o 7) y rellenar el
+  búfer de entrada (y la esquina `$1A00`/`$1E40`, y la fila 24 de la rejilla en HiRes modo 1). Tarda 0,8-1,6 ms. Las columnas R y L de la fila que entra quedan como estaban: las escribe el Z80 si las va a ver.
+  Las direcciones de los búferes de arriba y de abajo están en `scroll_hardware_emulador.md`, apartado 7 (para el manual: una tabla de los bufers por modo). Ejemplo: `EXAMPLES/SCROLLM` (Q y A; diagonales con P y O).
+- **Avisos:** con doble buffer, los atributos de HiRes no pasan por el doble buffer (solo el bitmap). Cuidado con el bloque de 8 KB: los búferes ocupan lo que antes sobraba.
+
+## Modo de 256 colores 160x100 (rama `fpga-mode160`, 27/10/2026)
+
+Sintetizado, sin probar en la placa (ver `pdm_color.md` y `EXAMPLES/MODE160`). Entrada nueva en «Vídeo», y en las tablas de POKEs:
+
+- **Qué es:** `POKE 2045,175`: 160x100 píxeles, un byte por píxel (índice de una paleta de 256 entradas de 16 bits), 16.000 bytes desde `HFILE` (bloque de 8 KB, usar 0-6); cada fila sale en dos líneas de TV.
+  Cada color son cuatro densidades de pulsos 0-15 (R, G, B y BRIGHT, a 208 MHz) que la red de resistencias de la SCART convierte en niveles intermedios: más de 16 colores a la vez.
+- **Paleta:** `POKE 2063,n` (puntero), `POKE 2064,lo` (`{G,B}`) y `POKE 2065,hi` (`{BRIGHT,R}`: escribe y avanza). Sin cargarla, RGB 3-3-2 sin brillo. Los 16 colores de Chroma81 caben exactos (`pal160.py`, fila 7).
+- **Posición:** `POKE 2099,n` (0-15), un paso = 1/3 de píxel. El borde sale del puerto `$7FEF` como en Chroma.
+- **Límites:** sin sprites, scroll fino ni motor, y sin blit / doble buffer en este modo; con la red actual de la placa (BRIGHT común a los tres canales) un color solo es alcanzable si su canal más alto menos el más bajo no pasa de 0,455 V
+  (el máximo de un primario brillante es (1, 0,36, 0,36)). Los pines de vídeo pasan a `SLEW = FAST` en todos los modos.
+- **Visor de fotos (`EXAMPLES/PHOTO`, 27/10/2026):** `png2i16.py` convierte PNG de 160x100 (hasta 256 colores, solo biblioteca estándar) a `IMGnnn.I16` (`I160` + 512 bytes de paleta + 16.000 píxeles) y `PHOTO.BIN` los muestra
+  (N siguiente, B anterior, ESPACIO sale; salta los huecos y da la vuelta). Para el manual: el formato `.I16` y el uso del conversor. Probado en el PC (Z80 + MCU simulado), sin probar en la placa.
+- **Paleta de 16 colores (modos normales, 27/10/2026):** `POKE 2063,n` (puntero, 0-15), `POKE 2064,lo` (`{G,B}`), `POKE 2066,hi` (`{BRIGHT,R}`: escribe y avanza) y `POKE 2067,1` / `2067,0` (activa / desactiva). Cada color son cuatro densidades de pulsos 0-15 (R, G, B, BRIGHT) y el índice es el color de Chroma (`{BRIGHT,G,R,B}`, el mismo de los atributos). Desactivada salen los colores por defecto; al activarla sin cargar nada no cambia nada. Vale para texto, HiRes, Spectrum, sprites y borde. Ejemplo: `COLORTEST` (tecla P: rampas de gris, rojo, verde, azul, amarillo, cian y magenta, y OFF). Probada en simulación y con el Z80 en el PC, sintetizada (LUTs 67 %, slices 88 %, restricciones cumplidas) pero sin probar en la placa. Requiere FPGA con `mode160.v` (rama `fpga-mode160`).
+- **BMP directo (comando 76, 28/10/2026):** el visor `PHOTO` y el explorador (`.BMP` y `.I16` con 8 / ENTER: lanza `IMGVIEW.BIN` desde el stub BASIC; tecla F = colocación) abren un `.BMP` y el MCU lo convierte al abrirlo a una imagen de 160x100
+  con paleta de 256 colores (escala por área y cortes de mediana, unos segundos). BMP de 1, 4, 8, 24 y 32 bits sin compresión. Tecla **F** en `PHOTO`: estirado / con su proporción / recortado.
+  Errores en `/MAN/BMPERR.TXT` (`LOAD THEN PRINT "*BMPERR"`): `NOT A BMP FILE`, `BAD BMP HEADER`, `UNSUPPORTED BMP DEPTH`, `UNSUPPORTED BMP (COMPRESSED)`, `BMP TOO LARGE`, `BMP TRUNCATED`, `OUT OF MEMORY`.
+  Para el explorador hacen falta `IMGVIEW.BIN` en `/EXPLORER/` y el `AUTOEXEC.P` / `EXPLORER.P` nuevos (`EXAMPLES/IMGVIEW`, `compila.bat`).
+  Firmware `BMP.cpp` / comando 76 (`LAST_COMMAND` 76) sin compilar ni probar en la placa; el conversor se prueba en el PC (`build_bmp.sh`, `build_photo.sh`). Especificación para el emulador: `bmp_emulador.md`.
+
+## Modo 160x200 a 4 bpp con ventana, sprites y texto (rama `fpga-mode160-4bpp`, 1/11/2026)
+
+Simulado y sintetizado (LUTs 70 %, slices 92 %, restricciones cumplidas), sin probar en la placa (ver `mode160_emulador.md` §5, `SCUMM/AGI/ESTUDIO_160x168.md` y `EXAMPLES/MODE160`). Entrada nueva en «Vídeo» y en las tablas de POKEs:
+
+- **Qué es:** `POKE 2045,176`: rejilla de 160x200 píxeles (25 filas de texto de 8 líneas), 4 bits por píxel (16 colores a la vez de la paleta de 16, `POKE 2063/2064/2066`), 80 bytes por fila, el nibble alto es el píxel de la izquierda. Cada píxel dura 3 ciclos de 13 MHz y cada fila es una línea de TV (en el 175 salía en dos).
+- **Ventana de imagen:** `POKE 2070,primera` y `POKE 2071,última+1` (en filas de texto de 8 líneas, 0-25; por omisión 0 y 25 = las 200 líneas, 16.000 bytes). La imagen empieza en `HFILE` y ocupa `(última+1-primera)*640` bytes; fuera de la ventana sale el color del borde y no se lee nada. Ejemplo AGI: 160x168 con `primera=1`, `última+1=22` (13.440 bytes).
+- **Sprites:** los 64 sprites 8x8 de siempre (`POKE 2101`, K = 12 por línea) sobre la imagen; X de sprite = columna + 32 (0-159) e Y de sprite = fila de la imagen + 32 (la fila 0 es la primera línea de la ventana). Tinta o papel de su fila, por la paleta de 16.
+- **Texto 40x25:** `POKE 2069,1/0` (activa / desactiva) y `POKE 2068,papel*16+tinta` (índices de la paleta de 16, por omisión tinta 15 y papel 0). Celdas de 4x8 píxeles de imagen (glifo de 6x8) encima de la imagen y de los sprites. Los códigos (1.000 bytes, fila*40+columna) van justo detrás de la imagen (`HFILE + 640*filas de la ventana`; imagen y códigos caben en dos bloques de 8 KB si la ventana no pasa de 22 filas); los glifos salen de la tabla de 256 caracteres (`ROMTABLE`, registro I). Código `< 32` = celda transparente; `>= 32` = opaca con tinta y papel; el bit 7 del código invierte el glifo de ese código (que tiene su propia definición, no la del `c-128`).
+- **Límites:** sin scroll fino, motor ni blit / doble buffer en este modo; sin sprites ni texto en el 175 (8 bpp). Sin lectura de la imagen fuera de la ventana: la barra de estado y los mensajes de AGI van como celdas de texto opacas.
+- **Ejemplo y herramienta:** `EXAMPLES/MODE160/mode160w.asm` (`MODE160W.B81`: ventana 1-22 / 3-17, barras y diagonales, texto, anillo y cuadrados de sprites; teclas 1 2 T Q A O P X), `mode1604.asm` (200 líneas, sin más) y `png2i4.py` (PNG de 160x200 con hasta 16 colores → `pic4.bin` + `pal4.bin`). Sin probar en la placa.
+
 ## Cómo se toca
 
 Flujo docx primero con la skill `docx` (no Opus), en ES y EN a la vez, y regenerar los `.md` que

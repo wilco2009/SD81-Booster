@@ -169,3 +169,20 @@ __pycache__/
 /FPGA/SD81V2.1000/par_usage_statistics.html
 /FPGA/SD81V2.1000/webtalk_pn.xml
 /FPGA/SD81V2.1000/Xilinx Design Summary.html
+
+# SCUMM: datos originales de LucasArts y todo lo derivado de ellos (no se redistribuyen)
+/SCUMM/V1/
+/SCUMM/V2/ManiacMansionDOS/
+/SCUMM/V2/Zak McKracken/
+/SCUMM/V2/preview*/
+/SCUMM/V2/preview_log.txt
+/SCUMM/V2/dump_out/
+/SCUMM/V2/tmp_obj/
+/SCUMM/V2/45/
+/SCUMM/V2/ENGINE/test/build/
+/SCUMM/V2/VIEWER/test/build/
+/SCUMM/V2/VIEWER/*.bin
+/SCUMM/V2/VIEWER/*.sym
+/SCUMM/V2/ENGINE/*.bin
+/SCUMM/V2/ENGINE/*.sym
+__pycache__/

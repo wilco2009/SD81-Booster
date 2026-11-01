@@ -19,6 +19,7 @@
 #include "RTC.h"
 #include "WIFI_HANDLER.h"
 #include "B81.h"
+#include "BMP.h"
 #include "DEBUGGER.h"
 #include "LATSTATS.h"
 
@@ -646,6 +647,7 @@ uint32_t fsize2;
     } else {
       strcpy(tmp,params);
     }
+    remove_dotdirs(tmp);    // SdFat no resuelve "..": LOAD "../SCUMM.BIN"
     if (!sd.exists(tmp)) {
       log_0("file %s does not exist.\n\r",tmp);
       strcat(tmp,".P");
@@ -791,7 +793,8 @@ uint8_t error_code;
     } else {
       strcpy(tmp,params);
     }
-    
+    remove_dotdirs(tmp);
+
     boolean opened = Sfile.open(tmp,O_CREAT|O_WRITE|O_TRUNC);
   
     // read file length
@@ -889,6 +892,7 @@ void cmd_type(){
     }
     Serial.println(tmp);
   }
+  remove_dotdirs(tmp);
   if (!sd.exists(tmp)) {
     log_0("file %s does not exist.\n\r",tmp);
     strcat(tmp,".TXT");
@@ -2209,6 +2213,28 @@ void cmd_bat(){
 //  Estado: 0x00 OK, 0x01 lectura corta/EOF (solo fread), 0xFF error.
 // =====================================================================
 
+// Imagen virtual (comando 76, cmd_f_open_img): un .BMP convertido a .I16 en memoria que ocupa
+// uno de los 4 handles. fseek / fread / fstat / fclose la tratan como un fichero de solo lectura
+// de BMP_I16_SIZE bytes; solo puede haber una abierta (16 KB de RAM). En f_path[] va vacia, asi
+// que los snapshots (MCUSTATE.cpp) no la guardan.
+static uint8_t* img_buf = nullptr;
+static uint8_t  img_h = 0xFF;
+static uint32_t img_pos = 0;
+static inline bool is_img(uint8_t h){ return img_buf && h == img_h; }
+
+// Cierra el handle i, real o virtual (lo usan tambien el reset y la carga de snapshots)
+void f_handle_close(uint8_t i){
+  if (i >= 4) return;
+  if (is_img(i)){
+    free(img_buf);
+    img_buf = nullptr;
+    img_h = 0xFF;
+  } else {
+    f_handle[i].close();
+  }
+  f_opened[i] = false;
+}
+
 // fopen comun:  cmd + len(1) + nombre -> handle (0..3 / 0xFF)
 //   convert=false -> nombre en ASCII puro (cliente CP/M)
 //   convert=true  -> nombre en codigo ZX81 (modo nativo): se traduce a ASCII
@@ -2283,7 +2309,9 @@ void cmd_f_seek(){
     uint8_t b = GetByteFromZ80_IT();
     off |= ((uint32_t)b) << (8*i);         // little-endian
   }
-  if (h<4 && f_opened[h]){
+  if (is_img(h)){
+    if (off <= BMP_I16_SIZE){ img_pos = off; status = 0x00; }
+  } else if (h<4 && f_opened[h]){
     status = f_handle[h].seekSet(off) ? 0x00 : 0xFF;
   }
   SendByteToZ80(status);                    // confirma ultimo byte + status
@@ -2310,7 +2338,14 @@ void cmd_f_read(){
   set_SDLed(LED_ON);
   // lectura en bloque (evita el read() byte a byte que puede desalinear el buffer interno)
   int32_t got = 0;
-  if (h<4 && f_opened[h] && count>0 && count<=BUFFSIZE){
+  if (is_img(h)){
+    if (count>0 && count<=BUFFSIZE && img_pos<BMP_I16_SIZE){
+      got = BMP_I16_SIZE - img_pos;
+      if (got > count) got = count;
+      memcpy(copy_buffer, img_buf + img_pos, got);
+      img_pos += got;
+    }
+  } else if (h<4 && f_opened[h] && count>0 && count<=BUFFSIZE){
     got = f_handle[h].read(copy_buffer, count);
     if (got < 0) got = 0;
   }
@@ -2352,7 +2387,7 @@ void cmd_f_write(){
     if (i < BUFFSIZE) copy_buffer[i] = b;
   }
   set_SDLed(LED_ON);
-  if (h<4 && f_opened[h] && count<=BUFFSIZE){
+  if (h<4 && f_opened[h] && !is_img(h) && count<=BUFFSIZE){      // la imagen virtual es de solo lectura
     int32_t written = (count>0) ? f_handle[h].write(copy_buffer, count) : count;
     if (written == (int32_t)count){
       f_handle[h].sync();
@@ -2373,8 +2408,7 @@ void cmd_f_close(){
   ToggleClock();                           // ACK
   uint8_t h = GetByteFromZ80_IT();         // handle
   if (h<4 && f_opened[h]){
-    f_handle[h].close();
-    f_opened[h] = false;
+    f_handle_close(h);
     status = 0x00;
   }
   SendByteToZ80(status);                    // confirma handle + status
@@ -2398,7 +2432,10 @@ void cmd_f_stat(){
   uint16_t fdate = 0, ftime = 0;
   ToggleClock();                           // ACK
   uint8_t h = GetByteFromZ80_IT();         // handle
-  if (h<4 && f_opened[h]){
+  if (is_img(h)){
+    fsize = BMP_I16_SIZE;                     // sin fecha: no es un fichero de la SD
+    status = 0x00;
+  } else if (h<4 && f_opened[h]){
     fsize = f_handle[h].fileSize();
     if (f_handle[h].getCreateDateTime(&fdate, &ftime)) status = 0x00;
   }
@@ -2415,6 +2452,110 @@ void cmd_f_stat(){
   // cmd_opendir2 sobre la ventana de carrera.
   reset_commands();
   ToggleClock();                            // toggle final
+}
+
+// COMMAND = 76 (0x4C) fopen de una imagen BMP como .I16:
+//   cmd + len(1) + nombre ASCII + fit(1) -> handle (0..3) o codigo de error
+// Convierte el .BMP (BMP.cpp: escala a 160x100 y reduce a 256 colores) y deja el resultado en un
+// handle virtual que se lee con fseek / fread / fstat y se cierra con fclose, como si fuera un
+// .I16 de BMP_I16_SIZE bytes (el formato del visor PHOTO). fit: 0 estira, 1 conserva la proporcion
+// y rellena de negro, 2 conserva la proporcion y recorta. La conversion tarda (se lee el fichero
+// dos veces): el handle llega al terminar. Solo se mantiene una imagen abierta a la vez.
+//   0..3  handle
+//   0xFF  no se puede abrir (no existe)
+//   0xFE  BMP que no se puede convertir (detalle en /MAN/BMPERR.TXT: LOAD THEN PRINT "*BMPERR")
+//   0xFD  sin memoria
+//   0xFC  no hay handle libre, o ya hay una imagen abierta
+class SdBmpReader : public BmpReader {
+public:
+  explicit SdBmpReader(FsFile& f) : f_(f) {}
+  uint32_t size() override { return f_.fileSize(); }
+  bool seek(uint32_t pos) override { return f_.seekSet(pos); }
+  int read(uint8_t* dst, int n) override {
+    set_SDLed((millis() % 64) > 32);
+    int r = f_.read(dst, n);
+    return r > 0 ? r : 0;
+  }
+private:
+  FsFile& f_;
+};
+
+#define BMP_ERR_FILE "/MAN/BMPERR.TXT"
+
+void cmd_f_open_img(){
+  uint8_t result = 0xFF;
+  BmpError err;
+  err.msg[0] = 0;
+  check_SD();
+  set_SDLed(LED_ON);
+  ToggleClock();                          // ACK del byte de comando
+
+  uint8_t name_len = GetByteFromZ80_IT();
+  for (uint8_t i=0; i<name_len; i++){
+    ToggleClock();                        // confirma byte anterior
+    uint8_t b = GetByteFromZ80_IT();
+    if (i < MAX_PARAM_LEN-1) params[i] = (char)b;
+  }
+  params[name_len < MAX_PARAM_LEN-1 ? name_len : MAX_PARAM_LEN-1] = 0;
+  ToggleClock();
+  uint8_t fit = GetByteFromZ80_IT();
+
+  if (params[0]!='/') snprintf(tmp, MAX_FILENAME_LEN, "%s%s", current_dir, params);
+  else snprintf(tmp, MAX_FILENAME_LEN, "%s", params);
+
+  int h = -1;
+  for (int i=0; i<4; i++) if (!f_opened[i]){ h=i; break; }
+  FsFile f;
+  if (img_buf || h < 0){
+    result = 0xFC;
+    strcpy(err.msg, h < 0 ? "NO FREE FILE HANDLE" : "AN IMAGE IS ALREADY OPEN");
+  } else if (!sd.exists(tmp) || !f.open(tmp, O_RDONLY)){
+    log_0("fopen_img: %s no existe", tmp);
+  } else {
+    uint8_t* img = (uint8_t*)malloc(BMP_I16_SIZE);
+    BmpWork* w = (BmpWork*)malloc(sizeof(BmpWork));
+    if (img && w){
+      SdBmpReader rd(f);
+      uint32_t st = millis();
+      bool ok = bmp_to_i16(rd, fit, img, *w, err);
+      log_0("BMP %s: %s, %lu ms", tmp, ok ? "ok" : err.msg, millis() - st);
+      if (ok){
+        img_buf = img;
+        img = nullptr;
+        img_h = (uint8_t)h;
+        img_pos = 0;
+        f_opened[h] = true;
+        f_path[h][0] = 0;                 // no va a los snapshots
+        result = (uint8_t)h;
+      } else {
+        result = 0xFE;
+      }
+    } else {
+      result = 0xFD;
+      strcpy(err.msg, "OUT OF MEMORY");
+    }
+    if (w) free(w);
+    if (img) free(img);
+    f.close();
+  }
+
+  if (result == 0xFF){
+    // no existe: como fopen, sin informe
+  } else if (result < 4){
+    if (sd.exists(BMP_ERR_FILE)) sd.remove(BMP_ERR_FILE);
+  } else if (Dfile.open(BMP_ERR_FILE, O_CREAT|O_WRITE|O_TRUNC)){
+    Dfile.print("ERROR IN BMP FILE\n");
+    Dfile.print(tmp);
+    Dfile.print("\n");
+    Dfile.print(err.msg);
+    Dfile.print("\n");
+    Dfile.close();
+  }
+
+  SendByteToZ80(result);                  // confirma el ultimo byte + handle o error
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en cmd_opendir2
+  reset_commands();
+  ToggleClock();                          // toggle final
 }
 
 // --- Puente de red (BBS/telnet) --------------------------------------------
@@ -2604,5 +2745,6 @@ command_handler commands[] = {
   cmd_dbg_break,        //73 (0x49) depurador: el programa se ha parado (DEBUGGER.cpp)
   cmd_dbg_poll,         //74 (0x4A) depurador: resultado y siguiente peticion
   cmd_loadZ81dbg,       //75 (0x4B) LOAD *Z81 con el monitor del depurador
+  cmd_f_open_img,       //76 (0x4C) fopen de un BMP convertido a .I16 (BMP.cpp)
   cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

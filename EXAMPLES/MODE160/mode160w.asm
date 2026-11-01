@@ -6,8 +6,9 @@
 ;   ventana  POKE 2070,primera y POKE 2071,ultima+1 (filas de texto de 8 lineas): la imagen solo ocupa esas filas; fuera sale el borde
 ;   imagen   4 bpp, 80 bytes por fila, desde HFILE = $8000; barras de 16 colores en la mitad de arriba de la ventana y diagonales abajo
 ;   texto    codigos 40x25 justo detras de la imagen ($8000 + 640 * filas de la ventana); glifos de la tabla de 256 caracteres de
-;            ROMTABLE (registro I = $78: tabla de 2 KB en $7800): se copia el juego de caracteres de la ROM (ZX81, $1E00) en los
-;            codigos 64-127 (normales) y 192-255 (el bit 7 los invierte); un codigo < 32 es una celda transparente
+;            ROMTABLE (registro I = $78: tabla de 2 KB en $7800): fuente de 6 pixeles de ancho (font6.bin, ASCII 32-127) en los codigos
+;            32-127 (el codigo es el ASCII) y copia en 160-255 (el bit 7 del codigo invierte); un codigo < 32 es una celda transparente.
+;            Los glifos del texto solo tienen 6 pixeles de ancho: con una fuente de 8 (la de la ROM) se cortarian por la derecha
 ;   sprites  0: anillo que se mueve con Q A O P; 1 y 2: cuadrados en las esquinas de la ventana (X/Y de sprite = pixel + 32,
 ;            la fila 0 es la primera linea de la ventana)
 ;
@@ -38,13 +39,9 @@ start:  di
         ld a,20h
         out (c),a               ; color activado, borde negro
 
-        ld hl,1e00h             ; juego de caracteres de la ROM (64 x 8 bytes)
-        ld de,7a00h             ; codigos 64-127
-        ld bc,200h
-        ldir
-        ld hl,1e00h
-        ld de,7e00h             ; codigos 192-255 (el bit 7 los invierte)
-        ld bc,200h
+        ld hl,7900h             ; la fuente (font6.bin, 768 bytes) ya esta en su sitio: codigos 32-127
+        ld de,7d00h             ; copia en los codigos 160-255 (ASCII + 128: el bit 7 los invierte)
+        ld bc,300h
         ldir
         ld a,78h
         ld i,a                  ; ROMTABLE[15:11] = tabla en $7800
@@ -200,41 +197,41 @@ gentxt: ld hl,(cb)
         ld bc,999
         ldir
         ld b,0
-        ld d,192
-        call rowfill            ; fila 0 en inverso
+        ld d,160
+        call rowfill            ; fila 0 en inverso (espacio + 128)
         ld hl,s_title
         ld b,0
         ld c,1
-        ld d,192
+        ld d,128
         call puts
         ld hl,(wstr)
         ld b,0
-        ld c,14
-        ld d,192
+        ld c,16
+        ld d,128
         call puts
         ld b,22
-        ld d,64
+        ld d,32
         call rowfill
         ld b,23
-        ld d,64
+        ld d,32
         call rowfill
         ld b,24
-        ld d,64
+        ld d,32
         call rowfill
         ld hl,s_l1
         ld b,22
         ld c,0
-        ld d,64
+        ld d,0
         call puts
         ld hl,s_l2
         ld b,23
         ld c,0
-        ld d,64
+        ld d,0
         call puts
         ld b,8                  ; caja opaca sobre la imagen: filas 8-10, columnas 6-33
 gtb:    push bc
         ld c,6
-        ld d,64
+        ld d,32
         ld e,28
         call fillrun
         pop bc
@@ -245,7 +242,7 @@ gtb:    push bc
         ld hl,s_box
         ld b,9
         ld c,8
-        ld d,64
+        ld d,0
         jp puts
 
 ; dest: B = fila, C = columna -> HL = (cb) + fila*40 + columna
@@ -276,7 +273,7 @@ fr:     ld (hl),a
         jr nz,fr
         ret
 
-; puts: HL = cadena ASCII acabada en 0, B = fila, C = columna, D = 64 (normal) o 192 (inverso)
+; puts: HL = cadena ASCII acabada en 0, B = fila, C = columna, D = 0 (normal) o 128 (inverso: ASCII + 128)
 puts:   ld a,d
         ld (padd),a
         push hl
@@ -287,53 +284,12 @@ pl:     ld a,(hl)
         or a
         ret z
         inc hl
-        call a2z
         ld b,a
         ld a,(padd)
         add a,b
         ld (de),a
         inc de
         jr pl
-
-; a2z: ASCII -> codigo de caracter del ZX81 (espacio 0, ':' 14, '>' 18, '-' 22, '/' 24, '.' 27, digitos 28-37, letras 38-63)
-a2z:    cp ' '
-        jr nz,a1
-        xor a
-        ret
-a1:     cp 'A'
-        jr c,a2
-        cp 'Z'+1
-        jr nc,a2
-        sub 27
-        ret
-a2:     cp '0'
-        jr c,a3
-        cp '9'+1
-        jr nc,a3
-        sub 20
-        ret
-a3:     cp '.'
-        jr nz,a4
-        ld a,27
-        ret
-a4:     cp ':'
-        jr nz,a5
-        ld a,14
-        ret
-a5:     cp '>'
-        jr nz,a6
-        ld a,18
-        ret
-a6:     cp '/'
-        jr nz,a7
-        ld a,24
-        ret
-a7:     cp '-'
-        jr nz,a8
-        ld a,22
-        ret
-a8:     ld a,15
-        ret
 
 ; -------------------------------------------------------------
 ; Sprites
@@ -507,17 +463,17 @@ presets: defb 1,22,21
         defw 8000h+8960
         defw p2str
 
-p1str:  defm "WIN 1-22 168 LINES"
+p1str:  defm "window 1-22 (168 lines)"
         defb 0
-p2str:  defm "WIN 3-17 112 LINES"
+p2str:  defm "window 3-17 (112 lines)"
         defb 0
-s_title: defm "SD81 4BPP"
+s_title: defm "SD81 4bpp"
         defb 0
-s_l1:   defm "> MOVE: Q A O P"
+s_l1:   defm "> move the ring: Q A O P"
         defb 0
-s_l2:   defm "1 2 WINDOW  T TEXT  X EXIT"
+s_l2:   defm "1 2 window   T text   X exit"
         defb 0
-s_box:  defm "TEXT OVER THE IMAGE"
+s_box:  defm "Text over the image"
         defb 0
 
 nrows:  defb 0
@@ -529,3 +485,7 @@ sx:     defb 0
 sy:     defb 0
 cb:     defw 0
 wstr:   defw 0
+
+; fuente de 6 pixeles (ASCII 32-127) en su sitio dentro de la tabla de caracteres de $7800 (codigo * 8)
+        org 7900h
+        incbin "font6.bin"

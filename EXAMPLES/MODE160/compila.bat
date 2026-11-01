@@ -5,7 +5,8 @@ cd /d "%~dp0"
 python pal160.py || goto error
 pasmo mode160.asm mode160.bin mode160.sym || goto error
 pasmo mode1604.asm mode1604.bin mode1604.sym || goto error
-echo OK: mode160.bin y mode1604.bin
+pasmo mode160w.asm mode160w.bin mode160w.sym || goto error
+echo OK: mode160.bin, mode1604.bin y mode160w.bin
 echo Copia MODE160.BIN y MODE160.B81 a la SD (por ejemplo en TOOLS\MODE160) y carga MODE160.B81
 exit /b 0
 

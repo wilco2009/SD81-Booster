@@ -1,4 +1,4 @@
-# Especificación para el emulador: modo 160x100 a 256 colores y paleta de 16 colores
+# Especificación para el emulador: modo 160x100 a 256 colores, paleta de 16 colores y modo 160x200 a 4 bpp
 
 Resumen (28/10/2026) de lo que hay que implementar en el emulador para igualar a la FPGA de la rama `fpga-mode160`. Diseño y razones: `pdm_color.md`.
 Referencias en el repositorio: `FPGA/SD81V2.1000/mode160.v` (el modo y las dos paletas), `SD81.v` (los POKEs y el multiplexor de salida),
@@ -67,6 +67,44 @@ y con `BRIGHT = 15` y `d = 0` vale 0,365 (93 de 255): por eso un primario brilla
 - Los modos que no usan la paleta de 16 se dibujan como siempre. Con la paleta de 16 desactivada no hay diferencia con el emulador de ahora.
 - Sin cambios en el MCU para este modo ni para las paletas. El comando 76 (BMP como `.I16`) es otro tema: `bmp_emulador.md`.
 - El formato de instantáneas del emulador no necesita nada nuevo para el modo salvo guardar y restaurar: la paleta de 256, la de 16, su estado activado y `POKE 2099`.
+
+## 5. Modo 160x200 a 4 bpp con ventana, sprites y texto (`POKE 2045,176`, rama `fpga-mode160-4bpp`, 1/11/2026)
+
+Simulado en ModelSim (`tb_mode160_4bpp.v`, `tb_mode160_spr.v`, `tb_mode160_txt.v`, con `-GWF=n -GWL=m`), sintetizado (LUTs 70 %, slices 92 %, 208 MHz con 1,55 ns de holgura), **sin probar en la placa**.
+Diseño y razones: `SCUMM/AGI/ESTUDIO_160x168.md`. El 8 bpp (`2045,175`) no cambia. Mismos relojes y misma temporización de 80 columnas que el 160x100.
+
+| POKE | Función |
+|---|---|
+| `2045,176` | modo 160x200 a 4 bpp (activa la temporización de 80 columnas, `sf80`); cualquier otro valor de 2045 lo apaga (el 175 vuelve al 8 bpp) |
+| `2070,n` | `win_first` (0-24): primera fila de texto (de 8 líneas) con imagen. Por omisión 0. El reset lo vuelve a 0 |
+| `2071,n` | `win_last` (1-25): fila siguiente a la última con imagen. Por omisión 25. El reset lo vuelve a 25 |
+| `2069,v` | bit 0: plano de texto activado. El reset lo desactiva |
+| `2068,v` | color del texto `{papel[3:0], tinta[3:0]}`, índices de la paleta de 16. Por omisión `$0F` (tinta 15, papel 0) |
+| `2063/2064/2066` | la paleta de 16 de siempre (§3): aquí es **la única paleta** del modo (los píxeles, los sprites, el texto y el borde pasan por ella, con la paleta de 16 «activada» o no) |
+
+- **Rejilla:** 160x200 píxeles = 25 filas de texto de 8 líneas, de la línea **58** a la **257** (una línea de TV por línea de rejilla, no dos), cada píxel 3 ciclos de 13 MHz, como el 160x100.
+- **Imagen:** 4 bits por píxel, 80 bytes por fila, el **nibble alto es el píxel de la izquierda**; el índice (0-15) se pasa por `pal16`. Empieza en `{HFILE[15:13], 13'b0}`; la fila `k` de la imagen
+  es la línea `8*win_first + k` de la rejilla. Ocupa `(win_last - win_first) * 640` bytes (200 líneas = 16.000; AGI, `win_first=1`, `win_last=22` = 168 líneas = 13.440). Lee de la sombra directamente.
+- **Fuera de la ventana** (filas de texto fuera de `[win_first, win_last)`): no se lee la imagen y sale el color del borde (`$7FEF`, 4 bits, como Chroma); el borde pasa por `pal16` como cualquier índice.
+- **Sprites:** el motor de 64 sprites de siempre (8x8, 2 colores por fila, K = 12 por línea, tablas en la sombra), pero con otra referencia de posición: X de sprite = columna de la rejilla + 32 (0-159) e Y de sprite = línea
+  de la rejilla - 8*`win_first` + 32, es decir, fila de la imagen + 32. Solo hay sprites en las líneas de la ventana (el motor no carga el resto) y solo sobre los 160 píxeles. El píxel del sprite pisa al
+  del fondo con su tinta o su papel (el color de 4 bits de la fila, que pasa por `pal16`); el sprite de índice más alto gana, como siempre.
+- **Plano de texto** (con `2069` bit 0): 40 columnas x 25 filas de celdas de 4 píxeles de imagen (12 ciclos de 13 MHz) x 8 líneas; el glifo es de **6x8** y cada píxel de glifo dura 2 ciclos (6 x 2 = 12), desde
+  el principio de la celda. Va **por encima de la imagen y de los sprites**.
+  - **Códigos:** 1.000 bytes, `fila*40 + columna`, justo detrás de la imagen: dirección `{HFILE[15:13],13'b0} + (win_last - win_first)*640 + fila*40 + columna`. Con la ventana de 22 filas o menos, imagen y códigos
+    caben en los mismos dos bloques de 8 KB.
+  - **Glifos:** de la tabla de 256 caracteres del texto superfast (`ROMTABLE[15:11]`, el registro I del Z80; tabla de 2 KB alineada): byte de la fila `r` del carácter `c` = `tabla[c*8 + r]`; el bit 7
+    del byte es el píxel de la izquierda, y solo cuentan los 6 bits altos.
+  - **Código:** `c < 32` = celda **transparente** (se ve la imagen o el sprite); `c >= 32` = celda **opaca**: cada píxel de glifo es tinta (1) o papel (0), y el **bit 7 del código invierte** el glifo
+    (el carácter `c` y el `c+128` pueden tener definiciones distintas: la inversión se aplica a la del código completo, como en el texto de 256 caracteres).
+  - Las celdas de las filas fuera de la ventana también se dibujan (la barra de estado y las líneas de mensajes de AGI).
+- **Lo que no hay:** scroll, doble buffer ni blit; el 8 bpp sigue sin sprites ni texto.
+- **Temporización a tener en cuenta (no hace falta emularla, pero explica los límites):** el texto lee su código y su glifo en los huecos impares de la lectura del 4 bpp, y empieza 4 píxeles antes
+  que la imagen para tener la primera celda a tiempo; el motor de sprites carga sus slots entre el sincronismo horizontal y el ciclo 195, antes de que empiece este modo, igual que en 80 columnas.
+- **Instantáneas:** guardar y restaurar además `4bpp` (el modo 176), `win_first`, `win_last`, `txt_en` y `txt_col`, y la paleta de 16 (ya incluida).
+- **Cómo probarlo:** `EXAMPLES/MODE160/mode160w.asm` (`MODE160W.B81`): ventana 1-22 o 3-17 (teclas 1 y 2), imagen de barras y diagonales, texto (T) con barra de estado en inverso y caja opaca sobre la imagen,
+  anillo con Q A O P y dos cuadrados en las esquinas de la ventana; `mode1604.asm` (200 líneas, sin nada más) y `png2i4.py` para convertir una imagen de 160x200 con 16 colores. Los bancos de pruebas de la
+  FPGA dicen qué se espera de cada píxel.
 
 ## Cómo probarlo
 

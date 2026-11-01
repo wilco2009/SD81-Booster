@@ -241,6 +241,17 @@ Sintetizado, sin probar en la placa (ver `pdm_color.md` y `EXAMPLES/MODE160`). E
   Para el explorador hacen falta `IMGVIEW.BIN` en `/EXPLORER/` y el `AUTOEXEC.P` / `EXPLORER.P` nuevos (`EXAMPLES/IMGVIEW`, `compila.bat`).
   Firmware `BMP.cpp` / comando 76 (`LAST_COMMAND` 76) sin compilar ni probar en la placa; el conversor se prueba en el PC (`build_bmp.sh`, `build_photo.sh`). Especificación para el emulador: `bmp_emulador.md`.
 
+## Modo 160x200 a 4 bpp con ventana, sprites y texto (rama `fpga-mode160-4bpp`, 1/11/2026)
+
+Simulado y sintetizado (LUTs 70 %, slices 92 %, restricciones cumplidas), sin probar en la placa (ver `mode160_emulador.md` §5, `SCUMM/AGI/ESTUDIO_160x168.md` y `EXAMPLES/MODE160`). Entrada nueva en «Vídeo» y en las tablas de POKEs:
+
+- **Qué es:** `POKE 2045,176`: rejilla de 160x200 píxeles (25 filas de texto de 8 líneas), 4 bits por píxel (16 colores a la vez de la paleta de 16, `POKE 2063/2064/2066`), 80 bytes por fila, el nibble alto es el píxel de la izquierda. Cada píxel dura 3 ciclos de 13 MHz y cada fila es una línea de TV (en el 175 salía en dos).
+- **Ventana de imagen:** `POKE 2070,primera` y `POKE 2071,última+1` (en filas de texto de 8 líneas, 0-25; por omisión 0 y 25 = las 200 líneas, 16.000 bytes). La imagen empieza en `HFILE` y ocupa `(última+1-primera)*640` bytes; fuera de la ventana sale el color del borde y no se lee nada. Ejemplo AGI: 160x168 con `primera=1`, `última+1=22` (13.440 bytes).
+- **Sprites:** los 64 sprites 8x8 de siempre (`POKE 2101`, K = 12 por línea) sobre la imagen; X de sprite = columna + 32 (0-159) e Y de sprite = fila de la imagen + 32 (la fila 0 es la primera línea de la ventana). Tinta o papel de su fila, por la paleta de 16.
+- **Texto 40x25:** `POKE 2069,1/0` (activa / desactiva) y `POKE 2068,papel*16+tinta` (índices de la paleta de 16, por omisión tinta 15 y papel 0). Celdas de 4x8 píxeles de imagen (glifo de 6x8) encima de la imagen y de los sprites. Los códigos (1.000 bytes, fila*40+columna) van justo detrás de la imagen (`HFILE + 640*filas de la ventana`; imagen y códigos caben en dos bloques de 8 KB si la ventana no pasa de 22 filas); los glifos salen de la tabla de 256 caracteres (`ROMTABLE`, registro I). Código `< 32` = celda transparente; `>= 32` = opaca con tinta y papel; el bit 7 del código invierte el glifo de ese código (que tiene su propia definición, no la del `c-128`).
+- **Límites:** sin scroll fino, motor ni blit / doble buffer en este modo; sin sprites ni texto en el 175 (8 bpp). Sin lectura de la imagen fuera de la ventana: la barra de estado y los mensajes de AGI van como celdas de texto opacas.
+- **Ejemplo y herramienta:** `EXAMPLES/MODE160/mode160w.asm` (`MODE160W.B81`: ventana 1-22 / 3-17, barras y diagonales, texto, anillo y cuadrados de sprites; teclas 1 2 T Q A O P X), `mode1604.asm` (200 líneas, sin más) y `png2i4.py` (PNG de 160x200 con hasta 16 colores → `pic4.bin` + `pal4.bin`). Sin probar en la placa.
+
 ## Cómo se toca
 
 Flujo docx primero con la skill `docx` (no Opus), en ES y EN a la vez, y regenerar los `.md` que

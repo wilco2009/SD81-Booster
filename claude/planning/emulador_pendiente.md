@@ -122,8 +122,9 @@ no tiene nada de esto.
 | 10 | **Modo 160x100 a 256 colores** (`POKE 2045,175`): paleta de 256 (`POKE 2063/2064/2065`), posición (`POKE 2099`), salida PDM de 4 pines | `mode160_emulador.md` | probado en la placa (27/10); el emulador no lo tiene |
 | 11 | **Paleta de 16 colores** para los modos normales y los sprites (`POKE 2066`, `2067`): índice `{BRIGHT,G,R,B}`, desactivada = colores de siempre | `mode160_emulador.md` §3 | sintetizada, **sin probar en la placa** |
 | 12 | **Comando 76 del MCU**: un `.BMP` abierto como `.I16` (escala a 160x100 y 256 colores), con un manejador virtual en fseek / fread / fstat / fclose | `bmp_emulador.md` | firmware sin compilar ni probar en la placa; `BMP.cpp` se puede compilar tal cual en el emulador |
+| 13 | **Modo 160x200 a 4 bpp con ventana de imagen, sprites y texto 40x25** (`POKE 2045,176`, `2068-2071`): 4 bpp por `pal16`, filas de texto con imagen `[win_first, win_last)`, sprites 8x8 sobre la imagen, plano de texto con glifos de `ROMTABLE` | `mode160_emulador.md` §5 | sintetizado (rama `fpga-mode160-4bpp`), **sin probar en la placa**; el emulador no lo tiene |
 
-Qué no es del emulador de esto: los sprites en otros modos y el modo mixto con texto (`modos_160_sprites_mixto.md`) son solo un estudio, sin implementar.
+Qué no es del emulador de esto: los sprites en el 8 bpp y los modos mixtos de `modos_160_sprites_mixto.md` siguen siendo un estudio; lo que sí hay de sprites y texto con el 4 bpp es el punto 13.
 `FPGAVERSION.TXT` sigue en 1.5 y la subirá la próxima release; los ficheros de la FPGA de esta rama (`SD81.bit`, `sd81boster.mcs`) tampoco llevan la versión estampada.
 
 ## Orden sugerido (hecho, salvo el último)
@@ -134,4 +135,4 @@ Qué no es del emulador de esto: los sprites en otros modos y el modo mixto con 
 4. Punto 1 (los 12 sprites por línea y los 64): es lo más grande.
 5. La red (§5): los comandos del módem, que necesita cualquier programa de red.
 6. Punto 5 (el teclado virtual), cuando se haya probado en el hardware.
-7. Puntos 10-12 (el modo 160x100, la paleta de 16 y el comando 76), cuando se hayan probado en la placa. El 10 y el 12 son independientes; el 12 es lo más fácil (compilar `BMP.cpp`).
+7. Puntos 10-13 (el modo 160x100, la paleta de 16, el comando 76 y el modo 160x200 a 4 bpp), cuando se hayan probado en la placa. El 10 y el 12 son independientes; el 12 es lo más fácil (compilar `BMP.cpp`).

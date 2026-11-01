@@ -76,3 +76,4 @@ lee nada. Por ejemplo, AGI (160x168 en las filas de texto 1 a 21): `primera=1`, 
   **glifos** salen de la tabla de 256 caracteres de siempre (`ROMTABLE`, 2 KB alineada, registro I). Código `< 32` = celda transparente;
   `>= 32` = celda opaca con tinta y papel; bit 7 del código = invierte el glifo de ese código (que tiene su propia definición).
 - Todo simulado en ModelSim (`tb_mode160_4bpp`, `_spr`, `_txt`, con `-GWF=n -GWL=m` para cambiar la ventana); **sin probar en placa**.
+- **Programa de prueba completo:** `mode160w.asm` / `MODE160W.B81`. Teclas `1` (ventana 1-22, 160x168 como AGI) y `2` (ventana 3-17, 160x112) rehacen la imagen, el texto y los sprites; `T` activa o desactiva el texto; `Q A O P` mueven el anillo; `X` sale. La barra de estado va en inverso (códigos +192), los mensajes de abajo y la caja sobre la imagen son celdas opacas. El juego de caracteres sale de la ROM del ZX81 copiada en una tabla de 2 KB en `$7800` (registro I = `$78`).

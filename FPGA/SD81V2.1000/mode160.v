@@ -19,12 +19,17 @@
 //    camino normal sigue saliendo por los pines sin tocar (colores por defecto). La tabla arranca con los colores digitales de Chroma
 //    (0 o 15 en cada canal), de modo que activarla sin cargar nada no cambia nada.
 //
+// Variante 4 bpp (POKE 2045,176, entrada m4): 160x200, 80 bytes por fila, 16.000 bytes; el nibble alto es el pixel de la izquierda y
+// el indice (0-15) entra en pal16 (misma tabla y misma carga que los demas modos). Las 200 filas son lineas de TV distintas.
+// Con m4 = 0 el comportamiento es el de siempre.
+//
 // El motor lee la sombra por el puerto B (v_addr), un byte por pixel, con un pixel de adelanto.
 module mode160 (
 	input clk,					// system_clk, 26 MHz
 	input clk104,				// 208 MHz (CLK104, el DCM de CLK100; sin relacion de fase con clk)
 	input rst,					// activo a 1
 	input en,					// modo activo (sf160_en)
+	input m4,					// 1 = 160x200 a 4 bpp (POKE 2045,176): dos pixeles por byte (nibble alto primero), color por pal16; solo cuenta si en = 1
 	input [9:0] pixel_cnt,		// contador de pixel_clk (13 MHz en este modo), 0..827
 	input [8:0] line_cnt,		// linea de TV (0..311)
 	input [9:0] x_start,		// ciclo de pixel_cnt en que sale el primer pixel
@@ -106,6 +111,7 @@ module mode160 (
 	reg rd_pend = 1'b0;
 	reg [7:0] idx_next = 8'd0;
 	reg [7:0] idx_cur = 8'd0;
+	reg nib_lo = 1'b0;					// 4 bpp: el pixel pedido es el de la derecha (nibble bajo)
 	reg img_on = 1'b0;
 	reg img_v = 1'b0;						// img_on retrasado un ciclo: el que viaja con lvl a la salida
 	reg ev_d = 1'b0;
@@ -114,8 +120,9 @@ module mode160 (
 
 	wire [8:0] ly = line_cnt - Y0;
 	wire in_y = (line_cnt >= Y0) && (line_cnt < Y0 + LINES);
-	wire [6:0] row = ly[7:1];
-	wire [13:0] rowoff = {row, 7'b0} + {row, 5'b0};				// fila * 160
+	wire m4e = m4 & en;
+	wire [7:0] row = m4e ? ly[7:0] : {ly[7:1], 1'b0};			// 4 bpp: una fila por linea; 8 bpp: cada fila se repite en dos lineas
+	wire [13:0] rowoff = {row, 6'b0} + {row, 4'b0};				// fila * 80 (8 bpp: fila_doble * 80 = fila * 160)
 	wire [15:0] rowbase = {base_blk, 13'b0} + {2'b0, rowoff};
 	wire [9:0] x_arm = x_start - 10'd4;
 	wire ev = tick & run & (sub == 2'd0);							// principio de pixel (el primero, un pixel antes de la ventana)
@@ -147,7 +154,8 @@ module mode160 (
 			if (ev) begin
 				if (pcnt <= 8'd159) begin				// pedir el pixel siguiente
 					v_addr <= ptr;
-					ptr <= ptr + 16'd1;
+					if (!m4e || pcnt[0]) ptr <= ptr + 16'd1;
+					nib_lo <= pcnt[0];
 					rd_pend <= 1'b1;
 					sc <= 3'd0;
 				end
@@ -161,14 +169,14 @@ module mode160 (
 			if (rd_pend) begin
 				sc <= sc + 3'd1;
 				if (sc == 3'd2) begin				// el BRAM tarda dos flancos en dar el dato
-					idx_next <= v_dout;
+					idx_next <= m4e ? {4'd0, nib_lo ? v_dout[3:0] : v_dout[7:4]} : v_dout;
 					rd_pend <= 1'b0;
 				end
 			end
 		end
 		if (ev_d) lvl <= pal[idx_cur];
 		img_v <= img_on;
-		lvl16 <= pal16[c4];
+		lvl16 <= pal16[m4e ? idx_cur[3:0] : c4];
 	end
 
 	// img_on sube un ciclo de clk antes de que lvl tome el nivel del pixel (idx_cur -> ev_d -> lvl): sin este retardo,
@@ -181,16 +189,18 @@ module mode160 (
 	// ---------------- paso a 208 MHz y modulacion ----------------
 	reg blank_r = 1'b0;
 	reg [3:0] border_r = 4'd0;
+	reg sel16 = 1'b0;						// la salida sale de pal16: use16, o el modo 160 a 4 bpp
 	reg use16 = 1'b0;						// paleta de 16 activa (y no estamos en el modo 160)
 	always @(posedge clk) begin
 		blank_r <= blank_n;
 		border_r <= border;
 		use16 <= pal16_en & ~en;
+			sel16 <= (pal16_en & ~en) | m4e;
 	end
 	reg [21:0] s1 = 22'd0;
 	reg [21:0] s2 = 22'd0;
 	always @(posedge clk104) begin
-		s1 <= {use16 ? lvl16 : lvl, use16 | img_v, blank_r, border_r};
+		s1 <= {sel16 ? lvl16 : lvl, use16 | img_v, blank_r, border_r};
 		s2 <= s1;
 	end
 	wire [3:0] lev_bright = s2[21:18];

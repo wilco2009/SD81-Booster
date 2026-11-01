@@ -221,6 +221,7 @@ module SD81(
 	reg sf80_en = 1'b0;
 	// Modo 160x100 a 8 bpp con paleta y PDM (POKE 2045,175): usa la temporizacion de 80 columnas (sf80_en = 1)
 	reg sf160_en = 1'b0;
+	reg sf160_4bpp = 1'b0;		// POKE 2045,176: el mismo modo a 160x200 con 4 bits por pixel (solo cuenta con sf160_en)
 	reg sf80_char7 = 1'b0;
 	// Colgado de sf80_en para que al salir del modo ancho por cualquier via
 	// (reset u otro POKE 2045) no haga falta apagar sf80_char7 en cada rama.
@@ -546,6 +547,7 @@ Port $7FEF (01111111 11101111) - IN:
 			sfSP_en <= 1'b0;
 			sf80_en <= 1'b0;
 			sf160_en <= 1'b0;
+			sf160_4bpp <= 1'b0;
 			block0Writable <= 1'b0;		// reset: bloque 0 protegido (ROM)
 			wrx_en <= 1'b0;
 		end else if (poke_wr) begin
@@ -615,6 +617,17 @@ Port $7FEF (01111111 11101111) - IN:
 				sf80_en <= 1'b1;
 				sf80_char7 <= 1'b0;
 				sf160_en <= 1'b1;
+				sf160_4bpp <= 1'b0;
+			end
+			// POKE 2045,176 -> super fast 160x200 a 4 bpp (mode160.v, paleta de 16)
+			if ((Addr == 16'd2045) && (data==8'd176)) begin
+				sfast_mode_en <= 1'b1;
+				sfHR_en <= 1'b0;
+				sfSP_en <= 1'b0;
+				sf80_en <= 1'b1;
+				sf80_char7 <= 1'b0;
+				sf160_en <= 1'b1;
+				sf160_4bpp <= 1'b1;
 			end
 			if ((Addr == 16'd2045) && (data==8'd85)) begin
 				sfast_mode_en <= 1'b0;
@@ -1855,7 +1868,7 @@ assign DEBUG_RDY = 1'b0;
 	wire m160_r, m160_g, m160_b, m160_w;
 	wire pal16_use = pal16_en & color_enable;			// la paleta de 16 solo cuenta con el color encendido
 	mode160 mode160_inst (
-		.clk(system_clk), .clk104(CLK104), .rst(~nRESET), .en(sf160_en),
+		.clk(system_clk), .clk104(CLK104), .rst(~nRESET), .en(sf160_en), .m4(sf160_4bpp),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(SCR_START_X_80 + 10'd36 + {6'b0,m160_xadj}), .base_blk(HFILE[15:13]),
 		.v_dout(v_dout), .v_addr(v_addr_160),
 		.wclk(iclock), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .pal16_hi_wr(pal16_hi_wr), .wdata(data),

@@ -52,3 +52,11 @@ Copia `MODE160.BIN` y `MODE160.B81` a la SD (por ejemplo en `TOOLS\MODE160`) y c
   entradas por el protocolo `2063/2064/2065`, la imagen byte a byte, el orden (el modo se activa después), `P`/`O` y la salida.
 - `FPGA/SD81V2.1000/tb_mode160.v`: la FPGA (`mode160.v`) con una BRAM de latencia 1 y un reloj de 208 MHz sin relación de fase:
   paleta por defecto y cargada, geometría (32.000 píxeles por cuadro), densidad de pulsos de los cuatro pines, borde y borrado.
+
+## Variante 160x200 a 4 bpp (rama `fpga-mode160-4bpp`)
+
+`mode1604.asm` / `MODE1604.B81` prueban `POKE 2045,176`: 160x200 con **4 bits por píxel** (80 bytes por fila, 16.000 bytes en
+`$8000-$BE7F`, nibble alto = píxel de la izquierda), una fila por línea de TV (58 a 257). El índice (0-15) entra en la **paleta de 16**
+(`POKE 2063/2064/2066`, por defecto los colores digitales de Chroma81). El modo 175 (8 bpp) no cambia. El programa dibuja 16 barras
+(arriba) y diagonales `(x+y) mod 16` (abajo); `X` sale. Para una imagen propia: `python png2i4.py img.png` (PNG de 160x200 con
+hasta 16 colores) deja `pic4.bin` (píxeles) y `pal4.bin` (paleta lista para 2064/2066). Solo en la placa con esa FPGA; sin probar.

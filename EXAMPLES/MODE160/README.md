@@ -60,3 +60,13 @@ Copia `MODE160.BIN` y `MODE160.B81` a la SD (por ejemplo en `TOOLS\MODE160`) y c
 (`POKE 2063/2064/2066`, por defecto los colores digitales de Chroma81). El modo 175 (8 bpp) no cambia. El programa dibuja 16 barras
 (arriba) y diagonales `(x+y) mod 16` (abajo); `X` sale. Para una imagen propia: `python png2i4.py img.png` (PNG de 160x200 con
 hasta 16 colores) deja `pic4.bin` (píxeles) y `pal4.bin` (paleta lista para 2064/2066). Solo en la placa con esa FPGA; sin probar.
+
+### Sprites y plano de texto en el modo 176 (160x200 a 4 bpp)
+
+- **Sprites**: los 64 sprites 8x8 del motor de siempre (`POKE 2101`, tablas en la sombra) se dibujan sobre la imagen; coordenadas de sprite = pixel
+  de imagen + 32 en X e Y (X 0-159, Y 0-199, es decir sprite X 32-191 / Y 32-231). Pixel de sprite = tinta o papel de su fila, por `pal16`.
+- **Texto 40x25**: `POKE 2068,papel*16+tinta` (índices de `pal16`, por defecto tinta 15 y papel 0) y `POKE 2069,bloque*2+activo` (bloque de 8 KB
+  que contiene el texto; el bit 0 lo activa). En ese bloque: **códigos** en `+0` (1.000 bytes, fila*40+columna), **fuente** en `+$0300 + código*8 + fila`
+  (códigos 32-127, 6 píxeles por fila en los bits 7..2). Código `< 32` = celda transparente (se ve la imagen); `>= 32` = celda opaca con tinta y papel;
+  bit 7 del código = vídeo inverso. El texto va por encima de la imagen y de los sprites. Cada celda mide 4x8 píxeles de imagen.
+- Todo simulado en ModelSim (`tb_mode160_4bpp/_spr/_txt`), **sin probar en placa**.

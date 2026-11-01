@@ -68,7 +68,7 @@ module tb_mode160;
 	wire [15:0] lvl;
 	wire [15:0] lvl16;
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .m4(1'b0), .spr_hit(1'b0), .spr_x(), .spr_y(), .spr_row_ok(),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .m4(1'b0), .spr_hit(1'b0), .spr_x(), .spr_y(), .txt_en(1'b0), .txt_col(8'd0), .txt_blk(3'd0), .spr_row_ok(),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),

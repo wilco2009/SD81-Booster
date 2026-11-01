@@ -690,6 +690,22 @@ Port $7FEF (01111111 11101111) - IN:
 		if (nRESET==1'b0) pal16_en <= 1'b0;
 		else if (pal16_en_wr) pal16_en <= data[0];
 	end
+	// POKE 2068: color del plano de texto del modo 160x200 a 4 bpp {papel, tinta}; POKE 2069: {bloque[2:0], activo} (ver mode160.v)
+	reg [7:0] txt_col = 8'h0F;
+	reg [2:0] txt_blk = 3'd0;
+	reg txt_en = 1'b0;
+	wire txt_col_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2068);
+	wire txt_ctl_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2069);
+	always @(negedge iclock or negedge nRESET) begin
+		if (nRESET==1'b0) begin
+			txt_col <= 8'h0F;
+			txt_blk <= 3'd0;
+			txt_en <= 1'b0;
+		end else begin
+			if (txt_col_wr) txt_col <= data;
+			if (txt_ctl_wr) {txt_blk, txt_en} <= data[3:0];
+		end
+	end
 	// POKE 2099 (0-15): posicion horizontal de la imagen del modo 160x100, en ciclos de 13 MHz (3 por pixel); por defecto 8
 	reg [3:0] m160_xadj = 4'd8;
 	wire m160_xadj_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2099);
@@ -1875,6 +1891,7 @@ assign DEBUG_RDY = 1'b0;
 	mode160 mode160_inst (
 		.clk(system_clk), .clk104(CLK104), .rst(~nRESET), .en(sf160_en), .m4(sf160_4bpp),
 		.spr_hit(sprite_hit), .spr_x(m160_spr_x), .spr_y(m160_spr_y), .spr_row_ok(m160_row_ok),
+		.txt_en(txt_en), .txt_col(txt_col), .txt_blk(txt_blk),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(SCR_START_X_80 + 10'd36 + {6'b0,m160_xadj}), .base_blk(HFILE[15:13]),
 		.v_dout(v_dout), .v_addr(v_addr_160),
 		.wclk(iclock), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .pal16_hi_wr(pal16_hi_wr), .wdata(data),

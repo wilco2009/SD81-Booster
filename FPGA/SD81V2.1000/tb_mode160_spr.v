@@ -5,6 +5,7 @@
 // (a mitad de pixel) contra el modelo: el sprite de indice mas alto que lo cubre (pixel ? tinta : papel, tinta = nibble alto
 // del color de la fila) o, si no, el nibble de la imagen. Todo pasado por pal16.
 module tb_mode160_spr;
+	parameter FULL = 0;
 	localparam NSPR = 8;
 	reg clk = 1'b0;  always #19.23 clk = ~clk;
 	reg clk104 = 1'b0;  always #2.4 clk104 = ~clk104;
@@ -47,12 +48,12 @@ module tb_mode160_spr;
 	wire row_ok;
 	wire [3:0] c4 = spr_pix ? spr_col[7:4] : spr_col[3:0];		// el camino normal con sprite_active_final
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .m4(1'b1),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .full(FULL != 0), .m4(1'b1),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(1'b0), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),
 		.blank_n(ncsync), .border(4'd0), .pal16_en(1'b0), .c4(c4),
-		.spr_hit(spr_hit), .spr_x(spr_x), .spr_y(spr_y), .txt_en(1'b0), .txt_col(8'd0), .txt_blk(3'd0), .spr_row_ok(row_ok),
+		.spr_hit(spr_hit), .spr_x(spr_x), .spr_y(spr_y), .txt_en(1'b0), .txt_col(8'd0), .txt_font(5'd0), .spr_row_ok(row_ok),
 		.vred(), .vgreen(), .vblue(), .vbright(),
 		.img_on_o(img_on), .idx_cur_o(), .lvl_o(), .lvl16_o(lvl16));
 	sprite_engine #(.K(12), .NSPR(NSPR), .SB(6)) eng (
@@ -88,6 +89,10 @@ module tb_mode160_spr;
 		end
 	endfunction
 
+	function [3:0] eff;		// indice esperado del fondo en la linea r de la rejilla (0..199), columna x: la imagen ocupa las lineas 8..175; fuera, el borde (0 en este banco)
+		input integer r; input integer x;
+		eff = FULL ? nib(r, x) : (r < 8 || r >= 176) ? 4'd0 : nib(r - 8, x);
+	endfunction
 	integer sx [0:NSPR-1];
 	integer sy [0:NSPR-1];
 	function [4:0] expected;		// {es_sprite, color} del pixel (x, r) de la imagen
@@ -97,10 +102,10 @@ module tb_mode160_spr;
 		reg found;
 		reg [3:0] c;
 		begin
-			found = 0; c = nib(r, x);
+			found = 0; c = eff(r, x);
 			for (s = NSPR - 1; s >= 0; s = s - 1) begin
-				dx = x + 32 - sx[s]; dy = r + 32 - sy[s];
-				if (!found && spr_en[s] && dx >= 0 && dx < 8 && dy >= 0 && dy < 8) begin
+				dx = x + 32 - sx[s]; dy = (FULL ? r : r - 8) + 32 - sy[s];
+				if (!found && (FULL || (r >= 8 && r < 176)) && spr_en[s] && dx >= 0 && dx < 8 && dy >= 0 && dy < 8) begin
 					a = 16'h0C00 + s * 32;
 					colb = mem[a + 4 + dy]; pxb = mem[a + 12 + dy]; mskb = mem[a + 20 + dy];
 					if (mskb[7 - dx]) begin found = 1; c = pxb[7 - dx] ? colb[7:4] : colb[3:0]; end

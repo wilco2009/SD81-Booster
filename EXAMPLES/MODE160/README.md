@@ -61,12 +61,15 @@ Copia `MODE160.BIN` y `MODE160.B81` a la SD (por ejemplo en `TOOLS\MODE160`) y c
 (arriba) y diagonales `(x+y) mod 16` (abajo); `X` sale. Para una imagen propia: `python png2i4.py img.png` (PNG de 160x200 con
 hasta 16 colores) deja `pic4.bin` (píxeles) y `pal4.bin` (paleta lista para 2064/2066). Solo en la placa con esa FPGA; sin probar.
 
-### Sprites y plano de texto en el modo 176 (160x200 a 4 bpp)
+### Modos 176 y 177 (4 bpp, sprites y texto)
 
-- **Sprites**: los 64 sprites 8x8 del motor de siempre (`POKE 2101`, tablas en la sombra) se dibujan sobre la imagen; coordenadas de sprite = pixel
-  de imagen + 32 en X e Y (X 0-159, Y 0-199, es decir sprite X 32-191 / Y 32-231). Pixel de sprite = tinta o papel de su fila, por `pal16`.
-- **Texto 40x25**: `POKE 2068,papel*16+tinta` (índices de `pal16`, por defecto tinta 15 y papel 0) y `POKE 2069,bloque*2+activo` (bloque de 8 KB
-  que contiene el texto; el bit 0 lo activa). En ese bloque: **códigos** en `+0` (1.000 bytes, fila*40+columna), **fuente** en `+$0300 + código*8 + fila`
-  (códigos 32-255 = 224 glifos propios, 6 píxeles por fila en los bits 7..2). Código `< 32` = celda transparente (se ve la imagen); `>= 32` = celda opaca con tinta y papel;
-  bit 7 del código = invierte el glifo de ese código (que tiene su propia definición). El texto va por encima de la imagen y de los sprites. Cada celda mide 4x8 píxeles de imagen.
-- Todo simulado en ModelSim (`tb_mode160_4bpp/_spr/_txt`), **sin probar en placa**.
+- **`POKE 2045,176`: 160x168 + texto 40x25.** Rejilla de 160x200 (25 filas de texto de 8 líneas). La imagen (80 bytes por fila, 13.440 bytes desde
+  HFILE) ocupa las filas de texto 1 a 21 (líneas 8 a 175); fuera de ella sale el color del borde. Los **códigos** del texto (1.000 bytes,
+  fila*40+columna) van justo detrás de la imagen (HFILE + 13.440), así que todo cabe en **dos bloques de 8 KB**; los **glifos** salen de la tabla de
+  256 caracteres de siempre (`ROMTABLE`, 2 KB alineada, registro I). Código `< 32` = celda transparente; `>= 32` opaca con tinta y papel;
+  bit 7 del código = invierte el glifo de ese código (que tiene su propia definición). El texto va por encima de la imagen y de los sprites.
+  `POKE 2068,papel*16+tinta` (índices de `pal16`; por defecto tinta 15, papel 0) y `POKE 2069,1/0` activa / desactiva el texto.
+- **`POKE 2045,177`: 160x200 sin texto.** Imagen de 200 líneas (16.000 bytes), con sprites y sin plano de texto.
+- **Sprites** (ambos modos): los 64 sprites 8x8 de siempre (`POKE 2101`, tablas en la sombra) sobre la imagen; coordenadas = píxel de imagen + 32 en X e Y
+  (en el 176, la fila 0 es la línea 8 de la rejilla; en el 177, la línea 0). Pixel de sprite = tinta o papel de su fila, por `pal16`.
+- Todo simulado en ModelSim (`tb_mode160_4bpp`, `_spr` con `-GFULL=1` para el 177, `_txt`); **sin probar en placa**.

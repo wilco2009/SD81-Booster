@@ -34,19 +34,20 @@ module tb_mode160_txt;
 	reg rst = 1'b1, en = 1'b0, txt_en = 1'b0;
 	reg [2:0] base_blk = 3'd4;
 	localparam [9:0] XS = 10'd246;
-	localparam [2:0] TB = 3'd6;
+	localparam [4:0] FONT = 5'd4;				// tabla de caracteres en $2000 (ROMTABLE[15:11])
+	localparam [15:0] CODES = 16'h8000 + 16'd13440;		// codigos detras de la imagen de 168 lineas
 	localparam [7:0] TCOL = 8'h3C;				// papel 3, tinta 12
 	reg pal16_hi_wr = 1'b0, pal_idx_wr = 1'b0, pal_lo_wr = 1'b0;
 	reg [7:0] wdata = 8'd0;
 	wire img_on;
 	wire [15:0] lvl16;
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .m4(1'b1),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .full(1'b0), .m4(1'b1),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(1'b0), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),
 		.blank_n(ncsync), .border(4'd0), .pal16_en(1'b0), .c4(4'd0),
-		.spr_hit(1'b0), .spr_x(), .spr_y(), .txt_en(txt_en), .txt_col(TCOL), .txt_blk(TB), .spr_row_ok(),
+		.spr_hit(1'b0), .spr_x(), .spr_y(), .txt_en(txt_en), .txt_col(TCOL), .txt_font(FONT), .spr_row_ok(),
 		.vred(), .vgreen(), .vblue(), .vbright(),
 		.img_on_o(img_on), .idx_cur_o(), .lvl_o(), .lvl16_o(lvl16));
 
@@ -79,6 +80,10 @@ module tb_mode160_txt;
 	endfunction
 
 	integer off, k, j, r, n, i;
+	function [3:0] eff;		// indice esperado del fondo en la linea r de la rejilla (0..199), columna x: la imagen ocupa las lineas 8..175; fuera, el borde (0 en este banco)
+		input integer r; input integer x;
+		eff = (r < 8 || r >= 176) ? 4'd0 : nib(r - 8, x);
+	endfunction
 	reg [7:0] code, glyph;
 	reg bitv;
 	reg [9:0] pc_prev = 10'd0;
@@ -91,9 +96,9 @@ module tb_mode160_txt;
 			if (off >= GOFF && off < 480 + GOFF && ((off - GOFF) % 2) == 0) begin
 				k = (off - GOFF) / 12;
 				j = ((off - GOFF) % 12) / 2;
-				code = mem[{TB, 13'b0} + (r / 8) * 40 + k];
+				code = mem[CODES + (r / 8) * 40 + k];
 				if (code[7:5] != 3'b000) begin
-					glyph = mem[{TB, 13'b0} + 16'h0300 + code[7:0] * 8 + (r % 8)];
+					glyph = mem[{FONT, 11'b0} + code[7:0] * 8 + (r % 8)];
 					bitv = glyph[7 - j] ^ code[7];
 					check(lvl16 === pm[bitv ? TCOL[3:0] : TCOL[7:4]], "pixel de glifo");
 					tpix = tpix + 1;
@@ -101,9 +106,9 @@ module tb_mode160_txt;
 			end
 			if (off >= 2 && off < 482 && ((off - 2) % 3) == 0) begin
 				n = (off - 2) / 3;
-				code = mem[{TB, 13'b0} + (r / 8) * 40 + n / 4];
+				code = mem[CODES + (r / 8) * 40 + n / 4];
 				if (code[7:5] == 3'b000) begin
-					check(lvl16 === pm[nib(r, n)], "imagen en celda transparente");
+					check(lvl16 === pm[eff(r, n)], "imagen en celda transparente");
 					ipix = ipix + 1;
 				end
 			end
@@ -116,9 +121,9 @@ module tb_mode160_txt;
 		for (rr = 0; rr < 200; rr = rr + 1)
 			for (cc = 0; cc < 80; cc = cc + 1)
 				mem[{3'd4, 13'b0} + rr * 80 + cc] = (rr * 37 + cc * 11 + (rr >> 3)) & 255;
-		for (s = 0; s < 8192; s = s + 1) mem[{TB, 13'b0} + s] = $random(seed);
+		for (s = 0; s < 2048; s = s + 1) mem[{FONT, 11'b0} + s] = $random(seed);
 		for (s = 0; s < 1000; s = s + 1)
-			mem[{TB, 13'b0} + s] = ($random(seed) & 3) == 0 ? ($random(seed) & 31) : ($random(seed) & 8'hFF);
+			mem[CODES + s] = ($random(seed) & 3) == 0 ? ($random(seed) & 31) : ($random(seed) & 8'hFF);
 		for (i = 0; i < 16; i = i + 1) pm[i] = {i[3:0], 4'd15 - i[3:0], i[3:0] ^ 4'd5, i[3:0] * 4'd3};
 		repeat (8) @(posedge clk);
 		rst = 0;

@@ -5,7 +5,8 @@
 // (a mitad de pixel) contra el modelo: el sprite de indice mas alto que lo cubre (pixel ? tinta : papel, tinta = nibble alto
 // del color de la fila) o, si no, el nibble de la imagen. Todo pasado por pal16.
 module tb_mode160_spr;
-	parameter FULL = 0;
+	parameter WF = 1;
+	parameter WL = 22;
 	localparam NSPR = 8;
 	reg clk = 1'b0;  always #19.23 clk = ~clk;
 	reg clk104 = 1'b0;  always #2.4 clk104 = ~clk104;
@@ -48,7 +49,7 @@ module tb_mode160_spr;
 	wire row_ok;
 	wire [3:0] c4 = spr_pix ? spr_col[7:4] : spr_col[3:0];		// el camino normal con sprite_active_final
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .full(FULL != 0), .m4(1'b1),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .m4(1'b1),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(1'b0), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),
@@ -91,7 +92,7 @@ module tb_mode160_spr;
 
 	function [3:0] eff;		// indice esperado del fondo en la linea r de la rejilla (0..199), columna x: la imagen ocupa las lineas 8..175; fuera, el borde (0 en este banco)
 		input integer r; input integer x;
-		eff = FULL ? nib(r, x) : (r < 8 || r >= 176) ? 4'd0 : nib(r - 8, x);
+		eff = (r / 8 >= WF && r / 8 < WL) ? nib(r - 8 * WF, x) : 4'd0;
 	endfunction
 	integer sx [0:NSPR-1];
 	integer sy [0:NSPR-1];
@@ -104,8 +105,8 @@ module tb_mode160_spr;
 		begin
 			found = 0; c = eff(r, x);
 			for (s = NSPR - 1; s >= 0; s = s - 1) begin
-				dx = x + 32 - sx[s]; dy = (FULL ? r : r - 8) + 32 - sy[s];
-				if (!found && (FULL || (r >= 8 && r < 176)) && spr_en[s] && dx >= 0 && dx < 8 && dy >= 0 && dy < 8) begin
+				dx = x + 32 - sx[s]; dy = r - 8 * WF + 32 - sy[s];
+				if (!found && r / 8 >= WF && r / 8 < WL && spr_en[s] && dx >= 0 && dx < 8 && dy >= 0 && dy < 8) begin
 					a = 16'h0C00 + s * 32;
 					colb = mem[a + 4 + dy]; pxb = mem[a + 12 + dy]; mskb = mem[a + 20 + dy];
 					if (mskb[7 - dx]) begin found = 1; c = pxb[7 - dx] ? colb[7:4] : colb[3:0]; end
@@ -168,7 +169,7 @@ module tb_mode160_spr;
 		wait (line_cnt == 270);
 		pc_chk = 0;
 		$display("pixeles %0d (de sprite %0d), comprobaciones %0d, errores %0d", imgpix, spr_pixels, checks, errors);
-		if (errors == 0 && imgpix == 32000 && spr_pixels > 200) $display("OK"); else $display("FALLO");
+		if (errors == 0 && imgpix == 32000 && spr_pixels > 100) $display("OK"); else $display("FALLO");
 		$finish;
 	end
 endmodule

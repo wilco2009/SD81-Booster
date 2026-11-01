@@ -19,19 +19,19 @@
 //    camino normal sigue saliendo por los pines sin tocar (colores por defecto). La tabla arranca con los colores digitales de Chroma
 //    (0 o 15 en cada canal), de modo que activarla sin cargar nada no cambia nada.
 //
-// Variante 4 bpp (POKE 2045,176, entrada m4): 160x168, 80 bytes por fila, 13.440 bytes, el nibble alto es el pixel de la izquierda y
-// el indice (0-15) entra en pal16 (misma tabla y misma carga que los demas modos). La rejilla de pantalla es de 160x200 (25 filas de 8
-// lineas, desde la linea Y0): la imagen ocupa las filas de texto 1 a 21 (lineas 8 a 175); fuera de ella sale el color del borde (border) y
-// no se lee la imagen. Con m4 = 0 el comportamiento es el de siempre (160x100 a 8 bpp, 200 lineas).
+// Variante 4 bpp (POKE 2045,176, entrada m4): 80 bytes por fila, el nibble alto es el pixel de la izquierda y el indice (0-15) entra en
+// pal16 (misma tabla y misma carga que los demas modos). La rejilla de pantalla es de 160x200 (25 filas de texto de 8 lineas, desde la linea
+// Y0) y la imagen ocupa una ventana de filas de texto [win_first, win_last) (POKE 2070 / 2071; por defecto 0 y 25 = las 200 lineas, 16.000
+// bytes); fuera de ella sale el color del borde (border) y no se lee la imagen. 168 lineas (filas 1 a 22) son 13.440 bytes. Con m4 = 0
+// el comportamiento es el de siempre (160x100 a 8 bpp, 200 lineas).
 // Plano de texto (solo 4 bpp, txt_en): rejilla de 40x25 celdas de 4x8 pixeles de imagen (6x8 de glifo a 2 ciclos de 13 MHz, 12 ciclos
 // por celda), encima de la imagen y de los sprites. Los codigos (1.000 bytes, fila*40+columna) van justo detras de la imagen
-// (base + 13.440); los glifos salen de la tabla de caracteres del modo de 256 caracteres ({txt_font = ROMTABLE[15:11], codigo, fila}, bit 7
+// (base + 640 por fila de la ventana); los glifos salen de la tabla de caracteres del modo de 256 caracteres ({txt_font = ROMTABLE[15:11], codigo, fila}, bit 7
 // del byte = pixel de la izquierda, 6 pixeles). Codigo < 32 = celda transparente; el bit 7 del codigo ademas invierte el glifo (tinta y papel
 // cambiados), sea cual sea su definicion; el resto, opacos. Las lecturas del texto usan los huecos de los pixeles impares, en los que
-// el 4 bpp ya no necesita leer la imagen. Imagen + codigos = 14.440 bytes: caben en los dos bloques de 8 KB desde base_blk.
-// Variante full (POKE 2045,177): 160x200, 16.000 bytes, imagen en las 200 lineas, sin plano de texto; el resto igual (sprites con la fila 0 en la linea 0).
+// el 4 bpp ya no necesita leer la imagen. Imagen + codigos caben en los dos bloques de 8 KB desde base_blk si la ventana no pasa de 22 filas (14.080 + 1.000 bytes).
 // Sprites (solo 4 bpp): spr_x / spr_y / spr_row_ok sustituyen a la posicion que usa el motor de sprites (sprite_engine.v) y el pixel
-// del sprite (spr_hit, color en c4) pisa al del fondo; coordenadas del sprite = pixel de la imagen + 32 (la fila 0 es la linea 8).
+// del sprite (spr_hit, color en c4) pisa al del fondo; coordenadas del sprite = pixel de la imagen + 32 (la fila 0 es la primera de la ventana).
 //
 // El motor lee la sombra por el puerto B (v_addr), un byte por pixel, con un pixel de adelanto.
 module mode160 (
@@ -39,7 +39,8 @@ module mode160 (
 	input clk104,				// 208 MHz (CLK104, el DCM de CLK100; sin relacion de fase con clk)
 	input rst,					// activo a 1
 	input en,					// modo activo (sf160_en)
-	input full,					// 4 bpp: variante de 200 lineas de imagen (POKE 2045,177), sin plano de texto
+	input [4:0] win_first,		// 4 bpp: primera fila de texto (de 8 lineas) con imagen (POKE 2070)
+	input [4:0] win_last,		// 4 bpp: fila siguiente a la ultima con imagen (POKE 2071)
 	input m4,					// 1 = 160x200 a 4 bpp (POKE 2045,176): dos pixeles por byte (nibble alto primero), color por pal16; solo cuenta si en = 1
 	input [9:0] pixel_cnt,		// contador de pixel_clk (13 MHz en este modo), 0..827
 	input [8:0] line_cnt,		// linea de TV (0..311)
@@ -129,7 +130,7 @@ module mode160 (
 	reg rd_pend = 1'b0;
 	reg [7:0] idx_next = 8'd0;
 	reg [7:0] idx_cur = 8'd0;
-	reg [12:0] tptr = 13'd0;				// texto: siguiente codigo a pedir (desplazamiento dentro del bloque base_blk + 1)
+	reg [15:0] tptr = 16'd0;				// texto: direccion del siguiente codigo a pedir
 	reg [7:0] tcode = 8'd0;				// texto: codigo de la celda que se prepara
 	reg [7:0] tglyph = 8'd0;			// texto: fila de glifo de esa celda
 	reg [7:0] gsh = 8'd0;				// texto: glifo que sale (bit 7 = pixel actual)
@@ -143,20 +144,21 @@ module mode160 (
 	wire [8:0] ly = line_cnt - Y0;
 	wire in_y = (line_cnt >= Y0) && (line_cnt < Y0 + LINES);
 	wire m4e = m4 & en;
-	wire img_ln = full | ((ly[7:3] != 5'd0) && (ly[7:3] < 5'd22));	// 4 bpp: lineas 8 a 175 de la rejilla (filas de texto 1 a 21); full: todas
-	wire [7:0] ipic = full ? ly[7:0] : {ly[7:3] - 5'd1, ly[2:0]};	// 4 bpp: fila de la imagen
+	wire img_ln = (ly[7:3] >= win_first) && (ly[7:3] < win_last);	// 4 bpp: la fila de texto de esta linea esta en la ventana de imagen
+	wire [7:0] ipic = {ly[7:3] - win_first, ly[2:0]};				// 4 bpp: fila de la imagen
 	wire [7:0] row = m4e ? ipic : {ly[7:1], 1'b0};				// 4 bpp: una fila por linea; 8 bpp: cada fila se repite en dos lineas
 	wire [13:0] rowoff = {row, 6'b0} + {row, 4'b0};				// fila * 80 (8 bpp: fila_doble * 80 = fila * 160)
 	wire [15:0] rowbase = {base_blk, 13'b0} + {2'b0, rowoff};
 	wire [9:0] x_arm = x_start - (m4e ? 10'd16 : 10'd4);		// 4 bpp: cuatro pixeles mas pronto, para pedir el texto de la primera celda
-	wire te = txt_en & m4e & ~full;
+	wire te = txt_en & m4e;
 	wire [4:0] trow = ly[7:3];
 	wire [9:0] trowoff = {trow, 5'b0} + {2'b0, trow, 3'b0};		// fila de texto * 40
-	wire [2:0] tblk = base_blk + 3'd1;							// 13.440 = 8192 + 5248: los codigos empiezan en el bloque siguiente, +$1480
+	wire [4:0] nrows = win_last - win_first;						// filas de texto con imagen
+	wire [15:0] tbase = {base_blk, 13'b0} + {1'b0, nrows, 9'b0} + {3'b0, nrows, 7'b0};		// base + nrows*640: los codigos van detras de la imagen
 	wire [15:0] gaddr = {txt_font, tcode, ly[2:0]};
 	wire txt_on = te & img_on & cact;
 	wire tg = gsh[7] ^ cinv;
-	assign spr_y = ly + (full ? 9'd32 : 9'd24);
+	assign spr_y = ly + 9'd32 - {1'b0, win_first, 3'b0};
 	assign spr_row_ok = in_y & (~m4e | img_ln);
 	wire ev = tick & run & (sub == 2'd0);							// principio de pixel (el primero, un pixel antes de la ventana)
 
@@ -176,7 +178,7 @@ module mode160 (
 						sub <= 2'd0;
 						pcnt <= m4e ? 8'd252 : 8'd0;		// 4 bpp: -4 .. -1 pide solo texto
 						ptr <= rowbase;
-						tptr <= 13'h1480 + {3'b0, trowoff};
+						tptr <= tbase + {6'b0, trowoff};
 					end
 				end else begin
 					if (sub == 2'd2) begin
@@ -198,8 +200,8 @@ module mode160 (
 				end else if (te && pcnt[0] && (pcnt >= 8'd250 || pcnt <= 8'd155)) begin		// hueco impar: codigo (4k-3) y fila de glifo (4k-1) de la celda k
 					if (pcnt[1]) v_addr <= gaddr;
 					else begin
-						v_addr <= {tblk, tptr};
-						tptr <= tptr + 13'd1;
+						v_addr <= tptr;
+						tptr <= tptr + 16'd1;
 					end
 					rd_pend <= 1'b1;
 					sc <= 3'd0;

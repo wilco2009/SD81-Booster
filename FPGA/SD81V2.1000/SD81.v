@@ -221,7 +221,6 @@ module SD81(
 	reg sf80_en = 1'b0;
 	// Modo 160x100 a 8 bpp con paleta y PDM (POKE 2045,175): usa la temporizacion de 80 columnas (sf80_en = 1)
 	reg sf160_en = 1'b0;
-	reg sf160_full = 1'b0;		// POKE 2045,177: 160x200 a 4 bpp con 200 lineas de imagen y sin texto (con sf160_4bpp)
 	reg sf160_4bpp = 1'b0;		// POKE 2045,176: el mismo modo a 160x200 con 4 bits por pixel (solo cuenta con sf160_en)
 	reg sf80_char7 = 1'b0;
 	// Colgado de sf80_en para que al salir del modo ancho por cualquier via
@@ -549,7 +548,6 @@ Port $7FEF (01111111 11101111) - IN:
 			sf80_en <= 1'b0;
 			sf160_en <= 1'b0;
 			sf160_4bpp <= 1'b0;
-			sf160_full <= 1'b0;
 			block0Writable <= 1'b0;		// reset: bloque 0 protegido (ROM)
 			wrx_en <= 1'b0;
 		end else if (poke_wr) begin
@@ -620,7 +618,6 @@ Port $7FEF (01111111 11101111) - IN:
 				sf80_char7 <= 1'b0;
 				sf160_en <= 1'b1;
 				sf160_4bpp <= 1'b0;
-				sf160_full <= 1'b0;
 			end
 			// POKE 2045,176 -> super fast 160x200 a 4 bpp (mode160.v, paleta de 16)
 			if ((Addr == 16'd2045) && (data==8'd176)) begin
@@ -631,18 +628,6 @@ Port $7FEF (01111111 11101111) - IN:
 				sf80_char7 <= 1'b0;
 				sf160_en <= 1'b1;
 				sf160_4bpp <= 1'b1;
-				sf160_full <= 1'b0;
-			end
-			// POKE 2045,177 -> igual con 200 lineas de imagen y sin plano de texto
-			if ((Addr == 16'd2045) && (data==8'd177)) begin
-				sfast_mode_en <= 1'b1;
-				sfHR_en <= 1'b0;
-				sfSP_en <= 1'b0;
-				sf80_en <= 1'b1;
-				sf80_char7 <= 1'b0;
-				sf160_en <= 1'b1;
-				sf160_4bpp <= 1'b1;
-				sf160_full <= 1'b1;
 			end
 			if ((Addr == 16'd2045) && (data==8'd85)) begin
 				sfast_mode_en <= 1'b0;
@@ -708,13 +693,22 @@ Port $7FEF (01111111 11101111) - IN:
 	// POKE 2068: color del plano de texto del modo 160x168 a 4 bpp {papel, tinta}; POKE 2069: bit 0 = plano de texto activo (ver mode160.v)
 	reg [7:0] txt_col = 8'h0F;
 	reg txt_en = 1'b0;
+	// POKE 2070 / 2071 (0-25): ventana de imagen del modo 160 a 4 bpp en filas de texto de 8 lineas, [primera, ultima + 1) (por defecto 0 y 25)
+	reg [4:0] win_first = 5'd0;
+	reg [4:0] win_last = 5'd25;
+	wire win_first_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2070);
+	wire win_last_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2071);
 	wire txt_col_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2068);
 	wire txt_ctl_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2069);
 	always @(negedge iclock or negedge nRESET) begin
 		if (nRESET==1'b0) begin
 			txt_col <= 8'h0F;
 			txt_en <= 1'b0;
+			win_first <= 5'd0;
+			win_last <= 5'd25;
 		end else begin
+			if (win_first_wr) win_first <= data[4:0];
+			if (win_last_wr) win_last <= data[4:0];
 			if (txt_col_wr) txt_col <= data;
 			if (txt_ctl_wr) txt_en <= data[0];
 		end
@@ -1902,7 +1896,7 @@ assign DEBUG_RDY = 1'b0;
 	wire m160_r, m160_g, m160_b, m160_w;
 	wire pal16_use = pal16_en & color_enable;			// la paleta de 16 solo cuenta con el color encendido
 	mode160 mode160_inst (
-		.clk(system_clk), .clk104(CLK104), .rst(~nRESET), .en(sf160_en), .m4(sf160_4bpp), .full(sf160_full),
+		.clk(system_clk), .clk104(CLK104), .rst(~nRESET), .en(sf160_en), .m4(sf160_4bpp), .win_first(win_first), .win_last(win_last),
 		.spr_hit(sprite_hit), .spr_x(m160_spr_x), .spr_y(m160_spr_y), .spr_row_ok(m160_row_ok),
 		.txt_en(txt_en), .txt_col(txt_col), .txt_font(ROMTABLE[15:11]),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(SCR_START_X_80 + 10'd36 + {6'b0,m160_xadj}), .base_blk(HFILE[15:13]),

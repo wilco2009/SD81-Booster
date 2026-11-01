@@ -5,7 +5,8 @@
 // Comprueba: nibble alto = pixel de la izquierda, 80 bytes por fila, una fila por linea de TV (58..257), el nivel sale de pal16
 // (lvl16_o) alineado con img_on_o (primer y ultimo ciclo incluidos), y que fuera de la ventana no hay imagen.
 module tb_mode160_4bpp;
-	parameter FULL = 0;
+	parameter WF = 1;
+	parameter WL = 22;
 	reg clk = 1'b0;  always #19.23 clk = ~clk;
 	reg clk104 = 1'b0;  always #2.4 clk104 = ~clk104;
 	reg [25:0] cnt26 = 26'd0;
@@ -39,7 +40,7 @@ module tb_mode160_4bpp;
 	wire img_on;
 	wire [15:0] lvl, lvl16;
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .full(FULL != 0), .m4(m4), .spr_hit(1'b0), .spr_x(), .spr_y(), .txt_en(1'b0), .txt_col(8'd0), .txt_font(5'd0), .spr_row_ok(),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .m4(m4), .spr_hit(1'b0), .spr_x(), .spr_y(), .txt_en(1'b0), .txt_col(8'd0), .txt_font(5'd0), .spr_row_ok(),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(1'b0), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),
@@ -77,7 +78,7 @@ module tb_mode160_4bpp;
 
 	function [3:0] eff;		// indice esperado del fondo en la linea r de la rejilla (0..199), columna x: la imagen ocupa las lineas 8..175; fuera, el borde (0 en este banco)
 		input integer r; input integer x;
-		eff = FULL ? nib(r, x) : (r < 8 || r >= 176) ? 4'd0 : nib(r - 8, x);
+		eff = (r / 8 >= WF && r / 8 < WL) ? nib(r - 8 * WF, x) : 4'd0;
 	endfunction
 	integer off, n, r, imgpix = 0, i;
 	reg pc_chk = 1'b0;

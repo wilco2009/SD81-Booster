@@ -5,6 +5,8 @@
 // se muestrea en el primero (con GOFF=3 tambien pasa). Celda opaca (codigo >= 32): color = bit ? tinta : papel (bit 7 del codigo invierte);
 // transparente: sale la imagen (muestreada a mitad de pixel, offset 3n+2).
 module tb_mode160_txt;
+	parameter WF = 1;
+	parameter WL = 22;
 	parameter GOFF = 2;
 	reg clk = 1'b0;  always #19.23 clk = ~clk;
 	reg clk104 = 1'b0;  always #2.4 clk104 = ~clk104;
@@ -35,14 +37,14 @@ module tb_mode160_txt;
 	reg [2:0] base_blk = 3'd4;
 	localparam [9:0] XS = 10'd246;
 	localparam [4:0] FONT = 5'd4;				// tabla de caracteres en $2000 (ROMTABLE[15:11])
-	localparam [15:0] CODES = 16'h8000 + 16'd13440;		// codigos detras de la imagen de 168 lineas
+	localparam [15:0] CODES = 16'h8000 + (WL - WF) * 640;		// codigos detras de la imagen
 	localparam [7:0] TCOL = 8'h3C;				// papel 3, tinta 12
 	reg pal16_hi_wr = 1'b0, pal_idx_wr = 1'b0, pal_lo_wr = 1'b0;
 	reg [7:0] wdata = 8'd0;
 	wire img_on;
 	wire [15:0] lvl16;
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .full(1'b0), .m4(1'b1),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .m4(1'b1),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(1'b0), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),
@@ -82,7 +84,7 @@ module tb_mode160_txt;
 	integer off, k, j, r, n, i;
 	function [3:0] eff;		// indice esperado del fondo en la linea r de la rejilla (0..199), columna x: la imagen ocupa las lineas 8..175; fuera, el borde (0 en este banco)
 		input integer r; input integer x;
-		eff = (r < 8 || r >= 176) ? 4'd0 : nib(r - 8, x);
+		eff = (r / 8 >= WF && r / 8 < WL) ? nib(r - 8 * WF, x) : 4'd0;
 	endfunction
 	reg [7:0] code, glyph;
 	reg bitv;

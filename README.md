@@ -99,6 +99,15 @@ To build with MDL (dialects `pasmo` or `macro80`):
 
     java -jar mdl.jar -dialect macro80 -bin sdmodrom.bin sdmodrom.asm
 
-## Related projects
+## Games and game engines
 
-- [Mazogs with Chroma81 colour](https://codeberg.org/pgimeno/Mazogs) by Pedro Gimeno
+Games and engines written for, or ported to, the SD81 Booster. Each one lives in its own repository:
+
+- [Space Invaders](https://github.com/wilco2009/SD81Invaders): a replica of Taito's 1978 arcade, written from scratch in Z80 and tested on real hardware.
+- [Manic Miner](https://codeberg.org/wilco2009/manicsd81): port of the ZX Spectrum classic (work in progress).
+- [NanacoHell](https://codeberg.org/wilco2009/NANAKOHell_SD81Booster): port of the Spectrum 128K game, running in the Spectrum-compatible HiRes mode.
+- [Mario](https://github.com/wilco2009/sd81mario): a Mario platformer.
+- [ZXOilPanic](https://github.com/wilco2009/ZXOilPanic): a Game & Watch style oil-panic game, with an extra build target for the ZX81 + SD81 Booster.
+- [SCUMM and AGI interpreters](https://github.com/wilco2009/SCUMM): interpreters running on the ZX81's Z80, for SCUMM v2 (Maniac Mansion, Zak McKracken) and Sierra's AGI (Space Quest I first).
+
+The two-player network games (Connect 4, chess, Scrabble and the real-time sports games) are part of this repository, in [`EXAMPLES/NETGAME`](EXAMPLES/NETGAME).

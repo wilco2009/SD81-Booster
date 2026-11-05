@@ -186,3 +186,84 @@ def clone_table_row(table, template_row, cell_texts):
         if text is not None:
             set_cell_text(cell, text)
     return new_row
+
+
+# ---------------------------------------------------------------------------
+# Added 2026-11-05 (Scrabble / video modes update): bullets, captions, images,
+# heading lookup.
+# ---------------------------------------------------------------------------
+def find_heading(doc, text, style=None):
+    """Return the body heading paragraph whose text equals `text`. The TOC
+    repeats every heading's text, so pass `style` ('Ttulo1'/'Ttulo2'/
+    'Ttulo3') or, if omitted, the paragraph that is NOT a TOC entry is picked
+    (TOC paragraphs have style TDC1/TDC2/...)."""
+    out = []
+    for p in doc.paragraphs:
+        if p.text != text:
+            continue
+        sid = p.style.style_id if p.style is not None else ""
+        if style is not None:
+            if sid == style:
+                out.append(p)
+        elif not sid.upper().startswith("TDC") and not sid.upper().startswith("TOC"):
+            out.append(p)
+    if len(out) != 1:
+        raise ValueError(f"heading {text!r}: {len(out)} matches")
+    return out[0]
+
+
+def find_paragraph_startswith(doc, text, style=None):
+    """Single paragraph whose text starts with `text` (non-TOC)."""
+    out = []
+    for p in doc.paragraphs:
+        if not p.text.startswith(text):
+            continue
+        sid = p.style.style_id if p.style is not None else ""
+        if sid.upper().startswith("TDC") or sid.upper().startswith("TOC"):
+            continue
+        if style is not None and sid != style:
+            continue
+        out.append(p)
+    if len(out) != 1:
+        raise ValueError(f"paragraph starting {text!r}: {len(out)} matches")
+    return out[0]
+
+
+def add_bullet_after(ref_paragraph, text, bold_prefix=None):
+    """Mold: list item (Prrafodelista, numId 2, level 0). `bold_prefix` is an
+    optional bold lead-in run placed before `text`."""
+    p = insert_paragraph_after(ref_paragraph)
+    pPr = p._p.get_or_add_pPr()
+    ps = OxmlElement("w:pStyle")
+    ps.set(qn("w:val"), "Prrafodelista")
+    pPr.append(ps)
+    num = OxmlElement("w:numPr")
+    il = OxmlElement("w:ilvl")
+    il.set(qn("w:val"), "0")
+    ni = OxmlElement("w:numId")
+    ni.set(qn("w:val"), "2")
+    num.append(il)
+    num.append(ni)
+    pPr.append(num)
+    set_spacing(p, before=40, after=40)
+    if bold_prefix:
+        p.add_run(bold_prefix).bold = True
+    p.add_run(text)
+    return p
+
+
+def add_caption_after(ref_paragraph, text):
+    """Mold: centered italic caption under an image."""
+    p = insert_paragraph_after(ref_paragraph)
+    p.alignment = 1  # center
+    p.add_run(text).italic = True
+    return p
+
+
+def add_picture_after(ref_paragraph, path, width_in, height_in):
+    """Mold: centered paragraph holding one inline picture."""
+    from docx.shared import Inches
+    p = insert_paragraph_after(ref_paragraph)
+    p.alignment = 1
+    p.add_run().add_picture(path, width=Inches(width_in), height=Inches(height_in))
+    return p

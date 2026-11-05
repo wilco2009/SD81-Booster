@@ -15,242 +15,41 @@ Lista viva (empezada el 14 de octubre de 2026). Se tacha lo que se hace en los d
 | 6 | `LOAD *Z81` sin el comando 70: exige el monitor; sin él, informe P | 7.7 (texto y aviso), sección 14 (fila P), tabla de comandos del MCU (el 70 pasa a ser el 75) |
 | 7 | Web del depurador: abrirla con la IP, aviso rojo, botones Symbols y Trace, `sym !`, símbolos que no se releen solos | Apéndice L (Desde el navegador, Símbolos y la tabla de la consola) |
 | 8 | `ESP32FW.BIN` (sin guion bajo), compatibilidad con módulos viejos y actualización conjunta | 9.7 |
-| 9 | **Scrabble en red** (inglés y castellano), con el cursor por sprites, el diccionario en la SD (no incluido: enlaces a los repositorios originales y `EXAMPLES/NETGAME/DICCIONARIOS.md`), `SCRABBLE.SAV`, y para programadores `G_MOVE_VAR`/`G_BIG` de `game.inc` | **Redactado abajo** («Texto redactado: Scrabble»): sección 9.9 (usuario), Apéndice M (programadores), una línea en el Apéndice H y la fila del historial de versiones. Falta pasarlo al `.docx` (ES y EN) y las capturas |
+| 9 | **Scrabble en red** | pasado al manual el 5 de noviembre (ver más abajo) |
+
+## Hecho el 5 de noviembre de 2026 (ES y EN, `.docx` y `.md`, con el índice actualizado con Word)
+
+| Qué se hizo | Dónde quedó |
+|---|---|
+| **Scrabble en red** (inglés y castellano): cómo se juega, tabla de avisos, reparto y valores de las fichas, diccionarios (no incluidos, con los enlaces), `SCRABBLE.SAV`; captura `scrabble_game.png` | sección 9.9 |
+| **SPORTS** (Tennis, Hockey, Squash y Practice, en tiempo real) | sección 9.9 |
+| La sección 9.9 pasa a llamarse **«Juegos en red»** (SPORTS no es por turnos) y las carpetas de los juegos son `SD81/NETGAMES/` (el manual decía `SD81/TOOLS/`) | 9.9 |
+| `game.inc` con jugadas de longitud variable y estado grande (`G_MOVE_VAR`, `G_BIG`), el Scrabble como ejemplo, la capa sin esperas `netq.inc` y `EXAMPLES/NETLAT` | Apéndice M |
+| El Scrabble usa tres sprites y hace parpadear el cursor con la máscara a 0 | Apéndice H |
+| El joystick ya no pausa el depurador (FPGA `sim_int` rev 0.18) | Apéndices K y L |
+| **Scroll por hardware** (HiRes nativo y Spectrum): puerto `$3FEF`, región, búferes, órdenes del motor | Apéndice F, «Scroll por hardware»; una nota en el Apéndice L |
+| **Modo 160x100 a 256 colores**, **paleta de 16 colores**, **modo 160x200 a 4 bpp** (ventana, sprites y texto 40x25) y **visor de imágenes** (`.I16`, BMP por el comando 76, PHOTO e IMGVIEW) | Apéndice F (cuatro secciones nuevas) y la tabla de POKEs (2045 = 175 y 176, 2063-2071, 2099) |
+| `.BMP` y `.I16` en el explorador | Apéndice J (fila nueva de la tabla de extensiones) |
+| `LOAD`, `SAVE` y `LOAD THEN PRINT` resuelven `..` en las rutas | 8.2 |
+| Tabla de comandos del MCU: 13, 31, 60-64, 71-72, 73-74 y 76, y una nota con los códigos reservados (22, 39, 51, 70) y los desactivados (46, 47) | 15.5 |
+
+Los cinco apartados que dependen de la FPGA nueva (scroll, 256 colores, paleta de 16, 160x200 y visor) llevan la frase «Esta función necesita la FPGA de la próxima
+versión (todavía sin publicar)»: **quitarla al publicar la FPGA**. El `PONG` de `EXAMPLES/NETGAME` no va al manual: es el antecesor del Tennis de SPORTS y una prueba de latencia.
 
 ## Pendiente
 
-- ~~El 4 en raya con interfaz gráfica~~ **hecho el 17 de octubre**: 9.9 describe cómo se ve y lleva su captura. Si cambia el aspecto
-  tras probarlo en el emulador, rehacer la captura (`DOC/img/connect4_win.png`).
-- **Fila nueva en el historial de versiones** (sección 19, ES y EN) al preparar la release, con la versión de cada parte.
-- El MQTT avanzado (TLS, usuario y contraseña, QoS 1, retenidos, testamento) **no se ha probado en la placa**: el Apéndice M
-  lo describe tal como está implementado.
-- Los comandos 68, 69 y 71-74 del MCU no están en la tabla de comandos de la sección 15 (ROMLOCK, `fcreate` y el depurador).
+- **Fila nueva en el historial de versiones** (sección 19, ES y EN) al preparar la release, con la versión de cada parte (STM32, ROM, FPGA, WiFi). Debe nombrar el Scrabble, SPORTS,
+  el scroll por hardware, los modos de 160 píxeles, la paleta de 16 colores, los BMP, las rutas con `..` y que el joystick ya no pausa el depurador.
+- Sin probar en la placa (y el manual lo describe como si funcionara): el MQTT avanzado (TLS, usuario y contraseña, QoS 1, retenidos, testamento), el comando 76 y los BMP,
+  la paleta de 16, el modo 160x200 y el scroll vertical. Revisar el texto si la prueba da otra cosa.
+- Capturas de pantalla de los modos de 160 píxeles (no hay ninguna) y, si se quiere, `DOC/img/scrabble_start.png` (la pantalla de inicio del Scrabble).
+- Para las **notas de la release** (no van al manual): el tempo del VGM (la música iba lenta por retrasos acumulados, arreglado), el sondeo del ESP32 cada 3 ms con datos y 15 ms en reposo, y los comandos 66 y 67 sin log por USB.
+- Si cambia el aspecto del 4 en raya tras probarlo en el emulador, rehacer la captura (`DOC/img/connect4_win.png`).
 
 ## Para cada release
 
 - Fila nueva en el historial de versiones (ES y EN), con la versión de cada parte (STM32, ROM, FPGA, WiFi).
 - Los WAV de 32 bits por muestra se corrigieron (antes sonaban mal); basta con las notas de la release.
-
-## Texto redactado: Scrabble (para pasar al manual, en español)
-
-Estado: redactado el 18 de octubre de 2026, con el juego probado en el PC, en el emulador y en la placa (una partida completa). Falta pasarlo
-al `.docx` (flujo docx primero, ES y EN) y las dos capturas de pantalla reales (`DOC/img/scrabble_game.png` y `scrabble_start.png`, a su
-tamaño 1:1; se sacan del emulador o con el arnés del PC, `SCRDIR=<carpeta>` y `scr2png.py`). La ruta de la carpeta del juego en `Software.zip`
-(`SD81/TOOLS/SCRABBLE` o `SD81/NETGAMES/SCRABBLE`) la decide el empaquetado de la release.
-
-### Cambios en el texto que ya existe de 9.9
-
-- Primer párrafo: «Hay **tres** juegos, el 4 en raya (CONNECT4), el ajedrez (CHESS) y el Scrabble (SCRABBLE), y un chat de prueba (NETCHAT). Están en
-  Software.zip, en las carpetas CONNECT4, CHESS, SCRABBLE y NETCHAT.» (el resto del párrafo igual).
-- «Partida nueva (1)»: añadir «en el Scrabble empieza el jugador 1 y antes de crear la sala se elige el idioma».
-- «Guardar y seguir otro día»: «(CONNECT4.SAV, CHESS.SAV o SCRABBLE.SAV)».
-- Colocar los bloques nuevos después de «Relojes del ajedrez» y antes de «Chat de prueba (NETCHAT)».
-
-### Bloque nuevo de 9.9: Scrabble
-
-**Scrabble:**
-
-Scrabble para dos jugadores, en **inglés o en castellano**. Todo lo hace el Z80 del ZX81: las reglas, la puntuación y la comprobación de cada palabra
-en un **diccionario que está en la SD**; no hay ningún servidor que juegue ni que compruebe nada. Se carga como los otros juegos (el programa .P es un
-cargador pequeño que lee el .BIN de la misma carpeta) y, además de los dos ficheros del juego, necesita el diccionario en esa misma carpeta (ver más
-abajo, «Diccionarios del Scrabble»). Si falta, el juego avisa con NO DICTIONARY FILE IN THE SD y no deja jugar.
-
-- **Idioma.** Al crear la sala (1) se elige 1 = ENGLISH o 2 = SPANISH. El idioma va en la primera letra del código de sala (A inglés, B castellano),
-  así que quien se une no tiene que elegir nada. La bolsa es siempre de 100 fichas (98 y 2 comodines) con el reparto y los valores oficiales de cada
-  idioma (tabla más abajo).
-- **La bolsa y los atriles.** Los dos ordenadores barajan la misma bolsa a partir de una semilla que sale del código de sala, y roban en el mismo
-  orden: no se mandan fichas por la red, solo las jugadas. Por eso cada programa sabe también qué fichas tiene el rival; **el programa no las
-  muestra, pero no son un secreto frente a quien modifique el programa**. Se juega por honradez, entre amigos que se pasan el código de sala. «Otra
-  partida» (ENTER al acabar) baraja de nuevo.
-- **Tu turno.** Con la partida en marcha, el panel dice YOUR TURN o RIVAL TURN. Una jugada es una **palabra entera** puesta en una fila o en una
-  columna, con las fichas de tu atril y las letras que ya haya en el tablero. Se teclea de dos formas, que se pueden mezclar:
-
-  1. **Con el cursor.** Las flechas del ZX81 mueven un marco negro por el tablero: **5** izquierda, **6** abajo, **7** arriba, **8** derecha (con o
-     sin SHIFT). El marco es un sprite por hardware (Apéndice H) y parpadea, así que se ve sobre cualquier casilla sin tapar las letras. **0** elige
-     la casilla de salida, y después **8** (a la derecha) o **6** (hacia abajo) elige el sentido: aparece una flecha negra en la casilla de al lado.
-     A continuación se teclea la palabra completa, tal como quedará en el tablero, y ENTER.
-  2. **Escribiéndola**, como en el ajedrez: columna A-O, fila 1-15 (A10, O15), R (derecha) o D (abajo) y la palabra: `H8 R QUIZ` y ENTER. Si se
-     teclea la casilla a mano, el cursor se coloca en ella.
-
-  SHIFT+0 borra la última tecla, hasta volver a mover el cursor. Una tecla que no cuadra en esa posición no entra (una columna que no existe, una
-  palabra que se saldría del tablero...). Si una letra de la palabra ya está en el tablero se escribe igual: `H8 R QUIZ` puede usar una Q que ya esté
-  en H8 y poner solo U, I y Z.
-- **El comodín** (la ficha blanca, de valor 0; sale como «?» en el atril). Si te falta una letra y tienes un comodín, el programa lo usa solo. Para
-  gastarlo aunque tengas la letra, pon un **punto antes de ella** (`.A`). En el tablero y en el atril el comodín se ve con la tinta azul.
-- **Pasar y cambiar.** P y ENTER pasan. X seguida de las fichas que quieres cambiar (de 1 a 7, con un punto para el comodín) y ENTER las cambia por
-  otras de la bolsa; hacen falta al menos 7 fichas en la bolsa. Pasar y cambiar apagan el cursor.
-- **Lo que se comprueba.** Antes de mandar la jugada, el programa comprueba que pones fichas que tienes, que la primera jugada cubre la casilla
-  central (H8), que las demás tocan alguna ficha del tablero, que la palabra no se alarga por los extremos y que **la palabra y todas las palabras
-  cruzadas que forma están en el diccionario**. Si no, no la manda y avisa del motivo; no hay impugnación, la jugada que no vale no se hace:
-
-  | **Aviso** | **Significa** |
-  |---|---|
-  | BAD POSITION OR LETTER | casilla o ficha que no existe, o palabra que se sale del tablero |
-  | YOU DO NOT HAVE THOSE TILES | pones una ficha que no tienes (y sin comodín para sustituirla) |
-  | LETTER DOES NOT MATCH THE BOARD | una letra de la palabra choca con la que ya está en esa casilla |
-  | PLACE AT LEAST ONE TILE | la palabra solo usa fichas que ya estaban |
-  | THE WORD WOULD BE LONGER | hay letras pegadas por delante o por detrás: la palabra tendría que incluirlas |
-  | FIRST WORD MUST COVER THE CENTER | la primera jugada no pasa por H8 |
-  | THE WORD MUST TOUCH THE TILES | la palabra no toca ninguna ficha del tablero |
-  | *XXXX* IS NOT A WORD | la palabra (con la que falla) no está en el diccionario |
-  | *XXXX* (CROSSING) IS NOT A WORD | una palabra cruzada no está en el diccionario |
-  | A WORD HAS 2 TO 15 TILES | palabras de 2 a 15 fichas |
-  | THE BAG HAS LESS THAN 7 TILES | no se puede cambiar |
-  | IT IS NOT YOUR TURN / THE GAME IS OVER | no te toca / la partida ha acabado |
-  | NETWORK ERROR: R RESENDS | falló la red: la jugada está hecha en local; R la vuelve a mandar |
-  | FINISH THE MOVE FIRST | ENTER con la jugada a medias (falta la palabra, o tiene una sola ficha) |
-
-- **Puntuación.** La oficial: cada ficha vale lo que dice la tabla, la letra doble o triple (cian y azul) multiplica solo la ficha que acabas de poner,
-  la palabra doble o triple (magenta y rojo, y el centro, que es doble) multiplica toda la palabra, y se cuentan **la palabra principal y todas las
-  cruzadas**. El comodín vale 0. Usar las 7 fichas del atril en una jugada da **50 puntos más**. La partida acaba cuando un jugador se queda sin fichas
-  con la bolsa vacía (se queda con el valor de las fichas que le quedan al otro, y el otro lo pierde) o tras **seis pases o cambios seguidos** (cada
-  uno resta el valor de su atril). Gana quien tiene más puntos; el panel dice YOU WIN, THE RIVAL WINS o DRAW.
-- **La pantalla** (alta resolución, Superfast HiRes Spectrum). A la izquierda, el tablero de 15×15 casillas con las letras A-O arriba y los números 1-15 a
-  la izquierda; el centro lleva una estrella. Las casillas especiales van de color, con la leyenda en el panel: **DL** (letra doble) cian, **TL** (letra
-  triple) azul, **DW** (palabra doble) magenta y **TW** (palabra triple) rojo. Las fichas son blancas; las de **la última jugada** (la tuya o la del
-  rival) se resaltan en **amarillo**. Debajo, **tu atril** con el valor de cada ficha, y a la derecha el panel: tus puntos (YOU) y los del rival (RIVAL),
-  las fichas que quedan en la bolsa (BAG), de quién es el turno, la última jugada con su autor y sus puntos (LAST MOVE), la leyenda de colores, el código
-  de sala y Q = QUIT. Abajo, el estado, los avisos, la ayuda de la tecla que toca y lo que vas tecleando.
-
-  ![](media/scrabble_game.png){width="2.6666666666666665in" height="2.0in"}
-
-  *Scrabble: una partida en curso, con el cursor y la última jugada en amarillo (captura de la pantalla real, a su tamaño).*
-- **Castellano.** Se juega con el Scrabble en castellano tradicional: **CH, LL y RR son una sola ficha** (no se pueden hacer con C+H, L+L o R+R) y la
-  **Ñ** es otra. Al teclear, C H, L L y R R se juntan solos en una ficha (borrar la H deja la C sola) y la tecla **1** es la Ñ. En el tablero y en el
-  atril se dibujan con su propio símbolo (CH, LL, RR y Ñ ocupan una casilla). No hay K ni W en la bolsa. El diccionario no distingue tildes.
-- **Teclas.** Con nada tecleado: 5 6 7 8 mueven el cursor, 0 elige la casilla, **R** reenvía la última jugada si falló la red, **Q** sale (los dígitos
-  son las flechas y las filas del tablero, por eso estas dos órdenes son letras), y **ENTER** propone otra partida cuando la actual ha acabado. P pasa y X
-  cambia fichas.
-- **Guardar y seguir otro día.** Como en los otros juegos: el programa guarda la partida en `SCRABBLE.SAV` (unos 400 bytes) en la carpeta del juego, y el
-  menú ofrece «3 = CONTINUE SAVED GAME». Para seguirla hace falta tener el diccionario del idioma de la partida.
-
-**Reparto y valores de las fichas:**
-
-| **Inglés** (98 + 2 comodines) | **Castellano** (98 + 2 comodines) |
-|---|---|
-| 1 punto: A×9 E×12 I×9 O×8 N×6 R×6 T×6 L×4 S×4 U×4 | 1 punto: A×12 E×12 O×9 I×6 S×6 N×5 R×5 U×5 L×4 T×4 |
-| 2 puntos: D×4 G×3 | 2 puntos: D×5 G×2 |
-| 3 puntos: B×2 C×2 M×2 P×2 | 3 puntos: B×2 C×4 M×2 P×2 |
-| 4 puntos: F×2 H×2 V×2 W×2 Y×2 | 4 puntos: F×1 H×2 V×1 Y×1 |
-| 5 puntos: K×1 | 5 puntos: CH×1 Q×1 |
-| 8 puntos: J×1 X×1 | 8 puntos: J×1 X×1 LL×1 Ñ×1 RR×1 |
-| 10 puntos: Q×1 Z×1 | 10 puntos: Z×1 |
-| comodín ×2: 0 puntos | comodín ×2: 0 puntos |
-
-**Diccionarios del Scrabble:**
-
-El Scrabble necesita un diccionario por idioma en la carpeta del juego, con estos nombres exactos: **DICTEN.DIC** (inglés, 2,6 MB) y **DICTES.DIC**
-(castellano, 9,7 MB). **No vienen incluidos**: se generan una vez con el script `TOOLS/make_dict.py` del repositorio a partir de listas de palabras
-públicas, que hay que descargar de su origen (consulta sus condiciones de uso):
-
-- Inglés: la lista **ENABLE** (de dominio público), <https://github.com/dolph/dictionary> (`enable1.txt`).
-- Castellano: las listas oficiales **FISE-2** y **FILE 2017**, recogidas en <https://github.com/kamilmielnik/scrabble-dictionaries/tree/master/spanish>
-  (`fise-2.txt`, `file-2017.txt`; traen las formas conjugadas y los plurales). Ese repositorio no declara licencia para ellas, por eso este proyecto no
-  las redistribuye.
-
-Con Python 3, desde una carpeta con las listas descargadas:
-
-> python make_dict.py enable1.txt DICTEN.DIC
->
-> python make_dict.py --lang es fise-2.txt DICTES.DIC
-
-Después se copian los `.DIC` a la carpeta del juego en la SD. Las instrucciones completas, con las órdenes para descargar las listas, están en
-`EXAMPLES/NETGAME/DICCIONARIOS.md`. Cada palabra se busca con una **búsqueda binaria directamente en la SD**: unos 20 accesos y unos 40 milisegundos
-por palabra, así que una jugada con varias palabras cruzadas se comprueba en menos de medio segundo.
-
-### Bloque nuevo del Apéndice M (programadores)
-
-En «La librería net.inc y el controlador game.inc», después de la tabla de rutinas y del párrafo de los mensajes, añadir:
-
-> **Jugadas de longitud variable y estado grande.** El Scrabble no cabe en el formato de arriba: una jugada mide hasta 21 bytes y el estado, 355. Por
-> eso game.inc tiene dos opciones más, que los otros juegos dejan a 0. Con **G_MOVE_VAR = 1**, G_MOVE_LEN es el máximo y el primer byte de la jugada es
-> su longitud (contada entera): solo se manda esa parte, `[1][jugada][hash]`. Con **G_BIG = 1** el estado no cabe en un mensaje de 100 bytes: se manda
-> en **trozos de 96 bytes**, `[3][número de trozo][cuántos][datos]`, que el receptor junta en un búfer y carga cuando están todos; el resumen del estado lo
-> calcula el juego (la rutina g_hash, sin copiar el estado). Al terminar de mandar el estado, si la última jugada fue del que lo manda, la vuelve a
-> mandar, para que sea lo último que queda retenido en el servidor. No se pueden usar con G_CLOCK.
->
-> El Scrabble (EXAMPLES/NETGAME/scrabble.asm, con scrabble.inc, dict.inc, scrabble_ui.inc, scrabble_in.inc y scrabble_game.inc) es un ejemplo de las
-> dos opciones. Su jugada es `[L][tipo][datos]`: tipo 1 jugar (x, y, sentido, n y las fichas), 2 pasar, 3 cambiar (n y las fichas). **El idioma y la
-> semilla de la bolsa no se mandan**: salen del código de sala (la primera letra y las 10 letras, con el número de partida de la sala), así que los
-> dos ordenadores barajan la misma bolsa sin decirse nada. El programa ocupa unos 13 KB y se carga en $4400 (CLEAR 17407), no en $5000, porque no
-> cabría; todo el código tiene que quedar por debajo de $8000.
-
-### Otros sitios del manual
-
-- **Historial de versiones (sección 19):** la fila de la versión que incluya el Scrabble debe decir «Scrabble en red, en inglés y castellano, con el
-  diccionario en la SD, y cursor por sprites».
-- **Apéndice H (Sprites):** una línea en «Capacidad» o al final: «El Scrabble usa tres sprites (el cursor y dos flechas) y hace parpadear el cursor
-  cambiando su máscara a 0, de modo que no borra ningún punto del fondo mientras está apagado.»
-
-### SPORTS: deportes en red (EXAMPLES/NETGAME/sports.asm, 20/10/2026)
-
-Programa de juegos en red de tiempo real (Tennis, Hockey, Squash y Practice, con opciones de palas, bola y ángulos), que se carga con `SPORTS.B81` en $4400. Hay que
-describirlo donde se habla de los juegos en red (junto al Scrabble): los juegos, las teclas (Q/A, P ping, X salir, ENTER nueva partida), que las opciones viajan en la
-primera letra del código de sala, que Practice no usa red y que la tecla P enseña el ping en ms. Va a la SD en la carpeta de los juegos en red.
-
-### El joystick ya no pausa el depurador (FPGA, sim_int rev 0.18)
-
-Decidido el 19/10/2026 al probar el Pong con joystick: un contacto o rebote que daba arriba y abajo a la vez pausaba el programa en pleno juego. Se quita la pausa por el
-joystick (queda la consola USB, `DBG_`/menu del emulador y el botón QS de 1 a 3 s). Hay que cambiar en el manual, ES y EN (apéndice del depurador, hoy secciones con el texto
-«Pulsar Arriba y Abajo a la vez en el joystick también pausa el programa» y «…con Arriba + Abajo del joystick» en la lista de formas de pausar). Se quita esa frase y esa opción.
-Requiere sintetizar la FPGA y subir `FPGAVERSION.TXT` en la release.
-
-### Scroll por hardware (HiRes nativo y Spectrum; FPGA rama `fpga-scroll`, 26/10/2026)
-
-Sin sintetizar del todo ni probado en la placa (SCROLLT para Spectrum y SCROLLH para HiRes nativo, en `EXAMPLES/`); esto es lo que habrá que explicar cuando esté. Diseño en
-`scroll_hardware.md`; lo del emulador, en `scroll_hardware_emulador.md`. Nuevo apartado en «Vídeo» (junto al scroll fino de `POKE 2090`) y entradas en las tablas de POKEs y de puertos:
-
-- **Qué es:** la pantalla es una ventana sobre la memoria, con fino X (0-7 px, `POKE 2090`, ya existente) y fino Y (0-7 líneas, puerto del depurador), más una **columna 33** y una **fila 25**
-  que no están en el bitmap sino en búferes de entrada; el Z80 regenera lo que entra. Solo en los modos Superfast **HiRes nativo y Spectrum** (no en texto).
-- **Puerto `$3FEF` ampliado (sim_int 0.19):** `OUT $20+n` elige el índice 16+n de lectura; `OUT $40+r` y el dato escriben el registro 8+r: 8 = fino Y (0-7), 10 = fila superior de la región, 11 = fila inferior;
-  lectura 17-19 devuelve esos registros. Registro 9 (orden) y estado/ocupado (IN 16) llegarán con el motor de movimiento.
-- **Región vertical:** solo las filas `superior..inferior` (0-23) se mueven en vertical; las demás se quedan fijas (marcadores, puntuación). La máscara de filas de `POKE 2091-2093` sigue mandando en horizontal.
-- **Búferes de entrada (dentro del bloque de 8 KB de la pantalla, en la zona que sobra):** Spectrum `$1B00-$1E48`; HiRes nativo `$1800-$1A06`, tanto en el bitmap como en el área de atributos de modo 0 (`$C000+`).
-  Atributos de modo 1 (8x8): la columna 33 es el hueco del NEWLINE (paso 33) y la fila 25 es la fila 24 de la rejilla.
-- **El fino mueve la visualización, no la memoria:** el atributo viaja con su bitmap, también en vertical. El movimiento grueso (el motor, fase 2) moverá la memoria y los atributos; entonces la pantalla es de solo escritura para el Z80
-  (la RAM externa y lo que se ve dejan de coincidir).
-- **Motor de movimiento horizontal (fase 2, 26/10/2026):** el scroll grueso. Cuando el fino llega a 7 (o a 0 al ir a la derecha), el Z80 manda una orden y la FPGA mueve la memoria **un byte**:
-  `OUT (C),$41` y `OUT (C),n` con `BC = $3FEF` (registro 9; n = 1 izquierda, 2 derecha, 3 arriba, 4 abajo). Estado: `OUT (C),$20` y `IN A,(C)`: bit 7 ocupado, bit 6 pendiente, bit 5 en marcha.
-  Se ejecuta en el borrado, desde la línea 254 (hasta 1,5 ms), antes del blit del doble buffer; una orden con el motor ocupado se ignora; el Z80 no debe escribir en la pantalla mientras corre.
-  Mueve el bloque HFILE, el bitmap y los atributos (Spectrum; HiRes con color: modo 0 los 6 KB de `$C000`, modo 1 la rejilla de 33), respetando la máscara de filas de `POKE 2091-2093`. El byte que sale se guarda en el
-  búfer del lado contrario (ir y volver no obliga a regenerar); lo que entra lo escribe el Z80, que rellena el búfer del lado de entrada después de cada movimiento. Protocolo sin saltos: orden con el fino en 7 (o 0), y en
-  el cuadro siguiente, ya libre, fino a 0 (o 7). Ejemplo: `EXAMPLES/SCROLLM`. Después del primer movimiento la RAM externa del Z80 ya no coincide con lo que se ve.
-- **Motor de movimiento vertical (fase 3, 26/10/2026):** las órdenes **3 (arriba: el contenido sube)** y **4 (abajo: el contenido baja)** del mismo registro 9. Mueve **una fila de texto** (8 líneas) de las filas de la **región**
-  (`reg_top`..`reg_bot`, registros 10 y 11; la máscara de filas de `POKE 2091-2093` no cuenta en vertical), con sus atributos y con las columnas de los búferes de los lados. La fila que sale se guarda en el búfer contrario (T al subir,
-  B al bajar) y entra la que el Z80 había dejado en el de entrada (B al subir, T al bajar). Protocolo sin saltos: orden 3 con el fino Y en 7 (la 4 con el fino en 0), y en el cuadro siguiente, ya libre, fino a 0 (o 7) y rellenar el
-  búfer de entrada (y la esquina `$1A00`/`$1E40`, y la fila 24 de la rejilla en HiRes modo 1). Tarda 0,8-1,6 ms. Las columnas R y L de la fila que entra quedan como estaban: las escribe el Z80 si las va a ver.
-  Las direcciones de los búferes de arriba y de abajo están en `scroll_hardware_emulador.md`, apartado 7 (para el manual: una tabla de los bufers por modo). Ejemplo: `EXAMPLES/SCROLLM` (Q y A; diagonales con P y O).
-- **Avisos:** con doble buffer, los atributos de HiRes no pasan por el doble buffer (solo el bitmap). Cuidado con el bloque de 8 KB: los búferes ocupan lo que antes sobraba.
-
-## Modo de 256 colores 160x100 (rama `fpga-mode160`, 27/10/2026)
-
-Sintetizado, sin probar en la placa (ver `pdm_color.md` y `EXAMPLES/MODE160`). Entrada nueva en «Vídeo», y en las tablas de POKEs:
-
-- **Qué es:** `POKE 2045,175`: 160x100 píxeles, un byte por píxel (índice de una paleta de 256 entradas de 16 bits), 16.000 bytes desde `HFILE` (bloque de 8 KB, usar 0-6); cada fila sale en dos líneas de TV.
-  Cada color son cuatro densidades de pulsos 0-15 (R, G, B y BRIGHT, a 208 MHz) que la red de resistencias de la SCART convierte en niveles intermedios: más de 16 colores a la vez.
-- **Paleta:** `POKE 2063,n` (puntero), `POKE 2064,lo` (`{G,B}`) y `POKE 2065,hi` (`{BRIGHT,R}`: escribe y avanza). Sin cargarla, RGB 3-3-2 sin brillo. Los 16 colores de Chroma81 caben exactos (`pal160.py`, fila 7).
-- **Posición:** `POKE 2099,n` (0-15), un paso = 1/3 de píxel. El borde sale del puerto `$7FEF` como en Chroma.
-- **Límites:** sin sprites, scroll fino ni motor, y sin blit / doble buffer en este modo; con la red actual de la placa (BRIGHT común a los tres canales) un color solo es alcanzable si su canal más alto menos el más bajo no pasa de 0,455 V
-  (el máximo de un primario brillante es (1, 0,36, 0,36)). Los pines de vídeo pasan a `SLEW = FAST` en todos los modos.
-- **Visor de fotos (`EXAMPLES/PHOTO`, 27/10/2026):** `png2i16.py` convierte PNG de 160x100 (hasta 256 colores, solo biblioteca estándar) a `IMGnnn.I16` (`I160` + 512 bytes de paleta + 16.000 píxeles) y `PHOTO.BIN` los muestra
-  (N siguiente, B anterior, ESPACIO sale; salta los huecos y da la vuelta). Para el manual: el formato `.I16` y el uso del conversor. Probado en el PC (Z80 + MCU simulado), sin probar en la placa.
-- **Paleta de 16 colores (modos normales, 27/10/2026):** `POKE 2063,n` (puntero, 0-15), `POKE 2064,lo` (`{G,B}`), `POKE 2066,hi` (`{BRIGHT,R}`: escribe y avanza) y `POKE 2067,1` / `2067,0` (activa / desactiva). Cada color son cuatro densidades de pulsos 0-15 (R, G, B, BRIGHT) y el índice es el color de Chroma (`{BRIGHT,G,R,B}`, el mismo de los atributos). Desactivada salen los colores por defecto; al activarla sin cargar nada no cambia nada. Vale para texto, HiRes, Spectrum, sprites y borde. Ejemplo: `COLORTEST` (tecla P: rampas de gris, rojo, verde, azul, amarillo, cian y magenta, y OFF). Probada en simulación y con el Z80 en el PC, sintetizada (LUTs 67 %, slices 88 %, restricciones cumplidas) pero sin probar en la placa. Requiere FPGA con `mode160.v` (rama `fpga-mode160`).
-- **BMP directo (comando 76, 28/10/2026):** el visor `PHOTO` y el explorador (`.BMP` y `.I16` con 8 / ENTER: lanza `IMGVIEW.BIN` desde el stub BASIC; tecla F = colocación) abren un `.BMP` y el MCU lo convierte al abrirlo a una imagen de 160x100
-  con paleta de 256 colores (escala por área y cortes de mediana, unos segundos). BMP de 1, 4, 8, 24 y 32 bits sin compresión. Tecla **F** en `PHOTO`: estirado / con su proporción / recortado.
-  Errores en `/MAN/BMPERR.TXT` (`LOAD THEN PRINT "*BMPERR"`): `NOT A BMP FILE`, `BAD BMP HEADER`, `UNSUPPORTED BMP DEPTH`, `UNSUPPORTED BMP (COMPRESSED)`, `BMP TOO LARGE`, `BMP TRUNCATED`, `OUT OF MEMORY`.
-  Para el explorador hacen falta `IMGVIEW.BIN` en `/EXPLORER/` y el `AUTOEXEC.P` / `EXPLORER.P` nuevos (`EXAMPLES/IMGVIEW`, `compila.bat`).
-  Firmware `BMP.cpp` / comando 76 (`LAST_COMMAND` 76) sin compilar ni probar en la placa; el conversor se prueba en el PC (`build_bmp.sh`, `build_photo.sh`). Especificación para el emulador: `bmp_emulador.md`.
-
-## Modo 160x200 a 4 bpp con ventana, sprites y texto (rama `fpga-mode160-4bpp`, 1/11/2026)
-
-Simulado y sintetizado (LUTs 70 %, slices 92 %, restricciones cumplidas), sin probar en la placa (ver `mode160_emulador.md` §5, `SCUMM/AGI/ESTUDIO_160x168.md` y `EXAMPLES/MODE160`). Entrada nueva en «Vídeo» y en las tablas de POKEs:
-
-- **Qué es:** `POKE 2045,176`: rejilla de 160x200 píxeles (25 filas de texto de 8 líneas), 4 bits por píxel (16 colores a la vez de la paleta de 16, `POKE 2063/2064/2066`), 80 bytes por fila, el nibble alto es el píxel de la izquierda. Cada píxel dura 3 ciclos de 13 MHz y cada fila es una línea de TV (en el 175 salía en dos).
-- **Ventana de imagen:** `POKE 2070,primera` y `POKE 2071,última+1` (en filas de texto de 8 líneas, 0-25; por omisión 0 y 25 = las 200 líneas, 16.000 bytes). La imagen empieza en `HFILE` y ocupa `(última+1-primera)*640` bytes; fuera de la ventana sale el color del borde y no se lee nada. Ejemplo AGI: 160x168 con `primera=1`, `última+1=22` (13.440 bytes).
-- **Sprites:** los 64 sprites 8x8 de siempre (`POKE 2101`, K = 12 por línea) sobre la imagen; X de sprite = columna + 32 (0-159) e Y de sprite = fila de la imagen + 32 (la fila 0 es la primera línea de la ventana). Tinta o papel de su fila, por la paleta de 16.
-- **Texto 40x25:** `POKE 2069,1/0` (activa / desactiva) y `POKE 2068,papel*16+tinta` (índices de la paleta de 16, por omisión tinta 15 y papel 0). Celdas de 4x8 píxeles de imagen (glifo de 6x8) encima de la imagen y de los sprites. Los códigos (1.000 bytes, fila*40+columna) van justo detrás de la imagen (`HFILE + 640*filas de la ventana`; imagen y códigos caben en dos bloques de 8 KB si la ventana no pasa de 22 filas); los glifos salen de la tabla de 256 caracteres (`ROMTABLE`, registro I). Código `< 32` = celda transparente; `>= 32` = opaca con tinta y papel; el bit 7 del código invierte el glifo de ese código (que tiene su propia definición, no la del `c-128`).
-- **Límites:** sin scroll fino, motor ni blit / doble buffer en este modo; sin sprites ni texto en el 175 (8 bpp). Sin lectura de la imagen fuera de la ventana: la barra de estado y los mensajes de AGI van como celdas de texto opacas.
-- **Ejemplo y herramienta:** `EXAMPLES/MODE160/mode160w.asm` (`MODE160W.B81`: ventana 1-22 / 3-17, barras y diagonales, texto, anillo y cuadrados de sprites; teclas 1 2 T Q A O P X), `mode1604.asm` (200 líneas, sin más) y `png2i4.py` (PNG de 160x200 con hasta 16 colores → `pic4.bin` + `pal4.bin`). Sin probar en la placa.
 
 ## Cómo se toca
 

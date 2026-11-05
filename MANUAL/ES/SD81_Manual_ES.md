@@ -104,7 +104,7 @@ Versión 1.0
 
 [9.8 Terminal telnet --- TELNET](#terminal-telnet-telnet)
 
-[9.9 Juegos por turnos en red](#juegos-por-turnos-en-red)
+[9.9 Juegos en red](#juegos-en-red)
 
 [10. Sonido](#sonido)
 
@@ -294,6 +294,8 @@ Versión 1.0
 
 [Scroll horizontal fino (Superfast)](#scroll-horizontal-fino-superfast)
 
+[Scroll por hardware (HiRes nativo y Spectrum)](#scroll-por-hardware-hires-nativo-y-spectrum)
+
 [Pantalla alternativa (Superfast)](#pantalla-alternativa-superfast)
 
 [Tabla de atributos alternativa (Chroma modo 1, Superfast)](#tabla-de-atributos-alternativa-chroma-modo-1-superfast)
@@ -311,6 +313,14 @@ Versión 1.0
 [Qué cambia el doble buffer](#qué-cambia-el-doble-buffer)
 
 [WRX con la RAM de 8-16K](#wrx-con-la-ram-de-8-16k)
+
+[Modo de 256 colores de 160x100](#modo-de-256-colores-de-160x100)
+
+[Paleta de 16 colores](#paleta-de-16-colores)
+
+[Modo de 16 colores de 160x200, con ventana, sprites y texto](#modo-de-16-colores-de-160x200-con-ventana-sprites-y-texto)
+
+[Visor de imágenes: PHOTO, IMGVIEW y los BMP](#visor-de-imágenes-photo-imgview-y-los-bmp)
 
 [Resumen de POKEs de control](#resumen-de-pokes-de-control)
 
@@ -985,6 +995,8 @@ Ver el directorio actual:
 
 > LOAD \*PWD
 
+Las rutas que usan LOAD, SAVE y LOAD THEN PRINT admiten «..» (el directorio de encima): por ejemplo, LOAD FAST \"../JUEGO.BIN\" carga JUEGO.BIN desde el directorio padre del actual.
+
 ### 8.3 Crear y eliminar carpetas
 
 Crear una carpeta nueva:
@@ -1357,15 +1369,15 @@ La terminal funciona como un módem Hayes: los comandos AT se teclean en la prop
 
 El teclado es el mismo que el de CP/M (ver la tabla de teclado de CP/M en el Apéndice I), salvo las flechas. Con el eco local activado, los códigos de control se muestran como \^X (\^\[ es ESC y \^C es CTRL + C). La terminal contesta a la negociación telnet del servidor aceptando solo ECHO y SUPPRESS-GO-AHEAD, así que las BBS no muestran caracteres extraños al conectar. Usa la memoria de los bloques 4 y 5 (\$8000-\$97FF) para la pantalla, los colores y la fuente.
 
-## 9.9 Juegos por turnos en red
+## 9.9 Juegos en red
 
-Con el módulo WiFi (9.7), dos SD81 Booster pueden jugar por turnos por internet, cada uno en su casa y sin ningún servidor propio: los dos interfaces se conectan como clientes a un buzón público (un servidor MQTT) y se mandan en él las jugadas. Hay dos juegos, el 4 en raya (CONNECT4) y el ajedrez (CHESS), y un chat de prueba (NETCHAT). Están en Software.zip, en las carpetas SD81/TOOLS/CONNECT4, CHESS y NETCHAT. Copia la carpeta del juego a la SD y carga su programa .P, que es un cargador pequeño: lee del mismo directorio el .BIN con el juego, así que los dos archivos tienen que estar juntos.
+Con el módulo WiFi (9.7), dos SD81 Booster pueden jugar por turnos por internet, cada uno en su casa y sin ningún servidor propio: los dos interfaces se conectan como clientes a un buzón público (un servidor MQTT) y se mandan en él las jugadas. Hay cuatro juegos: el 4 en raya (CONNECT4), el ajedrez (CHESS) y el Scrabble (SCRABBLE), por turnos, y los deportes (SPORTS), que se juegan en tiempo real; y un chat de prueba (NETCHAT). Están en Software.zip, en las carpetas SD81/NETGAMES/CONNECT4, CHESS, SCRABBLE, SPORTS y NETCHAT. Copia la carpeta del juego a la SD y carga su programa .P, que es un cargador pequeño: lee del mismo directorio el .BIN con el juego, así que los dos archivos tienen que estar juntos.
 
 Hace falta el módulo WiFi con la red configurada (/SYS/WIFI.CFG, ver 9.7), la FPGA con los modos Superfast. No hace falta el monitor del depurador.
 
 **Empezar una partida:**
 
-- Partida nueva (1): el programa crea una sala y enseña su código, de 10 caracteres. Díselo al rival por cualquier medio. Quien crea la sala es el jugador 1: en el 4 en raya empieza, y en el ajedrez juega con las blancas.
+- Partida nueva (1): el programa crea una sala y enseña su código, de 10 caracteres. Díselo al rival por cualquier medio. Quien crea la sala es el jugador 1: en el 4 en raya empieza, en el ajedrez juega con las blancas y en el Scrabble empieza el jugador 1 y antes de crear la sala se elige el idioma. En los deportes se elige el juego y sus opciones.
 
 - Unirse (2): teclea el código que te han dado (SHIFT+0 borra) y ENTER. Eres el jugador 2.
 
@@ -1377,7 +1389,7 @@ Hace falta el módulo WiFi con la red configurada (/SYS/WIFI.CFG, ver 9.7), la F
 
 - Al acabar la partida, ENTER propone otra al rival.
 
-- Guardar y seguir otro día: cada vez que cambia la partida, el programa la guarda en un fichero de la carpeta del juego, en la SD (CONNECT4.SAV o CHESS.SAV). Si apagas el ZX81, al volver el menú ofrece «3 = CONTINUE SAVED GAME»: el programa vuelve a entrar en la misma sala y con el mismo color, y la partida sigue donde estaba (en el ajedrez, con los relojes como estaban: el tiempo que pasas fuera no cuenta). No hace falta que los dos jugadores estén conectados a la vez: cada uno solo necesita su partida guardada y que el servidor conserve la última jugada del otro hasta que la recoja. Si el servidor la hubiera olvidado, quien vuelva primero vuelve a mandar su última jugada. Empezar otra partida, o unirse a otra, sustituye la guardada.
+- Guardar y seguir otro día: cada vez que cambia la partida, el programa la guarda en un fichero de la carpeta del juego, en la SD (CONNECT4.SAV, CHESS.SAV o SCRABBLE.SAV). Si apagas el ZX81, al volver el menú ofrece «3 = CONTINUE SAVED GAME»: el programa vuelve a entrar en la misma sala y con el mismo color, y la partida sigue donde estaba (en el ajedrez, con los relojes como estaban: el tiempo que pasas fuera no cuenta). No hace falta que los dos jugadores estén conectados a la vez: cada uno solo necesita su partida guardada y que el servidor conserve la última jugada del otro hasta que la recoja. Si el servidor la hubiera olvidado, quien vuelva primero vuelve a mandar su última jugada. Empezar otra partida, o unirse a otra, sustituye la guardada.
 
 **4 en raya:**
 
@@ -1398,6 +1410,106 @@ La partida se dibuja en alta resolución (Superfast HiRes Spectrum): tablero de 
 **Relojes del ajedrez:**
 
 Al crear la sala eliges el tiempo de cada jugador: sin reloj, 5, 10, 15 o 30 minutos, sin incremento. El otro jugador lo hereda al teclear el código (va en su primera letra: A sin reloj, B 5 minutos, C 10, D 15, E 30). Los dos relojes salen en el panel; el del jugador que mueve, en amarillo y, con 30 segundos o menos, en rojo. Quien se queda sin tiempo pierde (TIME OUT).
+
+**Scrabble:**
+
+Scrabble para dos jugadores, en inglés o en castellano. Todo lo hace el Z80 del ZX81: las reglas, la puntuación y la comprobación de cada palabra en un diccionario que está en la SD; no hay ningún servidor que juegue ni que compruebe nada. Se carga como los otros juegos (el programa .P es un cargador pequeño que lee el .BIN de la misma carpeta) y, además de los dos ficheros del juego, necesita el diccionario en esa misma carpeta (ver más abajo, «Diccionarios del Scrabble»). Si falta, el juego avisa con NO DICTIONARY FILE IN THE SD y no deja jugar.
+
+- **Idioma.** Al crear la sala (1) se elige 1 = ENGLISH o 2 = SPANISH. El idioma va en la primera letra del código de sala (A inglés, B castellano), así que quien se une no tiene que elegir nada. La bolsa es siempre de 100 fichas (98 y 2 comodines) con el reparto y los valores oficiales de cada idioma (tabla más abajo).
+
+- **La bolsa y los atriles.** Los dos ordenadores barajan la misma bolsa a partir de una semilla que sale del código de sala, y roban en el mismo orden: no se mandan fichas por la red, solo las jugadas. Por eso cada programa sabe también qué fichas tiene el rival; el programa no las muestra, pero no son un secreto frente a quien modifique el programa. Se juega por honradez, entre amigos que se pasan el código de sala. «Otra partida» (ENTER al acabar) baraja de nuevo.
+
+- **Tu turno.** Con la partida en marcha, el panel dice YOUR TURN o RIVAL TURN. Una jugada es una palabra entera puesta en una fila o en una columna, con las fichas de tu atril y las letras que ya haya en el tablero. Se teclea de dos formas, que se pueden mezclar:
+
+- **Con el cursor.** Las flechas del ZX81 mueven un marco negro por el tablero: 5 izquierda, 6 abajo, 7 arriba, 8 derecha (con o sin SHIFT). El marco es un sprite por hardware (Apéndice H) y parpadea, así que se ve sobre cualquier casilla sin tapar las letras. 0 elige la casilla de salida, y después 8 (a la derecha) o 6 (hacia abajo) elige el sentido: aparece una flecha negra en la casilla de al lado. A continuación se teclea la palabra completa, tal como quedará en el tablero, y ENTER.
+
+- **Escribiéndola.** Como en el ajedrez: columna A-O, fila 1-15 (A10, O15), R (derecha) o D (abajo) y la palabra: H8 R QUIZ y ENTER. Si se teclea la casilla a mano, el cursor se coloca en ella.
+
+- **Borrar.** SHIFT+0 borra la última tecla, hasta volver a mover el cursor. Una tecla que no cuadra en esa posición no entra (una columna que no existe, una palabra que se saldría del tablero\...). Si una letra de la palabra ya está en el tablero se escribe igual: H8 R QUIZ puede usar una Q que ya esté en H8 y poner solo U, I y Z.
+
+- **El comodín.** La ficha blanca, de valor 0 (sale como «?» en el atril). Si te falta una letra y tienes un comodín, el programa lo usa solo. Para gastarlo aunque tengas la letra, pon un punto antes de ella (.A). En el tablero y en el atril el comodín se ve con la tinta azul.
+
+- **Pasar y cambiar.** P y ENTER pasan. X seguida de las fichas que quieres cambiar (de 1 a 7, con un punto para el comodín) y ENTER las cambia por otras de la bolsa; hacen falta al menos 7 fichas en la bolsa. Pasar y cambiar apagan el cursor.
+
+- **Lo que se comprueba.** Antes de mandar la jugada, el programa comprueba que pones fichas que tienes, que la primera jugada cubre la casilla central (H8), que las demás tocan alguna ficha del tablero, que la palabra no se alarga por los extremos y que la palabra y todas las palabras cruzadas que forma están en el diccionario. Si no, no la manda y avisa del motivo; no hay impugnación, la jugada que no vale no se hace:
+
+| **Aviso** | **Significa** |
+|-----------------------------------|-------------------------------------|
+| **BAD POSITION OR LETTER** | casilla o ficha que no existe, o palabra que se sale del tablero |
+| **YOU DO NOT HAVE THOSE TILES** | pones una ficha que no tienes (y sin comodín para sustituirla) |
+| **LETTER DOES NOT MATCH THE BOARD** | una letra de la palabra choca con la que ya está en esa casilla |
+| **PLACE AT LEAST ONE TILE** | la palabra solo usa fichas que ya estaban |
+| **THE WORD WOULD BE LONGER** | hay letras pegadas por delante o por detrás: la palabra tendría que incluirlas |
+| **FIRST WORD MUST COVER THE CENTER** | la primera jugada no pasa por H8 |
+| **THE WORD MUST TOUCH THE TILES** | la palabra no toca ninguna ficha del tablero |
+| **XXXX IS NOT A WORD** | la palabra (con la que falla) no está en el diccionario |
+| **XXXX (CROSSING) IS NOT A WORD** | una palabra cruzada no está en el diccionario |
+| **A WORD HAS 2 TO 15 TILES** | palabras de 2 a 15 fichas |
+| **THE BAG HAS LESS THAN 7 TILES** | no se puede cambiar |
+| **IT IS NOT YOUR TURN / THE GAME IS OVER** | no te toca / la partida ha acabado |
+| **NETWORK ERROR: R RESENDS** | falló la red: la jugada está hecha en local; R la vuelve a mandar |
+| **FINISH THE MOVE FIRST** | ENTER con la jugada a medias (falta la palabra, o tiene una sola ficha) |
+
+- **Puntuación.** La oficial: cada ficha vale lo que dice la tabla, la letra doble o triple (cian y azul) multiplica solo la ficha que acabas de poner, la palabra doble o triple (magenta y rojo, y el centro, que es doble) multiplica toda la palabra, y se cuentan la palabra principal y todas las cruzadas. El comodín vale 0. Usar las 7 fichas del atril en una jugada da 50 puntos más. La partida acaba cuando un jugador se queda sin fichas con la bolsa vacía (se queda con el valor de las fichas que le quedan al otro, y el otro lo pierde) o tras seis pases o cambios seguidos (cada uno resta el valor de su atril). Gana quien tiene más puntos; el panel dice YOU WIN, THE RIVAL WINS o DRAW.
+
+- **La pantalla.** Alta resolución (Superfast HiRes Spectrum). A la izquierda, el tablero de 15×15 casillas con las letras A-O arriba y los números 1-15 a la izquierda; el centro lleva una estrella. Las casillas especiales van de color, con la leyenda en el panel: DL (letra doble) cian, TL (letra triple) azul, DW (palabra doble) magenta y TW (palabra triple) rojo. Las fichas son blancas; las de la última jugada (la tuya o la del rival) se resaltan en amarillo. Debajo, tu atril con el valor de cada ficha, y a la derecha el panel: tus puntos (YOU) y los del rival (RIVAL), las fichas que quedan en la bolsa (BAG), de quién es el turno, la última jugada con su autor y sus puntos (LAST MOVE), la leyenda de colores, el código de sala y Q = QUIT. Abajo, el estado, los avisos, la ayuda de la tecla que toca y lo que vas tecleando.
+
+![](media/image8.png){width="2.6666666666666665in" height="2.0in"}
+
+*Scrabble: una partida en curso, con el cursor y la última jugada en amarillo (captura de la pantalla real, a su tamaño).*
+
+- **Castellano.** Se juega con el Scrabble en castellano tradicional: CH, LL y RR son una sola ficha (no se pueden hacer con C+H, L+L o R+R) y la Ñ es otra. Al teclear, C H, L L y R R se juntan solos en una ficha (borrar la H deja la C sola) y la tecla 1 es la Ñ. En el tablero y en el atril se dibujan con su propio símbolo (CH, LL, RR y Ñ ocupan una casilla). No hay K ni W en la bolsa. El diccionario no distingue tildes.
+
+- **Teclas.** Con nada tecleado: 5 6 7 8 mueven el cursor, 0 elige la casilla, R reenvía la última jugada si falló la red, Q sale (los dígitos son las flechas y las filas del tablero, por eso estas dos órdenes son letras), y ENTER propone otra partida cuando la actual ha acabado. P pasa y X cambia fichas.
+
+- **Guardar y seguir otro día.** Como en los otros juegos: el programa guarda la partida en SCRABBLE.SAV (unos 400 bytes) en la carpeta del juego, y el menú ofrece «3 = CONTINUE SAVED GAME». Para seguirla hace falta tener el diccionario del idioma de la partida.
+
+**Reparto y valores de las fichas del Scrabble:**
+
+| **Inglés (98 + 2 comodines)** | **Castellano (98 + 2 comodines)** |
+|------------------------------------|------------------------------------|
+| **1 punto: A×9 E×12 I×9 O×8 N×6 R×6 T×6 L×4 S×4 U×4** | 1 punto: A×12 E×12 O×9 I×6 S×6 N×5 R×5 U×5 L×4 T×4 |
+| **2 puntos: D×4 G×3** | 2 puntos: D×5 G×2 |
+| **3 puntos: B×2 C×2 M×2 P×2** | 3 puntos: B×2 C×4 M×2 P×2 |
+| **4 puntos: F×2 H×2 V×2 W×2 Y×2** | 4 puntos: F×1 H×2 V×1 Y×1 |
+| **5 puntos: K×1** | 5 puntos: CH×1 Q×1 |
+| **8 puntos: J×1 X×1** | 8 puntos: J×1 X×1 LL×1 Ñ×1 RR×1 |
+| **10 puntos: Q×1 Z×1** | 10 puntos: Z×1 |
+| **comodín ×2: 0 puntos** | comodín ×2: 0 puntos |
+
+**Diccionarios del Scrabble:**
+
+El Scrabble necesita un diccionario por idioma en la carpeta del juego, con estos nombres exactos: DICTEN.DIC (inglés, 2,6 MB) y DICTES.DIC (castellano, 9,7 MB). No vienen incluidos: se generan una vez con el script TOOLS/make_dict.py del repositorio a partir de listas de palabras públicas, que hay que descargar de su origen (consulta sus condiciones de uso):
+
+- **Inglés:** la lista ENABLE (de dominio público), https://github.com/dolph/dictionary (enable1.txt).
+
+- **Castellano:** las listas oficiales FISE-2 y FILE 2017, recogidas en https://github.com/kamilmielnik/scrabble-dictionaries/tree/master/spanish (fise-2.txt, file-2017.txt; traen las formas conjugadas y los plurales). Ese repositorio no declara licencia para ellas, por eso este proyecto no las redistribuye.
+
+Con Python 3, desde una carpeta con las listas descargadas:
+
+> python make_dict.py enable1.txt DICTEN.DIC
+>
+> python make_dict.py \--lang es fise-2.txt DICTES.DIC
+
+Después se copian los .DIC a la carpeta del juego en la SD. Las instrucciones completas, con las órdenes para descargar las listas, están en EXAMPLES/NETGAME/DICCIONARIOS.md. Cada palabra se busca con una búsqueda binaria directamente en la SD: unos 20 accesos y unos 40 milisegundos por palabra, así que una jugada con varias palabras cruzadas se comprueba en menos de medio segundo.
+
+**Deportes en tiempo real (SPORTS):**
+
+Un solo programa con los deportes de las consolas de tenis de los años 70 (el chip AY-3-8500), para dos jugadores por la red y sin turnos: la pelota se mueve a cada fotograma y se dibuja con los sprites por hardware (Apéndice H). Se carga como los otros juegos (SPORTS.B81 y SPORTS.BIN en la misma carpeta) y no necesita ningún fichero más.
+
+- **Tennis:** una pala por jugador y la red.
+
+- **Hockey:** dos palas por jugador, el delantero y el portero, que se mueven juntas; las paredes de los extremos rebotan salvo en la portería, un hueco de 96 píxeles, donde es gol.
+
+- **Squash:** una pared a la derecha; los dos jugadores se turnan para devolver la pelota.
+
+- **Practice:** un solo jugador y sin red: cuenta la racha de golpes y la mejor racha.
+
+- **Opciones.** antes de crear la sala se elige el juego y las opciones: palas normales o pequeñas, pelota lenta o rápida, ángulos suaves o amplios. Viajan en la primera letra del código de sala (A Tennis, B Hockey, C Squash, más las opciones), así que quien se une no tiene que elegir nada.
+
+- **Teclas y reglas.** Q y A (o el joystick) mueven la pala; P enseña el ping en milisegundos, y X sale. Gana quien llega a 15 tantos; saca el que ha perdido el tanto. Al acabar, ENTER propone otra partida (la decide quien creó la sala).
+
+- **Cómo funciona.** la pelota es de quien la recibe: el jugador hacia el que va decide con su pala si la devuelve, rebota o es tanto, sin esperar a la red; el otro ve el golpe un instante después. Con una conexión lenta se nota como un pequeño retardo en lo que hace el rival, nunca como un golpe que se discute.
 
 **Chat de prueba (NETCHAT):**
 
@@ -2343,16 +2455,18 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 ### Comandos de sistema
 
 | **Cód.** | **Nombre** | **Parámetros** | **Respuesta** | **Descripción** |
-|------|---------|--------------|----------|-----------------------------------|
+|------|----------------|------------|----------|------------------------------|
 | **0** | **NOP** | **---** | **---** | **Sin operación. Solo sincroniza el reloj.** |
 | 1 | VERSION | --- | 1 byte: versión | Devuelve la versión del MCU. Mismo formato que el byte en 2004h. |
+| 13 | GET_NEXT_CHAR | \-\-- | EOT + Status | El Z80 lo manda para pedir el siguiente carácter de una respuesta de texto (TYPE, DIR, FREE_TXT). Como comando suelto, devuelve EOT y status 0. |
+| 31 | GET_FPGA_VERSION | \-\-- | 1 byte: versión | Devuelve la versión de la FPGA (se lee de la flash al arrancar). |
 | 32 | GETBYTE | 1 byte: índice (0--255) | 1 byte: valor | Lee un byte de la memoria interna. Índices 0--127: variables volátiles. Índices 128--255: EEPROM (persistente). |
 | 33 | SETBYTE | 1 byte: índice + 1 byte: valor | --- | Escribe un byte en la memoria interna. |
 
 ### Comandos de sistema de archivos
 
 | **Cód.** | **Nombre** | **Parámetros** | **Respuesta** | **Descripción** |
-|------|------------|----------------|--------------------------|--------------|
+|-----|-------------|---------------|-------------------------|--------------|
 | **2** | **PWD** | **---** | **String + EOT + status** | **Devuelve el directorio actual en codificación ZX81.** |
 | 3 | CD | String: ruta | Status | Cambia el directorio actual. Admite rutas absolutas (/) y relativas. |
 | 4 | DEL | String: archivo | Status | Borra un archivo del directorio actual. Sin comodines. |
@@ -2376,12 +2490,15 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 | 56 | F_WRITE | Handle(0..3)+Count(2B Little Endian)+info to write (count bytes) | 1B:status | escribe count bytes. |
 | 57 | F_CLOSE | Handle(0..3) | 1B:status | Cierra el fichero |
 | 59 | F_STAT | Handle(0..3) | 4B:tamaño+2B:fecha+2B:hora+1B:status | Devuelve el tamaño (32 bits) y la fecha/hora de creación (formato FAT) de un fichero ya abierto con F_OPEN. |
+| 71 | F_CREATE | Handle(0..3)+nombre en ASCII | 1B: status | Como F_OPEN, pero crea el fichero o lo vacía si ya existía. Con F_WRITE sirve para guardar ficheros de cualquier tamaño (SAVE se queda en 64 KB). |
+| 72 | F_CREATE_ZX81 | Handle(0..3)+nombre en ZX81 | 1B: status | Igual que F_CREATE, con el nombre en codificación ZX81. |
 | 75 | LOAD_Z81 | String: nombre | Status (1B) + IM (1B) | LOAD \*Z81 (ver 7.7), por el monitor del depurador (Apéndice L). El MCU lee el fichero entero antes de contestar: Status 0 = la ROM lanza la trampa y el MCU lo carga todo al parar; 1 no existe el fichero, 2 sin \[MEMORY\], 3 fichero mal hecho, 10 no se puede ahora (sin /SYS/DEBUG.BIN, depurador parado o snapshot en curso). IM es el modo de interrupción del snapshot. Hasta la 1.6 el comando 70 era un cargador propio, sin monitor; se quitó. |
+| 76 | F_OPEN_IMG | Longitud + nombre en ASCII + 1B: colocación (0 estira, 1 con su proporción, 2 recorta) | 1B: handle (0..3), \$FF no existe, \$FE BMP inválido, \$FD sin memoria, \$FC sin handle libre | Convierte un .BMP y lo ofrece como un .I16 de 160x100 a 256 colores (Apéndice F), que se lee y se cierra como un fichero normal. Solo una a la vez; tarda unos segundos. El motivo de \$FE queda en /MAN/BMPERR.TXT. |
 
 ### Comandos de control del hardware
 
 | **Cód.** | **Nombre** | **Parámetros** | **Respuesta** | **Descripción** |
-|------|-------------|-------------|---------|---------------------------------|
+|------|-------------|------------|-------------|------------------------------|
 | **19** | **ENABLE_MC45** | **---** | **---** | **Activa el modo MC45 (código máquina en bloques 4 y 5).** |
 | 20 | DISABLE_MC45 | --- | --- | Desactiva el modo MC45. |
 | 21 | JOY | String: 5 bytes de teclas ZX81 | Status | Configura el mapeo del joystick: izquierda, derecha, arriba, abajo, fuego. |
@@ -2394,6 +2511,10 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 | 65 | SEL_256CHARS | --- | --- | Activa el modo de 256 caracteres definibles (solo Superfast texto). Equivale a LOAD \*256C. |
 | 68 | ROMLOCK_ON | --- | --- | Bloquea los puertos de configuración del bloque 0 (2041-2062, 2090-2098, sprites): las escrituras se ignoran. Equivale a LOAD \*ROMLOCK. |
 | 69 | ROMLOCK_OFF | --- | --- | Vuelve a activar los puertos de configuración del bloque 0. Equivale a LOAD \*ROMLOCK STOP. |
+| 73 | DBG_BREAK | 30 bytes de registros | \-\-- | El programa se ha parado en una trampa del depurador: el Z80 manda al MCU sus registros. Uso interno del monitor (Apéndice L). |
+| 74 | DBG_POLL | 2B: n + n bytes (resultado) | op, dirección (2B), n (2B) \[+ datos\] | Entrega al MCU el resultado de la petición anterior y recibe la siguiente (leer o escribir memoria, registros, puertos\...). Uso interno del monitor (Apéndice L). |
+
+Los códigos 22, 39, 51 y 70 no hacen nada (están reservados) y el 46 y el 47 están desactivados en el firmware.
 
 ### Comandos de síntesis de voz
 
@@ -2434,9 +2555,14 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 ### Comandos RTC y batería
 
 | **Cód.** | **Nombre** | **Parámetros** | **Respuesta** | **Descripción** |
-|------|--------|--------------|----------------|-------------------------------|
+|------|--------------|-------------|--------------|---------------------------|
 | **50** | **RTC** | **String: fecha/hora (o vacío para leer)** | **Si lectura: String ZX81 + Status. Si escritura: Status** | **Sin parámetros: devuelve fecha/hora. Con parámetros: ajusta el reloj. Formatos: AAAA-MM-DD HH:MM:SS.CC / AAAA-MM-DD HH:MM:SS / AAAA-MM-DD / HH:MM:SS.CC / HH:MM:SS / HH:MM.** |
 | 52 | BAT | --- | 5 bytes ASCII + Status | Devuelve el nivel de batería del RTC como string de 5 caracteres en formato V.mmm (codificación ZX81). |
+| 60 | DST_ON | \-\-- | \-\-- | Activa el horario de verano (LOAD \*SUMMER): +1 h sobre el offset UTC, en /SYS/NTP.CFG. |
+| 61 | DST_OFF | \-\-- | \-\-- | Desactiva el horario de verano (LOAD \*SUMMER STOP). |
+| 62 | NTP_SETSERVER | String: servidor | Status | Ajusta el servidor NTP en /SYS/NTP.CFG (LOAD \*NTP=\"servidor\"). Status 3 si el nombre está vacío o no se pudo escribir. |
+| 63 | NTP_SETOFFSET | 1B: horas con signo | Status | Ajusta el offset UTC en horas en /SYS/NTP.CFG (LOAD \*NTP +n / -n). Status 2 si no se pudo escribir. |
+| 64 | NTP_SYNC | \-\-- | \-\-- | Fuerza una sincronización de la hora por NTP ahora mismo (LOAD \*NTP). Requiere el módulo WiFi. |
 
 ### Comandos de red (NET)
 
@@ -3013,6 +3139,34 @@ LOAD \*SCROWS \<lo\>,\<mid\>,\<hi\> : REM equivalente a POKE 2091/2092/2093
 
 (equivalente a los tres POKE anteriores en un solo paso; cada argumento es un byte 0-255).
 
+## Scroll por hardware (HiRes nativo y Spectrum)
+
+Esta función necesita la FPGA de la próxima versión (todavía sin publicar).
+
+El scroll fino de POKE 2090 mueve la imagen de 0 a 7 píxeles, pero lo que queda al descubierto lo tiene que escribir el programa. El scroll por hardware lo completa en los modos Superfast HiRes nativo y Spectrum (no en el texto): la pantalla pasa a ser una ventana sobre la memoria, con fino X (POKE 2090) y fino Y (0 a 7 líneas), más una columna 33 y una fila 25 que no están en el bitmap sino en búferes de entrada. Cuando el fino da la vuelta, una orden a la FPGA mueve la memoria un byte (o una fila de texto) y al Z80 solo le queda regenerar lo que entra por el lado.
+
+Se maneja por el puerto \$3FEF (el mismo del depurador, Apéndice L), con BC = \$3FEF: se escribe primero el número de registro y después el dato.
+
+| **Operación** | **Qué hace** |
+|-----------------------------|-------------------------------------------|
+| **OUT (C),\$40 y OUT (C),n** | fino Y = n (0-7) |
+| **OUT (C),\$41 y OUT (C),n** | orden del motor: 1 izquierda, 2 derecha, 3 arriba, 4 abajo |
+| **OUT (C),\$42 y OUT (C),n** | fila superior de la región vertical (0-23) |
+| **OUT (C),\$43 y OUT (C),n** | fila inferior de la región vertical (0-23) |
+| **OUT (C),\$20 y IN A,(C)** | estado del motor: bit 7 ocupado, bit 6 orden pendiente, bit 5 en marcha |
+
+- **Región vertical:** solo las filas desde la superior hasta la inferior se mueven en vertical; las demás se quedan fijas (marcadores, puntuación). En horizontal manda la máscara de filas de POKE 2091-2093.
+
+- **Búferes de entrada:** el Spectrum usa \$1B00-\$1E48 del bloque de la pantalla; el HiRes nativo, \$1800-\$1A06, tanto en el bitmap como en el área de atributos del modo 0 (\$C000 y siguientes). En los atributos del modo 1 (8x8) la columna 33 es el hueco del NEWLINE y la fila 25 es la fila 24 de la rejilla. Ocupan lo que antes sobraba del bloque de 8 KB.
+
+- **Movimiento horizontal:** con el fino a 7 (o a 0 al ir a la derecha), el Z80 manda la orden 1 o 2 y la FPGA mueve la memoria un byte (el bitmap y los atributos, respetando la máscara de filas); en el cuadro siguiente, ya libre, se pone el fino a 0 (o a 7) y el Z80 rellena el búfer del lado por el que entra. El byte que sale se guarda en el búfer del lado contrario, así que ir y volver no obliga a regenerar.
+
+- **Movimiento vertical:** las órdenes 3 (el contenido sube) y 4 (baja) mueven una fila de texto (8 líneas) de la región, con sus atributos y las columnas de los lados. Se manda la 3 con el fino Y en 7 (la 4 con el fino en 0) y en el cuadro siguiente se pone el fino a 0 (o a 7) y se rellena el búfer de entrada.
+
+- **Avisos:** el motor trabaja en el borrado de pantalla, desde la línea 254, y tarda hasta 1,5 ms. Una orden con el motor ocupado se ignora y el Z80 no debe escribir en la pantalla mientras corre. Tras el primer movimiento la RAM del Z80 y lo que se ve dejan de coincidir: la pantalla es de solo escritura. Con el doble buffer, los atributos del HiRes no pasan por él (solo el bitmap).
+
+Ejemplos: EXAMPLES/SCROLLT (Spectrum), SCROLLH (HiRes nativo) y SCROLLM (movimiento horizontal y vertical, con diagonales).
+
 ## Pantalla alternativa (Superfast)
 
 Los submodos de texto Superfast (32, 70 y 80 columnas) toman normalmente la dirección de pantalla de la variable de sistema D_FILE (16396/16397), igual que en modo nativo. El SD81 Booster permite sustituir esa dirección por otra, sin tocar D_FILE, mediante un registro alternativo:
@@ -3224,15 +3378,73 @@ LOAD \*WRX STOP : REM desactivar (modo generador de caracteres, por defecto)
 
 (equivalente a POKE 2058,170 / POKE 2058,85, por si se prefiere desde código máquina). Activa el modo WRX **antes de cargar** el programa (por ejemplo LOAD \*WRX y después LOAD \"HRCHESS\"). Tras un reset vuelve al modo por defecto. No afecta a los programas WRX que sitúan sus gráficos en \$4000 o superior, que funcionan siempre sin necesidad de este comando.
 
+## Modo de 256 colores de 160x100
+
+Esta función necesita la FPGA de la próxima versión (todavía sin publicar).
+
+POKE 2045,175 activa un modo gráfico de 160x100 píxeles con un byte por píxel: cada byte es el índice de una paleta de 256 entradas, y la imagen son 16.000 bytes desde la dirección que fijan POKE 2043/2044 (usar los bloques 0 a 6). Cada fila sale en dos líneas de televisión. Cada color de la paleta son cuatro densidades de pulsos de 0 a 15 (rojo, verde, azul y brillo, a 208 MHz) que la red de resistencias de la salida de vídeo convierte en niveles intermedios: se ven más de 16 colores a la vez. Cualquier otro valor de POKE 2045 (170-174 o 85) apaga el modo.
+
+- **Paleta:** POKE 2063,n fija el puntero (0-255); POKE 2064,lo da el byte bajo {G,B} del color; POKE 2065,hi da el byte alto {BRIGHT,R}: escribe la entrada y el puntero avanza. Sin cargar nada, la paleta es RGB 3-3-2 sin brillo.
+
+- **Posición:** POKE 2099,n (0-15) mueve la imagen en horizontal, a pasos de un tercio de píxel. El borde sale del puerto \$7FEF, como en el Chroma81.
+
+- **Límites:** en este modo no hay sprites, scroll fino, motor de scroll, blit ni doble buffer. Con la red de resistencias de la placa, el brillo es común a los tres canales: un color solo es alcanzable si la diferencia entre su canal más alto y el más bajo no pasa de 0,455 V (un primario brillante puro sale algo más lavado).
+
+Ejemplo: EXAMPLES/MODE160 (256 colores a la vez: grises, primarios y rueda de tonos; P y O mueven la imagen).
+
+## Paleta de 16 colores
+
+Esta función necesita la FPGA de la próxima versión (todavía sin publicar).
+
+Los modos normales (texto, HiRes, Spectrum, 70/80 columnas, sprites y borde) pueden usar una paleta de 16 entradas en lugar de los colores fijos del Chroma81. El índice es el color de 4 bits de siempre, {BRIGHT,G,R,B}, el mismo de los atributos y del puerto \$7FEF; cada entrada tiene la misma forma que las de 256 colores. Solo se aplica con el color encendido (\$7FEF bit 5).
+
+> POKE 2063,n : REM puntero (0-15)
+>
+> POKE 2064,lo : REM byte bajo {G,B}
+>
+> POKE 2066,hi : REM byte alto {BRIGHT,R}: escribe la entrada y el puntero avanza
+>
+> POKE 2067,1 : REM activa la paleta (POKE 2067,0 la desactiva)
+
+Desactivada (tras un reset), salen los colores por defecto. Al activarla sin cargar nada, tampoco cambia nada: las entradas empiezan con los colores digitales del Chroma81, y se conservan al desactivarla. Ejemplo: EXAMPLES/COLORTEST (la tecla P recorre rampas de gris, rojo, verde, azul, amarillo, cian y magenta, y la paleta desactivada).
+
+## Modo de 16 colores de 160x200, con ventana, sprites y texto
+
+Esta función necesita la FPGA de la próxima versión (todavía sin publicar).
+
+POKE 2045,176 activa una rejilla de 160x200 píxeles (25 filas de texto de 8 líneas) con 4 bits por píxel: 16 colores a la vez de la paleta de 16, 80 bytes por fila, y el nibble alto es el píxel de la izquierda. Cada píxel dura tres ciclos de 13 MHz y cada fila es una línea de televisión.
+
+- **Ventana de imagen:** POKE 2070,primera y POKE 2071,última+1 (en filas de texto, 0-25; por omisión 0 y 25, las 200 líneas y 16.000 bytes). La imagen empieza en HFILE y ocupa (última+1-primera)\*640 bytes; fuera de la ventana sale el color del borde y no se lee nada. Un juego de 160x168, por ejemplo, usa primera=1 y última+1=22.
+
+- **Sprites:** los 64 sprites de 8x8 de siempre (Apéndice H), con X = columna + 32 (0-159) e Y = fila de la imagen + 32. Usan la tinta o el papel de su fila, por la paleta de 16.
+
+- **Texto de 40x25:** POKE 2069,1 (o 0) lo activa (lo desactiva) y POKE 2068,papel\*16+tinta fija los colores (por omisión tinta 15 y papel 0). Las celdas son de 4x8 píxeles de imagen (glifo de 6x8) y van encima de la imagen y de los sprites. Los códigos (1.000 bytes, fila\*40+columna) van justo detrás de la imagen, en HFILE + 640\*(filas de la ventana); los glifos salen de la tabla de 256 caracteres. Un código menor que 32 es una celda transparente; desde 32 es opaca, con tinta y papel; el bit 7 invierte el glifo.
+
+- **Límites:** sin scroll fino, motor ni doble buffer, ni sprites ni texto en el modo de 256 colores.
+
+Ejemplos: EXAMPLES/MODE160/mode160w.asm (ventana, sprites y texto) y mode1604.asm (200 líneas sin más); png2i4.py convierte un PNG de 160x200 de hasta 16 colores en pic4.bin y pal4.bin.
+
+## Visor de imágenes: PHOTO, IMGVIEW y los BMP
+
+Esta función necesita la FPGA de la próxima versión (todavía sin publicar).
+
+Las imágenes del modo de 160x100 a 256 colores se guardan en ficheros .I16: la marca I160, 512 bytes de paleta (las 256 entradas de 2 bytes) y los 16.000 píxeles. Hay dos visores: PHOTO (EXAMPLES/PHOTO) enseña los IMGnnn.I16 de su carpeta (N siguiente, B anterior, ESPACIO sale) y IMGVIEW es el que lanza el explorador (Apéndice J) al abrir un .BMP o un .I16.
+
+Un .BMP se abre directamente: el microcontrolador lo convierte al abrirlo (escala por área a 160x100 y reduce a 256 colores por cortes de mediana; tarda unos segundos según el tamaño) y lo ofrece como si fuera un .I16. Valen los BMP sin compresión de 1, 4, 8, 24 y 32 bits. La tecla F cambia la colocación de la imagen: con su proporción (con bandas negras; es la de arranque), recortada (llena la pantalla sin deformar) o estirada.
+
+Si el BMP no se puede convertir, el motivo queda en /MAN/BMPERR.TXT (LOAD THEN PRINT \"\*BMPERR\"): NOT A BMP FILE, BAD BMP HEADER, UNSUPPORTED BMP DEPTH, UNSUPPORTED BMP (COMPRESSED), BMP TOO LARGE, BMP TRUNCATED u OUT OF MEMORY. Para convertir un PNG a .I16 está png2i16.py (EXAMPLES/PHOTO). Los programas lo abren con el comando 76 del MCU (15.5).
+
 ## Resumen de POKEs de control
 
 | **Dirección** | **Valor** | **Función** |
-|------------|--------------|----------------------------------------------|
+|------------|-------------------|------------------------------------------|
 | 2043 | \<bajo\> | Parte baja de la dirección del fichero de pantalla |
 | 2044 | \<alto\> | Parte alta de la dirección del fichero de pantalla |
 | 2045 | 170 | Activar Superfast texto |
 | 2045 | 171 | Activar Superfast HiRes nativo |
 | 2045 | 172 | Activar Superfast HiRes Spectrum |
+| 2045 | 175 | Activar el modo gráfico de 160x100 a 256 colores |
+| 2045 | 176 | Activar el modo gráfico de 160x200 a 16 colores (4 bpp) |
 | 2045 | 85 | Desactivar Superfast |
 | 2046 | \<attr\> | Cambiar atributos del borde |
 | 2047 | 170 | Activar patrón de borde |
@@ -3255,6 +3467,16 @@ LOAD \*WRX STOP : REM desactivar (modo generador de caracteres, por defecto)
 | 2060 | \<base_alta\> | Byte alto de la tabla de atributos alternativa |
 | 2061 | 170 / 85 | Activar / desactivar la tabla de atributos alternativa |
 | 2062 | 170 / 85 | Extender MC45 también a los bloques 6 y 7 / volver solo a 4 y 5 |
+| 2063 | \<n\> | Puntero de la paleta (256 colores: 0-255; paleta de 16: 0-15) |
+| 2064 | \<bajo\> | Byte bajo {G,B} del color que se va a escribir |
+| 2065 | \<alto\> | Byte alto {BRIGHT,R}: escribe la entrada de la paleta de 256 y el puntero avanza |
+| 2066 | \<alto\> | Igual, pero escribe la entrada de la paleta de 16 |
+| 2067 | 1 / 0 | Activar / desactivar la paleta de 16 colores |
+| 2068 | \<papel\*16+tinta\> | Colores del texto de 40x25 (modo 160x200), índices de la paleta de 16 |
+| 2069 | 1 / 0 | Activar / desactivar el texto de 40x25 (modo 160x200) |
+| 2070 | \<primera\> | Primera fila de texto de la ventana de imagen (modo 160x200, 0-25) |
+| 2071 | \<última+1\> | Fila de texto siguiente a la última de la ventana (modo 160x200, 0-25) |
+| 2099 | 0-15 | Posición horizontal del modo 160x100, a pasos de un tercio de píxel (por omisión 8) |
 
 Con LOAD \*ROMLOCK activo, las escrituras en todas las direcciones de esta tabla y en las de los sprites (2100-2128, Apéndice H) no tienen ningún efecto, como en una ROM real. LOAD \*ROMLOCK STOP las vuelve a activar (ver 7.5).
 
@@ -3419,6 +3641,8 @@ Se usan 16 caracteres hex en vez de un único bloque de 48 (color+píxel+máscar
 
 El firmware actual soporta 64 sprites, con posicionamiento libre por píxel y color por fila, pero como máximo 12 de ellos pueden aparecer en una misma línea de pantalla. Si más de 12 sprites activos cortan la misma línea, en esa línea se dibujan los 12 de índice más alto y los demás no aparecen; en las líneas donde no coinciden se ven con normalidad. Es un límite parecido al de la NES (que tenía 8 por línea), y los programas que mueven muchos sprites juntos suelen rotar cuáles quedan fuera en cada imagen para que parpadeen en vez de desaparecer. Cuenta cualquier sprite activo que cruce la línea, esté donde esté en horizontal, y un sprite activo fuera de la pantalla también ocupa hueco: conviene desactivarlo (LOAD \*SPRITE n STOP). Un cambio en los datos de un sprite se ve a partir de la línea siguiente. Es una cifra fija para el usuario final \-\--depende del bitstream concreto de la FPGA que lleve instalado el interface\-\--, no algo configurable desde BASIC.
 
+El Scrabble (9.9) usa tres sprites (el cursor y dos flechas) y hace parpadear el cursor cambiando su máscara a 0, de modo que no borra ningún punto del fondo mientras está apagado.
+
 # Apéndice I --- CP/M: un sistema operativo alternativo
 
 Además del BASIC de serie del ZX81, el SD81 Booster puede arrancar CP/M, el sistema operativo estándar de los microordenadores profesionales de 8 bits de finales de los 70 y los 80. Existen dos puertos para este hardware:
@@ -3581,7 +3805,7 @@ BORDER n, con n de 0 a 7 (color normal) o de 8 a 15 (mismo color brillante, suma
 
 ## Tabla de teclado de CP/M
 
-![](media/image8.png){width="5.5in" height="2.4287128171478565in"}
+![](media/image9.png){width="5.5in" height="2.4287128171478565in"}
 
 Las teclas ENTER+8 y ENTER+9 se rotulan por su función (LOG, ECO) en vez de por el código de control que mandan (\$1E, \$1C): son las que usa TERM para su propio menú.
 
@@ -3720,7 +3944,7 @@ El filtro persiste mientras navegas entre carpetas; solo se borra con SHIFT+1.
 
 ## Qué pasa al seleccionar un archivo
 
-Según la extensión, ENTER/8 hace una de estas cuatro cosas sin salir del explorador, o devuelve el nombre al BASIC:
+Según la extensión, ENTER/8 hace una de estas cosas sin salir del explorador, o devuelve el nombre al BASIC:
 
 | **Extensión** | **Comportamiento** |
 |------------------------------------|------------------------------------|
@@ -3728,6 +3952,7 @@ Según la extensión, ENTER/8 hace una de estas cuatro cosas sin salir del explo
 | **.PEB** | Igual que .VGM, para efectos generados con el editor PEG |
 | **.SCR** | Se muestra a pantalla completa (captura Spectrum, 6912 bytes); cualquier tecla vuelve al listado |
 | **.TXT** | Se abre en el visor de texto (ver abajo) |
+| **.BMP, .I16** | Se muestra a pantalla completa en el modo de 160x100 a 256 colores (visor IMGVIEW; ver el Apéndice F). Con un .BMP, la tecla F cambia la colocación; cualquier otra tecla vuelve al listado |
 | **cualquier otra** | El explorador sale al BASIC con el nombre del archivo, para que el stub decida qué hacer |
 
 ## Operaciones de fichero
@@ -4046,7 +4271,7 @@ Otros colores reflejan actividad: amarillo parpadeando mientras se escribe un sn
 | DBG_FPGA | Vuelca el estado de la FPGA y del mapper emulados (solo emulador, para diagnóstico) |
 | Comandos en minúsculas (r, s, m, \...) | Los comandos del depurador del firmware (ver «El depurador hardware») |
 
-Atajos de menú: **Control → SD81 hardware debugger: pause** y **reload monitor and reset** envían los comandos DBG\_ correspondientes. Pulsar **Arriba y Abajo** a la vez en el joystick también pausa el programa.
+Atajos de menú: **Control → SD81 hardware debugger: pause** y **reload monitor and reset** envían los comandos DBG\_ correspondientes.
 
 ### Mensajes
 
@@ -4066,7 +4291,7 @@ El SD81 Booster tiene un depurador hardware: la FPGA detiene el programa en un l
 
 ### Uso
 
-1\. Pausa el programa con p en la consola, con la opción de menú **Control → SD81 hardware debugger: pause**, con el botón QS (1--3 s) o con Arriba + Abajo del joystick.
+1\. Pausa el programa con p en la consola, con la opción de menú **Control → SD81 hardware debugger: pause** o con el botón QS (1--3 s).
 
 2\. Escribe comandos del depurador en la línea de entrada. La ayuda del propio firmware los lista todos; escribe ? para verla. En resumen:
 
@@ -4264,7 +4489,7 @@ Un programa puede pararse a sí mismo en un punto concreto escribiendo 16 en el 
 
 ## Limitaciones
 
-- La página 63 de la RAM extendida y el puerto \$3FEF están reservados para el depurador.
+- La página 63 de la RAM extendida y el puerto \$3FEF están reservados para el depurador; el scroll por hardware (Apéndice F) usa también el puerto \$3FEF.
 
 - Un punto de ruptura en código que se carga después (o que el programa sobrescribe) desaparece. Para esos casos, G o un punto de vigilancia de escritura.
 
@@ -4359,6 +4584,16 @@ game.inc (EXAMPLES/NETGAME) es el controlador de una partida por turnos: la juga
 | **g_save / g_load** | HL = destino / origen: los G_STATE_LEN bytes del estado. |
 
 Los mensajes del controlador son: 1 jugada (con el hash del estado resultante), 2 pido el estado, 3 estado completo y 4 otra partida; cualquier desfase se arregla pidiendo el estado completo. El fuente de connect4.asm es el ejemplo más corto, y chess.asm el más completo (HiRes, relojes).
+
+**Jugadas de longitud variable y estado grande:**
+
+El Scrabble no cabe en el formato de arriba: una jugada mide hasta 21 bytes y el estado, 355. Por eso game.inc tiene dos opciones más, que los otros juegos dejan a 0. Con G_MOVE_VAR = 1, G_MOVE_LEN es el máximo y el primer byte de la jugada es su longitud (contada entera): solo se manda esa parte, \[1\]\[jugada\]\[hash\]. Con G_BIG = 1 el estado no cabe en un mensaje de 100 bytes: se manda en trozos de 96 bytes, \[3\]\[número de trozo\]\[cuántos\]\[datos\], que el receptor junta en un búfer y carga cuando están todos; el resumen del estado lo calcula el juego (la rutina g_hash, sin copiar el estado). Al terminar de mandar el estado, si la última jugada fue del que lo manda, la vuelve a mandar, para que sea lo último que queda retenido en el servidor. No se pueden usar con G_CLOCK.
+
+El Scrabble (EXAMPLES/NETGAME/scrabble.asm, con scrabble.inc, dict.inc, scrabble_ui.inc, scrabble_in.inc y scrabble_game.inc) es un ejemplo de las dos opciones. Su jugada es \[L\]\[tipo\]\[datos\]: tipo 1 jugar (x, y, sentido, n y las fichas), 2 pasar, 3 cambiar (n y las fichas). El idioma y la semilla de la bolsa no se mandan: salen del código de sala (la primera letra y las 10 letras, con el número de partida de la sala), así que los dos ordenadores barajan la misma bolsa sin decirse nada. El programa ocupa unos 13 KB y se carga en \$4400 (CLEAR 17407), no en \$5000, porque no cabría; todo el código tiene que quedar por debajo de \$8000.
+
+**Tiempo real: netq.inc:**
+
+net.inc espera la respuesta del módem tras cada orden, y eso no vale para un juego en tiempo real. EXAMPLES/NETCHAT/netq.inc, que se incluye después de net.inc, manda y recibe mensajes cortos sin esperar nunca: nq_send mete el mensaje en una cola de salida; nq_pump, una vez por fotograma, vuelca la cola al módem y lee lo recibido con un analizador de líneas; nq_get da el último mensaje completo del rival (A = longitud, 0 = ninguno). nq_open (con espera, una vez, con la sala ya creada) deja la suscripción solo al topic del rival, y nq_close (hasta 1,2 s) deja el módem limpio antes de volver a net.inc. No firma los mensajes (sin HMAC). SPORTS manda un mensaje de 15 bytes por fotograma con esta capa. EXAMPLES/NETLAT mide la latencia capa por capa (Z80, MCU y ESP32), con el MQTT de verdad.
 
 ## Probarlo a mano
 

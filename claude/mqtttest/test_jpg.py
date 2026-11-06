@@ -154,8 +154,10 @@ class BitWriter:
             self.put((1 << (8 - self.n)) - 1, 8 - self.n)
 
 
-def encode(arr, samp, quality=85, ri=0, gray=False, rgb=False, adobe=False, jfif=True, ids=(1, 2, 3), exif=None, crop_dims=None):
-    """arr: imagen RGB (alto, ancho, 3). samp: ((h, v) de cada componente). Devuelve un JPG baseline."""
+def encode(arr, samp, quality=85, ri=0, gray=False, rgb=False, adobe=False, jfif=True, ids=(1, 2, 3), exif=None, crop_dims=None, prog=None):
+    """arr: imagen RGB (alto, ancho, 3). samp: ((h, v) de cada componente). Devuelve un JPG baseline.
+    prog: lista de scans para un JPG progresivo (SOF2): ('dc', al) = DC entrelazado de todos los componentes con transformada de punto al (el unico
+    que lleva datos de verdad), y scans de relleno con bytes al azar: ('ac', ci, ss, se), ('dcref', al), ('dcsep', ci)."""
     qz, huff = enc_tables(quality)
     ncomp = 1 if gray else 3
     h_img, w_img = arr.shape[:2]
@@ -195,70 +197,98 @@ def encode(arr, samp, quality=85, ri=0, gray=False, rgb=False, adobe=False, jfif
     for ci in range(ncomp):
         hh, vv = (1, 1) if ncomp == 1 else samp[ci]
         sof += bytes([ids[ci], (hh << 4) | vv, qs[ci]])
-    out += b'\xff\xc0' + struct.pack('>H', len(sof) + 2) + sof
+    out += (b'\xff\xc2' if prog is not None else b'\xff\xc0') + struct.pack('>H', len(sof) + 2) + sof
     for key in sorted(huff):
         if (key[1] == 0) or ncomp == 3:
             out += b'\xff\xc4' + struct.pack('>H', len(huff[key][1]) + 2) + huff[key][1]
     if ri:
         out += b'\xff\xdd' + struct.pack('>HH', 4, ri)
-    sos = bytes([ncomp])
-    for ci in range(ncomp):
-        sos += bytes([ids[ci], (qs[ci] << 4) | qs[ci]])
-    sos += bytes([0, 63, 0])
-    out += b'\xff\xda' + struct.pack('>H', len(sos) + 2) + sos
+    def sos_header(cis, ss, se, ah_al):
+        sos = bytes([len(cis)])
+        for ci in cis:
+            sos += bytes([ids[ci], (qs[ci] << 4) | qs[ci]])
+        sos += bytes([ss, se, ah_al])
+        return b'\xff\xda' + struct.pack('>H', len(sos) + 2) + sos
 
     zz = jpg2i16.ZZ
-    bw = BitWriter()
-    pred = [0] * ncomp
     mcu_cols, mcu_rows = pw // mcu_w, ph // mcu_h
-    count = 0
-    rst = 0
-    for my in range(mcu_rows):
-        for mx in range(mcu_cols):
-            if ri and count and count % ri == 0:
-                bw.flush()
-                bw.out += bytes([0xFF, 0xD0 + rst])
-                rst = (rst + 1) & 7
-                pred = [0] * ncomp
-            count += 1
-            for ci in range(ncomp):
-                hh, vv = (1, 1) if ncomp == 1 else samp[ci]
-                tq = qs[ci]
-                dce, ace = huff[(0, tq)][0], huff[(1, tq)][0]
-                for by in range(vv):
-                    for bx in range(hh):
-                        y0, x0 = (my * vv + by) * 8, (mx * hh + bx) * 8
-                        blk = blocks[ci][y0:y0 + 8, x0:x0 + 8] - 128
-                        F = COS @ blk @ COS.T
-                        qq = np.array(qz[tq])
-                        natq = np.zeros(64)
-                        for k in range(64):
-                            natq[zz[k]] = qq[k]
-                        Q = np.round(F.reshape(64) / natq).astype(int)
-                        zq = [int(Q[zz[k]]) for k in range(64)]
-                        diff = zq[0] - pred[ci]
-                        pred[ci] = zq[0]
-                        s = abs(diff).bit_length()
-                        bw.put(*dce[s])
-                        if s:
-                            bw.put(diff if diff > 0 else diff + (1 << s) - 1, s)
-                        run = 0
-                        for k in range(1, 64):
-                            v = zq[k]
-                            if v == 0:
-                                run += 1
+
+    def scan_data(dc_only, al):
+        bw = BitWriter()
+        pred = [0] * ncomp
+        count = 0
+        rst = 0
+        for my in range(mcu_rows):
+            for mx in range(mcu_cols):
+                if ri and count and count % ri == 0:
+                    bw.flush()
+                    bw.out += bytes([0xFF, 0xD0 + rst])
+                    rst = (rst + 1) & 7
+                    pred = [0] * ncomp
+                count += 1
+                for ci in range(ncomp):
+                    hh, vv = (1, 1) if ncomp == 1 else samp[ci]
+                    tq = qs[ci]
+                    dce, ace = huff[(0, tq)][0], huff[(1, tq)][0]
+                    for by in range(vv):
+                        for bx in range(hh):
+                            y0, x0 = (my * vv + by) * 8, (mx * hh + bx) * 8
+                            blk = blocks[ci][y0:y0 + 8, x0:x0 + 8] - 128
+                            F = COS @ blk @ COS.T
+                            qq = np.array(qz[tq])
+                            natq = np.zeros(64)
+                            for k in range(64):
+                                natq[zz[k]] = qq[k]
+                            Q = np.round(F.reshape(64) / natq).astype(int)
+                            zq = [int(Q[zz[k]]) for k in range(64)]
+                            dcv = zq[0] >> al
+                            diff = dcv - pred[ci]
+                            pred[ci] = dcv
+                            s = abs(diff).bit_length()
+                            bw.put(*dce[s])
+                            if s:
+                                bw.put(diff if diff > 0 else diff + (1 << s) - 1, s)
+                            if dc_only:
                                 continue
-                            while run > 15:
-                                bw.put(*ace[0xF0])
-                                run -= 16
-                            s = abs(v).bit_length()
-                            bw.put(*ace[(run << 4) | s])
-                            bw.put(v if v > 0 else v + (1 << s) - 1, s)
                             run = 0
-                        if run:
-                            bw.put(*ace[0x00])
-    bw.flush()
-    out += bw.out + b'\xff\xd9'
+                            for k in range(1, 64):
+                                v = zq[k]
+                                if v == 0:
+                                    run += 1
+                                    continue
+                                while run > 15:
+                                    bw.put(*ace[0xF0])
+                                    run -= 16
+                                s = abs(v).bit_length()
+                                bw.put(*ace[(run << 4) | s])
+                                bw.put(v if v > 0 else v + (1 << s) - 1, s)
+                                run = 0
+                            if run:
+                                bw.put(*ace[0x00])
+        bw.flush()
+        return bytes(bw.out)
+
+    def filler(n=24):
+        bw = BitWriter()
+        r = random.Random(n)
+        for _ in range(n):
+            bw.put(r.randrange(256), 8)
+        bw.flush()
+        return bytes(bw.out)
+
+    if prog is None:
+        out += sos_header(list(range(ncomp)), 0, 63, 0) + scan_data(False, 0)
+    else:
+        for sc in prog:
+            if sc[0] == 'dc':
+                out += sos_header(list(range(ncomp)), 0, 0, sc[1]) + scan_data(True, sc[1])
+            elif sc[0] == 'ac':
+                out += sos_header([sc[1]], sc[2], sc[3], 0x01) + filler()
+            elif sc[0] == 'dcref':
+                out += sos_header(list(range(ncomp)), 0, 0, 0x10 | (sc[1] - 1 if sc[1] else 0)) + filler()
+            elif sc[0] == 'dcsep':
+                out += sos_header([sc[1]], 0, 0, 0x01) + filler()
+    out += b'\xff\xd9'
     return bytes(out)
 
 
@@ -493,10 +523,90 @@ def main():
         d = np.abs(render(i16_bmp, pal_b) - render(i16_jpg, pal_j)).mean()
         check('JPG %dx%d 4:%s vs BMP de la foto entera' % (w, h, '4:4' if ss == 0 else '2:0'), d < 6.0, 'diferencia media %.2f (de 255)' % d)
 
+    print('== JPG progresivos: solo el primer scan de DC (escala 1/8, sin AC) ==')
+    arr = photo_array(333, 251)
+    # los de libjpeg (Pillow): DC con Al = 1, despues los scans de AC y los de refinamiento (el de DC, el ultimo del fichero, no se lee)
+    for ss in (0, 1, 2):
+        compare('x_prog_s%d' % ss, pil_jpeg(arr, quality=88, subsampling=ss, progressive=True))
+    compare('x_prog_gray', pil_jpeg(arr, gray=True, quality=88, progressive=True))
+    compare('x_prog_opt', pil_jpeg(arr, quality=80, subsampling=2, progressive=True, optimize=True))
+    compare('x_prog_rst', pil_jpeg(arr, quality=85, subsampling=2, progressive=True, restart_marker_blocks=3))
+    compare('x_prog_exif6', pil_jpeg(arr, quality=88, subsampling=2, progressive=True, exif=exif_bytes(6)))
+    compare('x_prog_exif3', pil_jpeg(arr, quality=88, subsampling=0, progressive=True, exif=exif_bytes(3)))
+    for (w, h) in ((64, 48), (160, 100), (1280, 960), (97, 131), (8, 8), (1, 1), (9, 1), (4000, 300)):
+        compare('x_prog%dx%d' % (w, h), pil_jpeg(photo_array(w, h), quality=88, subsampling=2, progressive=True))
+    # los nuestros: Al = 0, 1, 3 y 13, con scans de relleno antes y despues del de DC
+    arr = photo_array(150, 100)
+    for al in (0, 1, 3):
+        compare('x_prog_enc_al%d' % al, encode(arr, ((2, 2), (1, 1), (1, 1)), prog=[('dc', al)]))
+    compare('x_prog_enc_fill', encode(arr, ((2, 2), (1, 1), (1, 1)), prog=[('ac', 0, 1, 5), ('dcsep', 1), ('dc', 1), ('ac', 1, 1, 63), ('dcref', 1), ('ac', 0, 6, 63)]))
+    compare('x_prog_enc_444', encode(arr, ((1, 1),) * 3, prog=[('dc', 2), ('dcref', 2)]))
+    compare('x_prog_enc_422', encode(arr, ((2, 1), (1, 1), (1, 1)), prog=[('dc', 1)], ri=5))
+    compare('x_prog_enc_440', encode(arr, ((1, 2), (1, 1), (1, 1)), prog=[('dc', 1)], exif=exif_bytes(8)))
+    compare('x_prog_enc_411', encode(arr, ((4, 1), (1, 1), (1, 1)), prog=[('dc', 0)]))
+    compare('x_prog_enc_gray', encode(arr, ((1, 1),), gray=True, prog=[('dc', 1), ('ac', 0, 1, 63)]))
+    compare('x_prog_enc_rgb', encode(arr, ((1, 1),) * 3, rgb=True, adobe=True, jfif=False, prog=[('dc', 1)]))
+    compare('x_prog_enc_al13', encode(arr, ((1, 1),) * 3, prog=[('dc', 13)]))
+    # sin scan de DC util: solo AC, o DC componente a componente
+    compare('x_prog_noscan', encode(arr, ((2, 2), (1, 1), (1, 1)), prog=[('ac', 0, 1, 5), ('ac', 1, 1, 63)]), expect_err='PROGRESSIVE JPG: NO DC SCAN')
+    compare('x_prog_dcsep', encode(arr, ((2, 2), (1, 1), (1, 1)), prog=[('dcsep', 0), ('dcsep', 1), ('dcsep', 2)]), expect_err='PROGRESSIVE JPG: NO DC SCAN')
+    pg = encode(arr, ((2, 2), (1, 1), (1, 1)), prog=[('dc', 1), ('ac', 0, 1, 5)])
+    compare('x_prog_cut_half', pg[:len(pg) // 2], fits=(0,))
+    compare('x_prog_cut_dc', pg[:pg.index(b'\xff\xda') + 40], fits=(0,))
+    # contra libjpeg: la imagen reducida a 1/8 (libjpeg usa el DC completo, aqui falta el bit bajo si Al = 1)
+    for (w, h, ss, gray) in ((256, 192, 0, False), (256, 192, 1, False), (333, 251, 2, False), (123, 45, 0, True), (400, 300, 2, False)):
+        data = pil_jpeg(photo_array(w, h), gray=gray, quality=88, subsampling=ss, progressive=True)
+        im = Image.open(io.BytesIO(data))
+        im.draft('RGB', (w // 8, h // 8))
+        im.load()
+        lib = np.asarray(im.convert('RGB'), dtype=np.float64)
+        mine = np.array(jpg2i16.decode_scaled(data, jpg2i16.parse(data), 1), dtype=np.float64)
+        label = 'progresivo %dx%d %s a 1/8 vs libjpeg' % (w, h, 'gris' if gray else '4:%s' % ('4:4', '2:2', '2:0')[ss])
+        if lib.shape != mine.shape:
+            check(label, False, 'tamano %s vs %s' % (lib.shape, mine.shape))
+        else:
+            # sin el bit bajo del DC (Al = 1) el error es de 1 a 3 niveles; en 4:2:0 libjpeg decodifica la croma a 2x2 con sus AC y aqui se repite su DC,
+            # asi que en los bordes de color duros de la imagen sintetica sale mucho mas (en una foto, tras reducirla a 160x100, apenas se nota: ver los 12 MP)
+            d = np.abs(lib - mine)
+            check(label, d.mean() < (7.0 if ss == 2 else 1.5) and (ss == 2 or d.max() <= 4), 'error medio %.2f, maximo %.0f' % (d.mean(), d.max()))
+    # con Al = 0 el DC es completo: el progresivo da EXACTAMENTE lo mismo que el DC de un baseline de la misma imagen (4:4:4 y 4:2:2: sin croma doble)
+    arr = photo_array(150, 100)
+    for name, samp in (('444', ((1, 1),) * 3), ('422', ((2, 1), (1, 1), (1, 1))), ('gris', ((1, 1),))):
+        gray = name == 'gris'
+        pg = encode(arr, samp, gray=gray, prog=[('dc', 0)])
+        bs = encode(arr, samp, gray=gray)
+        a = jpg2i16.decode_scaled(pg, jpg2i16.parse(pg), 1)
+        b = jpg2i16.decode_scaled(bs, jpg2i16.parse(bs), 1)
+        check('progresivo Al=0 %s == el DC del baseline de la misma imagen' % name, a == b)
+    # una foto grande: solo se lee el principio del fichero
+    import time
+    for ss, label in ((1, '4:2:2'), (2, '4:2:0')):
+        big = pil_jpeg(photo_array(4000, 3000), quality=90, subsampling=ss, progressive=True)
+        bpath = os.path.join(WORK, 'big12mp_prog%d.jpg' % ss)
+        open(bpath, 'wb').write(big)
+        im = Image.open(io.BytesIO(big))
+        im.draft('RGB', (500, 375))
+        im.load()
+        lib_rows = [[tuple(int(v) for v in px) for px in row] for row in np.asarray(im.convert('RGB'))]
+        for fit in (0, 1, 2):
+            g = bmp2i16.geometry(len(lib_rows[0]), len(lib_rows), fit)
+            expect = jpg2i16.finish(jpg2i16.area_scale(lib_rows, g), g)
+            t0 = time.time()
+            c = run_cpp(bpath, fit)
+            dt = time.time() - t0
+            if c[0] != 'OK':
+                check('12 MP progresivo %s fit=%d' % (label, fit), False, c[1])
+                continue
+
+            def render(i16, pal):
+                return np.array([pal[i16[516 + k]] for k in range(16000)], dtype=np.float64)
+            d = np.abs(render(c[1], jpg2i16_pal(c[1])) - render(expect, jpg2i16_pal(expect))).mean()
+            check('12 MP progresivo %s fit=%d: parecido a libjpeg 1/8 + area + paleta, y solo se lee el principio' % (label, fit),
+                  d < 3.0 and c[2] < len(big) // 4, 'diferencia media %.2f; %.2f s en el PC, %d bytes leidos de %d' % (d, dt, c[2], len(big)))
+
     print('== Errores ==')
     arr = photo_array(160, 120)
     good = pil_jpeg(arr, quality=85, subsampling=2)
-    compare('x_progressive', pil_jpeg(arr, quality=85, progressive=True), expect_err='PROGRESSIVE JPG NOT SUPPORTED')
     cm = io.BytesIO()
     Image.new('CMYK', (64, 48), (10, 20, 30, 40)).save(cm, 'JPEG')
     compare('x_cmyk', cm.getvalue(), expect_err='CMYK JPG NOT SUPPORTED')

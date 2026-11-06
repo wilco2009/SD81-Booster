@@ -20,7 +20,17 @@
 // de croma 4:4:4, 4:2:2, 4:4:0, 4:2:0, 4:1:1 (la MCU puede ser de hasta 4 bloques), con o sin
 // marcadores de reinicio (RSTn), una sola pasada (scan) con todos los componentes. Se aplica
 // la orientacion EXIF (etiqueta 0x0112) de las fotos de movil. Se rechazan, con el motivo en
-// err: progresivo, aritmetico, 12 bits, CMYK, varios scans, sin tablas.
+// err: aritmetico, 12 bits, CMYK, varios scans (en un baseline), sin tablas.
+//
+// Progresivos (SOF2): solo se usa el DC, es decir, siempre la escala 1/8, sin guardar nada: se
+// salta (buscando marcadores) hasta el primer scan de DC con todos los componentes entrelazados
+// (Ss = Se = 0, Ah = 0), que es el primero del fichero en lo habitual, se decodifica en
+// streaming como el DC de un baseline y se deja de leer: los scans de AC y de refinamiento ni
+// se tocan, asi que un progresivo grande se lee mas deprisa que un baseline. Si el DC trae
+// transformada de punto (Al > 0, lo normal en libjpeg) le faltan sus bits bajos; se centra el
+// error sumando la mitad. La croma de 4:2:0 se repite (no hay AC para decodificarla al doble de
+// escala), y una imagen de menos de 1280x800 queda por debajo de 160x100 muestras y se amplia
+// (borrosa). Sin ese scan de DC (solo AC, o DC componente a componente) se rechaza.
 //
 // Se lee el fichero dos veces (la primera pasada elige la paleta), siempre hacia delante
 // (salvo el salto de vuelta al principio de los datos).

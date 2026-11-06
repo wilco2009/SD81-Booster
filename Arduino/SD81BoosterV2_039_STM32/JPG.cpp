@@ -58,6 +58,9 @@ struct JpgCtx {
   uint8_t  orient;                // etiqueta EXIF de orientacion (1..8)
   bool     sof, jfif, adobe, rgb;
   uint8_t  adobe_tr;
+  bool     prog;                  // progresivo (SOF2): solo se usa el primer scan de DC (ver JPG.h)
+  uint8_t  al;                    // transformada de punto (Al) de ese scan: al DC le faltan sus al bits bajos
+  int32_t  dcbias;                // mitad de lo que falta, para centrar el error
   bool     have_q[4], have_dc[2], have_ac[2];
   // geometria
   uint8_t  N;                     // escala: N/8 (1, 2, 4, 8)
@@ -274,11 +277,15 @@ static void parse_exif(JpgCtx& c) {
   }
 }
 
-static bool parse_sos(JpgCtx& c, I16Error& err) {
+// use = false: es un scan progresivo que no sirve (de AC, de refinamiento o de DC de un solo componente): se salta y se sigue buscando
+static bool parse_sos(JpgCtx& c, I16Error& err, bool& use) {
+  use = true;
   if (!c.sof) return fail(err, "BAD JPG HEADER");
   int ns = sb(c);
-  if (ns != c.ncomp) return fail(err, ns < 1 ? "BAD JPG HEADER" : "MULTI-SCAN JPG NOT SUPPORTED");
+  if (ns < 1 || ns > c.ncomp) return fail(err, "BAD JPG HEADER");
+  if (!c.prog && ns != c.ncomp) return fail(err, "MULTI-SCAN JPG NOT SUPPORTED");
   bool used[3] = {false, false, false};
+  uint8_t ord[3], tdv[3], tav[3];
   for (int i = 0; i < ns; i++) {
     int cs = sb(c), t = sb(c);
     if (cs < 0 || t < 0) return fail(err, "BAD JPG HEADER");
@@ -286,16 +293,35 @@ static bool parse_sos(JpgCtx& c, I16Error& err) {
     for (int j = 0; j < c.ncomp; j++) if (c.comp[j].id == cs && !used[j]) { ci = j; break; }
     if (ci < 0) return fail(err, "BAD JPG HEADER");
     used[ci] = true;
-    c.scanord[i] = (uint8_t)ci;
-    c.comp[ci].td = (uint8_t)(t >> 4);
-    c.comp[ci].ta = (uint8_t)(t & 15);
+    ord[i] = (uint8_t)ci;
+    tdv[i] = (uint8_t)(t >> 4);
+    tav[i] = (uint8_t)(t & 15);
   }
   int ss = sb(c), se = sb(c), a = sb(c);
-  if (ss != 0 || se != 63 || a != 0) return fail(err, "UNSUPPORTED JPG (NOT BASELINE)");
-  for (int i = 0; i < c.ncomp; i++) {
-    const JpgComp& cp = c.comp[i];
-    if (cp.td > 1 || cp.ta > 1 || !c.have_dc[cp.td] || !c.have_ac[cp.ta]) return fail(err, "JPG HUFFMAN TABLE MISSING");
-    if (!c.have_q[cp.tq]) return fail(err, "JPG QUANT TABLE MISSING");
+  if (ss < 0 || se < 0 || a < 0) return fail(err, "BAD JPG HEADER");
+  if (c.prog) {
+    // el unico scan que se usa: el primero de DC con todos los componentes entrelazados (Ss = Se = 0, Ah = 0)
+    if (ns != c.ncomp || ss != 0 || se != 0 || (a >> 4) != 0) { use = false; return true; }
+    if ((a & 15) > 13) return fail(err, "BAD JPG HEADER");
+    for (int i = 0; i < ns; i++) {
+      const JpgComp& cp = c.comp[ord[i]];
+      if (tdv[i] > 1 || !c.have_dc[tdv[i]]) return fail(err, "JPG HUFFMAN TABLE MISSING");
+      if (!c.have_q[cp.tq]) return fail(err, "JPG QUANT TABLE MISSING");
+    }
+    c.al = (uint8_t)(a & 15);
+    c.dcbias = (int32_t)((1u << c.al) >> 1);
+  } else {
+    if (ss != 0 || se != 63 || a != 0) return fail(err, "UNSUPPORTED JPG (NOT BASELINE)");
+    for (int i = 0; i < ns; i++) {
+      const JpgComp& cp = c.comp[ord[i]];
+      if (tdv[i] > 1 || tav[i] > 1 || !c.have_dc[tdv[i]] || !c.have_ac[tav[i]]) return fail(err, "JPG HUFFMAN TABLE MISSING");
+      if (!c.have_q[cp.tq]) return fail(err, "JPG QUANT TABLE MISSING");
+    }
+  }
+  for (int i = 0; i < ns; i++) {
+    c.scanord[i] = ord[i];
+    c.comp[ord[i]].td = tdv[i];
+    c.comp[ord[i]].ta = tav[i];
   }
   return true;
 }
@@ -311,7 +337,7 @@ static bool parse_headers(JpgCtx& c, I16Error& err) {
     do { b = in_byte(c); } while (b == 0xFF);
     if (b < 0) return fail(err, "JPG TRUNCATED");
     if (b == 0 || b == 0x01 || b == 0xD8 || (b >= 0xD0 && b <= 0xD7)) continue;   // sin longitud
-    if (b == 0xD9) return fail(err, "JPG HAS NO IMAGE DATA");
+    if (b == 0xD9) return fail(err, c.prog ? "PROGRESSIVE JPG: NO DC SCAN" : "JPG HAS NO IMAGE DATA");
     int len = in_byte(c) << 8;
     len |= in_byte(c);
     if (len < 2) return fail(err, "BAD JPG HEADER");
@@ -321,7 +347,9 @@ static bool parse_headers(JpgCtx& c, I16Error& err) {
         if (!parse_sof(c, err)) return false;
         break;
       case 0xC2:
-        return fail(err, "PROGRESSIVE JPG NOT SUPPORTED");
+        if (!parse_sof(c, err)) return false;
+        c.prog = true;
+        break;
       case 0xC9: case 0xCA: case 0xCB: case 0xCC: case 0xCD: case 0xCE: case 0xCF:
         return fail(err, "ARITHMETIC JPG NOT SUPPORTED");
       case 0xC3: case 0xC5: case 0xC6: case 0xC7:
@@ -354,11 +382,16 @@ static bool parse_headers(JpgCtx& c, I16Error& err) {
         }
         break;
       }
-      case 0xDA:
-        if (!parse_sos(c, err)) return false;
-        if (!seg_skip(c, c.rem)) return fail(err, "JPG TRUNCATED");
-        c.scan_off = c.inbase + (uint32_t)c.inpos;
-        return true;
+      case 0xDA: {
+        bool use;
+        if (!parse_sos(c, err, use)) return false;
+        if (use) {
+          if (!seg_skip(c, c.rem)) return fail(err, "JPG TRUNCATED");
+          c.scan_off = c.inbase + (uint32_t)c.inpos;
+          return true;
+        }
+        break;                                    // scan progresivo que no sirve: sus datos se saltan al buscar el siguiente marcador
+      }
       default:
         break;
     }
@@ -474,6 +507,7 @@ static inline uint8_t clamp8(int32_t v) { return (uint8_t)(v < 0 ? 0 : (v > 255 
 
 // Recorre los AC de un bloque sin guardarlos
 static void skip_ac(JpgCtx& c, const JpgHuffAC& t) {
+  if (c.prog) return;                              // el scan de DC de un progresivo no lleva AC
   for (int k = 1; k < 64 && !c.bad; ) {
     int sym = ac_sym(c, t);
     int r = sym >> 4, s = sym & 15;
@@ -509,7 +543,7 @@ static void decode_block(JpgCtx& c, int ci, uint8_t* dst, uint32_t pw, bool stor
 
   if (N == 1) {
     skip_ac(c, at);
-    int32_t F = sat16(dc * q[0]);
+    int32_t F = sat16(((int64_t)dc * (1 << c.al) + c.dcbias) * q[0]);
     *dst = clamp8(((F + 4) >> 3) + 128);
     return;
   }
@@ -649,7 +683,7 @@ static void sink_map(void* vc, uint32_t dline, const uint8_t* rgb) {
 // Como hace libjpeg: un componente submuestreado a la mitad en los dos ejes (la croma de 4:2:0) se decodifica al doble de escala, para no repetirla.
 static void comp_scale(const JpgCtx& c, const JpgComp& cp, uint32_t N, uint8_t& n, uint8_t& hr, uint8_t& vr) {
   uint32_t rh = c.hmax / cp.h, rv = c.vmax / cp.v, k = N;
-  while (k < 8 && !(rh & 1) && !(rv & 1)) { k <<= 1; rh >>= 1; rv >>= 1; }
+  while (!c.prog && k < 8 && !(rh & 1) && !(rv & 1)) { k <<= 1; rh >>= 1; rv >>= 1; }
   n = (uint8_t)k;
   hr = (uint8_t)rh;
   vr = (uint8_t)rv;
@@ -704,6 +738,7 @@ bool jpg_to_i16(I16Reader& in, uint8_t fit, uint8_t* out, JpgWork& w, I16Error& 
   for (uint32_t N = 1; N <= 8; N <<= 1) {
     if (rowbytes(c, N) > JPG_ROWBUF) break;
     best = (int)N;
+    if (c.prog) break;                            // progresivo: solo el DC (escala 1/8)
     uint32_t ws = (c.W * N + 7) / 8, hs = (c.H * N + 7) / 8;
     I16Geo g;
     if (c.swap) i16_geometry(hs, ws, fit, g); else i16_geometry(ws, hs, fit, g);

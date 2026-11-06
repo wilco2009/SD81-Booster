@@ -30,7 +30,7 @@ estaba hasta que termina. Si falta el número como `.I16` y el `.BMP` no se pued
 
 - **BMP admitidos:** sin compresión, de 1, 4, 8, 24 y 32 bits, de abajo arriba o de arriba abajo (cabeceras CORE, INFO, V4 y V5), hasta 16.384 x 16.384 y 16 millones de píxeles.
   No: RLE, 16 bits ni máscaras raras (el programa del PC o de otro editor puede guardarlo como "24 bits" sin compresión).
-- **JPG** (`IMGnnn.JPG`): lo mismo con un JPG baseline (secuencial, 8 bits, gris o color, sin progresivo ni aritmético ni CMYK); el motivo de un rechazo sale en `*BMPERR` igual. Un JPG pesa 10-20 veces menos que
+- **JPG** (`IMGnnn.JPG`): lo mismo con un JPG baseline (secuencial, 8 bits, gris o color; el progresivo solo con su DC, así que sale más borroso y una foto de menos de 1280x800 se amplía; ni aritmético ni CMYK); el motivo de un rechazo sale en `*BMPERR` igual. Un JPG pesa 10-20 veces menos que
   el BMP y se **decodifica ya reducido** (solo el coeficiente DC de cada bloque de 8x8, o una IDCT pequeña si el JPG es pequeño): la conversión de una foto de móvil de 12 megapíxeles tarda lo que tarde la SD en leerla
   dos veces. Respeta la orientación EXIF (una foto vertical sale derecha). `jpg2i16.py` (aquí al lado) hace lo mismo en el PC y es la referencia con la que se prueba el código del STM32 (`claude/mqtttest/build_jpg.sh`).
   **Memoria del MCU:** unos 28 KB mientras se convierte un JPG (unos 23 KB un BMP).

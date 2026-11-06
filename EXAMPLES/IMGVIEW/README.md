@@ -10,7 +10,7 @@ Lo hace igual que con los `.SCR`, los `.VGM` o el editor: el explorador no cambi
 | `.BMP` | con el comando **76** del MCU, que lo convierte al abrirlo (escala a 160x100 y reduce a 256 colores; tarda unos segundos según el tamaño y la SD) y lo ofrece como un `.I16` |
 | `.JPG`, `.JPEG` | igual, con el mismo comando **76**: el MCU distingue BMP y JPG por el contenido del fichero, no por la extensión (JPG baseline; se decodifica ya reducido, y respeta la orientación EXIF de las fotos de móvil) |
 
-BMP admitidos: sin compresión, de 1, 4, 8, 24 y 32 bits, de abajo arriba o de arriba abajo (ver `EXAMPLES/PHOTO/README.md`). JPG admitidos: secuencial baseline (o extendido) de 8 bits, gris o color, cualquier muestreo de croma habitual, con o sin marcadores de reinicio; no el progresivo, el aritmético ni el CMYK (el motivo queda en `*BMPERR`).
+BMP admitidos: sin compresión, de 1, 4, 8, 24 y 32 bits, de abajo arriba o de arriba abajo (ver `EXAMPLES/PHOTO/README.md`). JPG admitidos: secuencial baseline (o extendido) de 8 bits, gris o color, cualquier muestreo de croma habitual, con o sin marcadores de reinicio; el progresivo solo con su DC (más borroso; una foto de menos de 1280x800 se amplía); no el aritmético ni el CMYK (el motivo queda en `*BMPERR`).
 
 ## Teclas
 

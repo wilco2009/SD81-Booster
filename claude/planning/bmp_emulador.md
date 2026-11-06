@@ -88,7 +88,12 @@ Se lee el fichero dos veces (la primera pasada elige la paleta), con un salto de
 - **Admite**: JPEG secuencial baseline o extendido de 8 bits con Huffman (SOF0 / SOF1), de 1 componente (gris) o 3 (YCbCr; RGB si lo dicen Adobe o los identificadores
   `R`, `G`, `B`), croma 4:4:4, 4:2:2, 4:4:0, 4:2:0 y 4:1:1, con o sin marcadores de reinicio, de hasta 128 millones de píxeles. **Aplica la orientación EXIF** (etiqueta 0x0112,
   las ocho), así que una foto de móvil en vertical sale derecha.
-- **Rechaza** (0xFE y el motivo en `/MAN/BMPERR.TXT`): `PROGRESSIVE JPG NOT SUPPORTED`, `ARITHMETIC JPG NOT SUPPORTED`, `UNSUPPORTED JPG (NOT 8 BIT)`, `CMYK JPG NOT SUPPORTED`,
+- **Progresivos (SOF2), solo el DC (6/11/2026, sin probar en la placa)**: se usa siempre la escala 1/8 y solo el primer scan de DC con todos los componentes entrelazados
+  (Ss = Se = 0, Ah = 0). Los scans que no valen (AC, refinamiento, DC de un solo componente) se saltan buscando marcadores, y al llegar al de DC se decodifica en streaming como el DC de
+  un baseline y no se lee mas del fichero: un progresivo grande se lee mas deprisa que un baseline. Si el DC trae transformada de punto (Al > 0, lo habitual en libjpeg) le falta el
+  bit bajo (el scan de refinamiento va al final y no se lee): se suma la mitad. La croma de 4:2:0 se repite. Una imagen de menos de 1280x800 queda por debajo de 160x100 muestras y se
+  amplia (borrosa). No necesita memoria extra (`JpgWork` es el mismo). Referencia: `jpg2i16.py`; pruebas: `build_jpg.sh`. Pendiente (capa 2, solo si hace falta): N > 1 con un fichero temporal en la SD.
+- **Rechaza** (0xFE y el motivo en `/MAN/BMPERR.TXT`): `PROGRESSIVE JPG: NO DC SCAN` (progresivo sin ese scan de DC), `ARITHMETIC JPG NOT SUPPORTED`, `UNSUPPORTED JPG (NOT 8 BIT)`, `CMYK JPG NOT SUPPORTED`,
   `MULTI-SCAN JPG NOT SUPPORTED`, `JPG HUFFMAN TABLE MISSING`, `JPG QUANT TABLE MISSING`, `JPG TRUNCATED`, `BAD JPG DATA`, `BAD JPG HEADER`, `NOT A JPG FILE`, `JPG TOO LARGE`,
   `JPG TOO WIDE`, `UNSUPPORTED JPG SAMPLING`, `UNSUPPORTED JPG ...`.
 - **No se decodifica entero**: cada bloque de 8x8 se reduce a la escala 1/8 (solo el coeficiente DC; los AC se recorren para avanzar en el flujo de bits) y, si el JPG es pequeño, a 1/4, 1/2 o 1/1 con una

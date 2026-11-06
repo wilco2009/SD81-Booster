@@ -6,14 +6,17 @@ Es la referencia en Python de Arduino/SD81BoosterV2_039_STM32/JPG.cpp, el codigo
 y luego se orienta y se escala con los pesos de solape; el STM32 lo hace en streaming, una fila de MCU cada vez. Es un decodificador lento (Python
 puro): sirve para comprobar el codigo del STM32 (claude/mqtttest/build_jpg.sh) y para convertir en el PC fotos no muy grandes.
 
-Algoritmo (T.81, solo baseline secuencial de 8 bits con Huffman):
+Algoritmo (T.81, baseline secuencial de 8 bits con Huffman, y el DC de los progresivos):
   1. Cada bloque de 8x8 se reduce a la escala N/8 (N = 1, 2, 4 u 8; la croma de 4:2:0, al doble, como hace libjpeg): se toman los N x N coeficientes de menor frecuencia, ya cuantificados, y
      se les aplica una IDCT de N puntos en enteros (N = 1 es solo el DC: la media del bloque). Se elige la menor N que deja al menos tantas
      muestras como puntos de destino (160x100, o menos con --fit fit) y cuya fila de MCU cabe en el bufer del STM32 (JPG_ROWBUF).
   2. La croma que queda con menos muestras se repite (muestreo 4:4:4, 4:2:2, 4:4:0, 4:2:0, 4:1:1) y se pasa a RGB como en JFIF.
   3. Se aplica la orientacion EXIF (etiqueta 0x0112), y se escala y reduce a 256 colores como bmp2i16.py (media por area, median cut, red SCART).
 
-Se rechazan (con el mismo texto que el STM32): progresivo, aritmetico, 12 bits, CMYK, varios scans y JPG sin tablas.
+Progresivos (SOF2): solo se usa el primer scan de DC con todos los componentes entrelazados (Ss = Se = 0, Ah = 0): escala 1/8 siempre, sin AC, y la croma
+de 4:2:0 se repite. Si el DC trae transformada de punto (Al), se suma la mitad de lo que falta. Una imagen de menos de 1280x800 se amplia (borrosa).
+
+Se rechazan (con el mismo texto que el STM32): aritmetico, 12 bits, CMYK, varios scans en un baseline, JPG sin tablas y progresivos sin ese scan de DC.
 
 Uso:
     python jpg2i16.py foto1.jpg foto2.jpg ...            -> IMG001.I16, IMG002.I16 ... en la carpeta actual
@@ -103,7 +106,7 @@ def parse(data):
     q = {}
     dc = {}
     ac = {}
-    info = dict(orient=1, ri=0, sof=False, jfif=False, adobe=False, adobe_tr=0)
+    info = dict(orient=1, ri=0, sof=False, jfif=False, adobe=False, adobe_tr=0, prog=False, al=0, dcbias=0)
 
     def byte(i):
         if i >= n:
@@ -125,13 +128,13 @@ def parse(data):
         if m == 0 or m == 1 or m == 0xD8 or 0xD0 <= m <= 0xD7:
             continue
         if m == 0xD9:
-            raise JpgError('JPG HAS NO IMAGE DATA')
+            raise JpgError('PROGRESSIVE JPG: NO DC SCAN' if info['prog'] else 'JPG HAS NO IMAGE DATA')
         ln = (byte(pos) << 8) | byte(pos + 1)
         if ln < 2:
             raise JpgError('BAD JPG HEADER')
         seg = data[pos + 2:pos + ln]            # el segmento sin la longitud (puede quedar corto si el fichero se acaba)
         seg_end = pos + ln
-        if m in (0xC0, 0xC1):
+        if m in (0xC0, 0xC1, 0xC2):
             if info['sof']:
                 raise JpgError('BAD JPG HEADER')
             s = list(seg) + [-1] * 16
@@ -165,9 +168,7 @@ def parse(data):
             for c in comps:
                 if hmax % c['h'] or vmax % c['v']:
                     raise JpgError('UNSUPPORTED JPG SAMPLING')
-            info.update(sof=True, W=w, H=h, comps=comps, hmax=hmax, vmax=vmax)
-        elif m == 0xC2:
-            raise JpgError('PROGRESSIVE JPG NOT SUPPORTED')
+            info.update(sof=True, W=w, H=h, comps=comps, hmax=hmax, vmax=vmax, prog=(m == 0xC2))
         elif 0xC9 <= m <= 0xCF:
             raise JpgError('ARITHMETIC JPG NOT SUPPORTED')
         elif m in (0xC3, 0xC5, 0xC6, 0xC7):
@@ -220,27 +221,51 @@ def parse(data):
                 raise JpgError('BAD JPG HEADER')
             comps = info['comps']
             ns = seg[0] if seg else -1
-            if ns != len(comps):
-                raise JpgError('BAD JPG HEADER' if ns < 1 else 'MULTI-SCAN JPG NOT SUPPORTED')
+            if ns < 1 or ns > len(comps):
+                raise JpgError('BAD JPG HEADER')
+            if not info['prog'] and ns != len(comps):
+                raise JpgError('MULTI-SCAN JPG NOT SUPPORTED')
             if len(seg) < 1 + 2 * ns + 3:
                 raise JpgError('BAD JPG HEADER')
             order = []
+            tds = []
+            tas = []
             for i in range(ns):
                 cs, t = seg[1 + 2 * i], seg[2 + 2 * i]
                 ci = next((j for j, c in enumerate(comps) if c['id'] == cs and j not in order), None)
                 if ci is None:
                     raise JpgError('BAD JPG HEADER')
                 order.append(ci)
-                comps[ci]['td'] = t >> 4
-                comps[ci]['ta'] = t & 15
+                tds.append(t >> 4)
+                tas.append(t & 15)
             ss, se, a = seg[1 + 2 * ns:4 + 2 * ns]
-            if ss != 0 or se != 63 or a != 0:
-                raise JpgError('UNSUPPORTED JPG (NOT BASELINE)')
-            for c in comps:
-                if c['td'] > 1 or c['ta'] > 1 or c['td'] not in dc or c['ta'] not in ac:
-                    raise JpgError('JPG HUFFMAN TABLE MISSING')
-                if c['tq'] not in q:
-                    raise JpgError('JPG QUANT TABLE MISSING')
+            if info['prog']:
+                # el unico scan que se usa: el primero de DC con todos los componentes entrelazados (Ss = Se = 0, Ah = 0)
+                if ns != len(comps) or ss != 0 or se != 0 or (a >> 4) != 0:
+                    if seg_end > n:
+                        raise JpgError('JPG TRUNCATED')
+                    pos = seg_end
+                    continue
+                if (a & 15) > 13:
+                    raise JpgError('BAD JPG HEADER')
+                for k, ci in enumerate(order):
+                    if tds[k] > 1 or tds[k] not in dc:
+                        raise JpgError('JPG HUFFMAN TABLE MISSING')
+                    if comps[ci]['tq'] not in q:
+                        raise JpgError('JPG QUANT TABLE MISSING')
+                info['al'] = a & 15
+                info['dcbias'] = (1 << (a & 15)) >> 1
+            else:
+                if ss != 0 or se != 63 or a != 0:
+                    raise JpgError('UNSUPPORTED JPG (NOT BASELINE)')
+                for k, ci in enumerate(order):
+                    if tds[k] > 1 or tas[k] > 1 or tds[k] not in dc or tas[k] not in ac:
+                        raise JpgError('JPG HUFFMAN TABLE MISSING')
+                    if comps[ci]['tq'] not in q:
+                        raise JpgError('JPG QUANT TABLE MISSING')
+            for k, ci in enumerate(order):
+                comps[ci]['td'] = tds[k]
+                comps[ci]['ta'] = tas[k]
             info.update(order=order, scan_off=seg_end, q=q, dc=dc, ac=ac)
             if len(comps) == 3:
                 if info['adobe']:
@@ -363,7 +388,7 @@ def comp_scale(info, c, n):
     submuestreado a la mitad en los dos ejes (la croma de 4:2:0) se decodifica al doble de escala, para no repetirla."""
     rh, rv = info['hmax'] // c['h'], info['vmax'] // c['v']
     k = n
-    while k < 8 and rh % 2 == 0 and rv % 2 == 0:
+    while not info['prog'] and k < 8 and rh % 2 == 0 and rv % 2 == 0:
         k *= 2
         rh //= 2
         rv //= 2
@@ -376,10 +401,12 @@ def choose_scale(info, fit):
     swap = info['orient'] >= 5
     mcu_cols = -(-W // (8 * info['hmax']))
     best = 0
-    for n in (1, 2, 4, 8):
+    for n in ((1,) if info['prog'] else (1, 2, 4, 8)):
         if mcu_cols * sum(c['h'] * c['v'] * comp_scale(info, c, n)[0] ** 2 for c in info['comps']) > JPG_ROWBUF:
             break
         best = n
+        if info['prog']:
+            break
         ws, hs = (W * n + 7) // 8, (H * n + 7) // 8
         g = bmp2i16.geometry(hs, ws, fit) if swap else bmp2i16.geometry(ws, hs, fit)
         if g['sw'] >= g['dw'] and g['sh'] >= g['dh']:
@@ -426,9 +453,9 @@ def decode_scaled(data, info, n):
                     diff = extend(bits.bits(s), s) if s else 0
                     pred[ci] = max(-32768, min(32767, pred[ci] + diff))
                     coef = [[0] * cn for _ in range(cn)]
-                    coef[0][0] = sat16(pred[ci] * qt[0])
+                    coef[0][0] = sat16((pred[ci] * (1 << info['al']) + info['dcbias']) * qt[0])
                     k = 1
-                    while k < 64:
+                    while k < 64 and not info['prog']:
                         sym = huff(bits, info['ac'][c['ta']])
                         r, ssz = sym >> 4, sym & 15
                         if not ssz:

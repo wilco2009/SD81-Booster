@@ -5,6 +5,8 @@
 // formato del visor EXAMPLES/PHOTO y del modo 160x100 de la FPGA): escala el
 // BMP y reduce sus colores a una paleta de 256 propia de la imagen.
 //
+// (El JPG lo convierte JPG.cpp con la misma salida; la parte comun esta en I16Common.cpp.)
+//
 // Se usa con el comando 76 (CMD_f_open_img, COMMANDS.cpp): el Z80 abre un .BMP
 // y lo lee como si fuera un fichero .I16 con los comandos de acceso aleatorio.
 //
@@ -30,47 +32,25 @@
 //   3. Cada color de la paleta pasa a las cuatro densidades (R, G, B, BRIGHT)
 //      que mejor lo dan con la red de la SCART (como pal160.py).
 
-#include <stdint.h>
-#include <stddef.h>
+#include "I16Common.h"
 
-#define BMP_I16_SIZE   16516
-#define BMP_OUT_W      160
-#define BMP_OUT_H      100
+#define BMP_I16_SIZE   I16_SIZE
+#define BMP_OUT_W      I16_W
+#define BMP_OUT_H      I16_H
 
 // Como colocar la imagen en los 160x100 (la pantalla es 4:3):
-#define BMP_FIT_STRETCH 0     // estira para llenar todo (distorsiona si no es 4:3)
-#define BMP_FIT_FIT     1     // conserva la proporcion y rellena de negro
-#define BMP_FIT_CROP    2     // conserva la proporcion y recorta lo que sobra
+#define BMP_FIT_STRETCH I16_FIT_STRETCH   // estira para llenar todo (distorsiona si no es 4:3)
+#define BMP_FIT_FIT     I16_FIT_FIT       // conserva la proporcion y rellena de negro
+#define BMP_FIT_CROP    I16_FIT_CROP      // conserva la proporcion y recorta lo que sobra
 
-class BmpReader {
-public:
-  virtual uint32_t size() = 0;
-  virtual bool     seek(uint32_t pos) = 0;
-  virtual int      read(uint8_t* dst, int n) = 0;   // bytes leidos; 0 al final o si falla
-};
+typedef I16Reader BmpReader;      // lector de ficheros: size(), seek(pos), read(dst, n)
+typedef I16Error  BmpError;       // motivo del fallo (48 bytes)
+typedef I16Box    BmpBox;
 
-struct BmpError {
-  char msg[48];
-};
-
-// Caja del corte de mediana (coordenadas 0..15 de cada canal, extremos incluidos)
-struct BmpBox {
-  uint8_t  lo[3], hi[3];
-  uint16_t cnt, nbins;
-};
-
-// Memoria de trabajo (la reserva quien llama; ~5 KB)
+// Memoria de trabajo (la reserva quien llama; ~6 KB)
 struct BmpWork {
-  union {
-    struct {
-      uint32_t H[BMP_OUT_W * 3];     // suma horizontal de la fila de origen
-      uint32_t A[BMP_OUT_W * 3];     // acumulador de la fila de destino
-    } s;
-    BmpBox boxes[256];               // solo entre las dos pasadas
-  } u;
+  I16Work c;                         // escalado y paleta (compartido con JPG.cpp)
   uint8_t spal[256][3];              // paleta del BMP (RGB)
-  uint8_t pal[256][3];               // paleta elegida (RGB)
-  uint8_t rowrgb[BMP_OUT_W * 3];     // una fila de destino terminada
   uint8_t chunk[504];                // lectura de la SD (multiplo de 3 y de 4 bytes)
 };
 

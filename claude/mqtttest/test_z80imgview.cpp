@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 #include "BMP.h"
+#include "JPG.h"
 extern "C" {
 #include "z80.h"
 int tstates = 0;
@@ -70,11 +71,21 @@ static bool convert_bmp(const std::string& path, int fit, std::vector<uint8_t>& 
   FILE* f = fopen(path.c_str(), "rb");
   if (!f) return false;
   out.assign(BMP_I16_SIZE, 0);
-  BmpWork* w = (BmpWork*)malloc(sizeof(BmpWork));
+  uint8_t magic[2] = {0, 0};
+  size_t got = fread(magic, 1, 2, f);
+  fseek(f, 0, SEEK_SET);
   BmpError err;
   FileRd rd(f);
-  bool ok = bmp_to_i16(rd, (uint8_t)fit, out.data(), *w, err);
-  free(w);
+  bool ok = false;
+  if (got == 2 && magic[0] == 0xFF && magic[1] == 0xD8) {          // como el comando 76 del firmware: por el contenido, no por la extension
+    JpgWork* w = (JpgWork*)malloc(sizeof(JpgWork));
+    ok = jpg_to_i16(rd, (uint8_t)fit, out.data(), *w, err);
+    free(w);
+  } else {
+    BmpWork* w = (BmpWork*)malloc(sizeof(BmpWork));
+    ok = bmp_to_i16(rd, (uint8_t)fit, out.data(), *w, err);
+    free(w);
+  }
   fclose(f);
   return ok;
 }
@@ -202,12 +213,12 @@ BYTE z80_readport_wrapper(int port, int*) {
 }
 }
 
-// el expected de una carga: el .I16 del fichero o el .BMP convertido con esa colocacion
+// el expected de una carga: el .I16 del fichero o el .BMP / .JPG convertido con esa colocacion
 static bool expected_image(const std::string& name, int fit, uint8_t* pal512, uint8_t* pix) {
   std::string path = sd_dir + "/" + name;
   size_t dot = name.rfind('.');
   std::string ext = dot == std::string::npos ? "" : name.substr(dot);
-  if (ext == ".BMP") {
+  if (ext == ".BMP" || ext == ".JPG" || ext == ".JPEG") {
     std::vector<uint8_t> v;
     if (!convert_bmp(path, fit, v)) return false;
     memcpy(pal512, v.data() + 4, 512); memcpy(pix, v.data() + 516, 16000);

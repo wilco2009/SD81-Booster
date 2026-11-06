@@ -76,9 +76,9 @@ Al abrir un archivo con 8/ENTER:
 - `.TXT` se abre en el visor de texto;
 - `.SCR` se enseña a pantalla completa (el visor pasa un momento a HiRes
   Spectrum y al volver reconstruye la pantalla de texto);
-- `.BMP` y `.I16` se enseñan a pantalla completa en el modo de 160x100 a 256 colores
+- `.BMP`, `.JPG` / `.JPEG` y `.I16` se enseñan a pantalla completa en el modo de 160x100 a 256 colores
   (solo con la FPGA de la rama `fpga-mode160`): el explorador devuelve el nombre y el
-  stub BASIC lanza `IMGVIEW.BIN` (`EXAMPLES/IMGVIEW`); un BMP lo convierte el MCU al
+  stub BASIC lanza `IMGVIEW.BIN` (`EXAMPLES/IMGVIEW`); un BMP o un JPG lo convierte el MCU al
   abrirlo, y F cambia cómo se coloca;
 - `.VGM` y `.PEB` se cargan en el reproductor (T/Y/U en el panel);
 - cualquier otro se devuelve al BASIC.

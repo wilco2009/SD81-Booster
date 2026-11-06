@@ -117,6 +117,16 @@ def main():
         tb.write_bmp(os.path.join(d, 'IMG008.BMP'), 200, 200, 32, tb.pack_rows(px, 32), False)
         print('escritos IMG006.BMP, IMG007.BMP (mala) e IMG008.BMP')
         return 0
+    if mode == 'jpg':
+        # IMG009.JPG (300x150: la foto de fixture_300x150.jpg, como el IMG006.BMP), IMG010.JPEG (la misma, que PHOTO no busca pero IMGVIEW si) e
+        # IMG011.JPG (basura: no se convierte)
+        here = os.path.dirname(os.path.abspath(__file__))
+        jpg = open(os.path.join(here, 'fixture_300x150.jpg'), 'rb').read()
+        open(os.path.join(d, 'IMG009.JPG'), 'wb').write(jpg)
+        open(os.path.join(d, 'IMG010.JPEG'), 'wb').write(jpg)
+        open(os.path.join(d, 'IMG011.JPG'), 'wb').write(bytes([0xFF, 0xD8]) + bytes((i * 37 + 11) & 255 for i in range(3000)))
+        print('escritos IMG009.JPG, IMG010.JPEG e IMG011.JPG (mala)')
+        return 0
     if mode == 'make':
         for name, ctype, depth, rows, plte, idx, rgb in images():
             write_png(os.path.join(d, name + '.png'), ctype, depth, rows, plte)

@@ -20,6 +20,7 @@
 #include "WIFI_HANDLER.h"
 #include "B81.h"
 #include "BMP.h"
+#include "JPG.h"
 #include "DEBUGGER.h"
 #include "LATSTATS.h"
 
@@ -2454,16 +2455,18 @@ void cmd_f_stat(){
   ToggleClock();                            // toggle final
 }
 
-// COMMAND = 76 (0x4C) fopen de una imagen BMP como .I16:
+// COMMAND = 76 (0x4C) fopen de una imagen BMP o JPG como .I16:
 //   cmd + len(1) + nombre ASCII + fit(1) -> handle (0..3) o codigo de error
-// Convierte el .BMP (BMP.cpp: escala a 160x100 y reduce a 256 colores) y deja el resultado en un
-// handle virtual que se lee con fseek / fread / fstat y se cierra con fclose, como si fuera un
-// .I16 de BMP_I16_SIZE bytes (el formato del visor PHOTO). fit: 0 estira, 1 conserva la proporcion
-// y rellena de negro, 2 conserva la proporcion y recorta. La conversion tarda (se lee el fichero
-// dos veces): el handle llega al terminar. Solo se mantiene una imagen abierta a la vez.
+// Convierte el .BMP (BMP.cpp) o el .JPG baseline (JPG.cpp) -- se distingue por los dos primeros
+// bytes del fichero, no por la extension --: escala a 160x100 y reduce a 256 colores, y deja el
+// resultado en un handle virtual que se lee con fseek / fread / fstat y se cierra con fclose,
+// como si fuera un .I16 de BMP_I16_SIZE bytes (el formato del visor PHOTO). fit: 0 estira, 1
+// conserva la proporcion y rellena de negro, 2 conserva la proporcion y recorta. La conversion
+// tarda (se lee el fichero dos veces): el handle llega al terminar. Solo se mantiene una imagen
+// abierta a la vez. Un JPG se decodifica ya reducido (JPG.cpp) y respeta la orientacion EXIF.
 //   0..3  handle
 //   0xFF  no se puede abrir (no existe)
-//   0xFE  BMP que no se puede convertir (detalle en /MAN/BMPERR.TXT: LOAD THEN PRINT "*BMPERR")
+//   0xFE  imagen que no se puede convertir (detalle en /MAN/BMPERR.TXT: LOAD THEN PRINT "*BMPERR")
 //   0xFD  sin memoria
 //   0xFC  no hay handle libre, o ya hay una imagen abierta
 class SdBmpReader : public BmpReader {
@@ -2512,30 +2515,41 @@ void cmd_f_open_img(){
   } else if (!sd.exists(tmp) || !f.open(tmp, O_RDONLY)){
     log_0("fopen_img: %s no existe", tmp);
   } else {
-    uint8_t* img = (uint8_t*)malloc(BMP_I16_SIZE);
-    BmpWork* w = (BmpWork*)malloc(sizeof(BmpWork));
-    if (img && w){
-      SdBmpReader rd(f);
-      uint32_t st = millis();
-      bool ok = bmp_to_i16(rd, fit, img, *w, err);
-      log_0("BMP %s: %s, %lu ms", tmp, ok ? "ok" : err.msg, millis() - st);
-      if (ok){
-        img_buf = img;
-        img = nullptr;
-        img_h = (uint8_t)h;
-        img_pos = 0;
-        f_opened[h] = true;
-        f_path[h][0] = 0;                 // no va a los snapshots
-        result = (uint8_t)h;
-      } else {
-        result = 0xFE;
-      }
+    uint8_t magic[2] = {0, 0};
+    f.read(magic, 2);
+    bool isJpg = magic[0] == 0xFF && magic[1] == 0xD8;
+    bool isBmp = magic[0] == 'B' && magic[1] == 'M';
+    if (!isJpg && !isBmp){
+      result = 0xFE;
+      strcpy(err.msg, "NOT A BMP OR JPG FILE");
+      log_0("IMG %s: %s", tmp, err.msg);
     } else {
-      result = 0xFD;
-      strcpy(err.msg, "OUT OF MEMORY");
+      uint8_t* img = (uint8_t*)malloc(BMP_I16_SIZE);
+      void* w = malloc(isJpg ? sizeof(JpgWork) : sizeof(BmpWork));
+      if (img && w){
+        SdBmpReader rd(f);
+        uint32_t st = millis();
+        bool ok = isJpg ? jpg_to_i16(rd, fit, img, *(JpgWork*)w, err)
+                        : bmp_to_i16(rd, fit, img, *(BmpWork*)w, err);
+        log_0("%s %s: %s, %lu ms", isJpg ? "JPG" : "BMP", tmp, ok ? "ok" : err.msg, millis() - st);
+        if (ok){
+          img_buf = img;
+          img = nullptr;
+          img_h = (uint8_t)h;
+          img_pos = 0;
+          f_opened[h] = true;
+          f_path[h][0] = 0;                 // no va a los snapshots
+          result = (uint8_t)h;
+        } else {
+          result = 0xFE;
+        }
+      } else {
+        result = 0xFD;
+        strcpy(err.msg, "OUT OF MEMORY");
+      }
+      if (w) free(w);
+      if (img) free(img);
     }
-    if (w) free(w);
-    if (img) free(img);
     f.close();
   }
 

@@ -4,7 +4,7 @@
 ; FPGA de la rama fpga-mode160 (POKE 2045,175; ver claude/planning/pdm_color.md). Solo funciona en la placa con esa FPGA.
 ;
 ; Lee IMG001.I16, IMG002.I16... de la carpeta actual (los que genera png2i16.py o bmp2i16.py) y los pone en pantalla. Si falta el
-; IMGnnn.I16, prueba IMGnnn.BMP: el MCU lo convierte al abrirlo (comando 76: escala a 160x100 y reduce a 256 colores, tarda unos segundos).
+; IMGnnn.I16, prueba IMGnnn.BMP y luego IMGnnn.JPG: el MCU lo convierte al abrirlo (comando 76: escala a 160x100 y reduce a 256 colores, tarda unos segundos).
 ;   N = la imagen siguiente   B = la anterior   ESPACIO = salir a BASIC
 ;   F = cambia como se coloca un BMP y lo vuelve a cargar: estirado (llena la pantalla), con su proporcion (bandas negras) o recortado
 ; Si falta un numero, N / B saltan al siguiente que exista; si no hay otra imagen, se queda la actual.
@@ -134,7 +134,7 @@ st_ok:          ld a,(cand)
                 or a
                 ret
 
-; pone en pantalla IMGnnn.I16 con nnn = (cand), o IMGnnn.BMP si no hay .I16. Carry si no se puede (no existe, no es un .I16 o el BMP no
+; pone en pantalla IMGnnn.I16 con nnn = (cand), o IMGnnn.BMP / IMGnnn.JPG si no hay .I16. Carry si no se puede (no existe, no es un .I16 o el BMP no
 ; se convierte) y entonces no se toca la pantalla
 try_load:       call mk_name
                 ld hl,nm+7
@@ -159,7 +159,21 @@ try_load:       call mk_name
                 call f_open_img
                 cp 4
                 jr c,tl_open
-                scf
+                cp $FF
+                jr nz,tl_fail
+                ld hl,nm+7              ; tampoco .BMP: IMGnnn.JPG
+                ld (hl),'J'
+                inc hl
+                ld (hl),'P'
+                inc hl
+                ld (hl),'G'
+                ld hl,nm
+                ld a,(fitmode)
+                ld e,a
+                call f_open_img
+                cp 4
+                jr c,tl_open
+tl_fail:        scf
                 ret
 tl_open:        ld (fh),a
                 ld hl,hdr

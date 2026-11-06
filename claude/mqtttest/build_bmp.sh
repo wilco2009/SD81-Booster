@@ -4,5 +4,5 @@
 cd "$(dirname "$0")" || exit 1
 FW=../../Arduino/SD81BoosterV2_039_STM32
 rm -rf tmp_bmp && mkdir tmp_bmp
-g++ -std=gnu++17 -O2 -Wall -Wextra -I"$FW" test_bmp.cpp "$FW/BMP.cpp" -o tmp_bmp/test_bmp.exe || exit 1
+g++ -std=gnu++17 -O2 -Wall -Wextra -I"$FW" test_bmp.cpp "$FW/BMP.cpp" "$FW/I16Common.cpp" -o tmp_bmp/test_bmp.exe || exit 1
 python test_bmp.py tmp_bmp tmp_bmp/test_bmp.exe

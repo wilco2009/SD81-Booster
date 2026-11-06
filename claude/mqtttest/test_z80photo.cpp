@@ -8,7 +8,7 @@
 //   - en esa instantanea la imagen en $8000 ya es la del fichero (bytes 516-16515)
 //   - el modo (POKE 2045,175) se enciende despues de la primera paleta negra y antes de la primera de verdad
 //   - N / B recorren los numeros que existen (saltan huecos y ficheros que no son .I16, y dan la vuelta), y ESPACIO sale con BC = 0
-//   - IMGnnn.BMP (si no hay IMGnnn.I16): el MCU simulado ejecuta el MISMO BMP.cpp del firmware (orden 76) y deja la imagen en un manejador virtual;
+//   - IMGnnn.BMP o IMGnnn.JPG (si no hay IMGnnn.I16): el MCU simulado ejecuta el MISMO BMP.cpp del firmware (orden 76) y deja la imagen en un manejador virtual;
 //     F cambia la colocacion (0 estira, 1 conserva la proporcion, 2 recorta) y la recarga; un BMP que no se convierte se salta; no queda ninguna
 //     imagen virtual abierta ni se abre una con otra abierta
 //   - sin imagenes: sale solo, con BC = 1 y el modo apagado (POKE 2045,85)
@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 #include "BMP.h"
+#include "JPG.h"
 extern "C" {
 #include "z80.h"
 int tstates = 0;
@@ -66,11 +67,21 @@ static bool convert_bmp(const std::string& path, int fit, std::vector<uint8_t>& 
   FILE* f = fopen(path.c_str(), "rb");
   if (!f) return false;
   out.assign(BMP_I16_SIZE, 0);
-  BmpWork* w = (BmpWork*)malloc(sizeof(BmpWork));
+  uint8_t magic[2] = {0, 0};
+  size_t got = fread(magic, 1, 2, f);
+  fseek(f, 0, SEEK_SET);
   BmpError err;
   FileRd rd(f);
-  bool ok = bmp_to_i16(rd, (uint8_t)fit, out.data(), *w, err);
-  free(w);
+  bool ok = false;
+  if (got == 2 && magic[0] == 0xFF && magic[1] == 0xD8) {          // como el comando 76 del firmware: por el contenido, no por la extension
+    JpgWork* w = (JpgWork*)malloc(sizeof(JpgWork));
+    ok = jpg_to_i16(rd, (uint8_t)fit, out.data(), *w, err);
+    free(w);
+  } else {
+    BmpWork* w = (BmpWork*)malloc(sizeof(BmpWork));
+    ok = bmp_to_i16(rd, (uint8_t)fit, out.data(), *w, err);
+    free(w);
+  }
   fclose(f);
   return ok;
 }
@@ -195,13 +206,16 @@ BYTE z80_readport_wrapper(int port, int*) {
 }
 }
 
-// la imagen que se espera de IMGnnn: el .I16 si existe y si no, el .BMP convertido con esa colocacion
+// la imagen que se espera de IMGnnn: el .I16 si existe y si no, el .BMP (o el .JPG) convertido con esa colocacion
 static bool load_i16(int n, int fit, uint8_t* pal512, uint8_t* pix) {
   char name[64]; snprintf(name, sizeof name, "%s/IMG%03d.I16", sd_dir.c_str(), n);
   FILE* f = fopen(name, "rb");
   if (!f) {
     snprintf(name, sizeof name, "%s/IMG%03d.BMP", sd_dir.c_str(), n);
     std::vector<uint8_t> v;
+    FILE* t = fopen(name, "rb");
+    if (t) fclose(t);
+    else snprintf(name, sizeof name, "%s/IMG%03d.JPG", sd_dir.c_str(), n);        // sin .I16 ni .BMP: IMGnnn.JPG
     if (!convert_bmp(name, fit, v)) return false;
     memcpy(pal512, v.data() + 4, 512); memcpy(pix, v.data() + 516, 16000);
     return true;

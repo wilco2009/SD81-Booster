@@ -1,18 +1,19 @@
 ; =============================================================
-; IMGVIEW.ASM -- visor de una imagen (.BMP o .I16) para el explorador
+; IMGVIEW.ASM -- visor de una imagen (.BMP, .JPG o .I16) para el explorador
 ;
-; Lo lanza el stub BASIC del explorador (EXPLORER.B81 / AUTOEXEC.P) al abrir con 8 / ENTER un archivo .BMP o .I16, como hace con .SCR, .VGM o el editor:
+; Lo lanza el stub BASIC del explorador (EXPLORER.B81 / AUTOEXEC.P) al abrir con 8 / ENTER un archivo .BMP, .JPG, .JPEG o .I16, como hace con .SCR, .VGM o el editor:
 ; carga /EXPLORER/IMGVIEW.BIN en 24576, lo arranca con USR y el nombre del archivo va en F$ (en ASCII tras convertirlo del ZX81, como EDIT).
 ; FPGA de la rama fpga-mode160: modo 160x100 a 256 colores (POKE 2045,175; ver claude/planning/pdm_color.md).
 ;
 ;   .I16  se lee con fopen (53): "I160", 512 bytes de paleta y 16000 pixeles (EXAMPLES/PHOTO).
 ;   .BMP  se abre con el comando 76 del MCU, que lo convierte (escala a 160x100 y 256 colores, tarda unos segundos) y lo ofrece como un .I16.
+;   .JPG / .JPEG  igual (JPG baseline; el MCU distingue BMP y JPG por el contenido, no por la extension).
 ;
-; Teclas:  F = (solo BMP) cambia como se coloca la imagen y la vuelve a cargar: con su proporcion (bandas negras; por omision), recortada o estirada
+; Teclas:  F = (solo BMP y JPG) cambia como se coloca la imagen y la vuelve a cargar: con su proporcion (bandas negras; por omision), recortada o estirada
 ;          cualquier otra tecla = salir al explorador
 ;
-; Devuelve BC = 0 si todo fue bien, 1 si no se puede abrir (no hay F$, no es .BMP / .I16, no existe o no es un .I16) y 2 si el MCU no puede
-; convertir el BMP (el motivo queda en /MAN/BMPERR.TXT: LOAD THEN PRINT "*BMPERR"). En los errores no llega a tocar la pantalla.
+; Devuelve BC = 0 si todo fue bien, 1 si no se puede abrir (no hay F$, no es .BMP / .JPG / .I16, no existe o no es un .I16) y 2 si el MCU no puede
+; convertir el BMP o JPG (el motivo queda en /MAN/BMPERR.TXT: LOAD THEN PRINT "*BMPERR"). En los errores no llega a tocar la pantalla.
 ;
 ; Memoria: el programa y sus variables desde 24576; la imagen en $8000-$BE7F (HFILE = $8000).
 ; Ensamblar: pasmo imgview.asm imgview.bin imgview.sym   (compila.bat)
@@ -44,7 +45,7 @@ start:          call SET_FAST
                 jr z,st_bad             ; sin F$
                 call ext_type
                 or a
-                jr z,st_bad             ; ni .I16 ni .BMP
+                jr z,st_bad             ; ni .I16 ni .BMP ni .JPG
                 ld (kind),a
                 call load_image
                 jr c,fail
@@ -124,7 +125,7 @@ db_i:           djnz db_i
                 jr nz,db_o
                 ret
 
-; A = 1 si el nombre (name_buf, ASCII en mayusculas) acaba en .I16, 2 si en .BMP, 0 si en otra cosa
+; A = 1 si el nombre (name_buf, ASCII en mayusculas) acaba en .I16, 2 si en .BMP / .JPG / .JPEG, 0 si en otra cosa
 ext_type:       ld a,(name_len)
                 cp 5
                 jr c,et_none
@@ -138,6 +139,12 @@ ext_type:       ld a,(name_len)
                 call cmp4
                 jr z,et_i16
                 ld de,ext_bmp
+                call cmp4
+                jr z,et_bmp
+                ld de,ext_jpg
+                call cmp4
+                jr z,et_bmp
+                ld de,ext_jpeg          ; ".JPEG": los 4 ultimos son "JPEG"
                 call cmp4
                 jr z,et_bmp
 et_none:        xor a
@@ -161,8 +168,8 @@ c4_x:           pop de
                 pop hl
                 ret
 
-; abre name_buf (.I16 con fopen; .BMP con el comando 76 y la colocacion (fitmode)) y la pone en pantalla.
-; Carry si no se puede: A = 1 (no existe, o no es un .I16) o 2 (el MCU no convierte el BMP); en ese caso no se toca la pantalla
+; abre name_buf (.I16 con fopen; .BMP o .JPG con el comando 76 y la colocacion (fitmode)) y la pone en pantalla.
+; Carry si no se puede: A = 1 (no existe, o no es un .I16) o 2 (el MCU no convierte el BMP o JPG); en ese caso no se toca la pantalla
 load_image:     ld hl,name_buf
                 ld a,(kind)
                 cp 2
@@ -328,10 +335,12 @@ zx2ascii:       defb " ??????????",022h,"#$:?()><=+-*/;,.0123456789"
 
 ext_i16:        defb ".I16"
 ext_bmp:        defb ".BMP"
+ext_jpg:        defb ".JPG"
+ext_jpeg:       defb "JPEG"
 magic:          defb "I160"
 modeon:         defb 0                  ; 1 = el modo 160x100 ya esta encendido
-fitmode:        defb 1                  ; 0 estira, 1 conserva la proporcion, 2 recorta (solo BMP)
-kind:           defb 0                  ; 1 = .I16, 2 = .BMP
+fitmode:        defb 1                  ; 0 estira, 1 conserva la proporcion, 2 recorta (solo BMP y JPG)
+kind:           defb 0                  ; 1 = .I16, 2 = .BMP / .JPG
 fh:             defb 0
 name_len:       defb 0
 hdr:            defb 0,0,0,0

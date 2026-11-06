@@ -39,9 +39,14 @@ versión (todavía sin publicar)»: **quitarla al publicar la FPGA**. El `PONG` 
 ## Pendiente
 
 - **Fila nueva en el historial de versiones** (sección 19, ES y EN) al preparar la release, con la versión de cada parte (STM32, ROM, FPGA, WiFi). Debe nombrar el Scrabble, SPORTS,
-  el scroll por hardware, los modos de 160 píxeles, la paleta de 16 colores, los BMP, las rutas con `..` y que el joystick ya no pausa el depurador.
+  el scroll por hardware, los modos de 160 píxeles, la paleta de 16 colores, los BMP y los JPG, las rutas con `..` y que el joystick ya no pausa el depurador.
 - Sin probar en la placa (y el manual lo describe como si funcionara): el MQTT avanzado (TLS, usuario y contraseña, QoS 1, retenidos, testamento), el comando 76 y los BMP,
   la paleta de 16, el modo 160x200 y el scroll vertical. Revisar el texto si la prueba da otra cosa.
+- **JPG en el comando 76 (5/11/2026, sin probar en la placa)**: el comando 76 y el visor del explorador (IMGVIEW) y PHOTO aceptan también **JPG baseline** (`.JPG` / `.JPEG`;
+  PHOTO solo `IMGnnn.JPG`), con las mismas colocaciones (F). Texto del manual: dónde pone «BMP» en el comando 76, los visores y el Apéndice del explorador, añadir «o JPG baseline»; lista de lo que
+  admite (secuencial 8 bits, gris o YCbCr, 4:4:4/4:2:2/4:4:0/4:2:0/4:1:1, aplica la orientación EXIF) y de lo que se rechaza (progresivo, aritmético, CMYK, de varios scans) con el
+  motivo en `*BMPERR`; en la tabla de memoria del comando 76, ~28 KB en vez de ~23 KB; `EXAMPLES/PHOTO/jpg2i16.py` como herramienta del PC. Mencionarlo en las notas de la release.
+  **No se ha tocado ningún .docx**: hay otra sesión editando el manual.
 - Capturas de pantalla de los modos de 160 píxeles (no hay ninguna) y, si se quiere, `DOC/img/scrabble_start.png` (la pantalla de inicio del Scrabble).
 - Para las **notas de la release** (no van al manual): el tempo del VGM (la música iba lenta por retrasos acumulados, arreglado), el sondeo del ESP32 cada 3 ms con datos y 15 ms en reposo, y los comandos 66 y 67 sin log por USB.
 - Si cambia el aspecto del 4 en raya tras probarlo en el emulador, rehacer la captura (`DOC/img/connect4_win.png`).

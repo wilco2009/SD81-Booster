@@ -2,7 +2,7 @@
 
 Visor para la **FPGA con el modo de 256 colores** (rama `fpga-mode160`, ver `claude/planning/pdm_color.md`). **Solo funciona en la placa con esa FPGA**: el emulador no tiene el modo.
 Lee `IMG001.I16`, `IMG002.I16`... de la carpeta actual y los muestra a 160x100, con una paleta propia de 256 colores por foto.
-Si falta el `IMGnnn.I16`, prueba **`IMGnnn.BMP`**: el MCU lo convierte al abrirlo (ver "BMP directo" más abajo), sin tener que convertir nada en el PC.
+Si falta el `IMGnnn.I16`, prueba **`IMGnnn.BMP`** y luego **`IMGnnn.JPG`**: el MCU lo convierte al abrirlo (ver "BMP directo" más abajo), sin tener que convertir nada en el PC.
 
 ## Pasos
 
@@ -30,10 +30,14 @@ estaba hasta que termina. Si falta el número como `.I16` y el `.BMP` no se pued
 
 - **BMP admitidos:** sin compresión, de 1, 4, 8, 24 y 32 bits, de abajo arriba o de arriba abajo (cabeceras CORE, INFO, V4 y V5), hasta 16.384 x 16.384 y 16 millones de píxeles.
   No: RLE, 16 bits ni máscaras raras (el programa del PC o de otro editor puede guardarlo como "24 bits" sin compresión).
+- **JPG** (`IMGnnn.JPG`): lo mismo con un JPG baseline (secuencial, 8 bits, gris o color, sin progresivo ni aritmético ni CMYK); el motivo de un rechazo sale en `*BMPERR` igual. Un JPG pesa 10-20 veces menos que
+  el BMP y se **decodifica ya reducido** (solo el coeficiente DC de cada bloque de 8x8, o una IDCT pequeña si el JPG es pequeño): la conversión de una foto de móvil de 12 megapíxeles tarda lo que tarde la SD en leerla
+  dos veces. Respeta la orientación EXIF (una foto vertical sale derecha). `jpg2i16.py` (aquí al lado) hace lo mismo en el PC y es la referencia con la que se prueba el código del STM32 (`claude/mqtttest/build_jpg.sh`).
+  **Memoria del MCU:** unos 28 KB mientras se convierte un JPG (unos 23 KB un BMP).
 - **F**: la pantalla es 4:3 y los 160x100 también, pero un BMP puede tener otra proporción. Cada pulsación pasa a la siguiente colocación y recarga la imagen:
   **estirado** (llena la pantalla, distorsiona si no es 4:3; por omisión), **con su proporción** (bandas negras) y **recortado** (llena la pantalla sin distorsionar).
   Un `.I16` no cambia.
-- **Memoria del MCU:** unos 23 KB mientras la imagen está abierta (el visor la cierra al cargarla).
+- **Memoria del MCU:** unos 23 KB mientras se convierte un BMP (unos 28 KB un JPG) y 16,5 KB mientras la imagen está abierta (el visor la cierra al cargarla).
 - `bmp2i16.py` hace lo mismo en el PC (el mismo algoritmo, byte a byte: es la referencia con la que se prueba el código del STM32):
 
   ```
@@ -61,7 +65,7 @@ y de otro tamaño con `--resize`.
 
 ## Pruebas en el PC
 
-`claude/mqtttest/build_bmp.sh` compara el conversor del STM32 (`BMP.cpp`) con `bmp2i16.py`, byte a byte, sobre BMP de todos los tipos (más de 300 comprobaciones).
+`claude/mqtttest/build_bmp.sh` compara el conversor del STM32 (`BMP.cpp`) con `bmp2i16.py`, byte a byte, sobre BMP de todos los tipos (más de 300 comprobaciones); `build_jpg.sh` hace lo mismo con `JPG.cpp` y `jpg2i16.py` (necesita Pillow y numpy).
 `claude/mqtttest/build_photo.sh` genera cuatro PNG de prueba (indexado de 8 bits con 256 colores, RGB de 40 colores, indexado de 4 bits y gris, con los cinco filtros de PNG),
 los convierte, comprueba los `.I16` contra un cálculo independiente y ejecuta el visor en el Z80 de EightyOne con un MCU simulado: N / B / ESPACIO, un hueco de numeración, un fichero que no es
 `.I16`, la vuelta al principio, que la paleta de cada carga sea la del fichero con la imagen ya completa, y la carpeta vacía. **No prueba la FPGA ni la placa.**

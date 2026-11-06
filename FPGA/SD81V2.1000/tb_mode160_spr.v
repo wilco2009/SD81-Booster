@@ -1,12 +1,15 @@
 `timescale 1ns / 1ps
-// tb_mode160_spr -- mode160 en 4 bpp con el sprite_engine real: sprites 8x8 sobre la imagen 160x200.
-//   vlog mode160.v sprite_engine.v tb_mode160_spr.v ; vsim -c tb_mode160_spr -do "run -all; quit"
-// Tabla de sprites al azar en la sombra ($0C00 + n*32 + campo, como SD81.v); se comprueba cada pixel de la imagen
-// (a mitad de pixel) contra el modelo: el sprite de indice mas alto que lo cubre (pixel ? tinta : papel, tinta = nibble alto
-// del color de la fila) o, si no, el nibble de la imagen. Todo pasado por pal16.
+// tb_mode160_spr -- mode160 con el sprite_engine real (formato B): sprites 8x8 de 4 bits sobre la imagen.
+//   vlog mode160.v sprite_engine.v tb_mode160_spr.v ; vsim -c tb_mode160_spr [-gM4=0] -do "run -all; quit"
+// M4=1: 160x200 a 4 bpp (por defecto); M4=0: 160x100 a 8 bpp.
+// Cabecera de los sprites en la sombra ($0C00 + n*32 + campo, como SD81.v: 0 activo, 1-2 X, 3 Y, 4 pagina) y hoja
+// de graficos en el bloque 2 ($4000 + pagina*32 + fila*4 + byte). Se comprueba cada pixel de la imagen (a mitad de
+// pixel) contra el modelo: el sprite de indice mas alto cuyo pixel no sea 0 (por pal16) o, si no, el fondo (4 bpp: el
+// nibble de la imagen por pal16; 8 bpp: el byte de la imagen por la paleta de 256).
 module tb_mode160_spr;
 	parameter WF = 1;
 	parameter WL = 22;
+	parameter M4 = 1;
 	localparam NSPR = 8;
 	reg clk = 1'b0;  always #19.23 clk = ~clk;
 	reg clk104 = 1'b0;  always #2.4 clk104 = ~clk104;
@@ -38,29 +41,30 @@ module tb_mode160_spr;
 	reg rst = 1'b1, en = 1'b0;
 	reg [NSPR-1:0] spr_en = 0;
 	reg [2:0] base_blk = 3'd4;
+	localparam [2:0] SHEET = 3'd2;
 	localparam [9:0] XS = 10'd246;
 	reg pal16_hi_wr = 1'b0, pal_idx_wr = 1'b0, pal_lo_wr = 1'b0;
 	reg [7:0] wdata = 8'd0;
 	wire img_on;
-	wire [15:0] lvl16;
-	wire spr_hit, spr_pix;
-	wire [7:0] spr_col;
+	wire [15:0] lvl16, lvl8;
+	wire spr_hit;
+	wire [3:0] spr_pix;
 	wire [8:0] spr_x, spr_y;
 	wire row_ok;
-	wire [3:0] c4 = spr_pix ? spr_col[7:4] : spr_col[3:0];		// el camino normal con sprite_active_final
+	wire [3:0] c4 = spr_pix;		// el camino normal con sprite_active_final: tinta = papel = indice del sprite
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .m4(1'b1),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .m4(M4[0]),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(1'b0), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),
 		.blank_n(ncsync), .border(4'd0), .pal16_en(1'b0), .c4(c4),
 		.spr_hit(spr_hit), .spr_x(spr_x), .spr_y(spr_y), .txt_en(1'b0), .txt_col(8'd0), .txt_font(5'd0), .spr_row_ok(row_ok),
 		.vred(), .vgreen(), .vblue(), .vbright(),
-		.img_on_o(img_on), .idx_cur_o(), .lvl_o(), .lvl16_o(lvl16));
+		.img_on_o(img_on), .idx_cur_o(), .lvl_o(lvl8), .lvl16_o(lvl16));
 	sprite_engine #(.K(12), .NSPR(NSPR), .SB(6)) eng (
-		.clk(clk), .reset(rst), .spr_en(spr_en), .hsync(hsync), .pixel_cnt(pixel_cnt), .limit(10'd195),
+		.clk(clk), .reset(rst), .spr_en(spr_en), .hsync(hsync), .pixel_cnt(pixel_cnt), .limit(10'd195), .sheet_base(SHEET),
 		.blit_busy(1'b0), .pos_x(spr_x), .pos_y(spr_y), .row_ok(row_ok), .v_dout(v_dout),
-		.ev_rd(ev_rd), .ev_raddr(ev_raddr), .hit(spr_hit), .pixel(spr_pix), .color(spr_col));
+		.ev_rd(ev_rd), .ev_raddr(ev_raddr), .hit(spr_hit), .pix(spr_pix));
 
 	reg [15:0] pm [0:15];
 	task poke;
@@ -81,7 +85,7 @@ module tb_mode160_spr;
 		end
 	endtask
 
-	function [3:0] nib;
+	function [3:0] nib;		// 4 bpp: nibble de la imagen en la fila r de la imagen, columna x
 		input integer r; input integer x;
 		reg [7:0] b;
 		begin
@@ -90,27 +94,33 @@ module tb_mode160_spr;
 		end
 	endfunction
 
-	function [3:0] eff;		// indice esperado del fondo en la linea r de la rejilla (0..199), columna x: la imagen ocupa las lineas 8..175; fuera, el borde (0 en este banco)
+	function [3:0] eff;		// 4 bpp: indice esperado del fondo en la linea r de la rejilla (0..199), columna x: la imagen ocupa las lineas 8..175; fuera, el borde (0 en este banco)
 		input integer r; input integer x;
 		eff = (r / 8 >= WF && r / 8 < WL) ? nib(r - 8 * WF, x) : 4'd0;
 	endfunction
 	integer sx [0:NSPR-1];
 	integer sy [0:NSPR-1];
-	function [4:0] expected;		// {es_sprite, color} del pixel (x, r) de la imagen
+	integer spg [0:NSPR-1];
+	function [3:0] sprnib;		// nibble del sprite s en su fila dy, columna dx
+		input integer s; input integer dy; input integer dx;
+		reg [7:0] b;
+		begin
+			b = mem[{SHEET, 13'b0} + spg[s] * 32 + dy * 4 + dx / 2];
+			sprnib = (dx % 2 == 0) ? b[7:4] : b[3:0];
+		end
+	endfunction
+	function [4:0] expected;		// {es_sprite, indice del sprite} del pixel (x, r) de la imagen (0 = no hay sprite)
 		input integer r; input integer x;
-		integer s, dx, dy, a;
-		reg [7:0] pxb, mskb, colb;
+		integer s, dx, dy;
 		reg found;
 		reg [3:0] c;
 		begin
-			found = 0; c = eff(r, x);
+			found = 0; c = 4'd0;
 			for (s = NSPR - 1; s >= 0; s = s - 1) begin
-				dx = x + 32 - sx[s]; dy = r - 8 * WF + 32 - sy[s];
-				if (!found && r / 8 >= WF && r / 8 < WL && spr_en[s] && dx >= 0 && dx < 8 && dy >= 0 && dy < 8) begin
-					a = 16'h0C00 + s * 32;
-					colb = mem[a + 4 + dy]; pxb = mem[a + 12 + dy]; mskb = mem[a + 20 + dy];
-					if (mskb[7 - dx]) begin found = 1; c = pxb[7 - dx] ? colb[7:4] : colb[3:0]; end
-				end
+				dx = x + 32 - sx[s];
+				dy = (M4 ? r - 8 * WF : r / 2) + 32 - sy[s];
+				if (!found && (!M4 || (r / 8 >= WF && r / 8 < WL)) && spr_en[s] && dx >= 0 && dx < 8 && dy >= 0 && dy < 8)
+					if (sprnib(s, dy, dx) != 4'd0) begin found = 1; c = sprnib(s, dy, dx); end
 			end
 			expected = {found, c};
 		end
@@ -120,6 +130,9 @@ module tb_mode160_spr;
 	reg pc_chk = 1'b0;
 	reg [9:0] pc_prev = 10'd0;
 	reg [4:0] ex;
+	reg [7:0] bgb;
+	reg selp;
+	wire [15:0] outlvl = selp ? lvl16 : lvl8;
 	always @(posedge clk) begin
 		pc_prev <= pixel_cnt;
 		if (pc_chk && en && line_cnt >= 58 && line_cnt < 258 && pixel_cnt != pc_prev) begin
@@ -128,7 +141,14 @@ module tb_mode160_spr;
 			if (off >= 2 && off < 482 && ((off - 2) % 3) == 0) begin
 				n = (off - 2) / 3;
 				ex = expected(r, n);
-				check(lvl16 === pm[ex[3:0]], "color = pal16[sprite o fondo]");
+				if (M4) begin
+					check(lvl16 === pm[ex[4] ? ex[3:0] : eff(r, n)], "4 bpp: color = pal16[sprite o fondo]");
+				end else begin
+					selp = dut.sel16 | dut.spr8;
+					bgb = mem[{base_blk, 13'b0} + (r / 2) * 160 + n];
+					if (ex[4]) check(selp && lvl16 === pm[ex[3:0]], "8 bpp: sprite = pal16[indice]");
+					else check(!selp && lvl8 === dut.pal[bgb], "8 bpp: fondo = pal[byte]");
+				end
 				if (ex[4]) spr_pixels = spr_pixels + 1;
 				imgpix = imgpix + 1;
 			end
@@ -139,23 +159,29 @@ module tb_mode160_spr;
 	initial begin
 		seed = 77;
 		for (rr = 0; rr < 200; rr = rr + 1)
-			for (cc = 0; cc < 80; cc = cc + 1)
+			for (cc = 0; cc < 160; cc = cc + 1)
 				mem[{3'd4, 13'b0} + rr * 80 + cc] = (rr * 37 + cc * 11 + (rr >> 3)) & 255;
+		if (!M4) for (rr = 0; rr < 100; rr = rr + 1)
+			for (cc = 0; cc < 160; cc = cc + 1)
+				mem[{3'd4, 13'b0} + rr * 160 + cc] = (rr * 37 + cc * 11 + (rr >> 3)) & 255;
+		// la hoja: 5 celdas distintas (paginas 0..4) que los 8 sprites se reparten; con pixeles transparentes
+		for (cc = 0; cc < 5 * 32; cc = cc + 1) begin
+			f = $random(seed);
+			mem[{SHEET, 13'b0} + cc] = (f & 3) == 0 ? 8'h00 : (f & 3) == 1 ? ($random(seed) & 8'h0F) : $random(seed);
+		end
 		for (s = 0; s < NSPR; s = s + 1) begin
 			sy[s] = 32 + (s * 25) + ($random(seed) & 7) - 4;
 			sx[s] = (s == 0) ? 32 - 5 : (s == 1) ? 32 + 156 : 32 + ($random(seed) & 127);
 			if (s == 2) sx[s] = 32 + 40;
 			if (s == 3) sx[s] = 32 + 44;
 			if (s == 3) sy[s] = sy[2] + 3;
+			if (!M4) sy[s] = 32 + (s * 12) + ($random(seed) & 3) - 2;		// 100 filas: mas juntos
+			spg[s] = s % 5;
 			mem[16'h0C00 + s * 32 + 0] = 1;
 			mem[16'h0C00 + s * 32 + 1] = sx[s] & 255;
 			mem[16'h0C00 + s * 32 + 2] = (sx[s] >> 8) & 1;
 			mem[16'h0C00 + s * 32 + 3] = sy[s];
-			for (f = 0; f < 8; f = f + 1) begin
-				mem[16'h0C00 + s * 32 + 4 + f] = $random(seed);
-				mem[16'h0C00 + s * 32 + 12 + f] = $random(seed);
-				mem[16'h0C00 + s * 32 + 20 + f] = $random(seed) | $random(seed);
-			end
+			mem[16'h0C00 + s * 32 + 4] = spg[s];
 		end
 		for (i = 0; i < 16; i = i + 1) pm[i] = {i[3:0], 4'd15 - i[3:0], i[3:0] ^ 4'd5, i[3:0] * 4'd3};
 		repeat (8) @(posedge clk);
@@ -168,7 +194,7 @@ module tb_mode160_spr;
 		pc_chk = 1;
 		wait (line_cnt == 270);
 		pc_chk = 0;
-		$display("pixeles %0d (de sprite %0d), comprobaciones %0d, errores %0d", imgpix, spr_pixels, checks, errors);
+		$display("M4=%0d pixeles %0d (de sprite %0d), comprobaciones %0d, errores %0d", M4, imgpix, spr_pixels, checks, errors);
 		if (errors == 0 && imgpix == 32000 && spr_pixels > 100) $display("OK"); else $display("FALLO");
 		$finish;
 	end

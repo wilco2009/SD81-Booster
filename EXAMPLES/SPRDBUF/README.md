@@ -20,6 +20,13 @@ con la pelota de `EXAMPLES/DBUF` rebotando de fondo.
 Cada sprite es un cuadrado de 8×8 con un aro de color y el centro negro; el
 color del aro dice qué sprite es.
 
+Los sprites usan el **formato de 4 bits por píxel con hoja de gráficos**: el
+programa escribe 16 celdas de 32 bytes (una por color) en `$7C00` (bloque 3 de
+8 KB, `POKE 2129,3`) y cada sprite apunta a la suya con su página
+(`POKE 2105`, página = (dirección − `$6000`) / 32). El centro negro es el índice
+8 de `pal16` reprogramado a negro (el índice 0 es transparente), así que el
+programa activa la paleta de 16 colores (`POKE 2067,1`) y al salir la apaga.
+
 | Zona | Sprites | Qué debe verse |
 |------|---------|----------------|
 | Fila de arriba (Y=16) | 0-15, los 16 en la misma línea | **12 cuadrados**: los 4 de la izquierda (aros azul, rojo, magenta y verde, sprites 0-3) NO aparecen. Se ven del 4 al 15 |

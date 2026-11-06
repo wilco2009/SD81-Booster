@@ -30,8 +30,9 @@
 // del byte = pixel de la izquierda, 6 pixeles). Codigo < 32 = celda transparente; el bit 7 del codigo ademas invierte el glifo (tinta y papel
 // cambiados), sea cual sea su definicion; el resto, opacos. Las lecturas del texto usan los huecos de los pixeles impares, en los que
 // el 4 bpp ya no necesita leer la imagen. Imagen + codigos caben en los dos bloques de 8 KB desde base_blk si la ventana no pasa de 22 filas (14.080 + 1.000 bytes).
-// Sprites (solo 4 bpp): spr_x / spr_y / spr_row_ok sustituyen a la posicion que usa el motor de sprites (sprite_engine.v) y el pixel
-// del sprite (spr_hit, color en c4) pisa al del fondo; coordenadas del sprite = pixel de la imagen + 32 (la fila 0 es la primera de la ventana).
+// Sprites (4 y 8 bpp): spr_x / spr_y / spr_row_ok sustituyen a la posicion que usa el motor de sprites (sprite_engine.v) y el pixel
+// del sprite (spr_hit, indice en c4) pisa al del fondo y sale de pal16; coordenadas del sprite = pixel de la imagen + 32 (4 bpp: la fila 0 es la
+// primera de la ventana; 8 bpp: filas de 2 lineas, 100 filas).
 //
 // El motor lee la sombra por el puerto B (v_addr), un byte por pixel, con un pixel de adelanto.
 module mode160 (
@@ -158,7 +159,7 @@ module mode160 (
 	wire [15:0] gaddr = {txt_font, tcode, ly[2:0]};
 	wire txt_on = te & img_on & cact;
 	wire tg = gsh[7] ^ cinv;
-	assign spr_y = ly + 9'd32 - {1'b0, win_first, 3'b0};
+	assign spr_y = m4e ? ly + 9'd32 - {1'b0, win_first, 3'b0} : {1'b0, ly[8:1]} + 9'd32;		// 8 bpp: una fila de sprite por cada dos lineas (100 filas)
 	assign spr_row_ok = in_y & (~m4e | img_ln);
 	wire ev = tick & run & (sub == 2'd0);							// principio de pixel (el primero, un pixel antes de la ventana)
 
@@ -250,16 +251,18 @@ module mode160 (
 	reg [3:0] border_r = 4'd0;
 	reg sel16 = 1'b0;						// la salida sale de pal16: use16, o el modo 160 a 4 bpp
 	reg use16 = 1'b0;						// paleta de 16 activa (y no estamos en el modo 160)
+	reg spr8 = 1'b0;						// 8 bpp: el pixel de ahora es de un sprite, y sale de pal16 (c4 lleva su indice)
 	always @(posedge clk) begin
 		blank_r <= blank_n;
 		border_r <= border;
 		use16 <= pal16_en & ~en;
 			sel16 <= (pal16_en & ~en) | m4e;
+		spr8 <= en & ~m4 & spr_hit & img_on;
 	end
 	reg [21:0] s1 = 22'd0;
 	reg [21:0] s2 = 22'd0;
 	always @(posedge clk104) begin
-		s1 <= {sel16 ? lvl16 : lvl, use16 | img_v, blank_r, border_r};
+		s1 <= {(sel16 | spr8) ? lvl16 : lvl, use16 | img_v, blank_r, border_r};
 		s2 <= s1;
 	end
 	wire [3:0] lev_bright = s2[21:18];

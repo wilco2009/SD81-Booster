@@ -2,14 +2,18 @@
 ; SPRDBUF.ASM -- prueba de sprites por linea + doble buffer
 ;
 ; Comprueba juntas dos cosas que ningun programa usaba a la vez:
-; los sprites (que la FPGA lee por linea de la RAM de sombra) y el
+; los sprites (que la FPGA lee por linea de la RAM de sombra: formato
+; de 4 bits por pixel con hoja de graficos) y el
 ; doble buffer present-blit (que copia 8 KB por el mismo puerto de la
 ; BRAM durante el blanking). Modo Superfast HiRes Spectrum.
 ;
 ; Fondo: pelota de DBUF (bitmap) rebotando, con el doble buffer ON o OFF.
 ;
 ; Sprites (cuadrado 8x8 con aro de color y centro negro; el color del aro
-; identifica al sprite):
+; identifica al sprite). Cada color es una celda de 32 bytes de la hoja
+; (8 filas de 4 bytes, 8 pixeles de 4 bits; el indice 0 es transparente).
+; El centro negro opaco es el indice 8 de pal16 reprogramado a negro
+; (con la paleta de 16 colores activa, POKE 2067,1):
 ;   A  sprites 0..15 en la MISMA linea (Y=16), separados 14 px.
 ;      Limite de 12 por linea: se ven los 12 de indice mas alto (los 12 de
 ;      la derecha); los 4 de la izquierda (sprites 0..3, aros azul, rojo,
@@ -46,9 +50,15 @@ SPR_EN   equ 2101
 SPR_XL   equ 2102
 SPR_XH   equ 2103
 SPR_Y    equ 2104
-SPR_COL  equ 2105       ; 8 filas
-SPR_PIX  equ 2113       ; 8 filas
-SPR_MSK  equ 2121       ; 8 filas
+SPR_PAGE equ 2105       ; pagina de la hoja (celda de 32 bytes)
+SPR_BASE equ 2129       ; bloque de 8 KB de la hoja (0-7)
+SHEET_BLK equ 3         ; la hoja esta en el bloque 3 ($6000-$7FFF)
+sheet    equ 7C00h      ; la hoja: 16 celdas de 32 bytes (512 bytes), sin codigo por encima de $8000
+SHEET_PG0 equ (sheet - 6000h) / 32   ; pagina de la primera celda (la del color 0)
+PAL_IDX  equ 2063       ; puntero de la paleta
+PAL_LO   equ 2064
+PAL16_HI equ 2066       ; byte alto de pal16: escribe pal16[puntero] y avanza
+PAL16_EN equ 2067
 SPR_H    equ 60         ; sprite que recorre la pantalla en horizontal
 SPR_V    equ 61         ; y el que la recorre en vertical
 
@@ -82,7 +92,19 @@ start:  di
         ld a,172
         ld (2045),a
 
-        ; --- sprites ---
+        ; --- paleta de 16 colores: el indice 8 (gris oscuro) pasa a negro opaco ---
+        ld a,8
+        ld (PAL_IDX),a
+        xor a
+        ld (PAL_LO),a
+        ld (PAL16_HI),a         ; pal16[8] = negro
+        ld a,1
+        ld (PAL16_EN),a
+
+        ; --- sprites: la hoja (16 celdas, una por color) y los sprites ---
+        ld a,SHEET_BLK
+        ld (SPR_BASE),a
+        call mksheet
         call defspr
 
         ; --- doble buffer ON, front = bloque 5 ---
@@ -120,6 +142,10 @@ qs:     ld a,c
         ld (2057),a             ; doble buffer OFF
         ld a,85
         ld (2045),a             ; modo ZX81 normal
+        xor a
+        ld (PAL16_EN),a         ; paleta de 16 colores OFF
+        ld a,2
+        ld (SPR_BASE),a         ; bloque de la hoja por defecto
         ret
 
 ; -------------------------------------------------------------
@@ -232,7 +258,7 @@ gi2:    ld (g_ink),a
         call spr_def
         jr group
 
-; spr_def: B=sprite, DE=X (9 bits), C=Y, A=tinta (0-15). Papel negro.
+; spr_def: B=sprite, DE=X (9 bits), C=Y, A=tinta (1-14). Aro de ese color, centro negro.
 spr_def:
         push af
         ld a,b
@@ -244,29 +270,65 @@ spr_def:
         ld a,c
         ld (SPR_Y),a
         pop af
-        add a,a
-        add a,a
-        add a,a
-        add a,a                 ; tinta*16 + papel 0
-        ld hl,SPR_COL
-        ld b,8
-sd1:    ld (hl),a
-        inc hl
-        djnz sd1
-        ld hl,ring
-        ld de,SPR_PIX
-        ld bc,8
-        ldir
-        ld hl,full
-        ld de,SPR_MSK
-        ld bc,8
-        ldir
+        add a,SHEET_PG0         ; pagina de la celda de ese color
+        ld (SPR_PAGE),a
         ld a,1
         ld (SPR_EN),a
         ret
 
-ring:   defb 0ffh,81h,81h,81h,81h,81h,81h,0ffh
-full:   defb 0ffh,0ffh,0ffh,0ffh,0ffh,0ffh,0ffh,0ffh
+; mksheet: escribe la hoja de graficos en 'sheet': 16 celdas de 32 bytes, la
+;          celda c es un cuadrado de 8x8 con el aro de color c y el centro de
+;          color 8 (negro opaco). Una fila de aro son cuatro bytes $cc; una
+;          fila del medio es $c8,$88,$88,$8c.
+mksheet:
+        ld hl,sheet
+        ld c,0
+ms_t:   ld a,c
+        ld b,a                  ; B = color del aro
+        add a,a
+        add a,a
+        add a,a
+        add a,a
+        or b
+        ld d,a                  ; D = $cc
+        ld a,b
+        add a,a
+        add a,a
+        add a,a
+        add a,a
+        or 8
+        ld e,a                  ; E = $c8
+        ld a,b
+        or 80h
+        ld b,a                  ; B = $8c
+        call ms_full            ; fila 0
+        ld a,6
+ms_mid: ld (hl),e
+        inc hl
+        ld (hl),88h
+        inc hl
+        ld (hl),88h
+        inc hl
+        ld (hl),b
+        inc hl
+        dec a
+        jr nz,ms_mid
+        call ms_full            ; fila 7
+        inc c
+        ld a,c
+        cp 16
+        jr c,ms_t
+        ret
+ms_full:
+        ld (hl),d
+        inc hl
+        ld (hl),d
+        inc hl
+        ld (hl),d
+        inc hl
+        ld (hl),d
+        inc hl
+        ret
 
 ; -------------------------------------------------------------
 ; movspr: el 60 se mueve 2 px en X (9 bits) y el 61 sube 3 px en Y

@@ -101,6 +101,7 @@ enum {
   TAG_SNAP_AYREGS,  // snapshot: los 16 registros de un AY (arg = 0 A, 1 B)
   TAG_SNAP_SPR,     // snapshot: un trozo de la copia de los sprites (arg = trozo)
   TAG_SNAP_SPRSEL,  // snapshot: el sprite elegido (2100)
+  TAG_SNAP_SPRBASE, // snapshot: el bloque de 8 KB de las hojas de sprites (2129)
   TAG_SNAP_SHCMP,   // snapshot: la sombra de un trozo de [MEMORY], para comparar
   TAG_SNAP_SHADOW,  // snapshot: un trozo de un bloque de la sombra
   TAG_LD_MAP,       // carga: pagina de un bloque (sin MAPPER; arg = bloque)
@@ -811,6 +812,7 @@ static void on_result(uint8_t* data, uint16_t n){
     case TAG_SNAP_MAP: case TAG_SNAP_CHROMA: case TAG_SNAP_POKES:
     case TAG_SNAP_MEM: case TAG_SNAP_COLOUR: case TAG_SNAP_PAGE:
     case TAG_SNAP_AYSEL: case TAG_SNAP_AYREGS: case TAG_SNAP_SPR: case TAG_SNAP_SPRSEL:
+    case TAG_SNAP_SPRBASE:
     case TAG_SNAP_SHCMP: case TAG_SNAP_SHADOW:
       snap_result(last.tag, data, n);
       break;
@@ -1269,7 +1271,7 @@ static struct {
   uint8_t page[8192];
   uint8_t rle_val; uint32_t rle_cnt; uint8_t toks;
   uint8_t ay_sel[2], ay[2][16];               // los AY de la FPGA (A, B)
-  uint8_t spr[SPR_N * 32], spr_sel;           // la copia de los sprites (las dos tablas seguidas)
+  uint8_t spr[SPR_N * 32], spr_sel, spr_base;  // la copia de los sprites (las dos tablas seguidas), el elegido y el bloque de las hojas
   uint8_t cmp[256]; uint16_t cmp_n; uint8_t cmp_blk;   // trozo de [MEMORY] para comparar con la sombra
   uint8_t shdiff;                             // bloques cuya sombra no es [MEMORY]
   uint8_t shblk;                              // SN_SHADOW: bloque en curso
@@ -1328,7 +1330,7 @@ void dbg_note_loaded(const char* name){
 //   y las regiones: direccion (16), longitud (16) y los bytes de la sombra
 // ---------------------------------------------------------------------
 #define CAP_MAX 15000
-#define CAP_NRG 8
+#define CAP_NRG 9
 enum { CAP_IDLE, CAP_WAIT, CAP_INFO, CAP_DATA, CAP_READY };
 static struct {
   uint8_t stage;
@@ -1336,6 +1338,7 @@ static struct {
   uint8_t info;                             // lo de partida que ha llegado (bits)
   uint8_t chroma, pk[POKE_N], df[2];
   uint8_t vs, vfront, vmagic;               // el estado del video que da la FPGA (indices 9, 10 y 11)
+  uint8_t sbase;                            // POKE 2129: bloque de 8 KB de las hojas de sprites
   uint8_t nrg, qr, rr;                      // regiones; la que se pide y la que llega
   uint16_t qo, ro;                          // y por donde van
   uint16_t rg_addr[CAP_NRG], rg_len[CAP_NRG], rg_off[CAP_NRG];
@@ -1480,6 +1483,9 @@ static void snap_begin(){
   q_out(DBG_PORT, 0x85); q_out(DBG_PORT, 2100 & 0xFF);
   q_out(DBG_PORT, 0x86); q_out(DBG_PORT, 2100 >> 8);
   q_push(OP_INSEQ, DBG_PORT, 1, TAG_SNAP_SPRSEL);
+  q_out(DBG_PORT, 0x85); q_out(DBG_PORT, 2129 & 0xFF);   // POKE 2129: bloque de 8 KB de las hojas de sprites
+  q_out(DBG_PORT, 0x86); q_out(DBG_PORT, 2129 >> 8);
+  q_push(OP_INSEQ, DBG_PORT, 1, TAG_SNAP_SPRBASE);
 }
 
 static void snap_feed(){
@@ -1624,6 +1630,8 @@ static void snap_write_sd81(){
   uint8_t sel_rom;
   bool sel_never = rom_file_read(2100, &sel_rom, 1) == 1 && sel_rom == sn.spr_sel;
   swf("SPRITE_SEL %02X\n", sel_never ? 0 : sn.spr_sel);
+  uint8_t base_rom;                           // POKE 2129: si sigue con el byte de la ROM, no se ha escrito nunca
+  if (!(rom_file_read(2129, &base_rom, 1) == 1 && base_rom == sn.spr_base)) swf("SPRITE_BASE %02X\n", sn.spr_base);
   for (int i = 0; i < SPR_N; i++) {
     const uint8_t* f = sn.spr + i * 32;
     bool zero = true, never = rom_ok;
@@ -1675,7 +1683,7 @@ static bool shadow0_is_rom(){
     if (rom_file_read(a, r, 256) != 256) return false;
     for (int i = 0; i < 256; i++) {
       uint16_t x = a + i;
-      if ((x >= POKE_FIRST && x <= 2128) || spr_in_mirror(x)) continue;
+      if ((x >= POKE_FIRST && x <= 2129) || spr_in_mirror(x)) continue;
       if (r[i] != sn.page[x]) return false;
     }
   }
@@ -1705,6 +1713,7 @@ static void snap_result(uint8_t tag, uint8_t* data, uint16_t n){
       break;
     case TAG_SNAP_SPR:    memcpy(sn.spr + (last.arg & 7) * 256, data, n < 256 ? n : 256); break;
     case TAG_SNAP_SPRSEL: sn.spr_sel = n ? data[0] : 0; break;
+    case TAG_SNAP_SPRBASE: sn.spr_base = n ? data[0] & 7 : 0; break;
     case TAG_SNAP_DIRTY:
       memset(sn.dirty, 0, sizeof(sn.dirty));
       for (uint16_t p = 0; p < n && p < 64; p++) if (data[p] & 1) sn.dirty[p >> 3] |= 1 << (p & 7);
@@ -1840,6 +1849,7 @@ static struct {
   bool set_im;                  // cargado desde la parada (L): el IM va con SETREGS
   bool has_ay[2]; uint8_t ay[2][16], ay_sel[2];   // los AY de la FPGA (A, B)
   uint8_t spr[SPR_N][28], spr_sel;                // los sprites (los 28 campos de 2101-2128)
+  uint8_t spr_base; bool has_spr_base;            // POKE 2129: bloque de 8 KB de las hojas de sprites
   uint32_t shadow_pos[8];                         // SHADOW de cada bloque (0 = no viene)
   uint8_t page;                 // LD_PAGES: pagina en curso; LD_SPRITES y LD_SHADOW: el siguiente
   uint32_t done;                // bytes ya pedidos de la fuente en curso
@@ -2096,7 +2106,8 @@ static uint8_t ld_prepare(const char* path, uint8_t* im){
         }
         else if (!strcmp(k, "AY1_REG_SEL") || !strcmp(k, "AY3_REG_SEL")) { vals(1); ld.ay_sel[k[2] == '3'] = v[0]; }
         else if (!strcmp(k, "SPRITE_SEL")) { vals(1); ld.spr_sel = v[0]; }
-        else if (!strcmp(k, "SPRITE")) {      // n en x y, 8 colores, 8 filas, 8 mascaras
+        else if (!strcmp(k, "SPRITE_BASE")) { vals(1); ld.spr_base = v[0] & 7; ld.has_spr_base = true; }
+        else if (!strcmp(k, "SPRITE")) {      // n en x y, pagina de la hoja (campo 4) y 23 campos reservados (a 0)
           uint32_t h[4];
           for (int i = 0; i < 4 && !bad; i++) { if (!ld_tok(t, sizeof(t))) bad = true; else h[i] = ld_hex(t); }
           if (bad) break;
@@ -2214,6 +2225,10 @@ static void ld_sprites(){                     // 8 sprites cada vez
 static void ld_pokes_late(){
   DbgReq* r = q_push(OP_WRITE, 2100, 1);
   if (r) r->data[0] = ld.spr_sel;
+  if (ld.has_spr_base) {                      // el bloque de las hojas de sprites (POKE 2129)
+    r = q_push(OP_WRITE, 2129, 1);
+    if (r) r->data[0] = ld.spr_base;
+  }
   if (ld.pk_mode[2038 - POKE_FIRST]) ld_wr(2038, 2);
   if (ld.pk_mode[2040 - POKE_FIRST]) ld_wr(2040, 1);
   if (ld.pk_mode[2056 - POKE_FIRST] == 1) ld_wr(2056, 1);
@@ -3552,6 +3567,8 @@ static void cap_begin(){
   q_push(OP_INSEQ, DBG_PORT, POKE_N, TAG_CAP_INFO, 1);
   cap_ptr(0x400C);                            // D_FILE, la variable de sistema
   q_push(OP_INSEQ, DBG_PORT, 2, TAG_CAP_INFO, 2);
+  cap_ptr(2129);                              // POKE 2129: bloque de 8 KB de las hojas de sprites
+  q_push(OP_INSEQ, DBG_PORT, 1, TAG_CAP_INFO, 6);
 }
 
 // Con lo de partida, que hay que leer y como queda el documento
@@ -3628,6 +3645,20 @@ static void cap_plan(){
     }
   } else if (mode == 5) add((uint16_t)vpage << 13, 6912);
 
+  // La hoja de graficos de los sprites (formato B): el bloque de 8 KB de POKE 2129 (si no se ha escrito
+  // nunca, el 2 de la FPGA), o lo que quepa en el documento (las paginas que no vienen se ven transparentes)
+  uint8_t sheet = 2;
+  if (spr) {
+    uint8_t brom;
+    if (!(rom_file_read(2129, &brom, 1) == 1 && brom == cap.sbase)) sheet = cap.sbase;
+    uint32_t used = 24 + 4;
+    for (uint8_t i = 0; i < cap.nrg; i++) used += 4 + cap.rg_len[i];
+    uint32_t room = used < CAP_MAX ? CAP_MAX - used : 0;
+    if (room > 8192) room = 8192;
+    room &= ~31u;
+    if (room) add((uint16_t)sheet << 13, room);
+  }
+
   uint8_t* b = cap.buf;
   memset(b, 0, 24);
   b[0] = 1; b[1] = mode; b[2] = cap.chroma;
@@ -3635,6 +3666,7 @@ static void cap_plan(){
   b[4] = I;
   b[5] = pkv(2090, 0) & 7;
   b[16] = pkv(2091, 0xFF); b[17] = pkv(2092, 0xFF); b[18] = pkv(2093, 0xFF);
+  b[19] = sheet;                              // bloque de 8 KB de las hojas de sprites
   b[20] = sysdf & 0xFF; b[21] = sysdf >> 8;
   b[6] = dfile & 0xFF; b[7] = dfile >> 8;
   b[8] = abase & 0xFF; b[9] = abase >> 8;
@@ -3670,10 +3702,11 @@ static void cap_result(uint8_t tag, uint8_t arg, uint8_t* d, uint16_t n){
       case 2: memcpy(cap.df, d, n < 2 ? n : 2); break;
       case 3: cap.vs = n ? d[0] : 0; break;
       case 4: cap.vfront = n ? d[0] : 0; break;
+      case 6: cap.sbase = n ? d[0] & 7 : 0; break;
       default: cap.vmagic = n ? d[0] : 0; break;
     }
     cap.info |= 1 << arg;
-    if (cap.info == 0x3F) cap_plan();
+    if (cap.info == 0x7F) cap_plan();
     if (cap.stage == CAP_DATA && cap.nrg == 0) cap_done();
     return;
   }

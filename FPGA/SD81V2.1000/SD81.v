@@ -873,12 +873,22 @@ Port $7FEF (01111111 11101111) - IN:
 	// POKE 2102,x_low        -> X, 8 bits bajos
 	// POKE 2103,x_high       -> X, bit 8 (0 o 1)
 	// POKE 2104,y_pos        -> Y (0-255), 32 = primera linea visible
-	// POKE 2105..2112,byte   -> color por FILA, tinta*16+papel (0-15 cada
-	//                           uno), una fila puede llevar un color distinto;
-	//                           vale para CHROMA y SPECTRUM por igual (se
-	//                           aplica despues de que attr_o resuelve el modo)
-	// POKE 2113..2120,byte   -> 8 filas de pixel
-	// POKE 2121..2128,byte   -> 8 filas de mascara (bit=1 -> pixel visible)
+	// POKE 2105,page         -> pagina de la hoja: celda de 32 bytes (8 filas de
+	//                           4 bytes, 8 pixeles de 4 bits por fila; el nibble
+	//                           alto es el pixel de la izquierda) en el bloque de
+	//                           8 KB que marca POKE 2129; direccion de la fila f:
+	//                           {POKE2129[2:0], page, f, byte}. El indice 0 es
+	//                           transparente; los demas, un color de 4 bits
+	//                           ({bright,G,R,B} o, con la paleta de 16 activa,
+	//                           pal16[indice]); vale en todos los modos.
+	// POKE 2106..2128        -> reservados (campos 5..27 de la tabla)
+	// POKE 2129,base         -> bloque de 8 KB (0-7) donde estan las hojas de
+	//                           graficos; se latchea en el VSYNC, asi que
+	//                           cambiarlo anima todos los sprites a la vez
+	//
+	// Formato B (4 bits por pixel): sustituye al antiguo (1 bit + color y
+	// mascara por fila). Las hojas viven en la RAM de sombra, que espeja lo que
+	// escribe el Z80; el motor no lee la SRAM.
 	// ========================================================================
 	localparam NUM_SPRITES = 64;		// DEBE coincidir con SPR_COUNT en la ROM
 
@@ -956,8 +966,8 @@ Port $7FEF (01111111 11101111) - IN:
 	wire [8:0] spr_screen_x = pixel_cnt - spr_x_pixel_base;
 	wire [8:0] spr_screen_y = line_cnt  - spr_y_line_base;
 
-	// Sprites en el modo 160x200 a 4 bpp: la posicion la da mode160 (ver mode160.v)
-	wire m160_spr = sf160_en & sf160_4bpp;
+	// Sprites en el modo 160x100 a 8 bpp y en el 160x200 a 4 bpp: la posicion la da mode160 (ver mode160.v)
+	wire m160_spr = sf160_en;
 	wire [8:0] m160_spr_x, m160_spr_y;
 	wire m160_row_ok;
 
@@ -980,9 +990,22 @@ Port $7FEF (01111111 11101111) - IN:
 			spr_en[spr_dest[5:0]] <= spr_data[0];
 	end
 
-	// Lo que dice el motor de sprites (ver sprite_engine, mas abajo)
-	wire sprite_hit, sprite_pixel_final;
-	wire [7:0] sprite_color_final;
+	// Bloque de 8 KB de las hojas de graficos (POKE 2129), latcheado en el VSYNC
+	wire spr_base_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2129);
+	reg [2:0] spr_base_w = 3'd2;
+	reg [2:0] spr_base   = 3'd2;
+	always @(negedge iclock or negedge nRESET) begin
+		if (nRESET==1'b0) spr_base_w <= 3'd2;
+		else if (spr_base_wr) spr_base_w <= data[2:0];
+	end
+
+	// Lo que dice el motor de sprites (ver sprite_engine, mas abajo): el pixel
+	// del sprite es su indice de 4 bits; el mismo valor hace de tinta y de papel,
+	// asi que cada pixel lleva su color sin tocar el atributo del fondo
+	wire sprite_hit;
+	wire [3:0] sprite_pix;
+	wire sprite_pixel_final = 1'b1;
+	wire [7:0] sprite_color_final = {sprite_pix, sprite_pix};
 
 	// Recorte final al area visible (ver spr_in_display)
 	wire sprite_active_final = sprite_hit & (m160_spr | spr_in_display);		// en el 160x200 a 4 bpp recorta mode160 (img_on)
@@ -1006,6 +1029,7 @@ Port $7FEF (01111111 11101111) - IN:
 		.clk(system_clk),
 		.reset(~nRESET),
 		.spr_en(spr_en),
+		.sheet_base(spr_base),
 		.hsync(hsync),
 		.pixel_cnt(pixel_cnt),
 		.limit(sf80_en ? 10'd195 : 10'd120),
@@ -1017,8 +1041,7 @@ Port $7FEF (01111111 11101111) - IN:
 		.ev_rd(spr_ev_rd),
 		.ev_raddr(spr_ev_raddr),
 		.hit(sprite_hit),
-		.pixel(sprite_pixel_final),
-		.color(sprite_color_final)
+		.pix(sprite_pix)
 	);
 
 	// --- double buffer: blit shadow->front por el puerto A (arbitrado con la CPU) ---
@@ -1631,6 +1654,8 @@ assign DEBUG_RDY = 1'b0;
 	reg VSYNC_zx81 = 1;
 	wire VSYNC_gen = line_cnt < 8;
 	wire vsync = ~sfast_mode_en ? VSYNC_zx81 : VSYNC_gen;
+	// las hojas de sprites cambian de bloque solo durante el VSYNC (ver POKE 2129)
+	always @(posedge system_clk) if (vsync) spr_base <= spr_base_w;
 	wire backporch;
 
 	// HSYNC GENERATOR

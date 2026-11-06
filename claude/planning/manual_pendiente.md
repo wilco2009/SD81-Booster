@@ -47,6 +47,18 @@ versión (todavía sin publicar)»: **quitarla al publicar la FPGA**. El `PONG` 
   admite (secuencial 8 bits, gris o YCbCr, 4:4:4/4:2:2/4:4:0/4:2:0/4:1:1, aplica la orientación EXIF; **progresivo solo con el DC**: sale más borroso, y una foto de menos de 1280x800
   se amplía) y de lo que se rechaza (aritmético, CMYK, baseline de varios scans, progresivo sin scan de DC entrelazado) con el motivo en `*BMPERR`; en la tabla de memoria del comando 76, ~28 KB en vez de ~23 KB; `EXAMPLES/PHOTO/jpg2i16.py` como herramienta del PC. Mencionarlo en las notas de la release.
   **No se ha tocado ningún .docx**: hay otra sesión editando el manual.
+- **Sprites por hoja, formato B (6/11/2026, rama `fpga-sprites-hoja`, sin probar en la placa ni fusionada)**: sustituye al formato de 1 bit + color por fila + máscara.
+  Reescribir el **Apéndice H** (sprites) cuando se fusione: sprites de 8x8 con **4 bits por píxel**, el **índice 0 es transparente** y los demás son el color `{BRIGHT,G,R,B}` (o `pal16[índice]`
+  con la paleta de 16 activa); 64 sprites y 12 por línea; funciona en todos los modos, **también en el 160x100 a 8 bpp** (filas de sprite de 2 líneas, 100 filas) y en el 160x200 a 4 bpp.
+  POKEs: 2100 elige sprite, 2101 activo, 2102/2103 X, 2104 Y, **2105 página de la hoja** (campos 5-27 reservados), **2129 bloque de 8 KB de las hojas** (0-7, por defecto 2; se aplica en el VSYNC,
+  así que cambiarlo anima todos los sprites a la vez). Una celda = 32 bytes en `{bloque, página, fila, byte}`: 8 filas de 4 bytes, el nibble alto es el píxel de la izquierda.
+  Las hojas viven en la RAM de sombra de la FPGA, que espeja lo que escribe el Z80 (el motor no lee la SRAM): hay que escribirlas con el Z80 (o `LOAD *HEX`); los bloques 0 y 1 llevan las tablas
+  de sprites, usar del 2 al 7. **Negro opaco**: el índice 0 no pinta, así que el negro opaco es el índice 8 (gris oscuro) reprogramado a negro con la paleta de 16 activa (`POKE 2067,1`); sin la
+  paleta de 16 no hay negro opaco (el azul, índice 1, se queda como está). Comandos de la ROM: **desaparecen `LOAD *SPRCOL`, `*SPRPIX` y `*SPRMASK`** y aparecen `LOAD *SPRPAGE <n>,<página>` y
+  `LOAD *SPRBASE <b>`; `LOAD *SPRITE` no cambia. Snapshots: línea nueva `SPRITE_BASE xx` (el bloque de las hojas) y en `SPRITE n ...` el primer campo tras la Y es la página; los snapshots de
+  antes con sprites del formato antiguo cargan basura en los sprites. La captura del depurador web pinta los sprites del formato nuevo con la hoja que quepa (hasta 8 KB; sin pal16). Los juegos y
+  ejemplos (Mario, Scrabble con sus tres sprites y el cursor que parpadeaba con la máscara a 0, SPORTS, GALAXIAN, SD81TEST, MODE160, SCROLLM) tienen que convertirse; SPRDBUF ya está convertido.
+  Medido en la VM: 4.168 LUTs (72 %), 1.325 slices (92 %), temporización cumplida (+131 LUTs frente a master).
 - Capturas de pantalla de los modos de 160 píxeles (no hay ninguna) y, si se quiere, `DOC/img/scrabble_start.png` (la pantalla de inicio del Scrabble).
 - Para las **notas de la release** (no van al manual): el tempo del VGM (la música iba lenta por retrasos acumulados, arreglado), el sondeo del ESP32 cada 3 ms con datos y 15 ms en reposo, y los comandos 66 y 67 sin log por USB.
 - Si cambia el aspecto del 4 en raya tras probarlo en el emulador, rehacer la captura (`DOC/img/connect4_win.png`).

@@ -200,65 +200,54 @@ CmdHEX:		call	CLASS_6		; Read address
 ; Unico sitio a tocar aqui si ese valor cambia.
 SPR_COUNT equ 64
 
-; LOAD *SPRCOL  <n>,"<16 hex chars>"  -- 8 bytes of per-row colour (2105-2112)
-; LOAD *SPRPIX  <n>,"<16 hex chars>"  -- 8 bytes of pixel data     (2113-2120)
-; LOAD *SPRMASK <n>,"<16 hex chars>"  -- 8 bytes of mask           (2121-2128)
-; Loads one of the three 8-byte blocks of hardware sprite <n> (0 to
-; SPR_COUNT-1) without needing to remember its POKE address. Equivalent to
-; POKE 2100,<n> followed by LOAD *HEX <address>,"<16 chars>". Position/
-; enable is separate, see LOAD *SPRITE.
-; NOTA sobre la estructura: MustBeEOL acaba en SyntaxDone, que durante el
-; chequeo de sintaxis hace "pop hl" para descartar la direccion de retorno
-; del comando. Como el despachador entra al comando con jp (hl) (no con
-; call), MustBeEOL TIENE que llamarse desde el nivel superior de la rutina
-; del comando y sin nada nuestro apilado, o se descarta el valor equivocado
-; y la pila queda corrompida. Por eso el analisis comun (SprParseArgs) NO
-; incluye MustBeEOL, y la direccion base del bloque se carga despues.
-CmdSPRCOL:	call	SprParseArgs	; <n>,"<hex>" (sin MustBeEOL)
-		call	MustBeEOL	; err if not EOL; stop syntax check
-		ld	bc,2105		; colour rows
-		jr	SprBlockTail
-CmdSPRPIX:	call	SprParseArgs
+; LOAD *SPRPAGE <n>,<page>  -- graphic of hardware sprite <n> (POKE 2105)
+; Selects the 32-byte cell <page> (0-255) of the sprite sheet as the graphic
+; of sprite <n> (0 to SPR_COUNT-1). Equivalent to POKE 2100,<n> / POKE 2105,
+; <page>. A cell is 8 rows of 4 bytes (8 pixels of 4 bits each, the high
+; nibble is the left pixel); colour 0 is transparent. The sheet lives in the
+; 8 KB block selected by LOAD *SPRBASE: the cell is at
+; <block>*8192 + <page>*32. Changing the page animates the sprite.
+; Position/enable is separate, see LOAD *SPRITE.
+; NOTA: ver la nota de CmdSPRITE sobre el orden inverso de FIND_INT.
+CmdSPRPAGE:	call	CLASS_6		; Read sprite number
+		call	MustBeComma
+		call	CLASS_6		; Read page
 		call	MustBeEOL
-		ld	bc,2113		; pixel rows
-		jr	SprBlockTail
-CmdSPRMASK:	call	SprParseArgs
-		call	MustBeEOL
-		ld	bc,2121		; mask rows
-		; fall through to SprBlockTail
-
-; A partir de aqui solo se ejecuta en tiempo de ejecucion (MustBeEOL no
-; retorna durante el chequeo de sintaxis), asi que ya es seguro apilar.
-SprBlockTail:	push	bc		; block base address, recovered below
-		call	STK_FETCH	; retrieve string parameters
-		push	de
-		push	bc
-		call	FIND_INT	; retrieve stacked sprite number
+		call	FIND_INT	; BC = page (last pushed, first popped)
 		ld	a,b
-		or	a		; sprite number must fit in one byte
+		or	a		; page must fit in one byte
+		jp	nz,REPORT_B
+		ld	a,c
+		push	af		; stash the page until the sprite is selected
+		call	FIND_INT	; BC = sprite number n
+		ld	a,b
+		or	a
 		jp	nz,REPORT_B
 		ld	a,c
 		cp	SPR_COUNT	; valid range is 0..SPR_COUNT-1
 		jp	nc,REPORT_B
-		ld	(2100),a	; select sprite (same as POKE 2100,<n>)
-		pop	hl		; string length (hex chars)
-		pop	de		; string pointer
-		ld	a,h
-		or	a		; must be a short string (<256 chars)
-		jp	nz,REPORT_A
-		ld	a,l
-		cp	16		; must be EXACTLY 16 hex chars (8 bytes)
-		jp	nz,REPORT_A
-		pop	bc		; block base address
-		jp	HexDecodeCommon
+		ld	(2100),a	; select sprite FIRST
+		pop	af
+		ld	(2105),a	; page
+		ret
 
-; Analisis comun de "<n>,"<hex>"" -- deja A con el caracter siguiente para
-; que el llamante haga MustBeEOL. Ver la nota de arriba sobre por que
-; MustBeEOL no puede ir aqui dentro.
-SprParseArgs:	call	CLASS_6		; Read sprite number
-		call	MustBeComma	; Must be followed by a comma
-		call	SCANNING	; read string expression
-		jp	MustBeString	; error if not a string, and return
+; LOAD *SPRBASE <b>  -- 8 KB block of the sprite sheets (POKE 2129)
+; <b> is 0-7 (block of 8192 bytes: 0 = $0000, 1 = $2000 ... 7 = $E000).
+; The FPGA latches it at the next VSYNC, so changing it switches the sheet
+; of ALL the sprites at once (whole-screen animation). Blocks 0 and 1 hold
+; the sprite tables in the shadow RAM ($0C00 and $1800), so sheets go in
+; blocks 2 to 7. Default after reset is 2 ($4000).
+CmdSPRBASE:	call	CLASS_6		; Read block number
+		call	MustBeEOL
+		call	FIND_INT	; BC = block number
+		ld	a,b
+		or	a
+		jp	nz,REPORT_B
+		ld	a,c
+		cp	8		; valid range is 0-7
+		jp	nc,REPORT_B
+		ld	(2129),a
+		ret
 
 ; LOAD *SPRITE <n>,<x>,<y>
 ; Selects hardware sprite <n> (0 to SPR_COUNT-1), sets its position and

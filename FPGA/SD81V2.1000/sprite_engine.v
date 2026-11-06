@@ -1,41 +1,42 @@
 // ============================================================================
-// sprite_engine.v -- Sprites 8x8 por LINEA, leidos de la RAM de sombra
+// sprite_engine.v -- Sprites 8x8 de 4 bits por pixel (formato B), por LINEA,
+//                    leidos de la RAM de sombra
 // ============================================================================
-// Sustituye a los slots de sprite con memoria propia (sprite_slot.v, que se
-// conserva como referencia del banco de pruebas). La FPGA guarda una copia de
-// los NSPR sprites en la RAM de sombra:
+// La FPGA guarda la cabecera de los NSPR sprites en la RAM de sombra:
 //
 //     sprites  0..31:  $0C00 + sprite*32 + campo
 //     sprites 32..63:  $1800 + (sprite-32)*32 + campo
 //
-// (campo 0 activo, 1 X bajo, 2 X alto, 3 Y, 4..11 color de cada fila, 12..19
-// pixel de cada fila, 20..27 mascara de cada fila), la misma que usan los
-// snapshots. El motor la lee en vez de duplicarla:
+// (campo 0 activo, 1 X bajo, 2 X alto, 3 Y, 4 pagina de la hoja), la misma
+// copia que usan los snapshots. Los graficos NO estan en la tabla: viven en la
+// misma RAM de sombra (el espejo de lo que escribe el Z80), en una HOJA de
+// celdas de 32 bytes, 8 filas de 4 bytes (8 pixeles de 4 bits; el nibble alto
+// de cada byte es el pixel de la izquierda, como en la imagen de 4 bpp). El
+// indice 0 es transparente; los demas pasan por pal16.
+//
+//     direccion de la fila f (0..7) de la celda: {sheet_base, pagina, f, byte}
+//     sheet_base (3 bits): bloque de 8 KB; pagina (8 bits): celda de 32 B del bloque
+//
+// Animar un sprite es cambiar su byte de pagina; animar todos a la vez es
+// cambiar sheet_base (que SD81.v latchea en el VSYNC).
 //
 //  1. Cuando empieza el sincronismo horizontal (la linea nueva ya esta en
 //     line_cnt) recorre los NSPR sprites de mayor a menor indice. Los que estan
-//     activos (spr_en, que se borra con el reset) y cortan la linea que se va
-//     a dibujar se cargan en uno de K slots de linea, con los bytes de SU fila:
-//     X, color, pixel y mascara.
-//  2. Durante la linea, cada slot de linea compara su X con el pixel actual y
-//     saca el bit de su fila.
+//     activos (spr_en) y cortan la linea que se va a dibujar se cargan en uno de
+//     K slots de linea con SU fila: X y 8 pixeles.
+//  2. Durante la linea, cada slot compara su X con el pixel actual y saca su
+//     nibble.
 //
-// Prioridad: gana el sprite de indice mas alto. Los sprites se cargan en ese
-// orden, asi que el slot 0 es el de mas prioridad. Si en una linea hay mas de
-// K sprites, se dibujan los K de indice mas alto y los demas no aparecen en
-// ESA linea (como el limite de 8 sprites por linea de la NES, aqui 12).
+// Prioridad: gana el sprite de indice mas alto con un pixel distinto de 0 (los
+// transparentes dejan ver a los de debajo). El slot 0 es el de mas prioridad.
+// Si en una linea hay mas de K sprites, se dibujan los K de indice mas alto y
+// los demas no aparecen en ESA linea.
 //
-// Reloj: el motor va a system_clk (26 MHz), 4 veces el reloj de pixel en 32
-// columnas y 2 en 80, y da un paso cada DOS ciclos: la BRAM tiene un ciclo
-// de latencia (la direccion se pone en un paso, se muestrea en el ciclo
-// siguiente y el dato se lee en el paso que viene). Una lectura por paso.
-//
-// Puerto B de la BRAM: lo usa el motor entre el sincronismo horizontal y el
-// pixel `limit` (el video no empieza a leer hasta el 126 en 32 columnas y el
-// 206 en 80), y no si el doble buffer esta copiando (blit_busy). El caso peor
-// son NSPR + 5*K pasos (hay que mirar todos y luego cargar K); si no da
-// tiempo (pixel_cnt >= limit) el motor se para y quedan sin cargar los
-// sprites de menor prioridad.
+// Reloj: el motor va a system_clk (26 MHz) y da un paso cada DOS ciclos: la BRAM
+// tiene un ciclo de latencia. Una lectura por paso. El caso peor son
+// 2 + NSPR + 7*K pasos (hay que mirar todos y luego cargar K); si no da tiempo
+// (pixel_cnt >= limit) el motor se para y quedan sin cargar los sprites de
+// menor prioridad.
 // ============================================================================
 
 module sprite_engine #(
@@ -46,6 +47,7 @@ module sprite_engine #(
 	input  wire            clk,			// system_clk
 	input  wire            reset,		// activo alto
 	input  wire [NSPR-1:0] spr_en,		// sprite activo (POKE 2101, ver SD81.v)
+	input  wire [2:0]      sheet_base,	// bloque de 8 KB de la hoja de graficos
 	input  wire            hsync,
 	input  wire [9:0]      pixel_cnt,
 	input  wire [9:0]      limit,		// pixel_cnt a partir del cual no se leen mas
@@ -56,9 +58,8 @@ module sprite_engine #(
 	input  wire [7:0]      v_dout,		// salida del puerto B de la BRAM de sombra
 	output reg             ev_rd,		// el motor usa el puerto B
 	output reg  [15:0]     ev_raddr,
-	output wire            hit,			// algun sprite pone un pixel AHORA
-	output wire            pixel,		// valor del pixel del sprite que gana
-	output wire [7:0]      color		// color de la fila del sprite que gana
+	output wire            hit,			// algun sprite pone un pixel (distinto de 0) AHORA
+	output wire [3:0]      pix			// su indice de color (0 si no hay)
 );
 
 	// Direccion en la sombra de un campo de un sprite. Los 32 primeros en
@@ -78,9 +79,7 @@ module sprite_engine #(
 	// ------------------------------------------------------------------
 	reg [K-1:0] sl_valid = {K{1'b0}};
 	reg [8:0]   sl_x   [0:K-1];
-	reg [7:0]   sl_col [0:K-1];
-	reg [7:0]   sl_dat [0:K-1];
-	reg [7:0]   sl_msk [0:K-1];
+	reg [31:0]  sl_dat [0:K-1];		// 8 pixeles de 4 bits, el de la izquierda en [31:28]
 
 	// ------------------------------------------------------------------
 	// Maquina de carga (un paso cada dos ciclos)
@@ -90,9 +89,11 @@ module sprite_engine #(
 	                 S_SCAN = 4'd2,	// pide la Y de cada sprite y mira si corta
 	                 S_LX1  = 4'd3,	// X bajo
 	                 S_LX2  = 4'd4,	// X alto
-	                 S_LC   = 4'd5,	// color de la fila
-	                 S_LD   = 4'd6,	// pixel de la fila
-	                 S_LM   = 4'd7;	// mascara de la fila y carga del slot
+	                 S_LP   = 4'd5,	// pagina de la hoja
+	                 S_D0   = 4'd6,	// bytes 0..2 de la fila
+	                 S_D1   = 4'd7,
+	                 S_D2   = 4'd8,
+	                 S_D3   = 4'd9;	// byte 3 de la fila y carga del slot
 
 	reg [3:0]    st = S_IDLE;
 	reg          tog = 1'b0;
@@ -105,8 +106,9 @@ module sprite_engine #(
 	reg          ypend;			// hay una lectura de Y en vuelo (de p)
 	reg [3:0]    kn;			// slots cargados
 	reg [2:0]    row;
-	reg [7:0]    lx_l, lcol, ldat;
+	reg [7:0]    lx_l, d0, d1, d2;
 	reg          lx_h;
+	reg [7:0]    pg;
 
 	wire [8:0] y_diff = tgt_y - {1'b0, v_dout};
 	wire       y_hit  = ypend && (y_diff < 9'd8);
@@ -184,31 +186,43 @@ module sprite_engine #(
 				S_LX2: begin
 					lx_h     <= v_dout[0];
 					ev_rd    <= 1'b1;
-					ev_raddr <= tbl(p, 5'd4 + {2'b00, row});		// color de la fila (campo 4 + fila)
-					st       <= S_LC;
+					ev_raddr <= tbl(p, 5'd4);			// pagina de la hoja
+					st       <= S_LP;
 				end
 
-				S_LC: begin
-					lcol     <= v_dout;
+				S_LP: begin
+					pg       <= v_dout;
 					ev_rd    <= 1'b1;
-					ev_raddr <= tbl(p, 5'd12 + {2'b00, row});		// pixel de la fila (campo 12 + fila)
-					st       <= S_LD;
+					ev_raddr <= {sheet_base, v_dout, row, 2'd0};	// byte 0 de la fila
+					st       <= S_D0;
 				end
 
-				S_LD: begin
-					ldat     <= v_dout;
+				S_D0: begin
+					d0       <= v_dout;
 					ev_rd    <= 1'b1;
-					ev_raddr <= tbl(p, 5'd20 + {2'b00, row});		// mascara de la fila (campo 20 + fila)
-					st       <= S_LM;
+					ev_raddr <= {sheet_base, pg, row, 2'd1};
+					st       <= S_D1;
 				end
 
-				S_LM: begin
+				S_D1: begin
+					d1       <= v_dout;
+					ev_rd    <= 1'b1;
+					ev_raddr <= {sheet_base, pg, row, 2'd2};
+					st       <= S_D2;
+				end
+
+				S_D2: begin
+					d2       <= v_dout;
+					ev_rd    <= 1'b1;
+					ev_raddr <= {sheet_base, pg, row, 2'd3};
+					st       <= S_D3;
+				end
+
+				S_D3: begin
 					for (j = 0; j < K; j = j + 1)
 						if (kn == j) begin
 							sl_x[j]   <= {lx_h, lx_l};
-							sl_col[j] <= lcol;
-							sl_dat[j] <= ldat;
-							sl_msk[j] <= v_dout;
+							sl_dat[j] <= {d0, d1, d2, v_dout};
 							sl_valid[j] <= 1'b1;
 						end
 					kn <= kn + 4'd1;
@@ -234,32 +248,26 @@ module sprite_engine #(
 	end
 
 	// ------------------------------------------------------------------
-	// Salida: lo que hacia cada slot de sprite, ahora sobre los slots de linea.
-	// El slot 0 es el de mas prioridad (el de mayor indice de sprite).
+	// Salida: el nibble del pixel actual del primer slot (el de mas prioridad)
+	// cuyo nibble no sea 0. El slot 0 es el de mayor indice de sprite.
 	// ------------------------------------------------------------------
-	reg        o_hit;
-	reg        o_pix;
-	reg [7:0]  o_col;
+	reg [3:0]  o_pix;
 	reg [8:0]  d;
 	reg [2:0]  c;
+	reg [3:0]  nb;
 	integer    k;
 	always @(*) begin
-		o_hit = 1'b0;
-		o_pix = 1'b0;
-		o_col = 8'hF0;
+		o_pix = 4'd0;
 		for (k = K - 1; k >= 0; k = k - 1) begin
-			d = pos_x - sl_x[k];
-			c = d[2:0];
-			if (sl_valid[k] && (d < 9'd8) && sl_msk[k][3'd7 - c]) begin
-				o_hit = 1'b1;
-				o_pix = sl_dat[k][3'd7 - c];
-				o_col = sl_col[k];
-			end
+			d  = pos_x - sl_x[k];
+			c  = d[2:0];
+			nb = sl_dat[k][(3'd7 - c) * 4 +: 4];
+			if (sl_valid[k] && (d < 9'd8) && (nb != 4'd0))
+				o_pix = nb;
 		end
 	end
 
-	assign hit   = o_hit;
-	assign pixel = o_pix;
-	assign color = o_col;
+	assign pix = o_pix;
+	assign hit = (o_pix != 4'd0);
 
 endmodule

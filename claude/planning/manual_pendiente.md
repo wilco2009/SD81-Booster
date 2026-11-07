@@ -42,22 +42,21 @@ versión (todavía sin publicar)»: **quitarla al publicar la FPGA**. El `PONG` 
 - Apéndice F: sprites en el 160x100, apartado nuevo «Scroll en anillo de los modos de 160 píxeles» (`POKE 2072-2075`, ejemplos SCRL160 y SPRXTRA), filas nuevas en la tabla de POKEs y los límites de los dos modos corregidos.
 - Rangos de `LOAD *ROMLOCK` corregidos (7.5, la orden 68 y el Apéndice F): 2041-2075, 2090-2099 y los sprites 2100-2131. La captura de la web dibuja los dos formatos y los extra, sin el límite de tiempo.
 
+## Release v1.8.0 (7 de noviembre de 2026, ES y EN)
+
+- Fila 1.8 del historial (STM32 2.8, ROM 1.9, FPGA 1.7, WiFi 1.5); fuera los seis avisos «necesita la FPGA de la próxima versión».
+- JPG en el visor (Apéndice F, título «PHOTO, IMGVIEW, BMP y JPG»), en el comando 76 y en la tabla del explorador.
+- Ayuda de la SD: `SPRPAGE.txt` y `SPRBASE.txt`, citadas en `HELP.txt`.
+
 ## Pendiente
 
-- **Fila nueva en el historial de versiones** (sección 19, ES y EN) al preparar la release, con la versión de cada parte (STM32, ROM, FPGA, WiFi). Debe nombrar el Scrabble, SPORTS,
-  el scroll por hardware, los modos de 160 píxeles, la paleta de 16 colores, los BMP y los JPG, los sprites de 4 bits por píxel y los extra, el scroll en anillo de los modos de 160 píxeles, las rutas con `..` y que el joystick ya no pausa el depurador.
 - Sin probar en la placa (y el manual lo describe como si funcionara): el MQTT avanzado (TLS, usuario y contraseña, QoS 1, retenidos, testamento), el comando 76 y los BMP,
   la paleta de 16, el modo 160x200 y el scroll vertical. Revisar el texto si la prueba da otra cosa.
-- **JPG en el comando 76 (5/11/2026, sin probar en la placa)**: el comando 76 y el visor del explorador (IMGVIEW) y PHOTO aceptan también **JPG baseline** (`.JPG` / `.JPEG`;
-  PHOTO solo `IMGnnn.JPG`), con las mismas colocaciones (F). Texto del manual: dónde pone «BMP» en el comando 76, los visores y el Apéndice del explorador, añadir «o JPG baseline»; lista de lo que
-  admite (secuencial 8 bits, gris o YCbCr, 4:4:4/4:2:2/4:4:0/4:2:0/4:1:1, aplica la orientación EXIF; **progresivo solo con el DC**: sale más borroso, y una foto de menos de 1280x800
-  se amplía) y de lo que se rechaza (aritmético, CMYK, baseline de varios scans, progresivo sin scan de DC entrelazado) con el motivo en `*BMPERR`; en la tabla de memoria del comando 76, ~28 KB en vez de ~23 KB; `EXAMPLES/PHOTO/jpg2i16.py` como herramienta del PC. Mencionarlo en las notas de la release.
-  **No se ha tocado ningún .docx**: hay otra sesión editando el manual.
 - Capturas de pantalla de los modos de 160 píxeles (no hay ninguna) y, si se quiere, `DOC/img/scrabble_start.png` (la pantalla de inicio del Scrabble).
 - Para las **notas de la release** (no van al manual): el tempo del VGM (la música iba lenta por retrasos acumulados, arreglado), el sondeo del ESP32 cada 3 ms con datos y 15 ms en reposo, y los comandos 66 y 67 sin log por USB.
 - Si cambia el aspecto del 4 en raya tras probarlo en el emulador, rehacer la captura (`DOC/img/connect4_win.png`).
 
-- **Sprites y scroll de los modos 160 (lo que queda tras el 7/11/2026):** las páginas de ayuda de la SD `SD Content/MAN/SPRPAGE.txt` y `SPRBASE.txt` (y citarlas en `HELP.txt`); los snapshots no guardan `POKE 2072-2075` (cuando se haga, nombrarlo en el apartado de snapshots); el emulador (`claude/planning/sprites_scroll160_emulador.md`).
+- **Sprites y scroll de los modos 160 (lo que queda tras el 7/11/2026):** los snapshots no guardan `POKE 2072-2075` (cuando se haga, nombrarlo en el apartado de snapshots); el emulador (`claude/planning/sprites_scroll160_emulador.md`).
 
 ## Para cada release
 

@@ -310,7 +310,7 @@ Version 1.0
 
 [Ring Scroll of the 160-Pixel Modes](#ring-scroll-of-the-160-pixel-modes)
 
-[Image Viewers: PHOTO, IMGVIEW and BMP Files](#image-viewers-photo-imgview-and-bmp-files)
+[Image Viewers: PHOTO, IMGVIEW, BMP and JPG Files](#image-viewers-photo-imgview-bmp-and-jpg-files)
 
 [Control POKEs summary](#control-pokes-summary)
 
@@ -2381,7 +2381,7 @@ Commands are sent to the MCU by writing their code to data port A7h, following t
 | 71 | F_CREATE | Handle(0..3)+name in ASCII | 1B: status | Like F_OPEN, but it creates the file or empties it if it already existed. With F_WRITE it saves files of any size (SAVE stops at 64 KB). |
 | 72 | F_CREATE_ZX81 | Handle(0..3)+name in ZX81 | 1B: status | Same as F_CREATE, with the name in ZX81 encoding. |
 | 75 | LOAD_Z81 | String: name | Status (1B) + IM (1B) | LOAD \*Z81 (see 7.7), through the debugger monitor (Appendix L). The MCU reads the whole file before answering: Status 0 = the ROM fires the trap and the MCU loads everything when it stops; 1 no such file, 2 no \[MEMORY\], 3 malformed file, 10 not possible now (no /SYS/DEBUG.BIN, debugger stopped or snapshot in progress). IM is the snapshot\'s interrupt mode. Up to 1.6 command 70 was a loader of its own, without the monitor; it has been removed. |
-| 76 | F_OPEN_IMG | Length + name in ASCII + 1B: placement (0 stretch, 1 keep proportions, 2 crop) | 1B: handle (0..3), \$FF does not exist, \$FE invalid BMP, \$FD out of memory, \$FC no free handle | Converts a .BMP and offers it as a 160x100 256-colour .I16 (Appendix F), read and closed like an ordinary file. Only one at a time; it takes a few seconds. The reason for \$FE is left in /MAN/BMPERR.TXT. |
+| 76 | F_OPEN_IMG | Length + name in ASCII + 1B: placement (0 stretch, 1 keep proportions, 2 crop) | 1B: handle (0..3), \$FF does not exist, \$FE invalid BMP, \$FD out of memory, \$FC no free handle | Converts a .BMP or a JPG and offers it as a 160x100 256-colour .I16 (Appendix F), read and closed like an ordinary file. Only one at a time; it takes a few seconds. The reason for \$FE is left in /MAN/BMPERR.TXT. |
 
 ### Hardware control commands
 
@@ -2678,6 +2678,7 @@ LOAD \*FPGA
 | **1.5** | 09/2026 | TELNET terminal and SD81TEST test program. FPGA: synchronous write capture and FRAMES reads in Superfast. MCU: DEL with absolute paths and reading AY registers 14 and 15. |
 | **1.6** | 10/2026 | Hardware debugger (Appendix L): on-screen display on the ZX81, symbols, trace and history, console and panels in the browser; full snapshots with LOAD \*Z81. Simulated interrupts in the FPGA. ROM: PLOT and TAB in the 70- and 80-column modes (thanks to Kelly Abrantes Murta for reporting the PLOT bug). MCU: sound is silenced while a snapshot loads; the WiFi module web server is smoother. New Appendix K with the EightyOne emulator guide. |
 | **1.7** | 10/2026 | Network turn-based games (section 9.9 and Appendix M): Connect 4 and chess with clocks, drawn in high resolution, which save the game to the SD card and can be carried on another day. WiFi module: MQTT, SHA-256, HMAC and random-number AT commands. 64 sprites, up to 12 per line. Debugger: screen capture and ZX81 keyboard in the web page, sym !, and CP/M. LOAD \*Z81 only through the debugger monitor (report P; the MCU command 70 is gone). The WiFi module\'s update file is now ESP32FW.BIN and everything can be updated in one go. 32-bit WAV files play correctly. Versions: STM32 2.7, ROM 1.8, FPGA 1.6, WiFi 1.4. |
+| **1.8** | 11/2026 | 160x100 256-colour and 160x200 16-colour video modes (with window, 40x25 text and sprites), 16-colour palette and ring scroll of both (Appendix F). 4-bits-per-pixel sprites with a graphic sheet and up to 127 extra sprites (Appendix H). Hardware fine scroll and scroll engine in native HiRes and Spectrum. BMP and JPG image viewer from the explorer. Network Scrabble (English and Spanish) and SPORTS (tennis, hockey and squash over the network). Paths with \"..\" in LOAD, SAVE and LOAD THEN PRINT. The joystick no longer pauses the debugger and VGM music no longer lags. Versions: STM32 2.8, ROM 1.9, FPGA 1.7, WiFi 1.5. |
 
 | **ℹ** | *This history will be updated with each new firmware version. Check the project repository for the complete changelog.* |
 |------|------------------------------------------------------------------|
@@ -3048,8 +3049,6 @@ LOAD \*SCROWS \<lo\>,\<mid\>,\<hi\> : REM equivalent to POKE 2091/2092/2093
 
 ## Hardware Scrolling (Native HiRes and Spectrum)
 
-This feature needs the FPGA of the next version (not yet released).
-
 The fine scroll of POKE 2090 moves the image 0 to 7 pixels, but whatever is uncovered has to be written by the program. Hardware scrolling completes it in the Superfast native HiRes and Spectrum modes (not in text): the screen becomes a window over memory, with fine X (POKE 2090) and fine Y (0 to 7 lines), plus a column 33 and a row 25 that are not in the bitmap but in input buffers. When the fine value wraps, a command to the FPGA moves memory by one byte (or one text row) and the Z80 only has to regenerate what enters at the side.
 
 It is driven through port \$3FEF (the debugger\'s port, Appendix L), with BC = \$3FEF: first write the register number and then the data.
@@ -3285,8 +3284,6 @@ LOAD \*WRX STOP : REM disable (character generator mode, default)
 
 ## 160x100 256-Colour Mode
 
-This feature needs the FPGA of the next version (not yet released).
-
 POKE 2045,175 turns on a 160x100-pixel graphics mode with one byte per pixel: each byte is the index of a 256-entry palette, and the image is 16,000 bytes starting at the address set by POKE 2043/2044 (use blocks 0 to 6). Each row is output on two television lines. Each palette colour is four pulse densities from 0 to 15 (red, green, blue and brightness, at 208 MHz) that the resistor network of the video output turns into intermediate levels: more than 16 colours are visible at once. Any other value of POKE 2045 (170-174 or 85) turns the mode off.
 
 - **Palette:** POKE 2063,n sets the pointer (0-255); POKE 2064,lo gives the low byte {G,B} of the colour; POKE 2065,hi gives the high byte {BRIGHT,R}: it writes the entry and the pointer advances. Before anything is loaded, the palette is RGB 3-3-2 without brightness.
@@ -3300,8 +3297,6 @@ POKE 2045,175 turns on a 160x100-pixel graphics mode with one byte per pixel: ea
 Example: EXAMPLES/MODE160 (256 colours at once: greys, primaries and a hue wheel; P and O move the image).
 
 ## 16-Colour Palette
-
-This feature needs the FPGA of the next version (not yet released).
 
 The normal modes (text, HiRes, Spectrum, 70/80 columns, sprites and border) can use a 16-entry palette instead of the fixed Chroma81 colours. The index is the usual 4-bit colour, {BRIGHT,G,R,B}, the same as in the attributes and port \$7FEF; each entry has the same form as those of the 256-colour palette. It only applies with colour on (\$7FEF bit 5).
 
@@ -3317,8 +3312,6 @@ When off (after a reset), the default colours appear. Turning it on without load
 
 ## 160x200 16-Colour Mode, with Window, Sprites and Text
 
-This feature needs the FPGA of the next version (not yet released).
-
 POKE 2045,176 turns on a 160x200-pixel grid (25 text rows of 8 lines) with 4 bits per pixel: 16 colours at once from the 16-colour palette, 80 bytes per row, and the high nibble is the pixel on the left. Each pixel lasts three 13 MHz cycles and each row is one television line.
 
 - **Image window:** POKE 2070,first and POKE 2071,last+1 (in text rows, 0-25; by default 0 and 25, the 200 lines and 16,000 bytes). The image starts at HFILE and takes (last+1-first)\*640 bytes; outside the window the border colour appears and nothing is read. A 160x168 game, for example, uses first=1 and last+1=22.
@@ -3332,8 +3325,6 @@ POKE 2045,176 turns on a 160x200-pixel grid (25 text rows of 8 lines) with 4 bit
 Examples: EXAMPLES/MODE160/mode160w.asm (window, sprites and text) and mode1604.asm (200 lines, nothing else); png2i4.py converts a 160x200 PNG of up to 16 colours into pic4.bin and pal4.bin.
 
 ## Ring Scroll of the 160-Pixel Modes
-
-This feature needs the FPGA of the next version (not yet released).
 
 Both 160-pixel modes scroll in hardware vertically and horizontally, pixel by pixel, without copying the image: the FPGA only changes where it starts reading it. The image is a ring: what leaves the screen on one side comes back in on the opposite one.
 
@@ -3357,13 +3348,13 @@ Both 160-pixel modes scroll in hardware vertically and horizontally, pixel by pi
 
 Examples: EXAMPLES/SCRL160 (a world of tiles that moves with Q, A, O and P in both modes; M changes mode) and EXAMPLES/SPRXTRA (the background, a photo, moves with O, P, Q and A under the sprites).
 
-## Image Viewers: PHOTO, IMGVIEW and BMP Files
+## Image Viewers: PHOTO, IMGVIEW, BMP and JPG Files
 
-This feature needs the FPGA of the next version (not yet released).
-
-The images of the 160x100 256-colour mode are stored in .I16 files: the I160 mark, 512 bytes of palette (the 256 entries of 2 bytes) and the 16,000 pixels. There are two viewers: PHOTO (EXAMPLES/PHOTO) shows the IMGnnn.I16 files in its folder (N next, B previous, SPACE quits) and IMGVIEW is the one the explorer launches (Appendix J) when you open a .BMP or an .I16.
+The images of the 160x100 256-colour mode are stored in .I16 files: the I160 mark, 512 bytes of palette (the 256 entries of 2 bytes) and the 16,000 pixels. There are two viewers: PHOTO (EXAMPLES/PHOTO) shows the IMGnnn.I16 files in its folder (N next, B previous, SPACE quits) and IMGVIEW is the one the explorer launches (Appendix J) when you open a .BMP, a .JPG or an .I16.
 
 A .BMP is opened directly: the microcontroller converts it when it opens it (area-average scaling to 160x100 and a reduction to 256 colours by median cut; it takes a few seconds depending on the size) and offers it as an .I16. Uncompressed BMP files of 1, 4, 8, 24 and 32 bits are accepted. The F key changes how the image is placed: keeping its proportions (with black bands; the starting one), cropped (fills the screen without distortion) or stretched.
+
+JPG files (.JPG or .JPEG) open the same way, with the same placements: sequential (baseline) 8-bit JPG files are accepted, greyscale or colour, with any usual colour subsampling, and the EXIF orientation of phone photos is respected. Progressive JPG files open with their first pass only, so they come out blurrier. Arithmetic-coded and CMYK JPG files are not accepted; the reason is left in the same /MAN/BMPERR.TXT. PHOTO also shows IMGnnn.JPG files, and to convert a JPG to .I16 on the PC there is jpg2i16.py (EXAMPLES/PHOTO).
 
 If the BMP cannot be converted, the reason is left in /MAN/BMPERR.TXT (LOAD THEN PRINT \"\*BMPERR\"): NOT A BMP FILE, BAD BMP HEADER, UNSUPPORTED BMP DEPTH, UNSUPPORTED BMP (COMPRESSED), BMP TOO LARGE, BMP TRUNCATED or OUT OF MEMORY. To convert a PNG to .I16 there is png2i16.py (EXAMPLES/PHOTO). Programs open it with MCU command 76 (15.5).
 
@@ -3927,7 +3918,7 @@ Depending on the extension, ENTER/8 does one of these things without leaving the
 | **.PEB** | Same as .VGM, for effects generated with the PEG editor |
 | **.SCR** | Shown full-screen (Spectrum capture, 6912 bytes); any key returns to the listing |
 | **.TXT** | Opened in the text viewer (see below) |
-| **.BMP, .I16** | Shown full screen in the 160x100 256-colour mode (IMGVIEW viewer; see Appendix F). With a .BMP, the F key changes the placement; any other key returns to the listing |
+| **.BMP, .JPG, .I16** | Shown full screen in the 160x100 256-colour mode (IMGVIEW viewer; see Appendix F). With a .BMP or a .JPG, the F key changes the placement; any other key returns to the listing |
 | **anything else** | The explorer exits to BASIC with the file name, for the stub to decide what to do |
 
 ## File operations

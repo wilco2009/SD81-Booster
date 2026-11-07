@@ -30,8 +30,13 @@ columnas. Todos los sprites son bolas (máscara redonda):
 | Tecla | Acción |
 |-------|--------|
 | E     | Número de extra: 64 (al empezar, borde **verde**) → 0 (**rojo**) → 32 (**azul**) → 48 (**magenta**) → 64 |
-| P     | Parar / mover |
-| Q     | Salir a BASIC (apaga los sprites, deja la página a 0 y `POKE 2131,0`) |
+| O P Q A | Mover el fondo a la izquierda, a la derecha, arriba y abajo, un píxel por imagen (mantener pulsada). Scroll infinito: lo que sale por un lado entra por el contrario |
+| S     | Parar / mover los sprites |
+| X     | Salir a BASIC (apaga los sprites, deja la página a 0, `POKE 2131,0` y el fondo sin scroll) |
+
+El fondo se mueve con el scroll en anillo del modo (`POKE 2072` y `2074`, con el
+anillo del tamaño de la imagen: 100 filas y 160 píxeles). La FPGA solo cambia
+desde dónde lee la imagen, sin copiar nada; los sprites no se mueven con él.
 
 ## Qué se tiene que ver
 

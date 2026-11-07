@@ -32,7 +32,10 @@
 ; mueven van hacia la izquierda.
 ;
 ; Teclas: E = numero de extra (0, 32, 48, 64; borde rojo, azul, magenta y
-;         verde)   P = parar/mover   Q = salir
+;         verde)   O P Q A = mover el fondo (izquierda, derecha, arriba,
+;         abajo; mantener)   S = parar/mover los sprites   X = salir
+; El fondo se mueve con el scroll en anillo del modo (POKE 2072 y 2074):
+; lo que sale por un lado entra por el otro.
 ;
 ; Ensamblar: pasmo sprxtra.asm sprxtra.bin sprxtra.sym
 ; Cargar desde BASIC: SPRXTRA.B81 (LOAD FAST "SPRXTRA.BIN" CODE 30000)
@@ -76,7 +79,12 @@ start:  di
         call setm
 
 main:   call waitvs
+        ld a,(bgy)              ; scroll del fondo: fila y pixel que salen arriba a la izquierda
+        ld (2072),a
+        ld a,(bgx)
+        ld (2074),a
         call anim
+        call bgmove
         call keys
         jr nz,main
 
@@ -92,6 +100,8 @@ qs:     ld a,c
         djnz qs
         xor a
         ld (SPR_EXTRA),a
+        ld (2072),a             ; fondo sin scroll
+        ld (2074),a
         ld a,2
         ld (SPR_BASE),a
         ld a,85
@@ -434,7 +444,7 @@ an7:    ld de,32
         ret
 
 ; -------------------------------------------------------------
-; keys: E cambia el numero de extra, P para y mueve. Z si Q pulsada.
+; keys: E cambia el numero de extra, S para y mueve. Z si X pulsada.
 ; -------------------------------------------------------------
 keys:   ld a,0fbh               ; Q W E R T
         in a,(0feh)
@@ -449,20 +459,66 @@ kw1:    ld a,0fbh
         and 3
         ld (mstep),a
         call setm
-kn1:    ld a,0dfh               ; P O I U Y
+kn1:    ld a,0fdh               ; A S D F G
         in a,(0feh)
-        and 1
+        and 2
         jr nz,kn2
-kw2:    ld a,0dfh
+kw2:    ld a,0fdh
         in a,(0feh)
-        and 1
+        and 2
         jr z,kw2
         ld a,(movon)
         xor 1
         ld (movon),a
-kn2:    ld a,0fbh
+kn2:    ld a,0feh               ; SHIFT Z X C V
         in a,(0feh)
-        and 1
+        and 4
+        ret
+
+; -------------------------------------------------------------
+; bgmove: O P Q A mueven el fondo un pixel por imagen en esa direccion
+; (anillo de 100 filas y 160 pixeles: el de la imagen, sin filas de mas)
+; -------------------------------------------------------------
+bgmove: ld a,0fbh               ; Q: el fondo sube
+        in a,(0feh)
+        rrca
+        jr c,bg2
+        ld a,(bgy)
+        inc a
+        cp 100
+        jr c,bg1
+        xor a
+bg1:    ld (bgy),a
+bg2:    ld a,0fdh               ; A: el fondo baja
+        in a,(0feh)
+        rrca
+        jr c,bg4
+        ld a,(bgy)
+        or a
+        jr nz,bg3
+        ld a,100
+bg3:    dec a
+        ld (bgy),a
+bg4:    ld a,0dfh               ; P: el fondo va a la derecha
+        in a,(0feh)
+        rrca
+        push af
+        jr c,bg6
+        ld a,(bgx)
+        or a
+        jr nz,bg5
+        ld a,160
+bg5:    dec a
+        ld (bgx),a
+bg6:    pop af                  ; O: el fondo va a la izquierda
+        rrca
+        ret c
+        ld a,(bgx)
+        inc a
+        cp 160
+        jr c,bg7
+        xor a
+bg7:    ld (bgx),a
         ret
 
 ; setm: POKE 2131 y el borde segun mstep (0, 32, 48, 64 extra)
@@ -488,6 +544,8 @@ fname:  defb "FONDO.JPG",0
 magic:  defb "I160"
 hdr:    defb 0,0,0,0
 fh:     defb 0
+bgx:    defb 0                  ; POKE 2074
+bgy:    defb 0                  ; POKE 2072
 fc:     defb 0
 fpg:    defb 0
 movon:  defb 1

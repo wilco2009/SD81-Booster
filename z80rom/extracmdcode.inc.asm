@@ -200,14 +200,17 @@ CmdHEX:		call	CLASS_6		; Read address
 ; Unico sitio a tocar aqui si ese valor cambia.
 SPR_COUNT equ 64
 
-; LOAD *SPRPAGE <n>,<page>  -- graphic of hardware sprite <n> (POKE 2105)
-; Selects the 32-byte cell <page> (0-255) of the sprite sheet as the graphic
-; of sprite <n> (0 to SPR_COUNT-1). Equivalent to POKE 2100,<n> / POKE 2105,
-; <page>. A cell is 8 rows of 4 bytes (8 pixels of 4 bits each, the high
-; nibble is the left pixel); colour 0 is transparent. The sheet lives in the
-; 8 KB block selected by LOAD *SPRBASE: the cell is at
-; <block>*8192 + <page>*32. Changing the page animates the sprite.
-; Position/enable is separate, see LOAD *SPRITE.
+; LOAD *SPRPAGE <n>,<page>  -- graphic of hardware sprite <n> (POKE 2130)
+; Page 0 is the classic format: colour and pixels from *SPRCOL and *SPRPIX.
+; Any other page (1-255) selects that 32-byte cell of the sprite sheet as the
+; graphic of sprite <n> (0 to SPR_COUNT-1). Equivalent to POKE 2100,<n> /
+; POKE 2130,<page>. A cell is 8 rows of 4 bytes (8 pixels of 4 bits each, the
+; high nibble is the left pixel). The sheet lives in the 8 KB block selected
+; by LOAD *SPRBASE: the cell is at <block>*8192 + <page>*32. Changing the page
+; animates the sprite. *SPRMASK applies to both formats (bit at 1 = visible),
+; so a sheet sprite needs its mask. On a sheet sprite, the high nibble of
+; POKE 2103 is the colour that is not drawn (0 by default; LOAD *SPRITE sets
+; it back to 0). Position/enable is separate, see LOAD *SPRITE.
 ; NOTA: ver la nota de CmdSPRITE sobre el orden inverso de FIND_INT.
 CmdSPRPAGE:	call	CLASS_6		; Read sprite number
 		call	MustBeComma
@@ -228,7 +231,7 @@ CmdSPRPAGE:	call	CLASS_6		; Read sprite number
 		jp	nc,REPORT_B
 		ld	(2100),a	; select sprite FIRST
 		pop	af
-		ld	(2105),a	; page
+		ld	(2130),a	; page (0 = classic format)
 		ret
 
 ; LOAD *SPRBASE <b>  -- 8 KB block of the sprite sheets (POKE 2129)

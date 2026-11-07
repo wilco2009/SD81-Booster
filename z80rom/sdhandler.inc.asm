@@ -2005,6 +2005,9 @@ SD_RESET:	ld	a,$F7		; Check keyboard row 1-5
 		; Los 64 sprites a cero (el reset de la FPGA solo los apaga): asi
 		; su copia en la BRAM de sombra ($0C00-$0FFF y $1800-$1BFF, la que leen los
 		; snapshots del depurador) empieza limpia, igual que los sprites.
+		; La pagina (POKE 2130) es obligatoria: en la sombra quedaria un byte
+		; de la ROM y, si no es 0, el sprite no seria de formato A. POKE 2129
+		; (el bloque de las hojas) va en medio y no es de la tabla: se salta.
 		ld	b,64
 SprClear:	ld	a,b
 		dec	a
@@ -2016,8 +2019,8 @@ SprClear1:	ld	(hl),a
 		inc	hl
 		dec	c
 		jr	nz,SprClear1
-		djnz	SprClear
-		ld	(2100),a	; A = 0: el sprite 0 elegido, como tras el reset
+		ld	(2130),a	; la pagina: 0 = formato A
+		djnz	SprClear	; (el ultimo es el 0: queda elegido, como tras el reset)
 
 		ld	hl,RAM_CHECK	; load continuation address
 
@@ -2140,6 +2143,73 @@ nzRUN:		jp	nz,RUN_COMMAND	; Normal RUN command if not
 
 AUTOEXEC_P:	db	.slash,.A,.U,.T,.O,.E,.X,.E,.C,.dot,.P
 AUTOEXEC_P_LEN	equ	$-AUTOEXEC_P
+
+;-----------------------------------------------------------------------
+; Comandos de los sprites de formato A. Van aqui y no con el resto de
+; comandos (extracmdcode.inc.asm), que queda DELANTE de SD_RESET: el bloque 0
+; salta a SD_RESET, y todo lo que se anada antes mueve su direccion y cambia
+; ese salto. Lo que va detras no toca el bloque 0.
+;-----------------------------------------------------------------------
+
+; LOAD *SPRCOL  <n>,"<16 hex chars>"  -- 8 bytes of per-row colour (2105-2112)
+; LOAD *SPRPIX  <n>,"<16 hex chars>"  -- 8 bytes of pixel data     (2113-2120)
+; LOAD *SPRMASK <n>,"<16 hex chars>"  -- 8 bytes of mask           (2121-2128)
+; Loads one of the three 8-byte blocks of hardware sprite <n> (0 to
+; SPR_COUNT-1) without needing to remember its POKE address. Equivalent to
+; POKE 2100,<n> followed by LOAD *HEX <address>,"<16 chars>". Position/
+; enable is separate, see LOAD *SPRITE.
+; NOTA sobre la estructura: MustBeEOL acaba en SyntaxDone, que durante el
+; chequeo de sintaxis hace "pop hl" para descartar la direccion de retorno
+; del comando. Como el despachador entra al comando con jp (hl) (no con
+; call), MustBeEOL TIENE que llamarse desde el nivel superior de la rutina
+; del comando y sin nada nuestro apilado, o se descarta el valor equivocado
+; y la pila queda corrompida. Por eso el analisis comun (SprParseArgs) NO
+; incluye MustBeEOL, y la direccion base del bloque se carga despues.
+CmdSPRCOL:	call	SprParseArgs	; <n>,"<hex>" (sin MustBeEOL)
+		call	MustBeEOL	; err if not EOL; stop syntax check
+		ld	bc,2105		; colour rows
+		jr	SprBlockTail
+CmdSPRPIX:	call	SprParseArgs
+		call	MustBeEOL
+		ld	bc,2113		; pixel rows
+		jr	SprBlockTail
+CmdSPRMASK:	call	SprParseArgs
+		call	MustBeEOL
+		ld	bc,2121		; mask rows
+		; fall through to SprBlockTail
+
+; A partir de aqui solo se ejecuta en tiempo de ejecucion (MustBeEOL no
+; retorna durante el chequeo de sintaxis), asi que ya es seguro apilar.
+SprBlockTail:	push	bc		; block base address, recovered below
+		call	STK_FETCH	; retrieve string parameters
+		push	de
+		push	bc
+		call	FIND_INT	; retrieve stacked sprite number
+		ld	a,b
+		or	a		; sprite number must fit in one byte
+		jp	nz,REPORT_B
+		ld	a,c
+		cp	SPR_COUNT	; valid range is 0..SPR_COUNT-1
+		jp	nc,REPORT_B
+		ld	(2100),a	; select sprite (same as POKE 2100,<n>)
+		pop	hl		; string length (hex chars)
+		pop	de		; string pointer
+		ld	a,h
+		or	a		; must be a short string (<256 chars)
+		jp	nz,REPORT_A
+		ld	a,l
+		cp	16		; must be EXACTLY 16 hex chars (8 bytes)
+		jp	nz,REPORT_A
+		pop	bc		; block base address
+		jp	HexDecodeCommon
+
+; Analisis comun de "<n>,"<hex>"" -- deja A con el caracter siguiente para
+; que el llamante haga MustBeEOL. Ver la nota de arriba sobre por que
+; MustBeEOL no puede ir aqui dentro.
+SprParseArgs:	call	CLASS_6		; Read sprite number
+		call	MustBeComma	; Must be followed by a comma
+		call	SCANNING	; read string expression
+		jp	MustBeString	; error if not a string, and return
 
 CmdList:
 		db	.M,.A,.P + $80

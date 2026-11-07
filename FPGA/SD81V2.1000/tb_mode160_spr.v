@@ -1,8 +1,8 @@
 `timescale 1ns / 1ps
-// tb_mode160_spr -- mode160 con el sprite_engine real (formato B): sprites 8x8 de 4 bits sobre la imagen.
+// tb_mode160_spr -- mode160 con el sprite_engine real, sprites de formato B (pagina != 0): 8x8 de 4 bits sobre la imagen.
 //   vlog mode160.v sprite_engine.v tb_mode160_spr.v ; vsim -c tb_mode160_spr [-gM4=0] -do "run -all; quit"
 // M4=1: 160x200 a 4 bpp (por defecto); M4=0: 160x100 a 8 bpp.
-// Cabecera de los sprites en la sombra ($0C00 + n*32 + campo, como SD81.v: 0 activo, 1-2 X, 3 Y, 4 pagina) y hoja
+// Cabecera de los sprites en la sombra ($0C00 + n*32 + campo, como SD81.v: 0 activo, 1-2 X, 3 Y, 20-27 mascara, 29 pagina) y hoja
 // de graficos en el bloque 2 ($4000 + pagina*32 + fila*4 + byte). Se comprueba cada pixel de la imagen (a mitad de
 // pixel) contra el modelo: el sprite de indice mas alto cuyo pixel no sea 0 (por pal16) o, si no, el fondo (4 bpp: el
 // nibble de la imagen por pal16; 8 bpp: el byte de la imagen por la paleta de 256).
@@ -48,7 +48,9 @@ module tb_mode160_spr;
 	wire img_on;
 	wire [15:0] lvl16, lvl8;
 	wire spr_hit;
-	wire [3:0] spr_pix;
+	wire [7:0] spr_col;
+	wire [3:0] spr_pix = spr_col[7:4];
+	wire spr_pixel;
 	wire [8:0] spr_x, spr_y;
 	wire row_ok;
 	wire [3:0] c4 = spr_pix;		// el camino normal con sprite_active_final: tinta = papel = indice del sprite
@@ -62,9 +64,9 @@ module tb_mode160_spr;
 		.vred(), .vgreen(), .vblue(), .vbright(),
 		.img_on_o(img_on), .idx_cur_o(), .lvl_o(lvl8), .lvl16_o(lvl16));
 	sprite_engine #(.K(12), .NSPR(NSPR), .SB(6)) eng (
-		.clk(clk), .reset(rst), .spr_en(spr_en), .hsync(hsync), .pixel_cnt(pixel_cnt), .limit(10'd195), .sheet_base(SHEET),
+		.clk(clk), .reset(rst), .spr_en(spr_en), .hsync(hsync), .pixel_cnt(pixel_cnt), .limit(10'd195), .extra(7'd0), .sheet_base(SHEET), .color_on(1'b1),
 		.blit_busy(1'b0), .pos_x(spr_x), .pos_y(spr_y), .row_ok(row_ok), .v_dout(v_dout),
-		.ev_rd(ev_rd), .ev_raddr(ev_raddr), .hit(spr_hit), .pix(spr_pix));
+		.ev_rd(ev_rd), .ev_raddr(ev_raddr), .hit(spr_hit), .pixel(spr_pixel), .color(spr_col));
 
 	reg [15:0] pm [0:15];
 	task poke;
@@ -176,12 +178,13 @@ module tb_mode160_spr;
 			if (s == 3) sx[s] = 32 + 44;
 			if (s == 3) sy[s] = sy[2] + 3;
 			if (!M4) sy[s] = 32 + (s * 12) + ($random(seed) & 3) - 2;		// 100 filas: mas juntos
-			spg[s] = s % 5;
+			spg[s] = 1 + s % 5;			// la pagina 0 seria formato A
 			mem[16'h0C00 + s * 32 + 0] = 1;
 			mem[16'h0C00 + s * 32 + 1] = sx[s] & 255;
 			mem[16'h0C00 + s * 32 + 2] = (sx[s] >> 8) & 1;
 			mem[16'h0C00 + s * 32 + 3] = sy[s];
-			mem[16'h0C00 + s * 32 + 4] = spg[s];
+			mem[16'h0C00 + s * 32 + 29] = spg[s];
+			for (cc = 0; cc < 8; cc = cc + 1) mem[16'h0C00 + s * 32 + 20 + cc] = 8'hFF;
 		end
 		for (i = 0; i < 16; i = i + 1) pm[i] = {i[3:0], 4'd15 - i[3:0], i[3:0] ^ 4'd5, i[3:0] * 4'd3};
 		repeat (8) @(posedge clk);

@@ -2,8 +2,8 @@
 ; SPRDBUF.ASM -- prueba de sprites por linea + doble buffer
 ;
 ; Comprueba juntas dos cosas que ningun programa usaba a la vez:
-; los sprites (que la FPGA lee por linea de la RAM de sombra: formato
-; de 4 bits por pixel con hoja de graficos) y el
+; los sprites (que la FPGA lee por linea de la RAM de sombra: formato A
+; y formato B, 4 bits por pixel con hoja de graficos) y el
 ; doble buffer present-blit (que copia 8 KB por el mismo puerto de la
 ; BRAM durante el blanking). Modo Superfast HiRes Spectrum.
 ;
@@ -11,7 +11,8 @@
 ;
 ; Sprites (cuadrado 8x8 con aro de color y centro negro; el color del aro
 ; identifica al sprite). Cada color es una celda de 32 bytes de la hoja
-; (8 filas de 4 bytes, 8 pixeles de 4 bits; el indice 0 es transparente).
+; (8 filas de 4 bytes, 8 pixeles de 4 bits; con POKE 2103 sin tocar, el
+; color que no se dibuja es el 0).
 ; El centro negro opaco es el indice 8 de pal16 reprogramado a negro
 ; (con la paleta de 16 colores activa, POKE 2067,1):
 ;   A  sprites 0..15 en la MISMA linea (Y=16), separados 14 px.
@@ -31,6 +32,17 @@
 ;      tablas.
 ;   F  sprites 62 y 63 (los ultimos) en la linea de abajo del todo (Y=185),
 ;      con aros verde y cian: se ven.
+;   G  sprites 50..54 (Y=130), los dos formatos y la mascara en la misma linea:
+;      50 formato A, con un color por fila
+;      51 formato B, aro rojo y centro negro
+;      52 la misma celda que el 51, con mascara $F0: solo su mitad izquierda
+;      53 la misma celda, con el color 8 transparente: solo el aro
+;      54 celda del color 0, con el color 15 transparente: cuadrado negro
+;         entero, porque el 0 tambien es un color
+;   H  tres sprites extra (POKE 2131,3; Y=116), sin POKE 2100: sus entradas
+;      de 32 bytes son las paginas 0-2 de la hoja ($6000), escritas como RAM:
+;      extra 0 formato A (como el 50), extra 1 formato B con aro cian,
+;      extra 2 la misma celda con el color 8 transparente (solo el aro)
 ;
 ; Con el doble buffer ON (borde VERDE) y OFF (borde ROJO) los sprites tienen
 ; que verse exactamente igual: no parpadean, no se parten y no hay lineas
@@ -50,7 +62,11 @@ SPR_EN   equ 2101
 SPR_XL   equ 2102
 SPR_XH   equ 2103
 SPR_Y    equ 2104
-SPR_PAGE equ 2105       ; pagina de la hoja (celda de 32 bytes)
+SPR_COL  equ 2105       ; formato A: color de cada fila (tinta*16+papel)
+SPR_MASK equ 2121       ; los dos formatos: mascara de cada fila (1 = visible)
+SPR_PAGE equ 2130       ; pagina de la hoja (celda de 32 bytes); 0 = formato A
+SPR_EXTRA equ 2131      ; sprites extra: sus entradas son las primeras paginas de la hoja
+XTBL     equ 6000h      ; pagina 0 del bloque de la hoja (bloque 3)
 SPR_BASE equ 2129       ; bloque de 8 KB de la hoja (0-7)
 SHEET_BLK equ 3         ; la hoja esta en el bloque 3 ($6000-$7FFF)
 sheet    equ 7C00h      ; la hoja: 16 celdas de 32 bytes (512 bytes), sin codigo por encima de $8000
@@ -106,6 +122,7 @@ start:  di
         ld (SPR_BASE),a
         call mksheet
         call defspr
+        call mkextra
 
         ; --- doble buffer ON, front = bloque 5 ---
         ld a,173
@@ -136,8 +153,11 @@ qs:     ld a,c
         ld (SPR_SEL),a
         xor a
         ld (SPR_EN),a
+        ld (SPR_PAGE),a         ; formato A: lo que esperan los demas programas
         inc c
         djnz qs
+        xor a
+        ld (SPR_EXTRA),a        ; sin sprites extra
         ld a,85
         ld (2057),a             ; doble buffer OFF
         ld a,85
@@ -199,6 +219,75 @@ defspr: call grp                ; A: sprites 0..15, Y=16
         ld c,32
         ld a,2
         call spr_def
+        ; G: los dos formatos y la mascara, sprites 50..54, Y=130
+        ld b,50                 ; formato A
+        ld de,40
+        ld c,32+130
+        call spr_a
+        ld b,51                 ; formato B
+        ld de,54
+        ld c,32+130
+        ld a,2
+        call spr_def
+        ld b,52                 ; la misma celda, solo la mitad izquierda
+        ld de,68
+        ld c,32+130
+        ld a,2
+        call spr_def
+        ld a,0f0h
+        call setmsk
+        ld b,53                 ; la misma celda, sin dibujar el color 8
+        ld de,82
+        ld c,32+130
+        ld a,2
+        call spr_def
+        ld a,80h                ; nibble alto = color transparente; X alto = 0
+        ld (SPR_XH),a
+        ld b,54                 ; la celda del color 0, sin dibujar el 15
+        ld de,96
+        ld c,32+130
+        xor a
+        call spr_def
+        ld a,0f0h
+        ld (SPR_XH),a
+        ret
+
+; mkextra: H, tres sprites extra en las paginas 0-2 de la hoja (entradas de
+;          32 bytes con los campos de la tabla: 1 X bajo, 2 X alto, 3 Y,
+;          4-11 color, 12-19 pixel, 20-27 mascara, 29 pagina)
+mkextra:
+        ld hl,XTBL
+        ld de,XTBL+1
+        ld bc,3*32-1
+        ld (hl),0
+        ldir                    ; las tres entradas a 0
+        ld ix,XTBL              ; extra 0: formato A, como el sprite 50
+        ld (ix+1),40
+        ld (ix+3),32+116
+        ld hl,acell
+        ld de,XTBL+4
+        ld bc,24
+        ldir                    ; color, pixel y mascara; la pagina (29) se queda a 0
+        ld ix,XTBL+32           ; extra 1: formato B, aro cian
+        ld (ix+1),54
+        call xb
+        ld ix,XTBL+64           ; extra 2: la misma celda, sin dibujar el color 8
+        ld (ix+1),68
+        ld (ix+2),80h
+        call xb
+        ld a,3
+        ld (SPR_EXTRA),a
+        ret
+xb:     ld (ix+3),32+116
+        ld (ix+29),SHEET_PG0+5
+        push ix
+        pop hl
+        ld de,20
+        add hl,de
+        ld b,8
+xb1:    ld (hl),0ffh            ; mascara
+        inc hl
+        djnz xb1
         ret
 
 ; grp: define un grupo de sprites; los datos van detras del CALL:
@@ -258,7 +347,8 @@ gi2:    ld (g_ink),a
         call spr_def
         jr group
 
-; spr_def: B=sprite, DE=X (9 bits), C=Y, A=tinta (1-14). Aro de ese color, centro negro.
+; spr_def: B=sprite, DE=X (9 bits), C=Y, A=tinta (0-15). Formato B, sin mascara:
+;          aro de ese color, centro negro. Toca A, B y HL.
 spr_def:
         push af
         ld a,b
@@ -274,7 +364,40 @@ spr_def:
         ld (SPR_PAGE),a
         ld a,1
         ld (SPR_EN),a
+        ld a,0ffh
+        ; sigue en setmsk
+
+; setmsk: A = mascara de las 8 filas del sprite elegido. Toca B y HL.
+setmsk: ld hl,SPR_MASK
+        ld b,8
+sm1:    ld (hl),a
+        inc hl
+        djnz sm1
         ret
+
+; spr_a: B=sprite, DE=X (9 bits), C=Y. Formato A: aro con un color por fila,
+;        centro negro (el papel de cada fila es el indice 8).
+spr_a:  ld a,b
+        ld (SPR_SEL),a
+        ld a,e
+        ld (SPR_XL),a
+        ld a,d
+        ld (SPR_XH),a
+        ld a,c
+        ld (SPR_Y),a
+        xor a
+        ld (SPR_PAGE),a         ; pagina 0: formato A
+        ld hl,acell
+        ld de,SPR_COL
+        ld bc,24
+        ldir                    ; color, pixel y mascara
+        ld a,1
+        ld (SPR_EN),a
+        ret
+
+acell:  defb 18h,28h,38h,48h,58h,68h,98h,0a8h   ; color: tinta distinta, papel 8
+        defb 0ffh,81h,81h,81h,81h,81h,81h,0ffh  ; pixel
+        defb 0ffh,0ffh,0ffh,0ffh,0ffh,0ffh,0ffh,0ffh    ; mascara
 
 ; mksheet: escribe la hoja de graficos en 'sheet': 16 celdas de 32 bytes, la
 ;          celda c es un cuadrado de 8x8 con el aro de color c y el centro de

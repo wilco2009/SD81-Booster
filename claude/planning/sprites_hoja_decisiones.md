@@ -2,6 +2,8 @@
 
 Rama `fpga-sprites-hoja`. Complementa `sprites_hoja_traspaso.md` (encargo, no commiteado, en el repo principal).
 
+**Actualización 2026-11-07: este documento describe la primera versión (commit 3a7c997).** El usuario decidió que A se mantiene y que B es un modo añadido: `POKE 2130` = página (0 = formato A), B con 4 bpp, máscara `POKE 2121-2128` y color transparente en el nibble alto de `POKE 2103`, sin índice 0 fijo. Quedan anuladas las decisiones 3 y 4 y la lista de ejemplos por convertir. Ver `SCUMM/AGI/PLAN_SPRITES4.md`, secciones 4e a 4g.
+
 ## Decisiones del usuario (2026-11-06)
 
 1. **Puntero de 1 byte**: página de 32 B dentro de un bloque de 8 KB con base en un registro (hoja alineada). 7 pasos por sprite cargado.

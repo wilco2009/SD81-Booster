@@ -320,6 +320,8 @@ Versión 1.0
 
 [Modo de 16 colores de 160x200, con ventana, sprites y texto](#modo-de-16-colores-de-160x200-con-ventana-sprites-y-texto)
 
+[Scroll en anillo de los modos de 160 píxeles](#scroll-en-anillo-de-los-modos-de-160-píxeles)
+
 [Visor de imágenes: PHOTO, IMGVIEW y los BMP](#visor-de-imágenes-photo-imgview-y-los-bmp)
 
 [Resumen de POKEs de control](#resumen-de-pokes-de-control)
@@ -338,11 +340,15 @@ Versión 1.0
 
 [Sistema de coordenadas](#sistema-de-coordenadas)
 
-[Mapa de direcciones (POKE 2100-2128)](#mapa-de-direcciones-poke-2100-2128)
+[Mapa de direcciones (POKE 2100-2131)](#mapa-de-direcciones-poke-2100-2131)
 
 [Cómo se pinta cada píxel](#cómo-se-pinta-cada-píxel)
 
 [Formato de color](#formato-de-color)
+
+[Formato B: 4 bits por píxel con hoja de gráficos](#formato-b-4-bits-por-píxel-con-hoja-de-gráficos)
+
+[Sprites extra](#sprites-extra)
 
 [Prioridad entre sprites solapados](#prioridad-entre-sprites-solapados)
 
@@ -914,7 +920,7 @@ Algunos juegos necesitan una inicialización especial antes de ser cargados. Los
 
 - **LOAD FAST** antes de cargar: algunos juegos tienen múltiples archivos. Ejecutar LOAD FAST sin nombre activa el modo SD para todos los LOAD y SAVE a partir de ese momento, permitiendo que el juego cargue sus archivos adicionales automáticamente.
 
-- **LOAD \*ROMLOCK** antes de cargar: algunos programas antiguos escriben por su cuenta en direcciones de la zona de ROM (por ejemplo para detectar si hay RAM), sin saber que el interface usa algunas como puertos de configuración (2041-2062, 2090-2098 y los sprites, 2100-2128). Con LOAD \*ROMLOCK esas escrituras se ignoran, como en una ROM real; LOAD \*ROMLOCK STOP devuelve el comportamiento normal. Está desactivado por defecto y solo se puede cambiar con el comando, nunca con una escritura en memoria.
+- **LOAD \*ROMLOCK** antes de cargar: algunos programas antiguos escriben por su cuenta en direcciones de la zona de ROM (por ejemplo para detectar si hay RAM), sin saber que el interface usa algunas como puertos de configuración (2041-2075, 2090-2099 y los sprites, 2100-2131). Con LOAD \*ROMLOCK esas escrituras se ignoran, como en una ROM real; LOAD \*ROMLOCK STOP devuelve el comportamiento normal. Está desactivado por defecto y solo se puede cambiar con el comando, nunca con una escritura en memoria.
 
 ### 7.6 Formatos de archivo reconocidos
 
@@ -2509,7 +2515,7 @@ Los comandos se envían al MCU escribiendo su código en el puerto de datos A7h,
 | 48 | ENABLE_48K | --- | --- | Activa el modo RAM extendida de 48 KB. Equivale a LOAD \*RAM48. |
 | 49 | DISABLE_48K | --- | --- | Desactiva el modo RAM extendida. Equivale a LOAD \*RAM48 STOP. |
 | 65 | SEL_256CHARS | --- | --- | Activa el modo de 256 caracteres definibles (solo Superfast texto). Equivale a LOAD \*256C. |
-| 68 | ROMLOCK_ON | --- | --- | Bloquea los puertos de configuración del bloque 0 (2041-2062, 2090-2098, sprites): las escrituras se ignoran. Equivale a LOAD \*ROMLOCK. |
+| 68 | ROMLOCK_ON | --- | --- | Bloquea los puertos de configuración del bloque 0 (2041-2075, 2090-2099, sprites): las escrituras se ignoran. Equivale a LOAD \*ROMLOCK. |
 | 69 | ROMLOCK_OFF | --- | --- | Vuelve a activar los puertos de configuración del bloque 0. Equivale a LOAD \*ROMLOCK STOP. |
 | 73 | DBG_BREAK | 30 bytes de registros | \-\-- | El programa se ha parado en una trampa del depurador: el Z80 manda al MCU sus registros. Uso interno del monitor (Apéndice L). |
 | 74 | DBG_POLL | 2B: n + n bytes (resultado) | op, dirección (2B), n (2B) \[+ datos\] | Entrega al MCU el resultado de la petición anterior y recibe la siguiente (leer o escribir memoria, registros, puertos\...). Uso interno del monitor (Apéndice L). |
@@ -3388,7 +3394,9 @@ POKE 2045,175 activa un modo gráfico de 160x100 píxeles con un byte por píxel
 
 - **Posición:** POKE 2099,n (0-15) mueve la imagen en horizontal, a pasos de un tercio de píxel. El borde sale del puerto \$7FEF, como en el Chroma81.
 
-- **Límites:** en este modo no hay sprites, scroll fino, motor de scroll, blit ni doble buffer. Con la red de resistencias de la placa, el brillo es común a los tres canales: un color solo es alcanzable si la diferencia entre su canal más alto y el más bajo no pasa de 0,455 V (un primario brillante puro sale algo más lavado).
+- **Sprites:** los 64 sprites de 8x8 (Apéndice H), de los dos formatos y con los sprites extra, en píxeles de la imagen: X = columna + 32 (32-191) e Y = fila + 32 (32-131); cada fila de un sprite ocupa dos líneas de televisión. Sus colores salen de la paleta de 16, no de la de 256.
+
+- **Límites:** en este modo no hay scroll fino, motor de scroll, blit ni doble buffer (sí sprites y el scroll en anillo, más abajo). Con la red de resistencias de la placa, el brillo es común a los tres canales: un color solo es alcanzable si la diferencia entre su canal más alto y el más bajo no pasa de 0,455 V (un primario brillante puro sale algo más lavado).
 
 Ejemplo: EXAMPLES/MODE160 (256 colores a la vez: grises, primarios y rueda de tonos; P y O mueven la imagen).
 
@@ -3416,13 +3424,39 @@ POKE 2045,176 activa una rejilla de 160x200 píxeles (25 filas de texto de 8 lí
 
 - **Ventana de imagen:** POKE 2070,primera y POKE 2071,última+1 (en filas de texto, 0-25; por omisión 0 y 25, las 200 líneas y 16.000 bytes). La imagen empieza en HFILE y ocupa (última+1-primera)\*640 bytes; fuera de la ventana sale el color del borde y no se lee nada. Un juego de 160x168, por ejemplo, usa primera=1 y última+1=22.
 
-- **Sprites:** los 64 sprites de 8x8 de siempre (Apéndice H), con X = columna + 32 (0-159) e Y = fila de la imagen + 32. Usan la tinta o el papel de su fila, por la paleta de 16.
+- **Sprites:** los 64 sprites de 8x8 de siempre (Apéndice H), con X = columna + 32 (0-159) e Y = fila de la imagen + 32. Sus colores (los dos formatos, Apéndice H) salen de la paleta de 16.
 
-- **Texto de 40x25:** POKE 2069,1 (o 0) lo activa (lo desactiva) y POKE 2068,papel\*16+tinta fija los colores (por omisión tinta 15 y papel 0). Las celdas son de 4x8 píxeles de imagen (glifo de 6x8) y van encima de la imagen y de los sprites. Los códigos (1.000 bytes, fila\*40+columna) van justo detrás de la imagen, en HFILE + 640\*(filas de la ventana); los glifos salen de la tabla de 256 caracteres. Un código menor que 32 es una celda transparente; desde 32 es opaca, con tinta y papel; el bit 7 invierte el glifo.
+- **Texto de 40x25:** POKE 2069,1 (o 0) lo activa (lo desactiva) y POKE 2068,papel\*16+tinta fija los colores (por omisión tinta 15 y papel 0). Las celdas son de 4x8 píxeles de imagen (glifo de 6x8) y van encima de la imagen y de los sprites. Los códigos (1.000 bytes, fila\*40+columna) van justo detrás de la imagen, en HFILE + 640\*(filas de la ventana) (con el scroll en anillo, detrás del anillo); los glifos salen de la tabla de 256 caracteres. Un código menor que 32 es una celda transparente; desde 32 es opaca, con tinta y papel; el bit 7 invierte el glifo.
 
-- **Límites:** sin scroll fino, motor ni doble buffer, ni sprites ni texto en el modo de 256 colores.
+- **Límites:** sin scroll fino, motor ni doble buffer (sí el scroll en anillo, más abajo); el texto de 40x25 no existe en el modo de 256 colores.
 
 Ejemplos: EXAMPLES/MODE160/mode160w.asm (ventana, sprites y texto) y mode1604.asm (200 líneas sin más); png2i4.py convierte un PNG de 160x200 de hasta 16 colores en pic4.bin y pal4.bin.
+
+## Scroll en anillo de los modos de 160 píxeles
+
+Esta función necesita la FPGA de la próxima versión (todavía sin publicar).
+
+Los dos modos de 160 píxeles se desplazan por hardware en vertical y en horizontal, píxel a píxel, sin copiar la imagen: la FPGA solo cambia desde dónde empieza a leerla. La imagen es un anillo: lo que sale por un lado de la pantalla vuelve a entrar por el contrario.
+
+> POKE 2072,f : REM fila de la imagen que sale arriba
+>
+> POKE 2073,n : REM filas del anillo (0 = las visibles)
+>
+> POKE 2074,p : REM píxel de la imagen que sale a la izquierda
+>
+> POKE 2075,b : REM bytes por fila del anillo (0 = 160 u 80)
+
+- **Scroll infinito de una imagen:** con 2073 y 2075 a 0, el anillo es la propia imagen y basta con cambiar 2072 y 2074: el fondo da la vuelta.
+
+- **Mundo más grande que la pantalla:** con un anillo de más filas o columnas que las visibles (por ejemplo, 101 filas de 161 bytes en el 160x100), las que no se ven sirven para preparar lo que va a entrar: el programa pinta ahí la fila o la columna nueva y después mueve el scroll un píxel. La fila f del anillo empieza en HFILE + f\*(bytes por fila), y el anillo puede pasar de 16 KB. 2073 tiene que ser al menos el número de filas visibles (100, o las de la ventana en el 160x200).
+
+- **160x200:** 2074 cuenta en píxeles, y un valor impar desplaza medio byte. Los códigos del texto de 40x25 van detrás del anillo, en HFILE + (filas del anillo)\*(bytes por fila).
+
+- **Lo que no se mueve:** el texto de 40x25, los sprites y el borde.
+
+- **Cuándo escribirlos:** cuentan desde la línea siguiente, así que conviene cambiarlos al empezar la imagen (VSYNC), como los sprites. El reset los pone a 0: sin scroll.
+
+Ejemplos: EXAMPLES/SCRL160 (un mundo de baldosas que se mueve con Q, A, O y P en los dos modos; M cambia de modo) y EXAMPLES/SPRXTRA (el fondo, una foto, se mueve con O, P, Q y A bajo los sprites).
 
 ## Visor de imágenes: PHOTO, IMGVIEW y los BMP
 
@@ -3476,9 +3510,13 @@ Si el BMP no se puede convertir, el motivo queda en /MAN/BMPERR.TXT (LOAD THEN P
 | 2069 | 1 / 0 | Activar / desactivar el texto de 40x25 (modo 160x200) |
 | 2070 | \<primera\> | Primera fila de texto de la ventana de imagen (modo 160x200, 0-25) |
 | 2071 | \<última+1\> | Fila de texto siguiente a la última de la ventana (modo 160x200, 0-25) |
+| 2072 | \<fila\> | Scroll de los modos de 160 píxeles: fila de la imagen que sale arriba |
+| 2073 | \<filas\> | Filas del anillo del scroll (0 = las visibles) |
+| 2074 | \<píxel\> | Píxel de la imagen que sale a la izquierda (160x200: impar = medio byte) |
+| 2075 | \<bytes\> | Bytes por fila del anillo (0 = 160 en 160x100, 80 en 160x200) |
 | 2099 | 0-15 | Posición horizontal del modo 160x100, a pasos de un tercio de píxel (por omisión 8) |
 
-Con LOAD \*ROMLOCK activo, las escrituras en todas las direcciones de esta tabla y en las de los sprites (2100-2128, Apéndice H) no tienen ningún efecto, como en una ROM real. LOAD \*ROMLOCK STOP las vuelve a activar (ver 7.5).
+Con LOAD \*ROMLOCK activo, las escrituras en todas las direcciones de esta tabla y en las de los sprites (2100-2131, Apéndice H) no tienen ningún efecto, como en una ROM real. LOAD \*ROMLOCK STOP las vuelve a activar (ver 7.5).
 
 # Apéndice G --- Referencia técnica de audio: chip AY, VGM y alófonos
 
@@ -3570,7 +3608,7 @@ Los alófonos se usan con el comando MCU BINARY SAY (16h) para síntesis fonéti
 
 # Apéndice H --- Sprites por hardware
 
-El SD81 Booster incluye un sistema de sprites gestionado enteramente por hardware: 64 sprites de 8×8 píxeles, cada uno con su propia máscara de transparencia y su propio color por fila (varios colores dentro del mismo sprite), compuestos automáticamente sobre la imagen de fondo sin coste de CPU. Se controlan con POKEs a un bloque de direcciones fijo, o de forma más cómoda con cuatro comandos LOAD \* dedicados.
+El SD81 Booster incluye un sistema de sprites gestionado enteramente por hardware: 64 sprites de 8×8 píxeles, cada uno con su propia máscara de transparencia y su propio color por fila (varios colores dentro del mismo sprite), compuestos automáticamente sobre la imagen de fondo sin coste de CPU. Se controlan con POKEs a un bloque de direcciones fijo, o de forma más cómoda con seis comandos LOAD \* dedicados. Cada sprite usa el formato clásico (A: un bit por píxel y dos colores por fila) o el de 4 bits por píxel (B: hasta 16 colores por fila, con el gráfico en una hoja en memoria), y a los 64 se les pueden añadir hasta 127 sprites extra.
 
 ## Sistema de coordenadas
 
@@ -3584,20 +3622,23 @@ Y: 0-255 (32 fuera por arriba, 192 visibles, 32 por abajo)
 
 Cualquier píxel del sprite que caiga fuera del área visible real de la pantalla (0,0)-(255,191) sencillamente no se dibuja. Por eso X necesita 9 bits (dos POKEs: parte baja y parte alta) mientras que Y cabe en un solo byte.
 
-## Mapa de direcciones (POKE 2100-2128)
+## Mapa de direcciones (POKE 2100-2131)
 
 Igual que HFILE o el patrón de borde, estas direcciones caen dentro de los primeros 8 KB del mapa de memoria del Z80 (zona de ROM): el interface intercepta esas escrituras concretas en vez de dejarlas caer al vacío, así que no hace falta memoria real ahí. Antes de escribir el color, los datos de píxel o la máscara de un sprite, hay que seleccionarlo primero con POKE 2100,n.
 
 | **Dirección** | **Valor** | **Función** |
-|------------|--------|----------------------------------------------------|
+|------------|--------|-----------------------------------------------------|
 | 2100 | 0-63 | Selecciona el sprite activo. Las escrituras siguientes afectan a este sprite. |
 | 2101 | 0/1 | Activa (1) o desactiva (0) el sprite seleccionado. |
 | 2102 | 0-255 | Coordenada X, 8 bits bajos. |
-| 2103 | 0/1 | Coordenada X, bit 8 (rango completo 0-318). |
+| 2103 | byte | Bit 0: coordenada X, bit 8 (rango completo 0-318). Bits 4-7: color transparente del formato B (por omisión 0). |
 | 2104 | 0-255 | Coordenada Y (32 = primera línea visible). |
-| 2105-2112 | byte | Color de cada una de las 8 filas: tinta×16+papel (0-15 cada uno). |
-| 2113-2120 | byte | Patrón de píxel de cada una de las 8 filas. |
-| 2121-2128 | byte | Máscara de transparencia de cada una de las 8 filas. |
+| 2105-2112 | byte | Color de cada una de las 8 filas: tinta×16+papel (0-15 cada uno). Solo formato A. |
+| 2113-2120 | byte | Patrón de píxel de cada una de las 8 filas. Solo formato A. |
+| 2121-2128 | byte | Máscara de cada una de las 8 filas, en los dos formatos (bit a 1 = visible). |
+| 2129 | 0-7 | Bloque de 8 KB de las hojas de gráficos del formato B (por omisión 2). Se aplica al empezar la imagen siguiente. |
+| 2130 | 0-255 | Página del sprite seleccionado: 0 = formato A; otra = formato B, con el gráfico en la celda \<página\> de la hoja. |
+| 2131 | 0-127 | Número de sprites extra (0 = ninguno). El reset lo pone a 0. |
 
 ## Cómo se pinta cada píxel
 
@@ -3613,9 +3654,33 @@ Como el color se define fila a fila (no un único color por sprite), un mismo sp
 
 El byte de color de cada fila es tinta×16+papel, con tinta y papel cada uno en la escala 0-15 (la misma que usan LOAD \*COLOR y LOAD \*BORDER): bit 3 = brillo, bit 2 = verde, bit 1 = rojo, bit 0 = azul. Este formato es el mismo tanto en modo CHROMA como en modo SPECTRUM --- el color del sprite se aplica después de que el hardware ya ha resuelto cuál de los dos modos está activo, así que no hace falta preocuparse por el modo al definir el color de un sprite.
 
+## Formato B: 4 bits por píxel con hoja de gráficos
+
+Con una página distinta de 0 (POKE 2130), el sprite no usa sus filas de color ni de píxel: su gráfico es una celda de 32 bytes de la hoja, 8 filas de 4 bytes, y el nibble alto de cada byte es el píxel de la izquierda. Cada píxel es directamente su color de 4 bits, en el mismo formato que el de las filas del formato A (o la entrada de la paleta de 16, si está activa), así que una fila puede llevar los 16 colores.
+
+La hoja es el bloque de 8 KB que elige POKE 2129 (0-7, por omisión 2), y la celda de la página p empieza en bloque\*8192 + p\*32. Las hojas se leen de la copia de la memoria que guarda la FPGA, que se actualiza sola con todo lo que escribe el Z80: basta con escribir los gráficos como RAM normal (o con LOAD \*HEX). Los bloques 0 y 1 llevan las tablas de los sprites, así que las hojas van del 2 al 7.
+
+Un píxel se ve si su bit de máscara (POKE 2121-2128) está a 1 y no es el color transparente del sprite, que va en los bits 4-7 de POKE 2103 (por omisión 0; con otro transparente, el 0 es un color más). La máscara y el transparente son de cada sprite, así que varios sprites pueden compartir una celda con distinto recorte. Un sprite B con la máscara a 0 no se ve, y LOAD \*SPRITE escribe POKE 2103 entero, así que deja el transparente en 0.
+
+Para animar un sprite basta con cambiar su página. Cambiar el bloque de POKE 2129 cambia a la vez la hoja de todos, al empezar la imagen siguiente.
+
+Un programa que use el formato B debe dejar sus sprites en la página 0 al salir: la ROM solo los limpia al arrancar, y las ROM alternativas ni eso.
+
+## Sprites extra
+
+POKE 2131,M añade M sprites más (0-127) a los 64 normales, de los dos formatos. No están en las tablas de POKE 2100: la entrada del extra j son los 32 bytes de la página j de la hoja (bloque\*8192 + j\*32), con los mismos campos que un sprite normal, y el programa los escribe como RAM:
+
+> +1 X (bits 0-7) +2 bit 0: X bit 8; bits 4-7: transparente +3 Y
+>
+> +4..+11 color de cada fila (A) +12..+19 píxel (A)
+>
+> +20..+27 máscara +29 página (0 = formato A)
+
+No tienen bit de activo: un extra con Y = 0 no se ve. Un extra de formato B no puede usar como celda su propia página. Tienen menos prioridad que los 64 normales y, entre ellos, gana el de número más bajo. POKE 2131 vuelve a 0 con el reset.
+
 ## Prioridad entre sprites solapados
 
-Si en un mismo píxel hay más de un sprite activo, gana el de índice más alto (el sprite 63 tapa al 0). No hay ningún otro control de orden de dibujado aparte del número de sprite.
+Si en un mismo píxel hay más de un sprite activo, gana el de índice más alto (el sprite 63 tapa al 0). No hay ningún otro control de orden de dibujado aparte del número de sprite. Los sprites extra quedan por debajo de todos los normales, y entre ellos gana el de número más bajo.
 
 ## Comandos BASIC
 
@@ -3637,11 +3702,23 @@ LOAD \*SPRMASK 0,\"070F1F1F3F3F1F1F\"
 
 Se usan 16 caracteres hex en vez de un único bloque de 48 (color+píxel+máscara juntos) precisamente para reducir el riesgo de error al escribir una cadena tan larga a mano.
 
+**LOAD \*SPRPAGE \<n\>,\<página\>** --- pone la página del sprite \<n\> (POKE 2130): 0 = formato A, otra = formato B con el gráfico en esa celda de la hoja.
+
+LOAD \*SPRPAGE 0,224
+
+**LOAD \*SPRBASE \<b\>** --- elige el bloque de 8 KB de las hojas del formato B (POKE 2129, 0-7).
+
+LOAD \*SPRBASE 3
+
 ## Capacidad
 
 El firmware actual soporta 64 sprites, con posicionamiento libre por píxel y color por fila, pero como máximo 12 de ellos pueden aparecer en una misma línea de pantalla. Si más de 12 sprites activos cortan la misma línea, en esa línea se dibujan los 12 de índice más alto y los demás no aparecen; en las líneas donde no coinciden se ven con normalidad. Es un límite parecido al de la NES (que tenía 8 por línea), y los programas que mueven muchos sprites juntos suelen rotar cuáles quedan fuera en cada imagen para que parpadeen en vez de desaparecer. Cuenta cualquier sprite activo que cruce la línea, esté donde esté en horizontal, y un sprite activo fuera de la pantalla también ocupa hueco: conviene desactivarlo (LOAD \*SPRITE n STOP). Un cambio en los datos de un sprite se ve a partir de la línea siguiente. Es una cifra fija para el usuario final \-\--depende del bitstream concreto de la FPGA que lleve instalado el interface\-\--, no algo configurable desde BASIC.
 
+Además del límite de 12, el hardware tiene un tiempo fijo en cada línea para preparar los sprites: mirar cada sprite cuesta un poco aunque no esté en esa línea, y cargar uno de formato B cuesta algo más que uno de formato A. Con los 64 normales siempre caben los 12; cada sprite extra resta tiempo en todas las líneas. Con 64 extra quedan garantizados 5 sprites B por línea (o 6-7 A); si no caben, en esa línea se pierden los de menos prioridad, es decir, los extra de número más alto. Conviene dar los números de extra bajos a lo que no debe desaparecer y usar los altos para cosas sueltas.
+
 El Scrabble (9.9) usa tres sprites (el cursor y dos flechas) y hace parpadear el cursor cambiando su máscara a 0, de modo que no borra ningún punto del fondo mientras está apagado.
+
+Ejemplos: EXAMPLES/SPRDBUF (los dos formatos en la misma línea, máscara, color transparente, el límite de 12 por línea y tres sprites extra) y EXAMPLES/SPRXTRA (arco iris animado de 15 colores en formato B, 64 sprites normales y hasta 64 extra en el modo de 160x100, con el límite de tiempo a la vista).
 
 # Apéndice I --- CP/M: un sistema operativo alternativo
 
@@ -4457,7 +4534,7 @@ Conectando el USB-C a un PC y abriendo un terminal serie (ver 15.4), todo lo ant
 
 ## Desde el navegador
 
-Con el módulo WiFi (ver 9.7), la página http://dirección-IP/debug, enlazada desde el servidor de ficheros como Debugger, muestra el depurador en paneles: desensamblado (clic en el margen para poner o quitar un punto de ruptura, doble clic en una línea para ejecutar hasta ella), registros y flags (clic para cambiar un registro), puntos de ruptura y de vigilancia, pila, volcado de memoria (clic en un byte para cambiarlo) y una consola con las mismas órdenes que la USB. Hace falta actualizar a la vez el firmware del MCU y el del módulo WiFi. Debajo de los paneles, Captura de pantalla (el botón Capture) dibuja en el navegador la imagen que el ZX81 está mostrando: para el programa un instante (del orden de décimas de segundo, según el modo), lee de la memoria de vídeo lo necesario y lo deja seguir. Es una foto, no vídeo: la velocidad del enlace no da para más. Dibuja el ZX81 nativo, el texto Superfast de 32, 70 y 80 columnas, HiRes y Spectrum, con el color de Chroma81, el scroll fino y los sprites (con su límite de 12 por línea, salvo en 70 y 80 columnas, donde los sprites no están implementados). Con el programa ya parado, la captura no lo hace seguir. Los modos que no reconoce, como WRX con la fuente en I, no los dibuja. El borde es el del Chroma81; con el modo Spectrum no se conoce y se dibuja igual. La orden cap de la consola hace la captura sin web (solo para probar). Si el programa usa un D_FILE alternativo (POKE 2096-2098), la captura trae también el del sistema y la casilla D_FILE alternativo elige cuál se dibuja con una FPGA anterior: el interface no puede saber en ese caso si la FPGA tiene activo el alternativo (un POKE 2045,85 lo apaga y volver a 170 no lo enciende), así que si la imagen sale mezclada hay que probar la otra opción. La casilla sprites los muestra u oculta; sin marcar antes de capturar, no se leen y la captura es más rápida. La línea de información de la captura dice si el estado del vídeo (modo, D_FILE y atributos alternativos, doble búfer) viene de la FPGA, que lo informa desde la versión de este paquete, o se ha deducido de los POKEs; si viene de la FPGA, la casilla queda desactivada porque no hay nada que elegir. Debajo de la captura hay un teclado del ZX81: haz clic en sus teclas (SHIFT se queda pulsado hasta la siguiente tecla) o marca «use my keyboard» para que las teclas de tu ordenador vayan al ZX81. Letras, cifras, ENTER, el punto y la barra espaciadora van directas; los símbolos se mandan con el SHIFT que les toque en el ZX81 (por ejemplo, las comillas son SHIFT+P), Retroceso es RUBOUT (SHIFT+0), las flechas son SHIFT+5 a SHIFT+8 y Escape es BREAK (SHIFT+SPACE). Las teclas llegan al ZX81 como si estuvieran pulsadas de verdad, también para la pantalla del depurador. Si la página deja de dar señales (se cierra, se pierde la conexión), el interface suelta todas las teclas al cabo de 1,5 segundos. Hace falta actualizar a la vez la FPGA, el firmware del MCU y el del módulo WiFi.
+Con el módulo WiFi (ver 9.7), la página http://dirección-IP/debug, enlazada desde el servidor de ficheros como Debugger, muestra el depurador en paneles: desensamblado (clic en el margen para poner o quitar un punto de ruptura, doble clic en una línea para ejecutar hasta ella), registros y flags (clic para cambiar un registro), puntos de ruptura y de vigilancia, pila, volcado de memoria (clic en un byte para cambiarlo) y una consola con las mismas órdenes que la USB. Hace falta actualizar a la vez el firmware del MCU y el del módulo WiFi. Debajo de los paneles, Captura de pantalla (el botón Capture) dibuja en el navegador la imagen que el ZX81 está mostrando: para el programa un instante (del orden de décimas de segundo, según el modo), lee de la memoria de vídeo lo necesario y lo deja seguir. Es una foto, no vídeo: la velocidad del enlace no da para más. Dibuja el ZX81 nativo, el texto Superfast de 32, 70 y 80 columnas, HiRes y Spectrum, con el color de Chroma81, el scroll fino y los sprites de los dos formatos y los extra (con su límite de 12 por línea, aunque no el de tiempo de los extra, salvo en 70 y 80 columnas, donde los sprites no están implementados). Con el programa ya parado, la captura no lo hace seguir. Los modos que no reconoce, como WRX con la fuente en I, no los dibuja. El borde es el del Chroma81; con el modo Spectrum no se conoce y se dibuja igual. La orden cap de la consola hace la captura sin web (solo para probar). Si el programa usa un D_FILE alternativo (POKE 2096-2098), la captura trae también el del sistema y la casilla D_FILE alternativo elige cuál se dibuja con una FPGA anterior: el interface no puede saber en ese caso si la FPGA tiene activo el alternativo (un POKE 2045,85 lo apaga y volver a 170 no lo enciende), así que si la imagen sale mezclada hay que probar la otra opción. La casilla sprites los muestra u oculta; sin marcar antes de capturar, no se leen y la captura es más rápida. La línea de información de la captura dice si el estado del vídeo (modo, D_FILE y atributos alternativos, doble búfer) viene de la FPGA, que lo informa desde la versión de este paquete, o se ha deducido de los POKEs; si viene de la FPGA, la casilla queda desactivada porque no hay nada que elegir. Debajo de la captura hay un teclado del ZX81: haz clic en sus teclas (SHIFT se queda pulsado hasta la siguiente tecla) o marca «use my keyboard» para que las teclas de tu ordenador vayan al ZX81. Letras, cifras, ENTER, el punto y la barra espaciadora van directas; los símbolos se mandan con el SHIFT que les toque en el ZX81 (por ejemplo, las comillas son SHIFT+P), Retroceso es RUBOUT (SHIFT+0), las flechas son SHIFT+5 a SHIFT+8 y Escape es BREAK (SHIFT+SPACE). Las teclas llegan al ZX81 como si estuvieran pulsadas de verdad, también para la pantalla del depurador. Si la página deja de dar señales (se cierra, se pierde la conexión), el interface suelta todas las teclas al cabo de 1,5 segundos. Hace falta actualizar a la vez la FPGA, el firmware del MCU y el del módulo WiFi.
 
 Abre la página con la IP del módulo (LOAD THEN PRINT \"\*IP\") mejor que con el nombre sd81booster.local: en algunos ordenadores el navegador tarda de 10 a 30 segundos en resolver el nombre en cada operación y las órdenes parecen lentas.
 

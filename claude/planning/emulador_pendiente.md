@@ -1,5 +1,7 @@
 # Lo que queda para el emulador (12 de octubre de 2026)
 
+> **7 de noviembre de 2026:** lo nuevo (sprites A y B, sprites extra y scroll de los modos 160) está en `sprites_scroll160_emulador.md`.
+
 Resumen de todo lo que ha cambiado en el SD81 Booster desde `hw_debugger_emulator.md` (4 de octubre,
 FPGA 0.13) y que el emulador tiene que imitar. El detalle de cada punto está en la sección o el
 documento que se indica; la referencia de cómo encaja todo es `claude/dbgharness/cosim.cpp`

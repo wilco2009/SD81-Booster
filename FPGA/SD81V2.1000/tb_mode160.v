@@ -20,6 +20,19 @@
 //     pulsos de cada pin, el borrado en los sincronismos, que apagarla deja de sacar c4, y que el modo 160 manda si los dos estan activos
 //////////////////////////////////////////////////////////////////////////////////
 module tb_mode160;
+	parameter VO = 0;		// scroll: fila de arriba (POKE 2072)
+	parameter VR = 0;		// filas del anillo (2073, 0 = 100)
+	parameter HO = 0;		// pixel de la izquierda (2074)
+	parameter HR = 0;		// bytes por fila (2075, 0 = 160)
+	function integer a8;		// direccion del pixel n de la fila de pantalla r con el scroll
+		input [2:0] blk; input integer r; input integer n;
+		integer hc, wc;
+		begin
+			hc = (VR != 0) ? VR : 100;
+			wc = (HR != 0) ? HR : 160;
+			a8 = {blk, 13'b0} + ((r + VO) % hc) * wc + (n + HO) % wc;
+		end
+	endfunction
 
 	// ---- relojes ----
 	reg clk = 1'b0;							// 26 MHz
@@ -68,7 +81,7 @@ module tb_mode160;
 	wire [15:0] lvl;
 	wire [15:0] lvl16;
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(5'd0), .win_last(5'd25), .m4(1'b0), .spr_hit(1'b0), .spr_x(), .spr_y(), .txt_en(1'b0), .txt_col(8'd0), .txt_font(5'd0), .spr_row_ok(),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(5'd0), .win_last(5'd25), .vofs(VO[7:0]), .vring(VR[7:0]), .hofs(HO[7:0]), .hring(HR[7:0]), .m4(1'b0), .spr_hit(1'b0), .spr_x(), .spr_y(), .txt_en(1'b0), .txt_col(8'd0), .txt_font(5'd0), .spr_row_ok(),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),
@@ -143,7 +156,7 @@ module tb_mode160;
 			if (line_cnt >= 58 && line_cnt < 258 && off >= 2 && off < 482 && ((off - 2) % 3) == 0) begin
 				n = (off - 2) / 3;
 				row = ly / 2;
-				exp_idx = mem[{base_blk, 13'b0} + row * 160 + n];
+				exp_idx = mem[a8(base_blk, row, n)];
 				exp_lvl = use_def ? def_pal(exp_idx[7:0]) : pal_model[exp_idx];
 				check(img_on === 1'b1, "img_on durante la ventana");
 				check(idx_cur === exp_idx[7:0], "indice del pixel");
@@ -171,8 +184,8 @@ module tb_mode160;
 		lvl_prev <= lvl;
 		if (geom_en && en && line_cnt >= 58 && line_cnt < 258) begin
 			row = (line_cnt - 58) / 2;
-			exp_first = use_def ? def_pal(mem[{base_blk, 13'b0} + row * 160]) : pal_model[mem[{base_blk, 13'b0} + row * 160]];
-			exp_last  = use_def ? def_pal(mem[{base_blk, 13'b0} + row * 160 + 159]) : pal_model[mem[{base_blk, 13'b0} + row * 160 + 159]];
+			exp_first = use_def ? def_pal(mem[a8(base_blk, row, 0)]) : pal_model[mem[a8(base_blk, row, 0)]];
+			exp_last  = use_def ? def_pal(mem[a8(base_blk, row, 159)]) : pal_model[mem[a8(base_blk, row, 159)]];
 			if (img_on && !img_prev) begin
 				edge_first = edge_first + 1;
 				check(lvl === exp_first, "primer ciclo de la imagen: nivel del primer pixel");
@@ -235,7 +248,7 @@ module tb_mode160;
 	initial begin
 		for (i = 0; i < 65536; i = i + 1) mem[i] = 8'hxx;
 		// imagen de prueba en el bloque 4 ($8000), 100 filas de 160 bytes; el resto, un valor distinto para ver lecturas de mas
-		for (i = 0; i < 16384; i = i + 1) mem[16'h8000 + i] = 8'h5A;
+		for (i = 0; i < 24576; i = i + 1) mem[16'h8000 + i] = (VR != 0 || HR != 0) ? ((i * 7 + i / 160) & 255) : 8'h5A;	// con anillo mayor, un patron (el de dentro se rellena abajo)
 		for (i = 0; i < 100; i = i + 1)
 			for (f = 0; f < 160; f = f + 1) mem[16'h8000 + i * 160 + f] = pix(i, f);
 		for (i = 0; i < 256; i = i + 1) pal_model[i] = 16'h0000;
@@ -284,6 +297,7 @@ module tb_mode160;
 		check(imgpix == 160 * 200, "pixeles con paleta cargada");
 
 		// ---- 3. otra base (bloque 2) y la misma imagen: las lecturas siguen a HFILE ----
+		for (i = 0; i < 24576; i = i + 1) mem[16'h4000 + i] = (i * 13 + i / 160) & 255;
 		for (i = 0; i < 100; i = i + 1)
 			for (f = 0; f < 160; f = f + 1) mem[16'h4000 + i * 160 + f] = pix(i + 31, f + 17);
 		base_blk = 3'd2;

@@ -55,7 +55,7 @@ module tb_mode160_spr;
 	wire row_ok;
 	wire [3:0] c4 = spr_pix;		// el camino normal con sprite_active_final: tinta = papel = indice del sprite
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .m4(M4[0]),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .vofs(8'd0), .vring(8'd0), .hofs(8'd0), .hring(8'd0), .m4(M4[0]),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(1'b0), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),

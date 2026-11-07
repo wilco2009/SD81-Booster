@@ -7,6 +7,10 @@
 module tb_mode160_4bpp;
 	parameter WF = 1;
 	parameter WL = 22;
+	parameter VO = 0;		// scroll: fila de arriba (POKE 2072)
+	parameter VR = 0;		// filas del anillo (2073, 0 = las de la ventana)
+	parameter HO = 0;		// pixel de la izquierda (2074)
+	parameter HR = 0;		// bytes por fila (2075, 0 = 80)
 	reg clk = 1'b0;  always #19.23 clk = ~clk;
 	reg clk104 = 1'b0;  always #2.4 clk104 = ~clk104;
 	reg [25:0] cnt26 = 26'd0;
@@ -40,7 +44,7 @@ module tb_mode160_4bpp;
 	wire img_on;
 	wire [15:0] lvl, lvl16;
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .m4(m4), .spr_hit(1'b0), .spr_x(), .spr_y(), .txt_en(1'b0), .txt_col(8'd0), .txt_font(5'd0), .spr_row_ok(),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .vofs(VO[7:0]), .vring(VR[7:0]), .hofs(HO[7:0]), .hring(HR[7:0]), .m4(m4), .spr_hit(1'b0), .spr_x(), .spr_y(), .txt_en(1'b0), .txt_col(8'd0), .txt_font(5'd0), .spr_row_ok(),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(1'b0), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),
@@ -70,9 +74,14 @@ module tb_mode160_4bpp;
 	function [3:0] nib;		// pixel x de la fila r
 		input integer r; input integer x;
 		reg [7:0] b;
+		integer hc, wc, m, q;
 		begin
-			b = mem[{base_blk, 13'b0} + r * 80 + x / 2];
-			nib = (x % 2 == 0) ? b[7:4] : b[3:0];
+			hc = (VR != 0) ? VR : (WL - WF) * 8;
+			wc = (HR != 0) ? HR : 80;
+			m = (r + VO) % hc;
+			q = (x + HO) % (2 * wc);
+			b = mem[{base_blk, 13'b0} + m * wc + q / 2];
+			nib = (q % 2 == 0) ? b[7:4] : b[3:0];
 		end
 	endfunction
 
@@ -111,9 +120,8 @@ module tb_mode160_4bpp;
 
 	integer rr, cc;
 	initial begin
-		for (rr = 0; rr < 200; rr = rr + 1)
-			for (cc = 0; cc < 80; cc = cc + 1)
-				mem[{3'd4, 13'b0} + rr * 80 + cc] = (rr * 37 + cc * 11 + (rr >> 3)) & 255;
+		for (rr = 0; rr < 24576; rr = rr + 1)		// bloques 4 a 6, para cualquier anillo
+			mem[{3'd4, 13'b0} + rr] = ((rr / 80) * 37 + (rr % 80) * 11 + (rr / 640) + (rr / 16384) * 101) & 255;
 		for (i = 0; i < 16; i = i + 1) pm[i] = {4'(i), 4'(15 - i), 4'(i ^ 5), 4'(i * 3)};	// {BRIGHT,R | G,B} distinto por indice
 		repeat (8) @(posedge clk);
 		rst = 0;
@@ -128,7 +136,7 @@ module tb_mode160_4bpp;
 		pc_chk = 1;
 		wait (line_cnt == 270);
 		pc_chk = 0;
-		$display("pixeles comprobados %0d (esperados %0d), bordes %0d/%0d, comprobaciones %0d, errores %0d", imgpix, 200*160, edges_f, edges_l, checks, errors);
+		$display("VO=%0d VR=%0d HO=%0d HR=%0d WF=%0d WL=%0d: pixeles comprobados %0d (esperados %0d), bordes %0d/%0d, comprobaciones %0d, errores %0d", VO, VR, HO, HR, WF, WL, imgpix, 200*160, edges_f, edges_l, checks, errors);
 		if (errors == 0 && imgpix == 32000 && edges_f == 200 && edges_l == 200) $display("OK"); else $display("FALLO");
 		$finish;
 	end

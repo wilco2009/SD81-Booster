@@ -115,3 +115,21 @@ Diseño y razones: `SCUMM/AGI/ESTUDIO_160x168.md`. El 8 bpp (`2045,175`) no camb
 - `EXAMPLES/COLORTEST` (`COLORTEST.B81`): la tecla `P` recorre las paletas de 16 (gris, rojo, verde, azul, amarillo, cian, magenta y desactivada): con una rampa puesta, cada muestra se ve en tonos
   de ese color y los colores con brillo (8-15) quedan más claros que los normales (0-7).
 - Los bancos de prueba de la FPGA (`tb_mode160.v`) y los arneses del PC (`claude/mqtttest/build_mode160.sh`, `build_colortest.sh`, `build_photo.sh`) dicen qué ejecuta el Z80 y qué se espera de la FPGA.
+
+## 6. Scroll en anillo de los modos 160 (`POKE 2072-2075`, rama `fpga-sprites-hoja`, 7/11/2026)
+
+Simulado en ModelSim (`tb_mode160.v` y `tb_mode160_4bpp.v` con `-GVO -GVR -GHO -GHR`), **sin sintetizar del todo ni probar en la placa** al escribir esto. Vale para el 175 (8 bpp) y el 176 (4 bpp). A 0 los cuatro (el reset), todo es como antes.
+
+| POKE | Función |
+|---|---|
+| `2072,v` | `vofs`: fila de la imagen que sale en la primera fila de la pantalla (0 a `hc`-1) |
+| `2073,n` | `vring`: filas del anillo, `hc`. 0 = las visibles (100 en 8 bpp; `8*(win_last-win_first)` en 4 bpp). Tiene que ser **al menos** las visibles |
+| `2074,p` | `hofs`: píxel de la imagen que sale en la primera columna (0 a píxeles del anillo - 1; en 4 bpp, impar = medio byte) |
+| `2075,w` | `hring`: bytes por fila del anillo, `wc`. 0 = 160 (8 bpp) u 80 (4 bpp) |
+
+- La imagen es un anillo de `hc` filas de `wc` bytes desde `{HFILE[15:13],13'b0}`: la fila `f` empieza en `base + f*wc`.
+- **8 bpp:** el píxel `x` (0-159) de la fila de pantalla `r` (0-99) es el byte `base + ((r + vofs) mod hc)*wc + ((x + hofs) mod wc)`.
+- **4 bpp:** la fila de pantalla `r` es la fila de la imagen `r` de la ventana; su píxel `x` es el nibble `q = (x + hofs) mod (2*wc)` de la fila `(r + vofs) mod hc`: byte `q/2`, nibble alto si `q` es par.
+- Con `hc` o `wc` mayores que lo visible quedan filas o columnas ocultas en las que el Z80 prepara lo que va a entrar. El anillo puede pasar de 16 KB (sigue en los bloques siguientes).
+- **Texto (4 bpp):** los códigos van detrás del anillo, en `base + hc*wc` (sin scroll, `base + (win_last-win_first)*640`, como antes). El texto y los sprites no se mueven con el scroll.
+- Sin latch: el valor cuenta desde la línea siguiente a la escritura (cambiarlo en el VSYNC).

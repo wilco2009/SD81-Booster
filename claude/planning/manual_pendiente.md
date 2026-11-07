@@ -62,6 +62,8 @@ versión (todavía sin publicar)»: **quitarla al publicar la FPGA**. El `PONG` 
 - Para las **notas de la release** (no van al manual): el tempo del VGM (la música iba lenta por retrasos acumulados, arreglado), el sondeo del ESP32 cada 3 ms con datos y 15 ms en reposo, y los comandos 66 y 67 sin log por USB.
 - Si cambia el aspecto del 4 en raya tras probarlo en el emulador, rehacer la captura (`DOC/img/connect4_win.png`).
 
+- **Scroll en anillo de los modos 160x100 y 160x200 (7/11/2026, rama `fpga-sprites-hoja`, sin probar en la placa)**: `POKE 2072` fila de arriba, `2073` filas del anillo (0 = las visibles), `2074` píxel de la izquierda (en 4 bpp, impar = medio byte), `2075` bytes por fila (0 = 160 u 80). Con filas o columnas de más, el programa prepara lo que entra sin que se vea. En 4 bpp los códigos del texto van detrás del anillo y el texto no se mueve. Detalle en `claude/planning/mode160_emulador.md` §6. Programa de prueba: `EXAMPLES/SCRL160`. Pendiente: guardarlos en los snapshots del depurador (DEBUGGER.cpp) y el emulador.
+
 ## Para cada release
 
 - Fila nueva en el historial de versiones (ES y EN), con la versión de cada parte (STM32, ROM, FPGA, WiFi).

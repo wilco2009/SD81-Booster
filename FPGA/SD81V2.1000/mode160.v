@@ -33,6 +33,12 @@
 // Sprites (4 y 8 bpp): spr_x / spr_y / spr_row_ok sustituyen a la posicion que usa el motor de sprites (sprite_engine.v) y el pixel
 // del sprite (spr_hit, indice en c4) pisa al del fondo y sale de pal16; coordenadas del sprite = pixel de la imagen + 32 (4 bpp: la fila 0 es la
 // primera de la ventana; 8 bpp: filas de 2 lineas, 100 filas).
+// Scroll en anillo (8 y 4 bpp): la imagen es un anillo de hc filas de wc bytes desde base (hc = POKE 2073, 0 = las filas visibles;
+// wc = POKE 2075, 0 = 160 u 80). La fila de pantalla r sale de la fila (r + vofs) mod hc (vofs = POKE 2072) y el pixel x de la
+// columna (x + hofs) mod (pixeles de wc) de esa fila (hofs = POKE 2074, en pixeles; en 4 bpp un hofs impar desplaza medio byte).
+// Con un anillo mayor que lo visible (filas o columnas de mas) el Z80 prepara lo que va a entrar sin que se vea. Sin tocar nada
+// (los cuatro a 0) todo es como antes. En 4 bpp los codigos del texto van detras del anillo (base + hc*wc) y el texto no se mueve.
+// La fila del anillo por su ancho se multiplica en un DSP48A1.
 //
 // El motor lee la sombra por el puerto B (v_addr), un byte por pixel, con un pixel de adelanto.
 module mode160 (
@@ -67,6 +73,11 @@ module mode160 (
 	input txt_en,				// 4 bpp: plano de texto 40x25 activo (POKE 2069)
 	input [7:0] txt_col,		// color del texto: {papel[3:0], tinta[3:0]} (indices de pal16) (POKE 2068)
 	input [4:0] txt_font,		// 4 bpp: bits 15..11 de la tabla de caracteres (ROMTABLE[15:11], 256 caracteres)
+	// scroll en anillo (ver la cabecera): fila y columna de la imagen que salen arriba a la izquierda, y tamano del anillo
+	input [7:0] vofs,			// POKE 2072: fila de la imagen que sale en la primera de la pantalla (0 .. filas del anillo - 1)
+	input [7:0] vring,			// POKE 2073: filas del anillo (0 = las visibles: 100, o las de la ventana en 4 bpp)
+	input [7:0] hofs,			// POKE 2074: pixel de la imagen que sale en la primera columna (0 .. pixeles del anillo - 1)
+	input [7:0] hring,			// POKE 2075: bytes por fila del anillo (0 = 160 en 8 bpp, 80 en 4 bpp)
 	output reg vred,
 	output reg vgreen,
 	output reg vblue,
@@ -147,15 +158,26 @@ module mode160 (
 	wire m4e = m4 & en;
 	wire img_ln = (ly[7:3] >= win_first) && (ly[7:3] < win_last);	// 4 bpp: la fila de texto de esta linea esta en la ventana de imagen
 	wire [7:0] ipic = {ly[7:3] - win_first, ly[2:0]};				// 4 bpp: fila de la imagen
-	wire [7:0] row = m4e ? ipic : {ly[7:1], 1'b0};				// 4 bpp: una fila por linea; 8 bpp: cada fila se repite en dos lineas
-	wire [13:0] rowoff = {row, 6'b0} + {row, 4'b0};				// fila * 80 (8 bpp: fila_doble * 80 = fila * 160)
-	wire [15:0] rowbase = {base_blk, 13'b0} + {2'b0, rowoff};
+	wire [7:0] rdisp = m4e ? ipic : {1'b0, ly[7:1]};				// fila de pantalla: 4 bpp, una por linea; 8 bpp, cada una se repite en dos lineas
+	// Scroll en anillo: la fila de pantalla r es la fila (r + vofs) mod hc de la imagen, que empieza en base + fila * wc
+	wire [4:0] nrows = win_last - win_first;						// filas de texto con imagen
+	wire [7:0] hc = (vring != 8'd0) ? vring : (m4e ? {nrows, 3'b0} : 8'd100);
+	wire [7:0] wc = (hring != 8'd0) ? hring : (m4e ? 8'd80 : 8'd160);
+	wire [8:0] rs = {1'b0, rdisp} + {1'b0, vofs};
+	wire [9:0] rsw = {1'b0, rs} - {2'b0, hc};
+	reg [7:0] mrow = 8'd0;
+	(* mult_style = "block" *) wire [15:0] rowoff = mrow * wc;		// en un DSP48A1
+	(* mult_style = "block" *) wire [15:0] imgsize = hc * wc;		// bytes del anillo
+	wire [15:0] rowbase = {base_blk, 13'b0} + rowoff;
+	wire hp = m4e & hofs[0];											// 4 bpp con hofs impar: medio byte de desplazamiento
+	reg [7:0] col = 8'd0;												// byte de la fila que se pide ahora (vuelve a 0 en wc)
+	wire [7:0] col1 = col + 8'd1;
+	reg [7:0] idx_prev = 8'd0;											// 4 bpp con hp: el byte anterior (su nibble bajo sale en los pixeles impares)
+	reg [15:0] tbase = 16'd0;
 	wire [9:0] x_arm = x_start - (m4e ? 10'd16 : 10'd4);		// 4 bpp: cuatro pixeles mas pronto, para pedir el texto de la primera celda
 	wire te = txt_en & m4e;
 	wire [4:0] trow = ly[7:3];
 	wire [9:0] trowoff = {trow, 5'b0} + {2'b0, trow, 3'b0};		// fila de texto * 40
-	wire [4:0] nrows = win_last - win_first;						// filas de texto con imagen
-	wire [15:0] tbase = {base_blk, 13'b0} + {1'b0, nrows, 9'b0} + {3'b0, nrows, 7'b0};		// base + nrows*640: los codigos van detras de la imagen
 	wire [15:0] gaddr = {txt_font, tcode, ly[2:0]};
 	wire txt_on = te & img_on & cact;
 	wire tg = gsh[7] ^ cinv;
@@ -167,6 +189,8 @@ module mode160 (
 		pc_d <= pixel_cnt;
 		tick <= (pixel_cnt != pc_d);
 		ev_d <= ev;
+		mrow <= rsw[9] ? rs[7:0] : rsw[7:0];		// (r + vofs) mod hc, con vofs < hc
+		tbase <= {base_blk, 13'b0} + imgsize;		// 4 bpp: los codigos del texto van detras del anillo (sin scroll, base + filas*640)
 		if (rst | ~en) begin
 			run <= 1'b0;
 			img_on <= 1'b0;
@@ -179,6 +203,7 @@ module mode160 (
 						sub <= 2'd0;
 						pcnt <= m4e ? 8'd252 : 8'd0;		// 4 bpp: -4 .. -1 pide solo texto
 						ptr <= rowbase;
+						col <= m4e ? {1'b0, hofs[7:1]} : hofs;
 						tptr <= tbase + {6'b0, trowoff};
 					end
 				end else begin
@@ -193,9 +218,9 @@ module mode160 (
 				end
 			end
 			if (ev) begin
-				if (pcnt <= 8'd159 && !(m4e && (pcnt[0] || !img_ln))) begin		// pedir el pixel siguiente (4 bpp: un byte cada dos pixeles, solo en las filas de imagen)
-					v_addr <= ptr;
-					ptr <= ptr + 16'd1;
+				if ((pcnt <= 8'd159 && !(m4e && (pcnt[0] || !img_ln))) || (hp && img_ln && pcnt == 8'd254)) begin		// pedir el pixel siguiente (4 bpp: un byte cada dos pixeles, solo en las filas de imagen; con hp, uno mas antes)
+					v_addr <= ptr + {8'd0, col};
+					col <= (col1 == wc) ? 8'd0 : col1;
 					rd_pend <= 1'b1;
 					sc <= 3'd0;
 				end else if (te && pcnt[0] && (pcnt >= 8'd250 || pcnt <= 8'd155)) begin		// hueco impar: codigo (4k-3) y fila de glifo (4k-1) de la celda k
@@ -214,7 +239,7 @@ module mode160 (
 					gph <= 1'b0;
 				end
 				if (pcnt >= 8'd1) begin
-					idx_cur <= m4e ? {4'd0, img_ln ? (pcnt[0] ? idx_next[7:4] : idx_next[3:0]) : border} : idx_next;
+					idx_cur <= m4e ? {4'd0, img_ln ? (hp ? (pcnt[0] ? idx_prev[3:0] : idx_next[7:4]) : (pcnt[0] ? idx_next[7:4] : idx_next[3:0])) : border} : idx_next;
 					spr_x <= (pcnt == 8'd1) ? 9'd32 : spr_x + 9'd1;		// coordenada del pixel que entra en idx_cur
 				end
 				if (pcnt == 8'd1) img_on <= 1'b1;
@@ -229,7 +254,10 @@ module mode160 (
 					if (m4e && pcnt[0]) begin
 						if (pcnt[1]) tglyph <= v_dout;
 						else tcode <= v_dout;
-					end else idx_next <= v_dout;
+					end else begin
+						idx_prev <= idx_next;
+						idx_next <= v_dout;
+					end
 					rd_pend <= 1'b0;
 				end
 			end

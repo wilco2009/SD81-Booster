@@ -713,6 +713,25 @@ Port $7FEF (01111111 11101111) - IN:
 			if (txt_ctl_wr) txt_en <= data[0];
 		end
 	end
+	// POKE 2072-2075: scroll en anillo de los modos 160 (ver mode160.v): 2072 fila de arriba, 2073 filas del anillo (0 = las visibles),
+	// 2074 pixel de la izquierda, 2075 bytes por fila del anillo (0 = 160 / 80). A 0 tras el reset: sin scroll.
+	reg [7:0] m160_vofs = 8'd0, m160_vring = 8'd0, m160_hofs = 8'd0, m160_hring = 8'd0;
+	wire m160_scr_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr[15:2]==14'd518);	// 2072..2075
+	always @(negedge iclock or negedge nRESET) begin
+		if (nRESET==1'b0) begin
+			m160_vofs <= 8'd0;
+			m160_vring <= 8'd0;
+			m160_hofs <= 8'd0;
+			m160_hring <= 8'd0;
+		end else if (m160_scr_wr) begin
+			case (Addr[1:0])
+				2'd0: m160_vofs <= data;
+				2'd1: m160_vring <= data;
+				2'd2: m160_hofs <= data;
+				default: m160_hring <= data;
+			endcase
+		end
+	end
 	// POKE 2099 (0-15): posicion horizontal de la imagen del modo 160x100, en ciclos de 13 MHz (3 por pixel); por defecto 8
 	reg [3:0] m160_xadj = 4'd8;
 	wire m160_xadj_wr = !blk0_ram && !PORTS_LOCKED && (nMREQ==1'b0) && (nWR==1'b0) && (Addr==16'd2099);
@@ -1938,6 +1957,7 @@ assign DEBUG_RDY = 1'b0;
 		.clk(system_clk), .clk104(CLK104), .rst(~nRESET), .en(sf160_en), .m4(sf160_4bpp), .win_first(win_first), .win_last(win_last),
 		.spr_hit(sprite_hit), .spr_x(m160_spr_x), .spr_y(m160_spr_y), .spr_row_ok(m160_row_ok),
 		.txt_en(txt_en), .txt_col(txt_col), .txt_font(ROMTABLE[15:11]),
+		.vofs(m160_vofs), .vring(m160_vring), .hofs(m160_hofs), .hring(m160_hring),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(SCR_START_X_80 + 10'd36 + {6'b0,m160_xadj}), .base_blk(HFILE[15:13]),
 		.v_dout(v_dout), .v_addr(v_addr_160),
 		.wclk(iclock), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(pal_hi_wr), .pal16_hi_wr(pal16_hi_wr), .wdata(data),

@@ -8,6 +8,9 @@ module tb_mode160_txt;
 	parameter WF = 1;
 	parameter WL = 22;
 	parameter GOFF = 2;
+	parameter VO = 0, VR = 0, HO = 0, HR = 0;	// scroll en anillo (POKE 2072-2075)
+	localparam HCX = (VR != 0) ? VR : (WL - WF) * 8;
+	localparam WCX = (HR != 0) ? HR : 80;
 	reg clk = 1'b0;  always #19.23 clk = ~clk;
 	reg clk104 = 1'b0;  always #2.4 clk104 = ~clk104;
 	reg [25:0] cnt26 = 26'd0;
@@ -37,14 +40,14 @@ module tb_mode160_txt;
 	reg [2:0] base_blk = 3'd4;
 	localparam [9:0] XS = 10'd246;
 	localparam [4:0] FONT = 5'd4;				// tabla de caracteres en $2000 (ROMTABLE[15:11])
-	localparam [15:0] CODES = 16'h8000 + (WL - WF) * 640;		// codigos detras de la imagen
+	localparam [15:0] CODES = 16'h8000 + HCX * WCX;		// codigos detras del anillo (sin scroll, detras de la imagen)
 	localparam [7:0] TCOL = 8'h3C;				// papel 3, tinta 12
 	reg pal16_hi_wr = 1'b0, pal_idx_wr = 1'b0, pal_lo_wr = 1'b0;
 	reg [7:0] wdata = 8'd0;
 	wire img_on;
 	wire [15:0] lvl16;
 	mode160 dut (
-		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .m4(1'b1),
+		.clk(clk), .clk104(clk104), .rst(rst), .en(en), .win_first(WF), .win_last(WL), .vofs(VO[7:0]), .vring(VR[7:0]), .hofs(HO[7:0]), .hring(HR[7:0]), .m4(1'b1),
 		.pixel_cnt(pixel_cnt), .line_cnt(line_cnt), .x_start(XS), .base_blk(base_blk),
 		.v_dout(v_dout), .v_addr(v_addr),
 		.wclk(iclk), .pal_idx_wr(pal_idx_wr), .pal_lo_wr(pal_lo_wr), .pal_hi_wr(1'b0), .pal16_hi_wr(pal16_hi_wr), .wdata(wdata),
@@ -75,9 +78,11 @@ module tb_mode160_txt;
 	function [3:0] nib;
 		input integer r; input integer x;
 		reg [7:0] b;
+		integer q;
 		begin
-			b = mem[{base_blk, 13'b0} + r * 80 + x / 2];
-			nib = (x % 2 == 0) ? b[7:4] : b[3:0];
+			q = (x + HO) % (2 * WCX);
+			b = mem[{base_blk, 13'b0} + ((r + VO) % HCX) * WCX + q / 2];
+			nib = (q % 2 == 0) ? b[7:4] : b[3:0];
 		end
 	endfunction
 
@@ -120,9 +125,8 @@ module tb_mode160_txt;
 	integer rr, cc, s, seed;
 	initial begin
 		seed = 5;
-		for (rr = 0; rr < 200; rr = rr + 1)
-			for (cc = 0; cc < 80; cc = cc + 1)
-				mem[{3'd4, 13'b0} + rr * 80 + cc] = (rr * 37 + cc * 11 + (rr >> 3)) & 255;
+		for (rr = 0; rr < 24576; rr = rr + 1)		// bloques 4 a 6, para cualquier anillo (los codigos se escriben despues)
+			mem[{3'd4, 13'b0} + rr] = ((rr / 80) * 37 + (rr % 80) * 11 + (rr / 640)) & 255;
 		for (s = 0; s < 2048; s = s + 1) mem[{FONT, 11'b0} + s] = $random(seed);
 		for (s = 0; s < 1000; s = s + 1)
 			mem[CODES + s] = ($random(seed) & 3) == 0 ? ($random(seed) & 31) : ($random(seed) & 8'hFF);

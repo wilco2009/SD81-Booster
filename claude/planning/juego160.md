@@ -1,0 +1,321 @@
+# Juego para el modo 160x100 a 256 colores: matamarcianos vertical
+
+Decidido el 2026-11-07 con el usuario, entre cinco candidatos (matamarcianos vertical, plataformas en 8 direcciones,
+rally/cueva sobre una imagen grande, captura de área sobre un JPG y artillería en red). **Elegido: matamarcianos vertical.**
+Juego original: solo el género es conocido; sin nombres, personajes ni gráficos de ningún juego concreto.
+
+**Nombre provisional:** `ESTELA` (carpeta `EXAMPLES/ESTELA`, sin "_"). Se puede cambiar antes de la fase 1.
+
+**Estado:** fases 0 y 1 hechas y probadas en la placa (2026-11-08); la 2 sin empezar. Detalle por fase en el §11.
+
+---
+
+## 1. Lo que da el hardware (resumen con números)
+
+Fuentes: `FPGA/SD81V2.1000/mode160.v`, `sprite_engine.v`, `sprites_scroll160_emulador.md`, `mode160_emulador.md`,
+`pdm_color.md`, Apéndices D, F, G y H del manual, `EXAMPLES/SPRXTRA` y `EXAMPLES/SCRL160`.
+
+| Tema | Dato |
+|---|---|
+| Modo | `POKE 2045,175`: 160x100, 1 byte por píxel = índice de la paleta de 256. Cada fila sale en 2 líneas de TV (líneas 58-257) |
+| Paleta de 256 | 4 densidades por entrada (R, G, B, BRIGHT; `POKE 2063/2064/2065`). Límite: canal más alto - más bajo <= 0,455 V (los primarios brillantes salen algo lavados). Ciclarla cuesta 3 escrituras por entrada |
+| Borde | 4 bits de Chroma (`$7FEF`), no pasa por ninguna paleta |
+| Scroll en anillo | `POKE 2072` fila de arriba, `2073` filas del anillo, `2074` píxel de la izquierda, `2075` bytes por fila. Sin latch: escribirlos en el VSYNC |
+| Lo que NO hay en 8 bpp | doble buffer, blit, texto de 40x25. Marcador: con sprites o con bandas fijas del anillo (ver 3) |
+| Sprites | 8x8 píxeles de imagen, coordenadas = píxel + 32 (X 32-191, Y 32-131). 64 normales + 0-127 extra. No se mueven con el scroll |
+| Color de los sprites | paleta de 16 (`pal16`, `POKE 2063/2064/2066`), común a todos e independiente de la de 256. Un transparente por sprite (nibble alto de 2103) y máscara por fila: 15 colores visibles |
+| Formato B | celda de 32 bytes (8 filas x 4 bytes, nibble alto = píxel de la izquierda) en `bloque*8192 + página*32`. Bloque de la hoja: `POKE 2129` (2-7). Animar = cambiar la página (`POKE 2130`) |
+| Límite por línea | K = 12 y 171 pasos: 2 + 1 por sprite mirado (64 normales siempre + M extra) + 8 por cada B cargado (6 por A). B garantizados = mín(12, (105 - M) / 8): M <= 9 → 12; 17 → 11; 33 → 9; 64 → 5 |
+| Prioridad | el normal de índice más alto gana y se carga primero; los extra van por debajo (gana el de número más bajo) |
+| Z80 | 3,25 MHz, ~64.600 T por imagen (312 líneas de ~207 T) |
+| Costes | mover el scroll: gratis. Una fila nueva de 160 B: ~3.300-4.000 T. Una columna de 100 B: ~3.000 T. Redibujar la pantalla: ~336.000 T (5 imágenes): **nunca durante el juego**. Mover un sprite normal por la ventana de POKEs: ~80 T |
+| Borrado vertical | entre el VSYNC y la línea 58 hay ~58 líneas (~12.000 T) sin imagen: ahí van el scroll, los sprites y la paleta. **A medir en la placa** |
+| Sonido | 2 AY (ZonX), VGM en segundo plano tocado por el MCU (sin CPU), efectos PEG, voz (`LOAD *SAY`) |
+| Mandos | teclado; DB9 mapeado a teclas con `LOAD *JOY` |
+| Memoria paginada | SRAM de 256/512 KB en páginas de 8 KB (puerto `E7h`). En los modos del SD81 los bloques 6 y 7 son libres: lo de que el 6 y el 7 espejen el 2 y el 3 es solo para el vídeo nativo del ZX81. El espejo de la FPGA solo copia lo que **escribe** el Z80: paginar no cambia lo que se ve |
+| Espacio para código | `$0000-$7FFF` (32 KB) es del juego. El bloque 0 es de solo lectura: se copia el código a otra página (mapeada en otro bloque) y después se mapea esa página en el bloque 0 (corrección del usuario, 2026-11-07) |
+| Imágenes | `.I16`: "I160" + 512 B de paleta + 16.000 B de píxeles en bruto (160x100 a 8 bpp). Se carga mucho más deprisa que un JPG (que el MCU tiene que decodificar): es el formato para el juego |
+
+---
+
+## 2. Concepto
+
+Nave que sube por un escenario que pasa por debajo (scroll vertical por hardware), con oleadas de enemigos en formación,
+enemigos de tierra que se mueven con el fondo, disparos de los dos lados, mejoras de arma y un jefe al final de cada nivel.
+
+- **Lo que luce del hardware:** el fondo es un mosaico de tiles de 16x16 a 256 colores (degradados, texturas, luces),
+  con **agua, lava y luces animadas ciclando la paleta**, sin tocar un píxel. Nave y enemigos de 16x16 en formato B con
+  15 colores cada uno, animados cambiando la página. Música VGM en segundo plano y voz para los avisos.
+- **Zona de juego:** 128x100 píxeles en el centro (x 16-143), con dos **paneles laterales de 16 píxeles** que son iguales
+  en todas las filas: aunque el anillo se mueva en vertical, se ven quietos. Los números y los iconos del marcador son
+  sprites encima de los paneles (los sprites no se mueven con el scroll).
+- **Velocidad del scroll:** 1 px por imagen (50 px/s, la pantalla en 2 s) o 1 px cada 2 imágenes, según el nivel. Dos
+  filas ocultas en el anillo para poder dar acelerones de 2 px por imagen.
+- **Controles:** O P Q A + tecla de disparo y de bomba, configurables; DB9 con `LOAD *JOY`.
+
+---
+
+## 3. Mapa de memoria (propuesta, a confirmar en la fase 0)
+
+| Zona | Uso |
+|---|---|
+| `$0000-$3FFF` (bloques 0 y 1) | **reserva de código** si no cabe abajo: el código se copia a una página libre (mapeada en otro bloque) y esa página se mapea en el bloque 0 (solo lectura) o en el 1. Mientras tanto no hay ROM: nada de rutinas de la ROM (el diálogo con el MCU con código propio), `DI`, y al salir se devuelven las páginas 0 y 1 |
+| `$0C00`, `$1800` (sombra) | tablas de los 64 sprites, por la ventana de POKEs (`POKE 2100-2131`). Con otra página en el bloque 0 no cambian: viven en la sombra, y la página de código no se escribe |
+| `$4000-~$47FF` | variables del sistema, cargador BASIC (`.B81`) y D-FILE. `CLEAR 18431` |
+| `$4800-$5FFF` | código (6 KB) |
+| `$6000-$60FF` | entradas de hasta 8 sprites extra (páginas 0-7 de la hoja), si se usan. Si M = 0, código |
+| `$6100-$6FFF` | código y datos (3,75 KB): trayectorias, oleadas del nivel en curso, mapa del nivel, variables |
+| `$7000-$7FFF` | **hoja de los sprites** (`POKE 2129,3`): celdas de las páginas 128-255 (128 celdas de 8x8 a 4 bpp) |
+| `$8000-$BFBF` | **anillo** de 160 x 102 = 16.320 B (`HFILE = $8000`, `POKE 2073,102`, `2075` a 0 = 160). 2 filas ocultas |
+| `$C000-$FE7F` | **tileset del nivel**: los 16.000 píxeles de un `.I16` (bloques 6 y 7, libres en los modos del SD81) |
+| `$FE80-$FFFF` | libre (384 B) |
+
+- **Tileset = un `.I16`:** una imagen de 160x100 son 10 x 6 = **60 tiles de 16x16** (filas 0-95; las 4 últimas, libres).
+  El tile `t` empieza en `$C000 + (t / 10) * 16 * 160 + (t mod 10) * 16`, con 160 bytes de una fila a la siguiente.
+  La paleta del `.I16` es la del nivel. Sin paginar nada durante el juego.
+- **Pintar una fila:** 8 tiles x 16 bytes con LDI (~2.600 T) y los 32 bytes de los paneles (~700 T): unos **3.300 T por
+  fila**, el 5 % de la imagen.
+- **Mapa del nivel:** 8 tiles de ancho; un nivel de 3 minutos a 25 px/s son ~280 filas de tiles, ~2,3 KB.
+- **Cambio de nivel:** el Z80 lee el `.I16` del nivel de la SD (protocolo del MCU), carga la paleta y deja los píxeles en
+  `$C000`. Lo mismo para la pantalla de título (directamente al anillo, en `$8000`).
+- El código ejecutable no pasa de `$8000` (comprobación de tamaño en `compila.bat`, como en el ajedrez). Código estimado:
+  8-10 KB, que caben en `$4800-$6FFF`. Si se pasa, al bloque 1 o al 0 (fila de arriba).
+- Los 512 KB paginados quedan para lo que sobre (más niveles en memoria, música, etc.).
+
+---
+
+## 4. Sprites
+
+### 4.1 Reparto de los 64 normales (índice más alto = más prioridad y se carga antes)
+
+| Índices | Uso | Huecos por línea |
+|---|---|---|
+| 63-54 | marcador: 6 cifras (2 columnas x 3 filas en el panel izquierdo), vidas y bombas (panel derecho) | 2 en las filas del marcador |
+| 53-50 | nave del jugador (16x16) | 2 |
+| 49-42 | balas enemigas (8x8) | según el reparto |
+| 41-34 | balas del jugador (8x8) | normalmente 1-2 (salen en columna) |
+| 33-0 | enemigos (8 de 16x16 = 32 sprites), explosiones y mejoras | 2 por enemigo |
+
+- **Extra:** M = 0 al principio. Si hace falta más (partículas, más balas), hasta M = 9 se mantienen los 12 B por línea.
+- **Regla de diseño de las oleadas:** como mucho 3 enemigos de 16x16 en la misma franja de 16 filas
+  (6 huecos + 2 del marcador + 2 de la nave + 2 de balas = 12).
+- **Si se pasa:** el motor pierde los de menos prioridad (los enemigos de índice bajo) en esas líneas. Opción de la
+  fase 5: rotar los índices de los enemigos en cada imagen, para que parpadeen en vez de desaparecer.
+- **Jefe:** 32x24 = 12 sprites (4 por línea) usando los índices de los enemigos.
+
+### 4.2 Hoja (128 celdas, páginas 128-255 del bloque 3)
+
+| Gráfico | Celdas |
+|---|---|
+| Nave: 3 inclinaciones x 4 | 12 |
+| Llama del motor (2 fases), si va aparte | 2-4 |
+| Enemigos: 6 tipos x 2 fases x 4 | 48 |
+| Explosión: 4 fases x 4 | 16 |
+| Balas (jugador y enemigas, 2 tipos cada una) | 4 |
+| Cifras 0-9 | 10 |
+| Iconos (vida, bomba) y mejoras (3) | 5 |
+| Jefe (32x24, 2 fases) | 24 |
+| **Total** | **~121 de 128** |
+
+- **Paleta de 16 de los sprites:** el 0 es el transparente en todos los sprites (nibble alto de 2103 a 0). Los otros 15
+  se eligen para nave, enemigos y fuego (grises metálicos, azul, rojos y verdes, amarillo y naranja, blanco) y se
+  calculan con `solve` de `pal160.py`. Es independiente de la de 256 del fondo.
+
+---
+
+## 5. Fondo y scroll
+
+- **Anillo de 102 filas:** `vofs` (`POKE 2072`) baja de uno en uno (la nave sube). La fila que va a entrar por arriba es
+  `(vofs - 1) mod 102`, oculta; se pinta antes de mover. Con 2 filas ocultas se pueden dar 2 px en una imagen.
+- **Paneles:** los 16 primeros y los 16 últimos bytes de cada fila son siempre iguales (bandas verticales):
+  se ven quietos.
+- **Paleta de 256 por nivel:** unos 200 colores para los tiles; rangos reservados para ciclar (por ejemplo 224-239
+  agua, 240-247 lava, 248-255 luces) y unos 16 para los paneles.
+- **Enemigos de tierra:** sprites cuya Y se corrige con la cámara en cada paso del scroll.
+- **Pantalla de título y de fin de nivel:** un `.I16` (en bruto: se carga mucho más deprisa que un JPG con el comando 76).
+
+---
+
+## 6. Bucle principal (una imagen, ~64.600 T)
+
+1. Esperar el VSYNC (puerto `$AF`, bit 0, como `waitvs` de SPRXTRA).
+2. **En el borrado** (~12.000 T antes de la línea 58): `POKE 2072` (scroll), posiciones y páginas de los sprites que
+   han cambiado (~80 T cada uno; los 64 en el peor caso ~5.000 T) y el ciclo de la paleta.
+3. Después, con la imagen en marcha: teclado, nave, balas, enemigos y trayectorias, colisiones (cajas, por software),
+   aparición de oleadas según la posición del scroll, marcador, efectos de sonido.
+4. Pintar la fila oculta que va a entrar (~3.300 T).
+
+Si la lógica no cabe a 50 Hz, el juego va a 25 Hz con el scroll a 1 px por cada dos imágenes.
+
+---
+
+## 7. Sonido
+
+- Música: un VGM por nivel (`LOAD *VGM` desde el código, el MCU lo toca solo).
+- Efectos: PEG o escrituras directas al segundo AY. **A comprobar:** que VGM y efectos convivan (un chip para cada uno).
+- Voz: avisos ("warning" antes del jefe, "game over") con `LOAD *SAY`.
+
+---
+
+## 8. Herramientas del PC (Python sin Pillow, con `zlib` como `png2i16.py`)
+
+**Hecho (2026-11-07):** las herramientas están en `EXAMPLES/ESTELA/tools/` (con su README): `spr2cel.py`, `map2bin.py`,
+`gentiles.py`, `gensprites.py`, `gennivel.py`, `make.py` (todo de una vez) y `selftest.py`. Fuentes en `EXAMPLES/ESTELA/assets/`,
+resultado en `EXAMPLES/ESTELA/out/`. Solo Python estándar; cada herramienta lleva `--check` (ida y vuelta) y `selftest.py` prueba
+además que las comprobaciones saben fallar. Los ficheros de la SD van sin "_" (`NIVEL1.I16`, `NIVEL1.MAP`, `NIVEL1.VGM`,
+título `TITULO.I16`). **Gráficos:** los actuales son provisionales (`gensprites.py`, `gentiles.py`); se sustituyen dibujando
+otros `sprites.png` / `tileset.png` con las mismas reglas.
+
+### 8.1 Tileset: `NIVEL1.I16` (de `tileset.png` con `png2i16.py`)
+
+- PNG **indexado** de 160x100: 10 x 6 tiles de 16x16 (tile `t` = fila `t/10`, columna `t mod 10`); con un PNG indexado
+  `png2i16.py` respeta el orden de la paleta, así que los rangos para ciclar los fija el dibujante.
+- En memoria (`$C000`), tile `t` en `TILESET_BASE + (t/10)*2560 + (t mod 10)*16`, y la fila `y` del tile `y*160` bytes más
+  adelante. `LEVEL.INC` trae la tabla `TILEADR` (60 palabras, indexada por `t`) y `TILE_<NOMBRE>` con el número de cada tile.
+- **Paleta de 256 del nivel de ejemplo:** 0-15 paneles; 16-223 terreno (hierba, bosque, tierra, arena, rocas, metal, obsidiana,
+  asfalto, acentos, espuma, peligro, espacio); **224-239 agua** (16 pasos), **240-247 lava** (8), **248-255 luces** (8), cada
+  rango con una rampa en coseno para que rotar la paleta mueva las olas, la lava y las luces. `LEVEL.INC`: `PAL_WATER`,
+  `PAL_WATER_N`, `PAL_LAVA`, `PAL_LIGHTS`... (los rangos salen de `tiles.def`).
+- **Paneles laterales:** la fila 96 del PNG (libre: los tiles ocupan 0-95) lleva el dibujo de los dos paneles: bytes 0-15 el
+  izquierdo y 144-159 el derecho (los mismos 16 bytes en todas las filas del anillo). En el juego es `$C000 + 96*160 = $FC00`
+  (`PANEL_ADDR`): izquierdo en `$FC00-$FC0F`, derecho en `$FC90-$FC9F`. Las filas 97-99 quedan libres.
+
+### 8.2 Hoja de sprites: `HOJA.BIN`, `HOJA.PAL`, `HOJA.INC` (de `sprites.png` + `sprites.def` con `spr2cel.py`)
+
+- `sprites.png`: PNG indexado de hasta 16 colores, rejilla de celdas de 8x8; el índice 0 es el transparente
+  (nibble alto de `POKE 2103` a 0). `sprites.def`: una línea por gráfico `nombre x y w h [fases]` (en celdas); **el orden de las
+  líneas es el orden de las páginas**, desde la 128. Las fases van una detrás de otra en horizontal en el PNG.
+- **`HOJA.BIN`:** una celda de 32 bytes por página (8 filas de 4 bytes, nibble alto = píxel de la izquierda; formato B del
+  Apéndice H). Se carga en `SHEET_ADDR` = `$7000` (bloque 3, `POKE 2129,3`): la celda de la página `p` está en
+  `$7000 + (p-128)*32`. Los sprites provisionales: 121 celdas, páginas 128-248, 3.872 bytes, `$7000-$7F1F`.
+- **Gráficos de más de una celda:** por filas (arriba-izquierda, arriba-derecha, abajo-izquierda, abajo-derecha...) y, con
+  fases, una fase entera detrás de otra. Un 16x16 son 4 sprites de las páginas `p`, `p+1`, `p+2`, `p+3` en `(x,y)`, `(x+8,y)`,
+  `(x,y+8)`, `(x+8,y+8)`. Coordenadas de hardware = píxel de la imagen + 32 (la zona de juego empieza en x = 16).
+- **`HOJA.INC`** (pasmo, `NOMBRE<TAB>equ valor`): `SHEET_BLOCK`, `SHEET_ADDR`, `SHEET_PAGE0`, `SHEET_CELLS`, `SHEET_END` y, por
+  gráfico: `NOMBRE` (página de la primera celda), `NOMBRE_W`, `NOMBRE_H` (celdas), `NOMBRE_N` (fases) y `NOMBRE_STEP`
+  (celdas por fase, `W*H`); la página de la fase `f` es `NOMBRE + f*NOMBRE_STEP`, y con más de una fase también
+  `NOMBRE_0`, `NOMBRE_1`... Además `PAL16` (16 pares `defb lo,hi`), que **ocupa datos**: incluirlo donde deba quedar.
+- **Gráficos provisionales (páginas):** `NAVE` 128 (3 fases: 0 izquierda, 1 recta, 2 derecha; 4 celdas cada una), `LLAMA`
+  140 (2 fases de 8x8, debajo de la nave), `ENEMY1..ENEMY6` 142, 150, 158, 166, 174, 182 (2 fases de 16x16: el tipo de enemigo
+  `n` usa `ENEMY(n+1)`), `EXPL` 190 (4 fases 16x16), `BALAJ` 206 y `BALAE` 208 (2 tipos cada una), `CIFRA` 210 (`CIFRA_0`...
+  `CIFRA_9` = 219), `VIDA`, `BOMBA`, `ITEM1` (arma), `ITEM2` (escudo), `ITEM3` (bomba) 220-224, `JEFE` 225 (4x3 celdas, 2 fases
+  de 12). Las etiquetas exactas están en `out/HOJA.INC`.
+- **`HOJA.PAL` / `PAL16`:** 16 entradas de 2 bytes `lo, hi` (`lo` = `{G,B}`, `hi` = `{BRIGHT,R}`), calculadas con `pal160.solve`
+  (con `--gamma` se ajusta). Cargar: `POKE 2063,i` (puntero), `POKE 2064,lo`, `POKE 2066,hi` (escribe y avanza). El índice 0 es el
+  transparente (negro en la paleta).
+
+### 8.3 Nivel: `NIVEL1.MAP` + `LEVEL.INC` (de `NIVEL1.LVL` con `map2bin.py`)
+
+`NIVEL1.LVL` es texto: `include tiles.def` / `include paths.def`, `name`, `scroll`, líneas `wave ...` y el bloque `map ... end` con
+ocho tiles por línea (nombres o números 0-59). **La línea de arriba del texto es el final del nivel y la de abajo el
+principio.** Se escribe en `out/NIVEL1.MAP` (todo en little endian):
+
+| Desplazamiento | Tamaño | Campo |
+|---|---|---|
+| 0 | 4 | magia `"ELV1"` |
+| 4 | 1 | `LVL_SCROLL`: ticks de juego por píxel de scroll (1 = un píxel por tick; 2 = un píxel cada 2 ticks) |
+| 5 | 1 | `LVL_NWAVES`: número de oleadas (0-255) |
+| 6 | 2 | `LVL_ROWS`: filas de tiles del mapa |
+| 8 | 2 | `LVL_WAVES`: desplazamiento de la tabla de oleadas (siempre 16) |
+| 10 | 2 | `LVL_MAP`: desplazamiento del mapa = 16 + 8*(NWAVES+1) |
+| 12 | 2 | `LVL_LEN`: longitud del fichero |
+| 14 | 2 | `LVL_END`: scroll final = 16*FILAS - 100 (el nivel acaba al llegar ahí) |
+| 16 | 8*(N+1) | oleadas, ordenadas por `WAVE_POS`; la última lleva `WAVE_POS = $FFFF` (centinela) |
+| `LVL_MAP` | 8*FILAS | **mapa**: filas de 8 bytes (un número de tile 0-59 por byte), en el orden en que se recorren |
+
+- **Mapa:** la fila 0 del binario es la primera en entrar (la de abajo del texto). La fila `r` ocupa las líneas de scroll
+  `16r .. 16r+15` contando desde abajo (0 = línea de abajo de la fila 0); con `s` píxeles de scroll hechos, la línea de arriba
+  de la pantalla es la `99 + s`, y la que entra por arriba en el siguiente paso es la `100 + s` (la línea `j` del tile, 0 = arriba,
+  de la fila `r` es la `16r + 15 - j`). Al empezar se ven las filas 0 a 6. El Z80 lee 8 bytes seguidos por fila y los
+  pasa por `TILEADR` (unos 65 T por tile).
+- **Oleadas (8 bytes):**
+
+| Byte | Campo | Significado |
+|---|---|---|
+| 0-1 | `WAVE_POS` | scroll (píxeles desde el inicio) en el que sale; se dispara en el primer tick con `scroll >= POS`. En el texto, `rNN` = `16*NN - 100` (la fila NN entera justo por encima de la pantalla, para enemigos de suelo); `rNN+k` suma k |
+| 2 | `WAVE_TYPE` | `TYPE_E1`..`E6` = 0-5 (16x16), `TYPE_BOSS` = 6 (32x24), `TYPE_ITEM1`..`3` = 8-10 (8x8); el resto, libres |
+| 3 | `WAVE_X` | X de **pantalla** del lado izquierdo del primero (0-255); sprite X = `WAVE_X + 32`; la zona de juego va de 16 a 143 |
+| 4 | `WAVE_PATH` | número de trayectoria (`PATH_*`, 0 = `STILL`) |
+| 5 | `WAVE_COUNT` | cuántos enemigos (1-255) |
+| 6 | `WAVE_SPACING` | separación: **ticks** entre uno y el siguiente; con `WF_ROW`, **píxeles** de X entre ellos |
+| 7 | `WAVE_FLAGS` | bit 0 `WF_MIRROR`: `dx` de la trayectoria con el signo cambiado; bit 1 `WF_ROW`: salen a la vez en fila, el enemigo `i` en `X + i*SPACING`; bit 2 `WF_GROUND`: va pegado al suelo (además de la trayectoria baja 1 px cada vez que avanza el scroll) |
+
+  Los enemigos salen en `Y = -alto` (justo por encima de la pantalla); Y de hardware = `Y + 32`. Un enemigo desaparece al salir
+  de la zona. La tabla se recorre con un puntero: se compara `scroll` con `WAVE_POS` del siguiente registro.
+- **Trayectorias (en `LEVEL.INC`, `PATHTAB`):** `PATH_<NOMBRE>` es el número; `PATHTAB` es una tabla de punteros y cada una es
+  `[n][dx dy]*n` con `dx`, `dy` de 8 bits con signo, en píxeles por **tick**. El paso `k` se aplica en el tick `k` de la vida del
+  enemigo; pasado el último se repite el último. Se definen en `paths.def` (`line N VX VY`, `sine N AMP CICLOS VY`, con
+  decimales: se reparten en pasos enteros) y llevan la trayectoria 0 `STILL` (un paso `0,0`) delante. Nivel de ejemplo: `DOWN`,
+  `SLOW`, `SINE`, `ZIGZAG`, `DIVE`, `SWEEP`, `HOVER`, `ENTER` (el jefe; hasta 255 pasos cada una).
+- **Regla de diseño (§4.1), comprobada por `map2bin.py --check`:** simula cada enemigo tick a tick y exige que en ninguna línea de
+  la zona (0-99) sumen más de 3 (16x16 = 1, jefe = 2, mejora = 0,5), y que ningún enemigo aéreo se quede para siempre (el jefe
+  está exento). `NIVEL1.MAP`: 2.488 bytes (280 filas = 4.480 px, 28 oleadas); en el nivel de ejemplo el máximo es exactamente 3.
+
+### 8.4 Resumen de lo que genera `make.py`
+
+| Fichero | Contenido | Uso |
+|---|---|---|
+| `out/HOJA.BIN` | celdas de la hoja (3.872 B) | cargar en `$7000` |
+| `out/HOJA.PAL` | `pal16`, 32 B | alternativa al `PAL16` de `HOJA.INC` |
+| `out/HOJA.INC` | páginas de cada gráfico y fase, `PAL16` | `include` en el `.asm` |
+| `out/NIVEL1.I16` | `"I160"` + paleta de 256 + 16.000 px | leer de la SD; píxeles a `$C000` |
+| `out/NIVEL1.MAP` | cabecera, oleadas, mapa | leer de la SD (2,4 KB) |
+| `out/LEVEL.INC` | offsets de cabecera/oleada, `TYPE_*`, `WF_*`, `PATH_*` + datos, `TILEADR`, `TILE_*`, `PAL_*` | `include` en el `.asm` |
+
+Los `.inc` llevan **datos** además de `equ` (`PAL16`, trayectorias, `TILEADR`): incluirlos donde deban quedar esos bytes.
+Probados con pasmo 0.5.4 (`selftest.py`).
+
+---
+
+## 9. Fases
+
+| Fase | Qué | Cómo se prueba |
+|---|---|---|
+| **0** | Comprobaciones en la placa antes de programar: (a) código cargado en `$4800` con `CLEAR 18431` desde un `.B81`; (b) T-estados entre el VSYNC y la línea 58; (c) VGM y efectos AY a la vez; (d) solo si el código no cabe: copiar código a una página, mapearla en el bloque 0 o 1 y que la ventana de POKEs de control siga funcionando. Decidir el nombre y los controles | programas de prueba mínimos y el usuario en la placa |
+| **1** | Esqueleto: modo 175, paleta de prueba, anillo 160x102, paneles fijos, scroll vertical continuo de un fondo de tiles generado en el código. `compila.bat` con comprobación de `$8000`, README y `.B81` | arnés del PC como el de SCRL160 (lo visible = el mundo desde el origen escrito en el VSYNC); el usuario en la placa |
+| **2** | Herramientas del PC (8); carga del tileset `.I16` del nivel en `$C000` y de su paleta; las filas salen de los tiles del nivel; ciclo de paleta | arnés con un MCU simulado, comparando byte a byte las filas del anillo |
+| **3** | Nave del jugador (16x16, 3 inclinaciones), movimiento, disparo y balas | placa |
+| **4** | Enemigos: tabla de oleadas por posición del scroll, trayectorias, disparos, colisiones, explosiones, marcador con sprites | arnés (presupuesto de sprites por línea con el modelo de `sprites_scroll160_emulador.md` §1.6) + placa |
+| **5** | Reparto por línea: comprobar en el arnés que ninguna oleada pasa de 12; si hace falta, rotación de índices | arnés |
+| **6** | Sonido: VGM, efectos y voz | placa |
+| **7** | Jefe, mejoras, vidas, fin de partida, título con un `.I16`, récord en la EEPROM (índices 128-255 de SETBYTE) | placa |
+| **8** | Pulido: dificultad, más niveles, gráficos definitivos, manual (`manual_pendiente.md`) | placa |
+
+---
+
+## 10. Riesgos
+
+- **Límite de 12 por línea:** es el que manda en el diseño de las oleadas (fase 5).
+- **Memoria por debajo de `$8000`:** ~10 KB de código en `$4800-$6FFF`; si se pasa, código en los bloques 0 y 1 (16 KB
+  más, sin ROM mientras el juego corre) y tablas en la SRAM paginada.
+- **Borrado vertical:** si entre el VSYNC y la línea 58 hay menos T de lo previsto, los sprites se actualizan en
+  dos tandas o el juego va a 25 Hz.
+- **Gráficos:** el juego vale lo que valgan los tiles y los sprites; hay que decidir quién los hace.
+- **Sin lógica nueva en la FPGA** (96 % de slices): todo lo de arriba usa solo lo que ya hay.
+
+---
+
+## 11. Estado de las fases
+
+| Fase | Estado |
+|---|---|
+| **0** | **Hecha y probada en la placa (2026-11-08).** CARGA: bien, 1.415 bytes libres entre `E_LINE` y `$4800`. VSYNC: F = 64.574 medido (= 312 lineas x 207 = 64.584 T), W = 1.650 (VSYNC de 8 lineas); con D = 48.658 el corte cae hacia la fila 87, asi que **D0 ~ 12.600 T** (unas 61 lineas desde el flanco; estimado de una foto, falta afinarlo). SONIDO: bien (musica VGM + efectos en el canal C de los AY de la FPGA). PAGINA: bien en las cuatro fases (bloque 1, bloque 0 y dentro de la ventana de POKEs), `RESULTADO 0`. Programas en `EXAMPLES/ESTELA/PRUEBAS`, arnes `claude/mqtttest/build_estela0.sh` |
+| 1 | **Hecha y probada en la placa** (2026-11-08). `EXAMPLES/ESTELA/estela.asm` (1.416 bytes, `$4800-$4D87`), `ESTELA.B81`, `compila.bat` (comprueba que el binario no pasa de `$6FFF`) y README. Modo 175, paleta de prueba (RGB 3-3-2 + grises 240-255), anillo 160x102 en `$8000`, paneles de 16 px, scroll de 0, 1/2, 1 o 2 px por imagen (tecla S). Tileset generado en `$C000` con el formato del `.I16` (paginas 6 y 7 en los bloques 6 y 7; al salir se devuelven y se reescribe `$4000-$7FFF` sobre `$C000` para rehacer la sombra) y mapa generado de 8 tiles. Fila nueva: ~2.600 T (8 tiles con LDI; los paneles se pintan una vez). Arnes `claude/mqtttest/build_estela.sh`: lo visible = el mundo del modelo C++ en 466 instantes, sin escrituras en filas visibles, POKE 2072 a <= 71 T del flanco. El arnes encontro un fallo (getmap machacaba DE). **Primera prueba en la placa (2026-11-08): basura y cuelgue**, pero con un `estela.bin` viejo, de antes de ese arreglo (el arnes ensamblaba su propia copia). El snapshot `ESTELA001.Z81` lo confirma: cada fila y = 15 se escribia en DE = ((5f+24) mod 256)*256 + f/4, que es lo que deja getmap (tileset, anillo, ventana de POKEs y por fin el propio codigo). `build_estela.sh` ahora ensambla y prueba el `estela.bin` de la carpeta. Con el binario nuevo funciona en la placa (usuario, 2026-11-08) |
+| 2-8 | Sin empezar |
+
+### 11.1 Fase 0: qué mide cada prueba y qué decide
+
+- **CARGA (a):** los 14 KB de `$4800-$7FFF` cargan desde un `.B81` y se ejecutan hasta `$7FFF`; da el margen entre
+  `E_LINE` y `$4800`. Decide si el código va en `$4800`.
+- **VSYNC (b):** corte del color 0 de la paleta D T-estados después del flanco (`D = 116 + 26n`, exacto en el arnés);
+  D0 = el primer D con la primera línea de la imagen negra. Mide también F (T por imagen) y W (anchura del VSYNC).
+  Decide cuánto cabe en el borrado (§6, paso 2): scroll, sprites y paleta.
+- **SONIDO (c):** VGM en el AY del MCU + efectos en los AY de la FPGA (`$CF/$0F` y `$C7/$07`, escritos por el Z80 en cada
+  imagen) + PEG + voz en segundo plano (`*WARNING`). **Visto en el firmware:** PEG y la voz usan el mismo AY emulado
+  que el VGM (`ay_registers[]` de `ay_emulator`), así que un efecto PEG pisa la música; por eso el camino previsto para
+  los efectos son los AY de la FPGA. La prueba lo confirma de oído.
+- **PAGINA (d):** el código copiado a una página y ejecutado desde el bloque 1 (`$2000`), el bloque 0 (`$1000`) y dentro de
+  la ventana de POKEs (`$07F0`), girando la paleta y moviendo el sprite 0 por la ventana. Se ha hecho porque el código
+  (8-10 KB estimados) va justo en `$4800-$6FFF`. Lecciones para el juego: el código que se copia no puede llamar a sí
+  mismo con `CALL` (es absoluto: el arnés lo pilló); las páginas se rellenan mapeándolas en el bloque 7 (`$E000`), que no
+  se ve, y **antes** de cargar el anillo y el tileset (escribir en un bloque escribe la sombra de esas direcciones).

@@ -6,7 +6,7 @@ Juego original: solo el género es conocido; sin nombres, personajes ni gráfico
 
 **Nombre provisional:** `ESTELA` (carpeta `EXAMPLES/ESTELA`, sin "_"). Se puede cambiar antes de la fase 1.
 
-**Estado:** fases 0 a 4 hechas y probadas en la placa (2026-11-08); la 5 en curso. Detalle por fase en el §11.
+**Estado:** fases 0 a 4 hechas y probadas en la placa; la 5 hecha en el arnés (no cambia el juego) (2026-11-08). Detalle por fase en el §11.
 
 ---
 
@@ -90,7 +90,7 @@ enemigos de tierra que se mueven con el fondo, disparos de los dos lados, mejora
 
 | Índices | Uso | Huecos por línea |
 |---|---|---|
-| 63-54 | marcador: 6 cifras (2 columnas x 3 filas en el panel izquierdo), vidas y bombas (panel derecho) | 2 en las filas del marcador |
+| 63-54 | marcador: 6 cifras en una fila arriba (x 56-103, y 2-9), solo tras una muerte y al final del nivel (58-63); vidas y bombas | 6 en las líneas del marcador, mientras sale |
 | 53-50 | nave del jugador (16x16) | 2 |
 | 49-42 | balas enemigas (8x8) | según el reparto |
 | 41-34 | balas del jugador (8x8) | normalmente 1-2 (salen en columna) |
@@ -100,7 +100,9 @@ enemigos de tierra que se mueven con el fondo, disparos de los dos lados, mejora
 - **Regla de diseño de las oleadas:** como mucho 3 enemigos de 16x16 en la misma franja de 16 filas
   (6 huecos + 2 del marcador + 2 de la nave + 2 de balas = 12).
 - **Si se pasa:** el motor pierde los de menos prioridad (los enemigos de índice bajo) en esas líneas. Opción de la
-  fase 5: rotar los índices de los enemigos en cada imagen, para que parpadeen en vez de desaparecer.
+  fase 5: rotar los índices de los enemigos en cada imagen, para que parpadeen en vez de desaparecer. **No hizo
+  falta** (fase 5, §11): el nivel 1 da como mucho 3 enemigos por línea aunque no se derribe ninguno, y el arnés
+  falla si un nivel pasa de 3.
 - **Jefe:** 32x24 = 12 sprites (4 por línea) usando los índices de los enemigos.
 
 ### 4.2 Hoja (128 celdas, páginas 128-255 del bloque 3)
@@ -304,7 +306,8 @@ Probados con pasmo 0.5.4 (`selftest.py`).
 | 2 | **Hecha y probada en la placa** (2026-11-08, commit cc616fc). `estela.asm` carga de la SD `NIVEL1.I16` (paleta a `PALBUF`, pixeles a `$C000`) y `NIVEL1.MAP` (a `LVLBUF`, detras del codigo, hasta `$7000`), con errores 1-6 devueltos en BC (`ESTELA.B81` los escribe). Lineas como en el 8.3 (fila k de la pantalla = linea 99+s-k; se pinta la 100+s), `TILEADR` de `LEVEL.INC`, paneles de la fila 96 del tileset, scroll parado en `LVL_END`, velocidad inicial de `LVL_SCROLL`, R vuelve al principio. Ciclo de paleta en el borrado: agua cada 4 imagenes, lava cada 6, luces cada 8 (`TCYW/TCYL/TCYG`). Codigo y tablas `$4800-$5920` (4.385 B con las trayectorias). Arnes `build_estela.sh` con un MCU que sirve `out/`: lo visible = el nivel del modelo en 472 instantes, paleta exacta en cada imagen, nivel corto (parada en `LVL_END`, R), 7 errores de carga; vuelta mas larga 13.854 T |
 | 3 | **Hecha y probada en la placa** (2026-11-08). `HOJA.BIN` de la SD a `$7000` (error 7 si falta), `POKE 2129,3`, `PAL16` de `HOJA.INC` con `POKE 2063/2064/2066` y `POKE 2067,1`. Nave 16x16 en los sprites 50-53 (TL, TR, BL, BR; páginas `NAVE + inclinación*4`, inclinación = dx + 1), **llama en el sprite 49** (fuera del reparto del 4.1: las balas enemigas quedan en 48-42), disparos del jugador en 34-41 (`BALAJ_0`). Formato B con las 8 filas de la máscara a `$FF` y transparente 0. Zona x 16-128, y 0-76 (la llama, hasta la fila 99), 1 px por imagen con O P Q A, ESPACIO = disparo cada 6 imágenes (`TFIRE`), 3 px por imagen (`VBALA`), se borran con y < -7. En el borrado: `POKE 2072`, sprites (hasta ~2.700 T), ciclo de paleta (hasta ~8.300 T) y scroll; después `update` (teclas y movimiento, que se ven en la imagen siguiente). Al salir: 64 sprites apagados y en página 0, sin extra, `POKE 2129,2`, `POKE 2067,0`. Código `$4800-$5B6E`; caben niveles de 4.753 B. Arnés: modelo de la nave escrito con la especificación comparado con los registros de los sprites en las 893 imágenes; vuelta más larga 16.741 T |
 | 4 | **Hecha y probada en la placa** (2026-11-08, también el marcador nuevo). Oleadas por `WAVE_POS` (en fila con `WF_ROW`; si no, una cada `SPACING` ticks, hasta 4 oleadas soltando a la vez), tipos 6+ (jefe, mejoras) saltados hasta la fase 7. Hasta 8 enemigos (sprites 0-31) en coordenadas de hardware: salen en Y = 16, paso de `PATHTAB` por tick (`WF_MIRROR`, `WF_GROUND` + pasos de scroll de la imagen), fuera con X < 33, X > 175, Y < 16 o Y > 131; 2 fases cada 8 ticks. Disparos enemigos (7, sprites 42-48) con cadencia por tipo (`eftab` 96/0/80/72/36/60), 2 px por tick, dx de -1/0/+1 hacia la nave. Colisiones por cajas (ver la cabecera de `estela.asm`); explosión de 16 ticks (4 fases de `EXPL`); la nave explota, vuelve a su sitio e invulnerable 100 ticks (parpadea); sin vidas todavía. Marcador BCD de 6 cifras (sprites 58-63): primero en el panel izquierdo (2x3); **al usuario le pareció antiestético** y pasó a una fila centrada arriba (x 56-103, y 2) que **solo sale tras cada muerte** (explosión + parpadeo) y al final del nivel. El modo 175 no tiene plano de texto (solo el de 4 bpp) y una franja fija arriba no es posible con el scroll vertical. Ciclo de paleta más rápido (copia seguida) y escalonado: nunca dos rangos en la misma imagen. Código `$4800-$616A`; caben niveles de 3.221 B. Arnés: modelo del juego entero (oleadas de `NIVEL1.MAP`, trayectorias leídas de `LEVEL.INC`) contra los 64 sprites en cada imagen, y una partida del nivel entero (4.389 imágenes: 63 enemigos, 35 derribados, 0 sin hueco, máximo 9 sprites por línea). Sprites escritos antes de 9.800 T, paleta antes de 10.700 T |
-| 5-8 | Sin empezar |
+| 5 | **Hecha en el arnés** (2026-11-08; `estela.asm` no cambia). `test_z80estela.cpp` cuenta cada imagen con el modelo del motor (§1.6 de `sprites_scroll160_emulador.md`: normales del 63 al 0, 12 huecos, límite 171 pasos) las líneas de sprite que no saldrían, por clase. Nivel entero disparando y dos partidas sin disparar (quieta y moviéndose; 12-13 muertes, marcador en ~1.400-1.500 imágenes): **0 líneas perdidas**, máximo 10 sprites por línea. Caso peor solo con el modelo (enemigos inmortales, nivel entero): **3 enemigos por línea** como mucho (oleada 7, fila de 3): con nave + llama + disparo + 2 disparos enemigos = 12. Solo en las líneas del marcador (y 2-9) y tras una muerte podría perderse algo (las líneas de arriba del enemigo de índice más bajo al entrar, unas imágenes). **No hace falta rotar índices.** Comprobación para niveles nuevos: el arnés falla con más de 3 enemigos en una línea. Pruebas en negativo: 14 sprites en una línea (pierde los 2 de índice más bajo) y la oleada 7 en fila de 5 |
+| 6-8 | Sin empezar |
 
 ### 11.1 Fase 0: qué mide cada prueba y qué decide
 

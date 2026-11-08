@@ -210,7 +210,10 @@ static int init[8] = {0, 1, 2, 3, 4, 5, 2, 3};
 static uint8_t basic_snap[0x8000];
 
 struct Result { int bc; long frames; int vis_ok, vis_bad; long maxlat, maxloop; std::vector<int> pal_bad; std::vector<int> spr_bad; int fired, expired, spr_checked, maxb, minx, maxx, miny, maxy; int blk_bad, p16_bad;
-                int spawned, kills, deaths, drope, dropw, ebfired, maxene, maxline, over12, score, waves, score_shown; };
+                int spawned, kills, deaths, drope, dropw, ebfired, maxene, maxline, over12, score, waves, score_shown;
+                // reparto por linea como el motor: lineas de sprite perdidas, por clase (0 enemigos, 1 disparos, 2 disparos enemigos,
+                // 3 nave y llama, 4 marcador); imagenes con alguna perdida; racha mas larga de un enemigo con lineas perdidas
+                long lost_lines, lost_cls[5]; int lost_frames, first_lost, consec[8], max_consec, ene_lost_frames; };
 
 // ---- el juego, escrito aqui con la especificacion (cabecera de estela.asm y juego160.md §8.3), no con el codigo del Z80.
 // Nave: x 16-128, y 0-76, 1 px por imagen con O P Q A; inclinacion = dx + 1. Disparos: 8 huecos, suben 3 px por tick, se borran
@@ -219,8 +222,9 @@ struct Result { int bc; long frames; int vis_ok, vis_bad; long maxlat, maxloop; 
 // Enemigos, disparos enemigos, colisiones, oleadas y explosiones: ver la cabecera de estela.asm.
 static std::vector<uint8_t> g_map;                       // NIVEL1.MAP
 static std::vector<std::vector<int>> g_paths;            // PATHTAB de LEVEL.INC: pares dx, dy
+static bool g_immortal = false;                          // caso peor del reparto: sin colisiones ni disparos enemigos
 static const int EFT[6] = {96, 0, 80, 72, 36, 60}, PTS[6] = {10, 20, 30, 40, 60, 50};
-struct Ene { int st, typ, x, y, path, k, flg, tmr, ft; };
+struct Ene { int st, typ, x, y, path, k, flg, tmr, ft, w; };      // w: la oleada (para el caso peor del reparto)
 struct EB { int a, x, y, dx; };
 struct Spn { int rem, w, t; };
 struct Game { int x, y, tilt, cd, tick; int ba[8], bx[8], by[8]; int pstate, ptimer, score; Ene e[8]; EB b[7]; Spn sp[4]; int w; };
@@ -239,7 +243,7 @@ static void pdie(Game& g, Result& R) { g.pstate = 1; g.ptimer = 16; R.deaths++; 
 static void spawn(Game& g, int w, int x, Result& R) {
   const uint8_t* r = &g_map[w];
   for (int i = 0; i < 8; i++) if (g.e[i].st == 0) {
-    Ene& e = g.e[i]; e.st = 1; e.typ = r[2]; e.x = (x + 32) & 255; e.y = 16; e.tmr = 0; e.flg = r[7]; e.ft = EFT[e.typ]; e.path = r[4]; e.k = 0;
+    Ene& e = g.e[i]; e.st = 1; e.typ = r[2]; e.x = (x + 32) & 255; e.y = 16; e.tmr = 0; e.flg = r[7]; e.ft = EFT[e.typ]; e.path = r[4]; e.k = 0; e.w = w;
     R.spawned++; return;
   }
   R.drope++;
@@ -278,16 +282,18 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
     if (b.y >= 132) b.a = 0;
   }
   // colisiones
+  if (!g_immortal)
   for (int i = 0; i < 8; i++) if (g.ba[i]) {
     int cbx = (g.bx[i] + 35) & 255, cby = (g.by[i] + 32) & 255;
     for (auto& e : g.e) if (e.st == 1 && ovl(cbx, cbx + 1, e.x + 1, e.x + 14) && ovl(cby, cby + 7, e.y + 1, e.y + 14)) { kill(g, e, R); g.ba[i] = 0; break; }
   }
-  if (g.pstate == 0) {
+  if (g.pstate == 0 && !g_immortal) {
     int cpx = g.x + 36, cpy = g.y + 35; bool hit = false;
     for (auto& b : g.b) if (b.a && ovl(b.x + 3, b.x + 4, cpx, cpx + 7) && ovl(b.y + 3, b.y + 4, cpy, cpy + 10)) { b.a = 0; pdie(g, R); hit = true; break; }
     if (!hit) for (auto& e : g.e) if (e.st == 1 && !(e.flg & 4) && ovl(e.x + 2, e.x + 13, cpx, cpx + 7) && ovl(e.y + 2, e.y + 13, cpy, cpy + 10)) { kill(g, e, R); pdie(g, R); break; }
   }
   // disparos de los enemigos
+  if (!g_immortal)
   for (auto& e : g.e) if (e.st == 1 && e.ft != 0) {
     if (--e.ft != 0) continue;
     e.ft = EFT[e.typ];
@@ -321,6 +327,7 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
     if (g.pstate == 1) { g.x = 72; g.y = 76; g.tilt = 1; g.pstate = 2; g.ptimer = 100; } else g.pstate = 0;
   }
 }
+static long line_loss(Result& R, int& mx, bool elost[8]);
 // los registros de los 64 sprites tienen que ser los de este estado; cuenta tambien los sprites por linea
 static int spr_check(const Game& g, int scr, Result& R) {
   int bad = 0, NAVE = S("NAVE"), LLAMA = S("LLAMA"), BALA = S("BALAJ_0"), BALAE = S("BALAE_0"), EXPL = S("EXPL"), CIFRA = S("CIFRA");
@@ -353,14 +360,43 @@ static int spr_check(const Game& g, int scr, Result& R) {
     R.score_shown++;
   }
   for (int n = 0; n < 64; n++) if (!used[n] && spr[n].en) bad++;
-  // sprites por linea de la imagen (cuentan los encendidos que la cruzan)
-  int cnt[100] = {}, mx = 0;
-  for (int n = 0; n < 64; n++) if (spr[n].en) for (int r = 0; r < 8; r++) { int row = spr[n].y - 32 + r; if (row >= 0 && row < 100) cnt[row]++; }
-  for (int r = 0; r < 100; r++) mx = std::max(mx, cnt[r]);
+  int mx = 0; bool elost[8] = {};
+  long lost = line_loss(R, mx, elost);
   R.maxline = std::max(R.maxline, mx);
   if (mx > 12) R.over12++;
+  if (lost) { if (!R.lost_frames) R.first_lost = (int)g.tick; R.lost_frames++; R.lost_lines += lost; }
+  bool any = false;
+  for (int i = 0; i < 8; i++) { if (elost[i]) { any = true; R.consec[i]++; R.max_consec = std::max(R.max_consec, R.consec[i]); } else R.consec[i] = 0; }
+  if (any) R.ene_lost_frames++;
   R.score = g.score;
   return bad;
+}
+
+// reparto por linea como el motor (sprites_scroll160_emulador.md 1.6): normales del 63 al 0 (sin extra), como mucho 12
+// cargados y LIMITE de 171 pasos en la temporizacion de 80 columnas (B cuesta 8, mirar cada sprite 1). Devuelve las lineas
+// de sprite que no salen; mx = mas sprites en una linea; elost[i] = el enemigo i (sprites 4i..4i+3) pierde alguna
+static long line_loss(Result& R, int& mx, bool elost[8]) {
+  long lost = 0; mx = 0;
+  for (int row = 0; row < 100; row++) {
+    int steps = 2, loaded = 0, cnt = 0; bool stop = false;
+    for (int n = 63; n >= 0; n--) {
+      steps++;
+      if (!spr[n].en) continue;
+      if ((((row + 32) - spr[n].y) & 511) >= 8) continue;
+      cnt++;
+      if (!stop && (loaded == 12 || steps + 8 > 171)) stop = true;
+      if (stop) {
+        lost++;
+        int c = n < 32 ? 0 : n < 42 ? 1 : n < 49 ? 2 : n < 58 ? 3 : 4;
+        R.lost_cls[c]++;
+        if (n < 32) elost[n >> 2] = true;
+        continue;
+      }
+      steps += 8; loaded++;
+    }
+    mx = std::max(mx, cnt);
+  }
+  return lost;
 }
 
 // una ejecucion: hasta que vuelve o hasta maxf imagenes
@@ -455,6 +491,41 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
   if (!vwrites.empty() && vwrites.back().v == 0 && mode == 85) vwrites.pop_back();        // el POKE 2072,0 de la salida
   for (auto& w : vwrites) { long lat = (long)(w.t % FRAME); if (lat > R.maxlat) R.maxlat = lat; }
   return R;
+}
+
+static void lost_report(const Result& L) {
+  printf("        reparto por linea (motor: 63..0, 12 huecos, 171 pasos): %d imagenes con perdidas, %ld lineas de sprite perdidas"
+         " (enemigos %ld, disparos %ld, disparos enemigos %ld, nave %ld, marcador %ld)\n",
+         L.lost_frames, L.lost_lines, L.lost_cls[0], L.lost_cls[1], L.lost_cls[2], L.lost_cls[3], L.lost_cls[4]);
+  printf("        enemigos con lineas perdidas en %d imagenes; racha mas larga de un mismo enemigo: %d imagenes%s\n",
+         L.ene_lost_frames, L.max_consec, L.lost_frames ? "" : " (ninguna)");
+  if (L.lost_frames) printf("        primera perdida en el tick %d\n", L.first_lost);
+}
+
+// caso peor del reparto, solo con el modelo: el nivel entero a su velocidad con los enemigos inmortales (nadie los derriba ni
+// chocan); cuenta los enemigos que cruzan cada linea. Lo que queda para ellos en una linea: 12 - nave (2) - llama (1) - un
+// disparo de la nave (salen cada 6 ticks a 3 px: 18 px entre uno y otro) - 2 disparos enemigos = 6 sprites, 3 enemigos; en las
+// lineas del marcador (y 2-9) quitar ademas sus 6, pero solo sale tras una muerte (unos 2,3 s).
+struct Worst { int maxe, maxe_top, over3, over3_top, frames; long at; std::vector<int> waves; };
+static Worst worst_case() {
+  Worst W{}; Result R{}; Game g; ginit(g); g_immortal = true;
+  int spd = std::max(1, (int)g_map[4]), end = u16(g_map, 14), prev = 0;
+  for (long f = 0; ; f++) {
+    int scr = std::min(end, (int)(f / spd));
+    if (scr == end && f > (long)end * spd + 300) break;
+    gupdate(g, {}, f, scr, scr - prev, R); prev = scr; W.frames++;
+    int cnt[100] = {}; std::vector<int> who[100];
+    for (auto& e : g.e) if (e.st) for (int r = 0; r < 16; r++) { int row = e.y - 32 + r; if (row >= 0 && row < 100) { cnt[row]++; who[row].push_back((e.w - woff()) / 8); } }
+    bool o = false, ot = false;
+    for (int r = 0; r < 100; r++) {
+      if (cnt[r] > W.maxe) { W.maxe = cnt[r]; W.at = f; W.waves = who[r]; }
+      if (r >= 2 && r < 10) { W.maxe_top = std::max(W.maxe_top, cnt[r]); if (cnt[r] > 0) ot = true; }
+      if (cnt[r] > 3) o = true;
+    }
+    W.over3 += o; W.over3_top += ot;
+  }
+  g_immortal = false;
+  return W;
 }
 
 static void exit_checks(const char* what, int want_bc) {
@@ -630,6 +701,8 @@ int main(int argc, char** argv) {
     printf("        hasta %d enemigos a la vez; sin hueco: %d enemigos, %d oleadas; hasta %d sprites en una linea (%d imagenes con mas de 12)\n",
            L.maxene, L.drope, L.dropw, L.maxline, L.over12);
     printf("        vuelta mas larga del bucle %ld T; sprites escritos hasta %ld T tras el flanco\n", L.maxloop, spr_maxlat);
+    lost_report(L);
+    CHECK(L.lost_frames == 0 && L.maxline <= 12, "con el reparto del motor no se pierde ninguna linea de sprite en todo el nivel");
     if (!L.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", L.spr_bad.size(), L.spr_bad[0]);
     CHECK(L.spr_checked > 4300 && L.spr_bad.empty(), "en cada imagen del nivel entero, los 64 sprites son los del modelo (nave, disparos, enemigos, explosiones, marcador)");
     CHECK(L.vis_ok >= 250 && L.vis_bad == 0 && L.pal_bad.empty(), "lo visible y la paleta, exactos en todo el nivel");
@@ -639,6 +712,57 @@ int main(int argc, char** argv) {
     CHECK(spr_maxlat < 12000, "los sprites se escriben en el borrado (antes de los ~12.600 T de la primera linea)");
     CHECK(L.maxloop < FRAME - 2000, "la vuelta del bucle cabe en una imagen");
     exit_checks("nivel entero", 0);
+  }
+
+  // ===== 1c. caso peor del reparto por linea (solo el modelo)
+  {
+    printf("-- caso peor del reparto: el nivel entero con los enemigos inmortales (solo el modelo) --\n");
+    Worst W = worst_case();
+    std::sort(W.waves.begin(), W.waves.end()); W.waves.erase(std::unique(W.waves.begin(), W.waves.end()), W.waves.end());
+    printf("        %d imagenes; hasta %d enemigos en una linea (imagen %ld, oleadas", W.frames, W.maxe, W.at);
+    for (int w : W.waves) printf(" %d", w);
+    printf("); imagenes con mas de 3 en una linea: %d\n", W.over3);
+    printf("        en las lineas del marcador (y 2-9): hasta %d enemigos; imagenes con alguno alli: %d\n", W.maxe_top, W.over3_top);
+    CHECK(W.maxe <= 3, "ninguna linea con mas de 3 enemigos aunque no se derribe ninguno: con la nave, la llama y los disparos caben en los 12");
+    // en negativo: la oleada 7 (en fila de 3) con 5 enemigos tiene que dar 5 en una linea
+    std::vector<uint8_t> keep = g_map;
+    g_map[woff() + 7 * 8 + 5] = 5; g_map[woff() + 7 * 8 + 6] = 24;   // 5 enemigos cada 24 px: x 40-136, caben
+    Worst W5 = worst_case();
+    g_map = keep;
+    CHECK(W5.maxe == 5, "(prueba del caso peor) con la oleada 7 en fila de 5 (cada 24 px), salen 5 en una linea");
+    // en negativo: el reparto con 14 sprites en la misma linea (el 60..47 en y 40): no salen los dos de indice mas bajo
+    Spr keepspr[64]; memcpy(keepspr, spr, sizeof spr);
+    for (int n = 0; n < 64; n++) spr[n].en = 0;
+    for (int n = 47; n <= 60; n++) { spr[n].en = 1; spr[n].y = 32 + 40; }
+    spr[3].en = 1; spr[3].y = 32 + 80;                  // un enemigo solo, mas abajo: sale
+    Result T{}; int mx; bool el[8] = {};
+    long lost = line_loss(T, mx, el);
+    memcpy(spr, keepspr, sizeof spr);
+    CHECK(lost == 16 && mx == 14 && T.lost_cls[2] == 16 && !el[0], "(prueba del reparto) 14 sprites en 8 lineas: no salen los 2 de indice mas bajo (16 lineas)");
+  }
+
+  // ===== 1d. el nivel entero sin disparar: los enemigos no se derriban y se juntan mas en pantalla (el caso peor del reparto)
+  {
+    struct Sc { const char* what; bool weave; } scs[] = { {"sin disparar, quieta abajo", false}, {"sin disparar, moviendose", true} };
+    for (auto& c : scs) {
+      printf("-- nivel 1 entero, %s --\n", c.what);
+      std::vector<Key> sc;
+      if (c.weave) {
+        for (long f = 40; f < 4400; f += 100) { sc.push_back({f, f + 45, 5, 1}); sc.push_back({f + 50, f + 95, 5, 0}); }
+        for (long f = 300; f < 4400; f += 700) { sc.push_back({f, f + 60, 2, 0}); sc.push_back({f + 200, f + 260, 1, 0}); }
+      }
+      sc.push_back({4450, 4454, 0, 2});
+      sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = lv.map; sdfiles["HOJA.BIN"] = hoja;
+      Result L = run(lv, sc, 4500, 50, true);
+      printf("        %d imagenes; %d oleadas, %d enemigos, %d derribados, %d disparos enemigos, %d veces tocada; marcador visible en %d\n",
+             L.spr_checked, L.waves, L.spawned, L.kills, L.ebfired, L.deaths, L.score_shown);
+      printf("        hasta %d enemigos a la vez; hasta %d sprites en una linea (%d imagenes con mas de 12)\n", L.maxene, L.maxline, L.over12);
+      lost_report(L);
+      CHECK(L.lost_frames == 0 && L.maxline <= 12, "con el reparto del motor no se pierde ninguna linea de sprite (y el marcador sale mas a menudo)");
+      if (!L.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", L.spr_bad.size(), L.spr_bad[0]);
+      CHECK(L.spr_checked > 4300 && L.spr_bad.empty() && L.vis_bad == 0 && L.pal_bad.empty(), "los 64 sprites, lo visible y la paleta, iguales al modelo");
+      exit_checks(c.what, 0);
+    }
   }
 
   // ===== 2. un nivel corto: el scroll se para en LVL_END; R vuelve al principio

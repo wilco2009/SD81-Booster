@@ -12,12 +12,14 @@ El plan entero (fases, mapa de memoria, sprites) está en
 | `PRUEBAS/` | pruebas de la fase 0 en la placa (carga, VSYNC, sonido, paginación) |
 | `tools/`, `assets/`, `out/` | herramientas del PC y gráficos del nivel (las lleva otra sesión; §8 del plan) |
 
-## Estado: fase 4 (enemigos)
+## Estado: fase 5 (reparto de sprites por línea, comprobado en el PC)
 
 Lo que hay ahora es el **fondo del nivel 1 con scroll**, la **nave del jugador**
 con sus disparos y las **oleadas de enemigos** del nivel, con sus disparos,
 colisiones, explosiones y el marcador. Faltan el jefe, las mejoras, las vidas y
-el fin de partida (fase 7), y el sonido (fase 6):
+el fin de partida (fase 7), y el sonido (fase 6). La fase 5 no cambia el juego:
+es la comprobación en el arnés de que, con el límite de 12 sprites por línea del
+motor, no se pierde ningún trozo de sprite (ver abajo):
 
 - **Carga de la SD** (de la misma carpeta que `ESTELA.BIN`), con la pantalla en
   negro:
@@ -109,8 +111,8 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
   respecto al fondo.
 - Al darles, **explotan**; al darle a la nave, explota, reaparece abajo y parpadea
   un rato, y mientras tanto sale el **marcador** arriba.
-- No desaparecen trozos de sprites (como mucho hay 9 sprites en una misma línea y
-  el límite es 12).
+- No desaparecen trozos de sprites (como mucho hay 10 sprites en una misma línea
+  y el límite es 12).
 - R vuelve al principio; al final del nivel el fondo se para.
 - Al salir, el BASIC se lee.
 
@@ -145,6 +147,21 @@ especificación, aparte del código del Z80:
   sprites iguales al modelo en todas las imágenes; el marcador, solo en las 584
   imágenes de después de las muertes. Ningún enemigo se queda sin
   hueco; como mucho 5 enemigos a la vez y 9 sprites en una misma línea;
+- el **reparto por línea** (fase 5) con el modelo del motor de sprites
+  (`sprites_scroll160_emulador.md` §1.6: del 63 al 0, 12 huecos y el límite de
+  171 pasos): en esa partida y en dos más del nivel entero **sin disparar** (quieta
+  abajo y moviéndose; los enemigos no caen, la nave muere 12-13 veces y el marcador
+  sale en unas 1.400-1.500 imágenes) no se pierde **ninguna línea de sprite**; como
+  mucho 10 en una línea;
+- el **caso peor** del nivel, solo con el modelo: el nivel entero con los enemigos
+  inmortales (ni se derriban ni chocan) da como mucho **3 enemigos en una línea**
+  (la oleada 7, en fila de 3). Con la nave (2), la llama (1), un disparo (1) y 2
+  disparos enemigos son 12: caben. Con el marcador (6, solo tras una muerte) en sus
+  líneas (y 2-9) puede no caber, y entonces lo que se pierde unas imágenes son unas
+  líneas de arriba del enemigo de índice más bajo mientras entra. Por eso no hace
+  falta rotar los índices de los enemigos. Si un nivel nuevo pone 4 en una línea,
+  el arnés falla. Las dos cuentas se prueban también en negativo (14 sprites en una
+  línea; la oleada 7 en fila de 5);
 - los **sprites de la nave, en cada imagen** (893): la nave (posición, inclinación), la llama
   y cada disparo son los del modelo con las teclas de la imagen anterior, con la
   máscara entera y el transparente 0, y ningún otro sprite encendido; la nave

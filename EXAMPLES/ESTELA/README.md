@@ -12,10 +12,12 @@ El plan entero (fases, mapa de memoria, sprites) está en
 | `PRUEBAS/` | pruebas de la fase 0 en la placa (carga, VSYNC, sonido, paginación) |
 | `tools/`, `assets/`, `out/` | herramientas del PC y gráficos del nivel (las lleva otra sesión; §8 del plan) |
 
-## Estado: fase 3 (la nave)
+## Estado: fase 4 (enemigos)
 
-Lo que hay ahora es el **fondo del nivel 1 con scroll** y la **nave del jugador**
-con sus disparos, todavía sin enemigos:
+Lo que hay ahora es el **fondo del nivel 1 con scroll**, la **nave del jugador**
+con sus disparos y las **oleadas de enemigos** del nivel, con sus disparos,
+colisiones, explosiones y el marcador. Faltan el jefe, las mejoras, las vidas y
+el fin de partida (fase 7), y el sonido (fase 6):
 
 - **Carga de la SD** (de la misma carpeta que `ESTELA.BIN`), con la pantalla en
   negro:
@@ -43,6 +45,25 @@ con sus disparos, todavía sin enemigos:
   (hasta 8 a la vez). La nave se mueve 1 píxel por imagen dentro de la zona de juego
   (entre los paneles) y no sale de la pantalla. Los sprites no se mueven con el
   scroll.
+- **Oleadas** de la tabla de `NIVEL1.MAP`: cada una sale cuando el scroll llega a
+  su posición, en fila (todos a la vez) o de uno en uno, y cada enemigo sigue su
+  trayectoria (`DOWN`, `SINE`, `ZIGZAG`, `DIVE`, `SWEEP`, `HOVER`...), con los
+  6 tipos del nivel animados (2 fases). Los de suelo (los tanques y torretas)
+  bajan pegados al fondo. Hasta 8 enemigos a la vez. Las oleadas del jefe y de las
+  mejoras se saltan por ahora.
+- **Disparos enemigos**: los platillos, cangrejos, giratorios, bombarderos y
+  tanques disparan cada cierto tiempo hacia la nave (los dardos no); bajan 2
+  píxeles por imagen, inclinados si la nave estaba lejos en horizontal.
+- **Colisiones**: un disparo que toca a un enemigo lo hace **explotar** y suma sus
+  puntos (10 a 60). Si a la nave le da un disparo enemigo o choca con un enemigo
+  (no con los de suelo), la nave **explota**, vuelve abajo en el centro y
+  **parpadea** 2 segundos sin que le pase nada. De momento no hay vidas: se puede
+  seguir sin fin.
+- **Marcador** de 6 cifras en una fila centrada arriba de la zona de juego, solo
+  después de cada muerte (mientras la nave explota y parpadea, unos 2,3 segundos) y
+  al final del nivel. El modo de 256 colores no tiene plano de texto (el de 40x25
+  es solo del modo de 16 colores) y con el scroll vertical no se puede dejar una
+  franja fija arriba, así que el marcador son sprites.
 
 ## Teclas
 
@@ -62,7 +83,7 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
 | 2 | `NIVEL1.I16` no es un `.I16` (no empieza por `I160`) |
 | 3 | no hay `NIVEL1.MAP` |
 | 4 | `NIVEL1.MAP` no es un nivel (no empieza por `ELV1`) |
-| 5 | el nivel no cabe entre el código y `$7000` (caben 4.753 bytes; el de ejemplo tiene 2.488) |
+| 5 | el nivel no cabe entre el código y `$7000` (caben 3.221 bytes; el de ejemplo tiene 2.488) |
 | 6 | la cabecera del nivel no cuadra (menos de 7 filas, o el mapa se sale del fichero) |
 | 7 | no hay `HOJA.BIN` |
 
@@ -82,13 +103,21 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
 - Los **disparos** salen del morro, suben rectos y desaparecen por arriba, uno cada
   6 imágenes con ESPACIO mantenido.
 - La nave y los disparos no tiemblan ni se cortan aunque el fondo se mueva.
+- Los **enemigos** entran por arriba siguiendo sus trayectorias (serpenteando, en
+  zigzag, en picado, cruzando de lado a lado, quietos disparando), se animan y
+  salen por los bordes. Los **tanques y torretas** van pegados al suelo, quietos
+  respecto al fondo.
+- Al darles, **explotan**; al darle a la nave, explota, reaparece abajo y parpadea
+  un rato, y mientras tanto sale el **marcador** arriba.
+- No desaparecen trozos de sprites (como mucho hay 9 sprites en una misma línea y
+  el límite es 12).
 - R vuelve al principio; al final del nivel el fondo se para.
 - Al salir, el BASIC se lee.
 
-**Qué hay que mandar:** si se ve así; si no, qué falla (una foto ayuda) y a qué
-velocidad. Y, a ojo, si la nave va bien de velocidad (1 píxel por imagen) y si
-la cadencia de los disparos (`TFIRE`, 6 imágenes) y su velocidad (`VBALA`, 3
-píxeles por imagen) están bien.
+**Qué hay que mandar:** si se ve así; si no, qué falla (una foto ayuda). Y, a ojo,
+si la dificultad tiene sentido: cuánto disparan los enemigos (`eftab`, en ticks
+entre disparo y disparo: 96, sin disparos, 80, 72, 36 y 60 para los tipos 1-6) y
+el tamaño de las cajas de choque.
 
 ## Comprobado en el PC
 
@@ -105,13 +134,22 @@ especificación, aparte del código del Z80:
 - nunca se escribe una fila del anillo que se esté viendo (salvo con R, en negro);
 - `POKE 2072` sale como mucho 71 T después del flanco del VSYNC, una vez por imagen;
 - la paleta, en **cada imagen**: la del `.I16` con el agua, la lava y las luces
-  giradas lo que toca; los giros se escriben antes de 8.300 T (la imagen empieza
-  hacia los 12.600);
-- los **sprites, en cada imagen** (893): la nave (posición, inclinación), la llama
+  giradas lo que toca; nunca giran dos rangos en la misma imagen, y los giros
+  acaban antes de 10.700 T (la imagen empieza hacia los 12.600);
+- el **juego, en cada imagen**: un modelo escrito aparte con la especificación (las
+  oleadas de `NIVEL1.MAP`, las trayectorias leídas del texto de `LEVEL.INC`, los
+  enemigos, sus disparos, las colisiones, las explosiones y el marcador) se compara
+  con los **64 sprites** que deja el Z80. En una partida del **nivel entero**
+  (4.389 imágenes, disparando y moviéndose sin parar): 28 oleadas, 63 enemigos, 35
+  derribados, 12 disparos enemigos, la nave tocada 5 veces, 910 puntos, y los 64
+  sprites iguales al modelo en todas las imágenes; el marcador, solo en las 584
+  imágenes de después de las muertes. Ningún enemigo se queda sin
+  hueco; como mucho 5 enemigos a la vez y 9 sprites en una misma línea;
+- los **sprites de la nave, en cada imagen** (893): la nave (posición, inclinación), la llama
   y cada disparo son los del modelo con las teclas de la imagen anterior, con la
   máscara entera y el transparente 0, y ningún otro sprite encendido; la nave
   llega a los cuatro bordes y se para; 64 disparos salen y se borran arriba, hasta
-  5 a la vez; se escriben antes de 2.700 T tras el flanco;
+  5 a la vez; con los 64 sprites se escriben antes de 9.800 T tras el flanco;
 - la hoja de `$7000` es `HOJA.BIN`, la paleta de 16 es la de `HOJA.PAL`, activa, y
   la hoja en el bloque 3 durante todo el juego;
 - velocidad del nivel y S (1, 1 cada 2, 2 y 0 filas por imagen); R vuelve al
@@ -122,10 +160,9 @@ especificación, aparte del código del Z80:
 - al salir: modo 85, anillo a 0, `$7FEF = $0C`, páginas de los bloques 6 y 7 como
   estaban, IX, los 64 sprites apagados y en formato A, sin extra, la hoja en el
   bloque 2 y la paleta de 16 desactivada, y nada escrito fuera de su sitio;
-- la vuelta más larga del bucle (2 píxeles por imagen, los tres ciclos de paleta a
-  la vez y la nave): 16.741 T de los 64.584 de una imagen.
+- la vuelta más larga del bucle: unos 31.000 T de los 64.584 de una imagen.
 
-Las fases 1, 2 y 3 están **probadas en la placa** (2026-11-08). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
+Las fases 1 a 4 están **probadas en la placa** (2026-11-08). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
 y desde entonces el arnés ensambla y prueba el `estela.bin` de esta carpeta, el
 mismo que va a la SD.
 
@@ -138,11 +175,13 @@ mismo que va a la SD.
 `NIVEL1.I16`, `NIVEL1.MAP` y `HOJA.BIN` a una misma carpeta de la SD y carga
 `ESTELA.B81`.
 
-Memoria: código y tablas en `$4800-$5B6E` (las trayectorias de `LEVEL.INC` y la
-`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$5B6F-$5D6E`,
-`NIVEL1.MAP` desde `$5D6F` (hasta `$6FFF`), hoja de los sprites en `$7000-$7F1F`
+Memoria: código y tablas en `$4800-$616A` (las trayectorias de `LEVEL.INC` y la
+`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$616B-$636A`,
+`NIVEL1.MAP` desde `$636B` (hasta `$6FFF`), hoja de los sprites en `$7000-$7F1F`
 (bloque 3), anillo en `$8000-$BFBF`, tileset en `$C000-$FE7F` (páginas 6 y 7).
-Sprites: la nave en el 50-53, la llama en el 49 y los disparos en el 34-41.
+Sprites: enemigos en el 0-31 (4 cada uno), disparos de la nave en el 34-41,
+disparos enemigos en el 42-48, la llama en el 49, la nave en el 50-53 y el
+marcador en el 58-63 (apagados mientras no se ve).
 
 **El emulador** todavía no tiene el scroll en anillo de los modos 160
 (`sprites_scroll160_emulador.md`): ahí el fondo no se moverá bien. Hay que probarlo

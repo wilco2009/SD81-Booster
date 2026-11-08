@@ -4,6 +4,10 @@
 // la SD, servidos desde EXAMPLES/ESTELA/out) y un modelo del scroll en anillo del modo 175 (mode160_emulador.md §6):
 //   pixel x de la fila r de la pantalla = byte $8000 + ((r + vofs) mod hc) * 160 + x   (hofs = 0, wc = 160)
 //
+// FASE 4 (sobre la 3): oleadas de enemigos, disparos enemigos, colisiones, explosiones y marcador. El modelo Game lleva tambien
+//   todo eso (las oleadas de NIVEL1.MAP y las trayectorias leidas del texto de LEVEL.INC) y se compara con los 64 sprites en cada
+//   imagen; ademas cuenta los sprites por linea (el limite del hardware es 12). Una ejecucion del nivel entero.
+//
 // FASE 3 (sobre la 2): la nave y sus disparos en sprites de formato B. Un modelo de aqui (Game, escrito con la especificacion de
 //   estela.asm, no con su codigo) mueve la nave con las teclas de cada imagen y se compara en CADA imagen con los registros de los
 //   sprites que ha dejado el Z80 en la ventana de POKEs (2100-2131): posicion, pagina (inclinacion, llama, disparos), mascara,
@@ -128,7 +132,7 @@ static int cyc_lo = 0, cyc_hi = 0; static long cyc_maxlat = 0, cyc_writes = 0;
 struct Spr { int en, xl, xh, y, page; uint8_t mask[8]; };
 static Spr spr[64]; static int spr_sel = 0, spr_blk = 2, spr_xtr = 0, pal16_on = 0;
 static uint16_t pal16[16];
-static int draw_lo = 0, draw_hi = 0; static long spr_maxlat = 0;
+static int draw_lo = 0, draw_hi = 0; static long spr_maxlat = 0; static bool in_draw = false;   // in_draw: desde que entra en drawspr hasta cycle
 
 extern "C" {
 int  z80_contend_wrapper(int, int, int time) { return time; }
@@ -156,7 +160,7 @@ void z80_writebyte_wrapper(int a, int d) {
     else if (a == 2066) { pal16[palptr & 15] = (uint16_t)(pallo | (d << 8)); palptr = (palptr + 1) & 255; }
     else if (a == 2067) pal16_on = d;
     else if (a >= 2100 && a <= 2131) {
-      if (z80.pc.w >= draw_lo && z80.pc.w < draw_hi) { long lat = (long)(total_t % FRAME); if (lat > spr_maxlat) spr_maxlat = lat; }
+      if (in_draw) { long lat = (long)(total_t % FRAME); if (lat > spr_maxlat) spr_maxlat = lat; }
       Spr& q = spr[spr_sel & 63];
       if (a == 2100) spr_sel = d; else if (a == 2101) q.en = d; else if (a == 2102) q.xl = d; else if (a == 2103) q.xh = d;
       else if (a == 2104) q.y = d; else if (a >= 2121 && a <= 2128) q.mask[a - 2121] = (uint8_t)d; else if (a == 2129) spr_blk = d;
@@ -205,39 +209,157 @@ static std::vector<uint8_t> bin;
 static int init[8] = {0, 1, 2, 3, 4, 5, 2, 3};
 static uint8_t basic_snap[0x8000];
 
-struct Result { int bc; long frames; int vis_ok, vis_bad; long maxlat, maxloop; std::vector<int> pal_bad; std::vector<int> spr_bad; int fired, expired, spr_checked, maxb, minx, maxx, miny, maxy; int blk_bad, p16_bad; };
+struct Result { int bc; long frames; int vis_ok, vis_bad; long maxlat, maxloop; std::vector<int> pal_bad; std::vector<int> spr_bad; int fired, expired, spr_checked, maxb, minx, maxx, miny, maxy; int blk_bad, p16_bad;
+                int spawned, kills, deaths, drope, dropw, ebfired, maxene, maxline, over12, score, waves, score_shown; };
 
-// ---- la nave, escrita aqui con la especificacion (cabecera de estela.asm y juego160.md): x 16-128, y 0-76, 1 px por imagen con
-// O P Q A; inclinacion = dx + 1; disparos de 8 huecos, suben 3 px por imagen, se borran con y < -7; con ESPACIO y la espera a 0
-// sale uno en (x + 4, y - 6) en el primer hueco y la espera pasa a 6; la espera baja 1 por imagen y se puede disparar en la misma
-// imagen en que llega a 0. tick sube 1 por imagen; la llama cambia de fase cada 4.
-struct Game { int x, y, tilt, cd, tick; int ba[8], bx[8], by[8]; };
-static void ginit(Game& g) { g.x = 72; g.y = 76; g.tilt = 1; g.cd = 0; g.tick = 0; for (int i = 0; i < 8; i++) g.ba[i] = 0; }
-static bool keydown(const std::vector<Key>& sc, long f, int row, int bit) { for (auto& k : sc) if (f >= k.from && f < k.to && k.row == row && k.bit == bit) return true; return false; }
-static void gupdate(Game& g, const std::vector<Key>& sc, long f, Result& R) {
-  g.tick = (g.tick + 1) & 255;
-  int dx = (keydown(sc, f, 5, 0) ? 1 : 0) - (keydown(sc, f, 5, 1) ? 1 : 0);
-  g.tilt = dx + 1; g.x = std::min(128, std::max(16, g.x + dx));
-  int dy = (keydown(sc, f, 1, 0) ? 1 : 0) - (keydown(sc, f, 2, 0) ? 1 : 0);
-  g.y = std::min(76, std::max(0, g.y + dy));
-  for (int i = 0; i < 8; i++) if (g.ba[i]) { g.by[i] -= 3; if (g.by[i] < -7) { g.ba[i] = 0; R.expired++; } }
-  if (g.cd > 0) { g.cd--; if (g.cd > 0) return; }
-  if (!keydown(sc, f, 7, 0)) return;
-  for (int i = 0; i < 8; i++) if (!g.ba[i]) { g.ba[i] = 1; g.bx[i] = g.x + 4; g.by[i] = g.y - 6; g.cd = 6; R.fired++; return; }
+// ---- el juego, escrito aqui con la especificacion (cabecera de estela.asm y juego160.md §8.3), no con el codigo del Z80.
+// Nave: x 16-128, y 0-76, 1 px por imagen con O P Q A; inclinacion = dx + 1. Disparos: 8 huecos, suben 3 px por tick, se borran
+// con y < -7; con ESPACIO y la espera a 0 sale uno en (x + 4, y - 6) en el primer hueco y la espera pasa a 6; la espera baja 1 por
+// tick y se puede disparar en el tick en que llega a 0. Nada de eso mientras la nave explota (salvo que los disparos suben).
+// Enemigos, disparos enemigos, colisiones, oleadas y explosiones: ver la cabecera de estela.asm.
+static std::vector<uint8_t> g_map;                       // NIVEL1.MAP
+static std::vector<std::vector<int>> g_paths;            // PATHTAB de LEVEL.INC: pares dx, dy
+static const int EFT[6] = {96, 0, 80, 72, 36, 60}, PTS[6] = {10, 20, 30, 40, 60, 50};
+struct Ene { int st, typ, x, y, path, k, flg, tmr, ft; };
+struct EB { int a, x, y, dx; };
+struct Spn { int rem, w, t; };
+struct Game { int x, y, tilt, cd, tick; int ba[8], bx[8], by[8]; int pstate, ptimer, score; Ene e[8]; EB b[7]; Spn sp[4]; int w; };
+static int woff() { return u16(g_map, 8); }
+static void ginit(Game& g) {
+  g.x = 72; g.y = 76; g.tilt = 1; g.cd = 0; g.tick = 0; g.pstate = 0; g.ptimer = 0; g.score = 0;
+  for (int i = 0; i < 8; i++) { g.ba[i] = 0; g.e[i] = Ene{}; }
+  for (int i = 0; i < 7; i++) g.b[i] = EB{};
+  for (int i = 0; i < 4; i++) g.sp[i] = Spn{};
+  g.w = woff();
 }
-static int spr_check(const Game& g) {
-  int bad = 0, NAVE = S("NAVE"), LLAMA = S("LLAMA"), BALA = S("BALAJ_0");
+static bool keydown(const std::vector<Key>& sc, long f, int row, int bit) { for (auto& k : sc) if (f >= k.from && f < k.to && k.row == row && k.bit == bit) return true; return false; }
+static bool ovl(int b, int c, int d, int e) { return !((e & 255) < (b & 255)) && !((c & 255) < (d & 255)); }
+static void kill(Game& g, Ene& e, Result& R) { e.st = 2; e.tmr = 16; g.score = (g.score + PTS[e.typ]) % 1000000; R.kills++; }
+static void pdie(Game& g, Result& R) { g.pstate = 1; g.ptimer = 16; R.deaths++; }
+static void spawn(Game& g, int w, int x, Result& R) {
+  const uint8_t* r = &g_map[w];
+  for (int i = 0; i < 8; i++) if (g.e[i].st == 0) {
+    Ene& e = g.e[i]; e.st = 1; e.typ = r[2]; e.x = (x + 32) & 255; e.y = 16; e.tmr = 0; e.flg = r[7]; e.ft = EFT[e.typ]; e.path = r[4]; e.k = 0;
+    R.spawned++; return;
+  }
+  R.drope++;
+}
+static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int nstp, Result& R) {
+  g.tick = (g.tick + 1) & 255;
+  if (g.pstate != 1) {
+    int dx = (keydown(sc, f, 5, 0) ? 1 : 0) - (keydown(sc, f, 5, 1) ? 1 : 0);
+    g.tilt = dx + 1; g.x = std::min(128, std::max(16, g.x + dx));
+    int dy = (keydown(sc, f, 1, 0) ? 1 : 0) - (keydown(sc, f, 2, 0) ? 1 : 0);
+    g.y = std::min(76, std::max(0, g.y + dy));
+  }
+  for (int i = 0; i < 8; i++) if (g.ba[i]) { g.by[i] -= 3; if (g.by[i] < -7) { g.ba[i] = 0; R.expired++; } }
+  if (g.pstate != 1) {
+    bool fire = true;
+    if (g.cd > 0) { g.cd--; if (g.cd > 0) fire = false; }
+    if (fire && keydown(sc, f, 7, 0))
+      for (int i = 0; i < 8; i++) if (!g.ba[i]) { g.ba[i] = 1; g.bx[i] = g.x + 4; g.by[i] = g.y - 6; g.cd = 6; R.fired++; break; }
+  }
+  // enemigos
+  for (auto& e : g.e) {
+    if (e.st == 1) {
+      const std::vector<int>& p = g_paths[e.path];
+      int n = (int)p.size() / 2, dx = p[2 * e.k], dy = p[2 * e.k + 1];
+      if (e.flg & 1) dx = -dx;
+      e.x = (e.x + dx) & 255; e.y = (e.y + dy + ((e.flg & 4) ? nstp : 0)) & 255;
+      if (e.k < n - 1) e.k++;
+      if (e.x < 33 || e.x >= 176 || e.y < 16 || e.y >= 132) e.st = 0;
+    } else if (e.st == 2) { if (--e.tmr == 0) e.st = 0; }
+  }
+  // disparos enemigos
+  for (auto& b : g.b) if (b.a) {
+    b.x = (b.x + b.dx) & 255;
+    if (b.x < 24 || b.x >= 176) { b.a = 0; continue; }
+    b.y = (b.y + 2) & 255;
+    if (b.y >= 132) b.a = 0;
+  }
+  // colisiones
+  for (int i = 0; i < 8; i++) if (g.ba[i]) {
+    int cbx = (g.bx[i] + 35) & 255, cby = (g.by[i] + 32) & 255;
+    for (auto& e : g.e) if (e.st == 1 && ovl(cbx, cbx + 1, e.x + 1, e.x + 14) && ovl(cby, cby + 7, e.y + 1, e.y + 14)) { kill(g, e, R); g.ba[i] = 0; break; }
+  }
+  if (g.pstate == 0) {
+    int cpx = g.x + 36, cpy = g.y + 35; bool hit = false;
+    for (auto& b : g.b) if (b.a && ovl(b.x + 3, b.x + 4, cpx, cpx + 7) && ovl(b.y + 3, b.y + 4, cpy, cpy + 10)) { b.a = 0; pdie(g, R); hit = true; break; }
+    if (!hit) for (auto& e : g.e) if (e.st == 1 && !(e.flg & 4) && ovl(e.x + 2, e.x + 13, cpx, cpx + 7) && ovl(e.y + 2, e.y + 13, cpy, cpy + 10)) { kill(g, e, R); pdie(g, R); break; }
+  }
+  // disparos de los enemigos
+  for (auto& e : g.e) if (e.st == 1 && e.ft != 0) {
+    if (--e.ft != 0) continue;
+    e.ft = EFT[e.typ];
+    if (e.y >= 32 && e.y < 93 && g.pstate != 1)
+      for (auto& b : g.b) if (!b.a) {
+        b.a = 1; b.x = (e.x + 4) & 255; b.y = (e.y + 12) & 255;
+        int ec = e.x + 8, pc = g.x + 40;
+        b.dx = pc >= ec + 16 ? 1 : (pc + 16 <= ec ? -1 : 0);
+        b.dx &= 255; R.ebfired++; break;
+      }
+  }
+  for (auto& b : g.b) if (b.a && b.dx == 255) b.dx = -1;
+  // oleadas
+  while (scr >= u16(g_map, g.w)) {
+    int w = g.w; g.w += 8; R.waves++;
+    const uint8_t* r = &g_map[w];
+    if (r[2] >= 6) continue;
+    if (r[7] & 2) { for (int i = 0; i < r[5]; i++) spawn(g, w, r[3] + i * r[6], R); }
+    else {
+      bool ok = false;
+      for (auto& s : g.sp) if (s.rem == 0) { s.rem = r[5]; s.w = w; s.t = 0; ok = true; break; }
+      if (!ok) R.dropw++;
+    }
+  }
+  for (auto& s : g.sp) if (s.rem) {
+    if (s.t) { if (--s.t != 0) continue; }
+    spawn(g, s.w, g_map[s.w + 3], R); s.rem--; s.t = g_map[s.w + 6];
+  }
+  // la nave
+  if (g.pstate && --g.ptimer == 0) {
+    if (g.pstate == 1) { g.x = 72; g.y = 76; g.tilt = 1; g.pstate = 2; g.ptimer = 100; } else g.pstate = 0;
+  }
+}
+// los registros de los 64 sprites tienen que ser los de este estado; cuenta tambien los sprites por linea
+static int spr_check(const Game& g, int scr, Result& R) {
+  int bad = 0, NAVE = S("NAVE"), LLAMA = S("LLAMA"), BALA = S("BALAJ_0"), BALAE = S("BALAE_0"), EXPL = S("EXPL"), CIFRA = S("CIFRA");
+  int ETAB[6] = {S("ENEMY1"), S("ENEMY2"), S("ENEMY3"), S("ENEMY4"), S("ENEMY5"), S("ENEMY6")};
   bool used[64] = {};
   auto chk = [&](int n, int x, int y, int pg) {
     used[n] = true; const Spr& q = spr[n]; int X = q.xl | ((q.xh & 1) << 8); bool m = true;
     for (int r = 0; r < 8; r++) if (q.mask[r] != 0xFF) m = false;
-    if (!(q.en == 1 && X == x && q.y == (y & 255) && q.page == pg && m && (q.xh >> 4) == 0)) bad++;
+    if (!(q.en == 1 && X == (x & 255) && q.y == (y & 255) && q.page == pg && m && (q.xh >> 4) == 0)) bad++;
   };
-  int pg = NAVE + g.tilt * 4;
-  chk(50, g.x + 32, g.y + 32, pg); chk(51, g.x + 40, g.y + 32, pg + 1); chk(52, g.x + 32, g.y + 40, pg + 2); chk(53, g.x + 40, g.y + 40, pg + 3);
-  chk(49, g.x + 36, g.y + 48, LLAMA + ((g.tick >> 2) & 1));
+  auto chk4 = [&](int n, int x, int y, int pg) { chk(n, x, y, pg); chk(n + 1, x + 8, y, pg + 1); chk(n + 2, x, y + 8, pg + 2); chk(n + 3, x + 8, y + 8, pg + 3); };
+  bool blink = g.pstate == 2 && (g.ptimer & 4);
+  if (!blink) {
+    chk4(50, g.x + 32, g.y + 32, g.pstate == 1 ? EXPL + ((16 - g.ptimer) & 12) : NAVE + g.tilt * 4);
+    if (g.pstate != 1) chk(49, g.x + 36, g.y + 48, LLAMA + ((g.tick >> 2) & 1));
+  }
   for (int i = 0; i < 8; i++) if (g.ba[i]) chk(34 + i, g.bx[i] + 32, g.by[i] + 32, BALA);
+  int ne = 0;
+  for (int i = 0; i < 8; i++) {
+    const Ene& e = g.e[i];
+    if (e.st == 1) { chk4(4 * i, e.x, e.y, ETAB[e.typ] + ((g.tick & 8) >> 1)); ne++; }
+    else if (e.st == 2) { chk4(4 * i, e.x, e.y, EXPL + ((16 - e.tmr) & 12)); ne++; }
+  }
+  R.maxene = std::max(R.maxene, ne);
+  for (int i = 0; i < 7; i++) if (g.b[i].a) chk(42 + i, g.b[i].x, g.b[i].y, BALAE);
+  // marcador: una fila de 6 cifras en x 56-103, y 2, solo con la nave explotando o parpadeando o al final del nivel
+  if (g.pstate != 0 || scr >= u16(g_map, 14)) {
+    int dig[6] = { g.score / 100000, g.score / 10000 % 10, g.score / 1000 % 10, g.score / 100 % 10, g.score / 10 % 10, g.score % 10 };
+    for (int i = 0; i < 6; i++) chk(58 + i, 32 + 56 + 8 * i, 32 + 2, CIFRA + dig[i]);
+    R.score_shown++;
+  }
   for (int n = 0; n < 64; n++) if (!used[n] && spr[n].en) bad++;
+  // sprites por linea de la imagen (cuentan los encendidos que la cruzan)
+  int cnt[100] = {}, mx = 0;
+  for (int n = 0; n < 64; n++) if (spr[n].en) for (int r = 0; r < 8; r++) { int row = spr[n].y - 32 + r; if (row >= 0 && row < 100) cnt[row]++; }
+  for (int r = 0; r < 100; r++) mx = std::max(mx, cnt[r]);
+  R.maxline = std::max(R.maxline, mx);
+  if (mx > 12) R.over12++;
+  R.score = g.score;
   return bad;
 }
 
@@ -262,9 +384,11 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
   z80.sp.w = 0x47F0; wr_raw(0x47F0, RET_AT & 255); wr_raw(0x47F1, RET_AT >> 8);
   z80.pc.w = 0x4800; z80.halted = 0; z80.iff1 = z80.iff2 = 0;
   z80.ix.w = 0x0281; z80.iy.w = 0x4000;
-  int MAIN = S("main"), RESTART = S("restart"), WAITVS = S("waitvs");
+  int MAIN = S("main"), RESTART = S("restart"), WAITVS = S("waitvs"), CYCLE = S("cycle"); in_draw = false;
   int TW = S("TCYW"), TL = S("TCYL"), TG = S("TCYG");
-  struct Rng { int base, n, t; } rngs[3] = { {S("PAL_WATER"), S("PAL_WATER_N"), TW}, {S("PAL_LAVA"), S("PAL_LAVA_N"), TL}, {S("PAL_LIGHTS"), S("PAL_LIGHTS_N"), TG} };
+  // c0: la vuelta en la que gira por primera vez (luego cada t)
+  struct Rng { int base, n, t, c0; } rngs[3] = { {S("PAL_WATER"), S("PAL_WATER_N"), TW, S("CYW0")}, {S("PAL_LAVA"), S("PAL_LAVA_N"), TL, S("CYL0")},
+                                                 {S("PAL_LIGHTS"), S("PAL_LIGHTS_N"), TG, S("CYG0")} };
   std::mt19937 rng(12345);
   std::vector<uint64_t> checks;
   for (int i = 0; i < nchecks; i++) checks.push_back((uint64_t)(rng() % (uint64_t)((maxf - 30) * FRAME)) + 20ULL * FRAME);
@@ -276,17 +400,20 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
     for (const Key& k : script) if (fr >= k.from && fr < k.to) keyrows[k.row] |= (uint8_t)(1 << k.bit);
     if (z80.pc.w == MAIN && !in_main) { in_main = true; checking_vis = true; shown_valid = false; calls = 0; }
     if (z80.pc.w == RESTART) { in_restart = true; restart_seen = true; calls = -1; }
+    if (z80.pc.w == draw_lo) in_draw = true;
+    if (z80.pc.w == CYCLE) in_draw = false;
     if (in_main && z80.pc.w == WAITVS && frame_t0 && !restart_seen) { long lp = (long)(total_t - frame_t0); if (lp > R.maxloop) R.maxloop = lp; }
     if (in_main && z80.pc.w == WAITVS && vwrites.size() > nspr) {
       // acaba una vuelta: lo que se ha visto en esta imagen es el estado de antes de update; luego update con las teclas de la imagen
       nspr = vwrites.size(); long f = vwrites.back().f;
-      if (spr_check(g)) R.spr_bad.push_back((int)f);
+      if (spr_check(g, vwrites.back().s, R)) R.spr_bad.push_back((int)f);     // drawspr va antes de los pasos: el scroll del POKE 2072
       if (spr_blk != S("SHEET_BLOCK") || spr_xtr != 0) R.blk_bad++;
       if (pal16_on != 1) R.p16_bad++;
       R.spr_checked++;
       int nb = 0; for (int i = 0; i < 8; i++) nb += g.ba[i]; R.maxb = std::max(R.maxb, nb);
       R.minx = std::min(R.minx, g.x); R.maxx = std::max(R.maxx, g.x); R.miny = std::min(R.miny, g.y); R.maxy = std::max(R.maxy, g.y);
-      gupdate(g, script, f, R);
+      int scr_now = rd16(scr_sym);                    // el scroll despues de los pasos de esta imagen (con R se descarta)
+      gupdate(g, script, f, scr_now, scr_now - vwrites.back().s, R);
       bool r = keydown(script, f, 2, 3);
       if (r && !prev_r) ginit(g);
       prev_r = r;
@@ -299,7 +426,10 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
         int bad = 0;
         for (int i = 0; i < 256; i++) {
           uint16_t want = lv.pal(i);
-          for (auto& g : rngs) if (i >= g.base && i < g.base + g.n) { int o = (int)((calls / g.t) % g.n); want = lv.pal(g.base + ((i - g.base) + o) % g.n); }
+          for (auto& g : rngs) if (i >= g.base && i < g.base + g.n) {
+            int o = calls >= g.c0 ? (int)((1 + (calls - g.c0) / g.t) % g.n) : 0;
+            want = lv.pal(g.base + ((i - g.base) + o) % g.n);
+          }
           if (pal[i] != want) bad++;
         }
         if (bad) R.pal_bad.push_back((int)fr);
@@ -353,6 +483,38 @@ int main(int argc, char** argv) {
   std::vector<uint8_t> hoja = readfile(out + "/HOJA.BIN"), hpal = readfile(out + "/HOJA.PAL");
   if (hoja.empty() || hpal.size() != 32) { printf("faltan HOJA.BIN / HOJA.PAL en %s\n", out.c_str()); return 2; }
   draw_lo = S("drawspr"); draw_hi = S("update");
+  {
+    // las trayectorias, del texto de LEVEL.INC (PATHTAB: defw nombres; cada nombre: defb n y luego los pares)
+    FILE* f = fopen((out + "/LEVEL.INC").c_str(), "r"); if (!f) { printf("falta LEVEL.INC\n"); return 2; }
+    std::vector<std::string> lines; char buf[1024];
+    while (fgets(buf, sizeof buf, f)) lines.push_back(buf);
+    fclose(f);
+    std::vector<std::string> names;
+    for (size_t i = 0; i + 1 < lines.size(); i++) if (lines[i].rfind("PATHTAB:", 0) == 0) {
+      std::string l = lines[i + 1]; size_t q = l.find("defw"); l = l.substr(q + 4);
+      std::string cur; for (char c : l) { if (c == ',' || c == '\n' || c == '\r' || c == ' ' || c == '\t') { if (!cur.empty()) names.push_back(cur); cur.clear(); } else cur += c; }
+      if (!cur.empty()) names.push_back(cur);
+    }
+    auto nums = [](const std::string& l, std::vector<int>& v) {
+      size_t q = l.find("defb"); if (q == std::string::npos) return false;
+      std::string t = l.substr(q + 4); size_t sc = t.find(';'); if (sc != std::string::npos) t = t.substr(0, sc);
+      for (char& c : t) if (c == ',') c = ' ';
+      char* e = &t[0]; while (true) { char* e2; long x = strtol(e, &e2, 10); if (e2 == e) break; v.push_back((int)x); e = e2; }
+      return true;
+    };
+    for (auto& nm : names) {
+      std::vector<int> v;
+      for (size_t i = 0; i < lines.size(); i++) if (lines[i].rfind(nm + ":", 0) == 0) {
+        nums(lines[i], v);
+        for (size_t j = i + 1; j < lines.size() && (lines[j][0] == '\t' || lines[j][0] == ' ') && nums(lines[j], v); j++) {}
+        break;
+      }
+      if (v.empty() || (int)v.size() != 1 + 2 * v[0]) { printf("trayectoria %s mal leida (%zu)\n", nm.c_str(), v.size()); return 2; }
+      g_paths.push_back(std::vector<int>(v.begin() + 1, v.end()));
+    }
+    printf("LEVEL.INC: %zu trayectorias\n", g_paths.size());
+  }
+  g_map = lv.map;
   if (lv.i16.size() != 16516 || lv.map.size() < 16) { printf("faltan NIVEL1.I16 / NIVEL1.MAP en %s\n", out.c_str()); return 2; }
   lv.rows = u16(lv.map, 6); lv.mapoff = u16(lv.map, 10); lv.end = u16(lv.map, 14);
   scr_sym = S("scr");
@@ -400,7 +562,7 @@ int main(int argc, char** argv) {
   CHECK(ring_vis_writes == 0, "nunca escribe en una fila del anillo que se esta viendo (fuera de R)");
   printf("        POKE 2072 como mucho %ld T despues del flanco; los giros de la paleta, hasta %ld T (%ld entradas)\n", R.maxlat, cyc_maxlat, cyc_writes);
   CHECK(R.maxlat < 2000, "POKE 2072 en los primeros 2.000 T tras el flanco");
-  CHECK(cyc_writes > 0 && cyc_maxlat < 10000, "el ciclo de la paleta se escribe en el borrado (antes de los ~12.600 T de la primera linea)");
+  CHECK(cyc_writes > 0 && cyc_maxlat < 12000, "el ciclo de la paleta se escribe en el borrado (antes de los ~12.600 T de la primera linea)");
   if (!R.pal_bad.empty()) printf("        paleta mal en %zu imagenes, la primera %d\n", R.pal_bad.size(), R.pal_bad[0]);
   CHECK(R.pal_bad.empty(), "la paleta en cada imagen: la del .I16 con el agua, la lava y las luces giradas lo que toca");
   {
@@ -432,8 +594,8 @@ int main(int argc, char** argv) {
   printf("        los sprites se escriben hasta %ld T despues del flanco\n", spr_maxlat);
   if (!R.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", R.spr_bad.size(), R.spr_bad[0]);
   CHECK(R.spr_checked > 800 && R.spr_bad.empty(), "en cada imagen, los sprites de la nave, la llama y los disparos son los del modelo (y ninguno mas)");
-  CHECK(R.minx == 16 && R.maxx == 128 && R.miny == 0 && R.maxy == 76 && R.fired > 40 && R.expired > 30 && R.maxb >= 4,
-        "la nave llega a los cuatro bordes y se para; los disparos salen, suben y se borran arriba");
+  CHECK(R.minx == 16 && R.maxx == 128 && R.miny < 30 && R.maxy == 76 && R.fired > 40 && R.expired > 30 && R.maxb >= 4,
+        "la nave llega a los bordes y se para (arriba la derriban antes); los disparos salen, suben y se borran arriba");
   CHECK(spr_maxlat < 12000, "los sprites se escriben en el borrado (antes de los ~12.600 T de la primera linea)");
   {
     int pbad = 0; for (int i = 0; i < 16; i++) if (pal16[i] != (hpal[2 * i] | (hpal[2 * i + 1] << 8))) pbad++;
@@ -447,8 +609,37 @@ int main(int argc, char** argv) {
     for (int a = 0x4000; a < 0x4700; a++) if (rd(a) != basic_snap[a - 0x4000]) touched++;
     CHECK(touched == 0, "no toca $4000-$46FF ni lo que hay detras del nivel hasta $7FFF (salvo la hoja) (al copiar a $C000 se reescriben los mismos bytes)");
   }
+  printf("        juego: %d oleadas, %d enemigos, %d derribados, %d disparos enemigos, %d veces tocada, marcador %d, hasta %d enemigos a la vez\n",
+         R.waves, R.spawned, R.kills, R.ebfired, R.deaths, R.score, R.maxene);
   CHECK(R.blk_bad == 0 && R.p16_bad == 0, "en cada imagen del juego: hoja en el bloque SHEET_BLOCK (POKE 2129), sin extra, paleta de 16 activa (POKE 2067,1)");
   exit_checks("nivel 1", 0);
+
+  // ===== 1b. el nivel entero, disparando y moviendose sin parar
+  printf("-- nivel 1 entero (4.500 imagenes) --\n");
+  {
+    std::vector<Key> sc;
+    sc.push_back({30, 4440, 7, 0});                                  // ESPACIO todo el rato
+    for (long f = 40; f < 4400; f += 100) { sc.push_back({f, f + 45, 5, 1}); sc.push_back({f + 50, f + 95, 5, 0}); }   // O y P
+    for (long f = 300; f < 4400; f += 700) { sc.push_back({f, f + 60, 2, 0}); sc.push_back({f + 200, f + 260, 1, 0}); }  // Q y A
+    sc.push_back({4450, 4454, 0, 2});                                // X
+    sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = lv.map; sdfiles["HOJA.BIN"] = hoja;
+    Result L = run(lv, sc, 4500, 300, true);
+    printf("        %d imagenes; %d oleadas, %d enemigos, %d derribados, %d disparos enemigos, %d veces tocada, marcador %d\n",
+           L.spr_checked, L.waves, L.spawned, L.kills, L.ebfired, L.deaths, L.score);
+    printf("        el marcador se ve en %d imagenes (tras cada muerte)\n", L.score_shown);
+    printf("        hasta %d enemigos a la vez; sin hueco: %d enemigos, %d oleadas; hasta %d sprites en una linea (%d imagenes con mas de 12)\n",
+           L.maxene, L.drope, L.dropw, L.maxline, L.over12);
+    printf("        vuelta mas larga del bucle %ld T; sprites escritos hasta %ld T tras el flanco\n", L.maxloop, spr_maxlat);
+    if (!L.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", L.spr_bad.size(), L.spr_bad[0]);
+    CHECK(L.spr_checked > 4300 && L.spr_bad.empty(), "en cada imagen del nivel entero, los 64 sprites son los del modelo (nave, disparos, enemigos, explosiones, marcador)");
+    CHECK(L.vis_ok >= 250 && L.vis_bad == 0 && L.pal_bad.empty(), "lo visible y la paleta, exactos en todo el nivel");
+    CHECK(L.spawned > 60 && L.kills > 10 && L.ebfired > 10 && L.deaths > 0 && L.score > 0, "salen las oleadas, se derriban enemigos, disparan, dan a la nave y suma el marcador");
+    CHECK(L.drope == 0 && L.dropw == 0, "ningun enemigo ni oleada se pierde por falta de hueco");
+    CHECK(L.score_shown > 0 && L.score_shown < L.spr_checked / 2, "el marcador sale solo tras las muertes (en una fila arriba) y el resto del tiempo esta apagado");
+    CHECK(spr_maxlat < 12000, "los sprites se escriben en el borrado (antes de los ~12.600 T de la primera linea)");
+    CHECK(L.maxloop < FRAME - 2000, "la vuelta del bucle cabe en una imagen");
+    exit_checks("nivel entero", 0);
+  }
 
   // ===== 2. un nivel corto: el scroll se para en LVL_END; R vuelve al principio
   printf("-- nivel corto (10 filas) --\n");
@@ -457,7 +648,9 @@ int main(int argc, char** argv) {
   sh.map[6] = 10; sh.map[7] = 0; sh.map[12] = (uint8_t)(sh.map.size() & 255); sh.map[13] = (uint8_t)(sh.map.size() >> 8);
   sh.map[14] = (uint8_t)sh.end; sh.map[15] = 0;
   sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = sh.map; sdfiles["HOJA.BIN"] = hoja;
+  g_map = sh.map;                                      // el modelo, con el nivel corto
   R = run(sh, { {200, 204, 2, 3}, {380, 384, 0, 2} }, 420, 200, true);
+  g_map = lv.map;
   {
     int maxs = 0, after = 0, reset_ok = 0, stuck = 0;
     for (auto& w : vwrites) { maxs = std::max(maxs, w.s); if (w.restart && w.s == 0 && w.v == 0) reset_ok++; }

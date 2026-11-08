@@ -2,9 +2,10 @@
 ; ESTELA.ASM -- matamarcianos vertical para el modo 160x100 a 256 colores
 ; del SD81 Booster. Plan: claude/planning/juego160.md
 ;
-; FASE 3: la nave del jugador sobre el fondo del nivel. Modo 175, anillo
-; de 160x102 en $8000 con dos paneles laterales fijos de 16 pixeles, scroll
-; vertical del nivel 1 y la nave con sus disparos en sprites de formato B:
+; FASE 4: enemigos. Modo 175, anillo de 160x102 en $8000 con dos paneles
+; laterales fijos de 16 pixeles, scroll vertical del nivel 1, la nave con sus
+; disparos y las oleadas de enemigos del nivel, con sus disparos, colisiones,
+; explosiones y el marcador, todo en sprites de formato B:
 ;
 ;   - NIVEL1.I16 (de la SD, carpeta actual): la paleta de 256 del nivel y el
 ;     tileset, 160x100 con 60 tiles de 16x16 (10 por fila), en $C000 tal cual
@@ -36,9 +37,36 @@
 ;     fases que cambian cada 4 imagenes) y hasta NBALAS disparos (sprites
 ;     SP_BALA..+7). Coordenadas de pantalla: la zona de juego es x 16-143;
 ;     X de hardware = x + 32, Y = y + 32.
+;   - Oleadas (tabla de NIVEL1.MAP, juego160.md 8.3): la siguiente sale en el
+;     primer tick con s >= WAVE_POS. Con WF_ROW salen todos sus enemigos a la
+;     vez (X + i*SPACING); si no, uno cada SPACING ticks (hasta NSPN oleadas
+;     soltando enemigos a la vez). Los tipos 6 en adelante (jefe y mejoras)
+;     se saltan: son de la fase 7.
+;   - Enemigos: hasta NENE a la vez, el e en los sprites 4e..4e+3, en
+;     coordenadas de hardware (X = x + 32, Y = y + 32). Salen en Y = 16
+;     (y = -16) y cada tick suman el paso de su trayectoria (PATHTAB; dx con
+;     el signo cambiado con WF_MIRROR; pasado el ultimo, se repite); los de
+;     WF_GROUND bajan ademas lo que haya avanzado el scroll en la imagen. Se
+;     borran al salir: X < 33 o X > 175 o Y < 16 o Y > 131. Animacion: 2
+;     fases, cambian cada 8 ticks.
+;   - Disparos enemigos: hasta NEB (sprites SP_EB..), salen de los enemigos
+;     de los tipos con cadencia (eftab) cuando estan en Y 32-92, bajan EBVY
+;     pixeles por tick y van 1 pixel por tick hacia la nave si esta a 16 o
+;     mas de distancia en X al salir.
+;   - Colisiones por cajas (coordenadas de hardware): disparo [x+3,x+4] x
+;     [y,y+7] contra enemigo [X+1,X+14] x [Y+1,Y+14]: el enemigo explota
+;     (EXT ticks, las 4 fases de EXPL) y suma sus puntos (ptstab). Contra la
+;     nave [X+4,X+11] x [Y+3,Y+13]: disparo enemigo [X+3,X+4] x [Y+3,Y+4] y
+;     enemigo que no es de suelo [X+2,X+13] x [Y+2,Y+13]: la nave explota
+;     (EXT ticks), vuelve a su sitio e invulnerable INVT ticks (parpadea).
+;     Las vidas y el fin de partida son de la fase 7.
+;   - Marcador: 6 cifras BCD en los sprites SP_DIG.., en una fila centrada
+;     arriba de la zona de juego (x 56-103, y 2), solo mientras la nave
+;     explota o parpadea despues de una muerte y al final del nivel.
 ;   - Cada imagen: en el borrado, los sprites con el estado calculado en la
-;     vuelta anterior, el ciclo de la paleta y el scroll; despues, las
-;     teclas y el movimiento (update), que se ven en la imagen siguiente.
+;     vuelta anterior, el ciclo de la paleta y el scroll; despues, update
+;     (nave, disparos, enemigos, colisiones, oleadas), que se ve en la imagen
+;     siguiente.
 ;
 ; Teclas: O P Q A = mover la nave (1 pixel por imagen), ESPACIO = disparar
 ;         (mantenido: uno cada TFIRE imagenes); con LOAD *JOY "OPQA " el
@@ -70,6 +98,10 @@ I16PIX  equ 16000               ; pixeles de un .I16
 TCYW    equ 4                   ; imagenes por paso del ciclo del agua
 TCYL    equ 6                   ; de la lava
 TCYG    equ 8                   ; de las luces
+CYW0    equ TCYW                ; contadores al empezar: el agua gira en las
+CYL0    equ 1                   ;   vueltas 4, 8, 12...; la lava en la 1, 7,
+CYG0    equ 2                   ;   13... (impares) y las luces en la 2, 10,
+                                ;   18...: nunca dos rangos en la misma imagen
 ; sprites (ventana de POKEs, Apendice H)
 SPR_SEL equ 2100
 SPR_EN  equ 2101
@@ -93,6 +125,28 @@ XSTART  equ 72
 YSTART  equ 76
 VBALA   equ 3                   ; pixeles por imagen de los disparos
 TFIRE   equ 6                   ; imagenes entre disparo y disparo
+SP_ENE  equ 0                   ; enemigos: 0-31 (4 sprites cada uno)
+NENE    equ 8
+ESZ     equ 16                  ; registro de un enemigo:
+E_ST    equ 0                   ;   0 libre, 1 vivo, 2 explotando
+E_TYP   equ 1                   ;   tipo (0-5)
+E_X     equ 2                   ;   X de hardware
+E_Y     equ 3                   ;   Y de hardware
+E_PTR   equ 4                   ;   (2) paso actual de la trayectoria
+E_LEFT  equ 6                   ;   pasos que quedan (con el actual)
+E_FLG   equ 7                   ;   WF_* de la oleada
+E_TMR   equ 8                   ;   ticks de explosion que quedan
+E_FT    equ 9                   ;   ticks hasta el siguiente disparo (0 = no dispara)
+SP_EB   equ 42                  ; disparos enemigos: 42-48
+NEB     equ 7                   ; registro: activo, X, Y, dx
+EBVY    equ 2
+SP_DIG  equ 58                  ; marcador: 58-63
+DIGX    equ 56                  ; x de pantalla de la primera cifra (6 x 8 = 48 px, centradas en 16-143)
+DIGY    equ 2                   ; y de pantalla de las cifras
+NSPN    equ 4                   ; oleadas soltando enemigos a la vez
+SPSZ    equ 4                   ; registro: quedan, oleada (2), espera
+EXT     equ 16                  ; ticks de una explosion
+INVT    equ 100                 ; ticks de invulnerabilidad
 
         jp start
 
@@ -163,6 +217,8 @@ main:   call waitvs
         ld (2072),a
         call drawspr            ; los sprites, en el borrado
         call cycle              ; ciclo de la paleta, en el borrado
+        xor a                   ; pasos de scroll hechos en esta imagen
+        ld (nstp),a
         call nsteps             ; B = pasos de esta imagen (0, 1 o 2)
         inc b
         jr mn2
@@ -170,7 +226,7 @@ mn1:    push bc
         call step
         pop bc
 mn2:    djnz mn1
-        call update             ; teclas, nave y disparos (para la siguiente)
+        call update             ; el juego (se ve en la imagen siguiente)
         call keys
         jr nz,main
         xor a                   ; sin error
@@ -228,6 +284,8 @@ sp1:    dec a
         ld hl,(scr)
         inc hl
         ld (scr),hl
+        ld hl,nstp
+        inc (hl)
         ret
 
 ; nsteps: B = pasos segun la velocidad (0: 1, 1: 1 cada 2 imagenes, 2: 2, 3: 0)
@@ -544,16 +602,16 @@ cycinit:
         ld (ofw),a
         ld (ofl),a
         ld (ofg),a
-        ld a,TCYW
+        ld a,CYW0
         ld (cyw),a
-        ld a,TCYL
+        ld a,CYL0
         ld (cyl),a
-        ld a,TCYG
+        ld a,CYG0
         ld (cyg),a
         ret
 
 ; cycle: una vez por imagen; cada rango gira una posicion cuando su
-; contador llega a 0 (como mucho 32 entradas, ~2.300 T)
+; contador llega a 0 (como mucho un rango por imagen: 16 entradas, ~1.200 T)
 cycle:  ld hl,cyw
         ld de,ofw
         ld bc,PAL_WATER_N*256+PAL_WATER
@@ -581,33 +639,42 @@ cyc1:   dec (hl)
         xor a
 cc1:    ld (de),a
         ld e,a
-; cycrng: entradas C..C+B-1 = las de PALBUF giradas E posiciones: la
-; entrada C+i toma el color C+((i+E) mod B)
+; cycrng: entradas C..C+B-1 = las de PALBUF giradas E posiciones (la
+; entrada C+i toma el color C+((i+E) mod B), E < B): primero los B-E colores
+; desde C+E y luego los E desde C
 cycrng: ld a,c
         ld (2063),a
-        ld d,0
-cr1:    ld a,d
-        add a,e
-        cp b
-        jr c,cr2
-        sub b
-cr2:    add a,c
-        ld l,a
+        ld l,c
         ld h,0
         add hl,hl
         push de
         ld de,PALBUF
-        add hl,de
+        add hl,de               ; HL = el color C
         pop de
-        ld a,(hl)
+        push hl
+        ld a,e                  ; HL = el color C+E
+        add a,a
+        add a,l
+        ld l,a
+        jr nc,cr1
+        inc h
+cr1:    ld a,b
+        sub e
+        ld b,a
+        call crcopy
+        pop hl
+        ld b,e
+        ld a,b
+        or a
+        ret z
+; crcopy: B colores seguidos desde HL a la paleta (el puntero avanza solo)
+crcopy: ld a,(hl)
         ld (2064),a
         inc hl
         ld a,(hl)
         ld (2065),a
-        inc d
-        ld a,d
-        cp b
-        jr nz,cr1
+        inc hl
+        djnz crcopy
         ret
 
 ; -------------------------------------------------------------
@@ -720,7 +787,7 @@ sprinit:
         ld (SPR_BLK),a
         xor a
         ld (SPR_XTR),a
-        ld c,SP_BALA
+        ld c,0                  ; los 64
 si1:    ld a,c
         ld (SPR_SEL),a
         xor a
@@ -736,7 +803,7 @@ si2:    ld (hl),a
         ld (SPR_PG),a
         inc c
         ld a,c
-        cp SP_NAVE+4
+        cp 64
         jr nz,si1
         xor a                   ; PAL16: POKE 2063 puntero, 2064 {G,B},
         ld (2063),a             ; 2066 {BRIGHT,R} (escribe y avanza)
@@ -772,67 +839,77 @@ so1:    ld a,c
         ld (SPR_BLK),a
         ret
 
-; gminit: la nave abajo en el centro, recta, sin disparos
+; gminit: la partida desde el principio: la nave abajo en el centro, recta
+; y viva, sin disparos ni enemigos, el marcador a 0 y las oleadas desde la
+; primera
 gminit: ld a,XSTART
         ld (shx),a
         ld a,YSTART
         ld (shy),a
         ld a,1
         ld (tilt),a
-        xor a
-        ld (cd),a
-        ld (tick),a
-        ld hl,balas
-        ld b,3*NBALAS
-gi1:    ld (hl),a
-        inc hl
-        djnz gi1
+        ld hl,gvars
+        ld de,gvars+1
+        ld bc,GVLEN-1
+        ld (hl),0
+        ldir
+        ld hl,(LVLBUF+LVL_WAVES)
+        ld de,LVLBUF
+        add hl,de
+        ld (wptr),hl
         ret
 
 ; -------------------------------------------------------------
-; drawspr: los sprites con el estado de (shx, shy, tilt, tick, balas).
-; ~1.300 T, en el borrado.
+; drawspr: los sprites con el estado del juego. En el borrado (acaba antes de
+; ~9.800 T tras el flanco: 64 sprites; luego va el ciclo de paleta).
 ; -------------------------------------------------------------
 drawspr:
-        ld a,(tilt)             ; D = pagina de arriba a la izquierda
+        ld a,(pstate)
+        cp 2
+        jr nz,dn1
+        ld a,(ptimer)           ; invulnerable: parpadea (apagada si bit 2)
+        and 4
+        jr z,dn1
+        ld c,SP_LLAMA           ; nave y llama apagadas (49-53)
+        ld b,5
+dn0:    call off1
+        inc c
+        djnz dn0
+        jr dbal
+dn1:    ld a,(pstate)
+        dec a
+        jr nz,dn2
+        ld a,(ptimer)           ; explotando: EXPL + ((EXT - ptimer) / 4) * 4
+        ld b,a
+        ld a,EXT
+        sub b
+        and 0ch
+        add a,EXPL
+        jr dn3
+dn2:    ld a,(tilt)             ; viva: la inclinacion
         add a,a
         add a,a
         add a,NAVE
-        ld d,a
+dn3:    ld d,a
         ld a,(shx)
         add a,SOFS
-        ld e,a                  ; E = X
+        ld e,a
         ld a,(shy)
         add a,SOFS
-        ld l,a                  ; L = Y
-        ld c,SP_NAVE
-        call put1               ; arriba a la izquierda
-        inc c
-        inc d
-        ld a,e
-        add a,8
-        ld e,a
-        call put1               ; arriba a la derecha
-        inc c
-        inc d
-        ld a,e
-        sub 8
-        ld e,a
-        ld a,l
-        add a,8
         ld l,a
-        call put1               ; abajo a la izquierda
-        inc c
-        inc d
-        ld a,e
-        add a,8
+        ld c,SP_NAVE
+        call put4
+        ld a,(pstate)
+        dec a
+        jr nz,dn4
+        ld c,SP_LLAMA           ; explotando: sin llama
+        call off1
+        jr dbal
+dn4:    ld a,(shx)              ; llama: (x + 4, y + 16)
+        add a,SOFS+4
         ld e,a
-        call put1               ; abajo a la derecha
-        ld a,e                  ; llama: (x + 4, y + 16)
-        sub 4
-        ld e,a
-        ld a,l
-        add a,8
+        ld a,(shy)
+        add a,SOFS+16
         ld l,a
         ld a,(tick)
         rrca
@@ -842,7 +919,7 @@ drawspr:
         ld d,a
         ld c,SP_LLAMA
         call put1
-        ld ix,balas             ; disparos
+dbal:   ld ix,balas             ; disparos del jugador
         ld c,SP_BALA
 ds1:    ld a,(ix+0)
         or a
@@ -856,10 +933,7 @@ ds1:    ld a,(ix+0)
         ld d,BALAJ_0
         call put1
         jr ds3
-ds2:    ld a,c                  ; libre: apagado
-        ld (SPR_SEL),a
-        xor a
-        ld (SPR_EN),a
+ds2:    call off1
 ds3:    inc ix
         inc ix
         inc ix
@@ -867,6 +941,141 @@ ds3:    inc ix
         ld a,c
         cp SP_BALA+NBALAS
         jr nz,ds1
+        ld ix,enes              ; enemigos: el e en los sprites 4e..4e+3
+        ld c,SP_ENE
+de1:    ld a,(ix+E_ST)
+        or a
+        jr nz,de2
+        call off1               ; libre: los 4 apagados
+        inc c
+        call off1
+        inc c
+        call off1
+        inc c
+        call off1
+        inc c
+        jr de4
+de2:    dec a
+        jr nz,de3
+        ld e,(ix+E_TYP)         ; vivo: su grafico y la fase (tick / 8) mod 2
+        ld d,0
+        ld hl,etab
+        add hl,de
+        ld a,(tick)
+        and 8
+        rrca
+        add a,(hl)
+        jr de5
+de3:    ld a,(ix+E_TMR)         ; explotando
+        ld b,a
+        ld a,EXT
+        sub b
+        and 0ch
+        add a,EXPL
+de5:    ld d,a
+        ld e,(ix+E_X)
+        ld l,(ix+E_Y)
+        call put4
+de4:    ld de,ESZ
+        add ix,de
+        ld a,c
+        cp SP_ENE+4*NENE
+        jr nz,de1
+        ld ix,ebs               ; disparos enemigos
+        ld c,SP_EB
+db1:    ld a,(ix+0)
+        or a
+        jr z,db2
+        ld e,(ix+1)
+        ld l,(ix+2)
+        ld d,BALAE_0
+        call put1
+        jr db3
+db2:    call off1
+db3:    inc ix
+        inc ix
+        inc ix
+        inc ix
+        inc c
+        ld a,c
+        cp SP_EB+NEB
+        jr nz,db1
+        ld c,SP_DIG             ; marcador: con la nave explotando o
+        ld a,(pstate)           ; parpadeando, o al final del nivel
+        or a
+        jr nz,dd0
+        ld hl,(scr)
+        ld de,(lvlend)
+        or a
+        sbc hl,de
+        jr nc,dd0
+        ld b,6                  ; si no, apagado
+dd2:    call off1
+        inc c
+        djnz dd2
+        ret
+dd0:    ld hl,score
+        ld b,3
+dd1:    ld a,(hl)
+        rrca
+        rrca
+        rrca
+        rrca
+        and 0fh
+        call digit
+        ld a,(hl)
+        and 0fh
+        call digit
+        inc hl
+        djnz dd1
+        ret
+
+; digit: la cifra A en el sprite C (el SP_DIG+i en x = DIGX + 8i); C sube 1
+digit:  add a,CIFRA
+        ld d,a
+        ld a,c
+        ld (SPR_SEL),a
+        sub SP_DIG
+        add a,a
+        add a,a
+        add a,a
+        add a,SOFS+DIGX
+        ld (SPR_XL),a
+        ld a,SOFS+DIGY
+        ld (SPR_Y),a
+        ld a,d
+        ld (SPR_PG),a
+        ld a,1
+        ld (SPR_EN),a
+        inc c
+        ret
+
+; put4: un grafico de 16x16 en los sprites C..C+3 (paginas D..D+3: arriba
+; a la izquierda, arriba a la derecha, abajo a la izquierda, abajo a la
+; derecha) en X = E, Y = L. C sube 4.
+put4:   call put1
+        inc c
+        inc d
+        ld a,e
+        add a,8
+        ld e,a
+        call put1
+        inc c
+        inc d
+        ld a,e
+        sub 8
+        ld e,a
+        ld a,l
+        add a,8
+        ld l,a
+        call put1
+        inc c
+        inc d
+        ld a,e
+        add a,8
+        ld e,a
+        call put1
+        inc c
         ret
 
 ; put1: sprite C en X = E, Y = L, pagina D, encendido (X < 256)
@@ -882,15 +1091,26 @@ put1:   ld a,c
         ld (SPR_EN),a
         ret
 
+; off1: sprite C apagado
+off1:   ld a,c
+        ld (SPR_SEL),a
+        xor a
+        ld (SPR_EN),a
+        ret
+
 ; -------------------------------------------------------------
-; update: una vez por imagen, despues del scroll. O P Q A mueven la nave un
-; pixel (dentro de XMIN-XMAX e YMIN-YMAX) e inclinan la nave segun el
-; movimiento en X; los disparos suben VBALA pixeles y se borran al salir
-; por arriba (y < -7); con ESPACIO pulsado y la espera (cd) a 0 sale un
-; disparo nuevo en (x + 4, y - 6), en el primer hueco, y cd = TFIRE.
+; update: una vez por imagen, despues del scroll (un tick de juego):
+;  1. la nave (si no esta explotando): O P Q A la mueven un pixel dentro de
+;     XMIN-XMAX e YMIN-YMAX y la inclinan segun dx
+;  2. los disparos suben VBALA y se borran con y < -7
+;  3. si no esta explotando, pfire (ESPACIO)
+;  4. upene, upeb, collide, efire, waves, upplay
 ; -------------------------------------------------------------
 update: ld hl,tick
         inc (hl)
+        ld a,(pstate)
+        dec a
+        jr z,up6                ; explotando: ni se mueve ni dispara
         ld a,0dfh               ; Y U I O P: P bit 0, O bit 1
         in a,(0feh)
         cpl
@@ -935,7 +1155,7 @@ up4:    ld (shx),a
         jr nz,up5
         ld a,YMAX               ; o por abajo
 up5:    ld (shy),a
-        ld ix,balas             ; los disparos suben
+up6:    ld ix,balas             ; los disparos suben
         ld b,NBALAS
 ub1:    ld a,(ix+0)
         or a
@@ -950,7 +1170,19 @@ ub2:    inc ix
         inc ix
         inc ix
         djnz ub1
-        ld hl,cd                ; espera entre disparos
+        ld a,(pstate)
+        dec a
+        call nz,pfire
+        call upene
+        call upeb
+        call collide
+        call efire
+        call waves
+        jp upplay
+
+; pfire: la espera (cd) baja 1; con ESPACIO pulsado y la espera a 0 sale un
+; disparo nuevo en (x + 4, y - 6), en el primer hueco, y cd = TFIRE
+pfire:  ld hl,cd
         ld a,(hl)
         or a
         jr z,uf1
@@ -979,6 +1211,564 @@ uf3:    ld (ix+0),1
         ld (ix+2),a
         ld a,TFIRE
         ld (cd),a
+        ret
+
+; upene: los enemigos vivos avanzan un paso de su trayectoria (y los de
+; suelo, lo que haya avanzado el scroll) y se borran al salir; los que
+; explotan cuentan y quedan libres al acabar
+upene:  ld ix,enes
+        ld b,NENE
+ue1:    ld a,(ix+E_ST)
+        dec a
+        jr z,ue2
+        dec a
+        jr nz,ue6
+        dec (ix+E_TMR)          ; explotando
+        jr nz,ue6
+        ld (ix+E_ST),0
+        jr ue6
+ue2:    ld l,(ix+E_PTR)         ; vivo: el paso (dx, dy)
+        ld h,(ix+E_PTR+1)
+        ld a,(hl)
+        bit 0,(ix+E_FLG)        ; WF_MIRROR
+        jr z,ue3
+        neg
+ue3:    add a,(ix+E_X)
+        ld (ix+E_X),a
+        inc hl
+        ld a,(hl)
+        add a,(ix+E_Y)
+        bit 2,(ix+E_FLG)        ; WF_GROUND: y lo que ha subido el scroll
+        jr z,ue4
+        ld c,a
+        ld a,(nstp)
+        add a,c
+ue4:    ld (ix+E_Y),a
+        ld a,(ix+E_LEFT)        ; el siguiente paso (el ultimo se repite)
+        dec a
+        jr z,ue5
+        ld (ix+E_LEFT),a
+        inc hl
+        ld (ix+E_PTR),l
+        ld (ix+E_PTR+1),h
+ue5:    ld a,(ix+E_X)           ; fuera de la zona?
+        cp 33
+        jr c,ue7
+        cp 176
+        jr nc,ue7
+        ld a,(ix+E_Y)
+        cp 16
+        jr c,ue7
+        cp 132
+        jr c,ue6
+ue7:    ld (ix+E_ST),0
+ue6:    ld de,ESZ
+        add ix,de
+        djnz ue1
+        ret
+
+; upeb: los disparos enemigos bajan EBVY y van dx en X; se borran al salir
+upeb:   ld ix,ebs
+        ld b,NEB
+eb1:    ld a,(ix+0)
+        or a
+        jr z,eb3
+        ld a,(ix+1)
+        add a,(ix+3)
+        ld (ix+1),a
+        cp 24
+        jr c,eb2
+        cp 176
+        jr nc,eb2
+        ld a,(ix+2)
+        add a,EBVY
+        ld (ix+2),a
+        cp 132
+        jr c,eb3
+eb2:    ld (ix+0),0
+eb3:    inc ix
+        inc ix
+        inc ix
+        inc ix
+        djnz eb1
+        ret
+
+; ovl: los intervalos [B,C] y [D,E] se solapan -> NC (C = no)
+ovl:    ld a,e
+        cp b
+        ret c
+        ld a,c
+        cp d
+        ret
+
+; collide: disparos contra enemigos (en el orden de los huecos; cada
+; disparo, contra el primer enemigo vivo que toca) y, con la nave viva,
+; disparos enemigos y enemigos (no de suelo) contra la nave
+collide:
+        ld hl,balas
+        ld b,NBALAS
+cl1:    ld a,(hl)
+        or a
+        jr z,cl2
+        push bc
+        push hl
+        inc hl
+        ld a,(hl)
+        add a,SOFS+3
+        ld (cbx),a
+        inc hl
+        ld a,(hl)
+        add a,SOFS
+        ld (cby),a
+        call hitene
+        pop hl
+        pop bc
+        jr nc,cl2
+        ld (hl),0               ; ha dado: el disparo se borra
+cl2:    inc hl
+        inc hl
+        inc hl
+        djnz cl1
+        ld a,(pstate)
+        or a
+        ret nz                  ; la nave no esta viva
+        ld a,(shx)              ; caja de la nave
+        add a,SOFS+4
+        ld (cpx),a
+        ld a,(shy)
+        add a,SOFS+3
+        ld (cpy),a
+        ld ix,ebs               ; disparos enemigos
+        ld b,NEB
+cl3:    ld a,(ix+0)
+        or a
+        jr z,cl4
+        push bc
+        ld a,(ix+1)
+        add a,3
+        ld d,a
+        inc a
+        ld e,a
+        ld a,(cpx)
+        ld b,a
+        add a,7
+        ld c,a
+        call ovl
+        jr c,cl3n
+        ld a,(ix+2)
+        add a,3
+        ld d,a
+        inc a
+        ld e,a
+        ld a,(cpy)
+        ld b,a
+        add a,10
+        ld c,a
+        call ovl
+        jr c,cl3n
+        pop bc
+        ld (ix+0),0
+        jp pdie
+cl3n:   pop bc
+cl4:    ld de,4
+        add ix,de
+        djnz cl3
+        ld ix,enes              ; enemigos contra la nave
+        ld b,NENE
+cl5:    ld a,(ix+E_ST)
+        dec a
+        jr nz,cl6
+        bit 2,(ix+E_FLG)        ; los de suelo no chocan
+        jr nz,cl6
+        push bc
+        ld a,(ix+E_X)
+        add a,2
+        ld d,a
+        add a,11
+        ld e,a
+        ld a,(cpx)
+        ld b,a
+        add a,7
+        ld c,a
+        call ovl
+        jr c,cl5n
+        ld a,(ix+E_Y)
+        add a,2
+        ld d,a
+        add a,11
+        ld e,a
+        ld a,(cpy)
+        ld b,a
+        add a,10
+        ld c,a
+        call ovl
+        jr c,cl5n
+        pop bc
+        call ekill              ; el enemigo tambien explota (y da sus puntos)
+        jp pdie
+cl5n:   pop bc
+cl6:    ld de,ESZ
+        add ix,de
+        djnz cl5
+        ret
+
+; hitene: el disparo [cbx, cbx+1] x [cby, cby+7] contra los enemigos vivos;
+; C = ha dado (y el enemigo explota)
+hitene: ld ix,enes
+        ld b,NENE
+he1:    ld a,(ix+E_ST)
+        dec a
+        jr nz,he3
+        push bc
+        ld a,(cbx)
+        ld b,a
+        ld c,a
+        inc c
+        ld a,(ix+E_X)
+        inc a
+        ld d,a
+        add a,13
+        ld e,a
+        call ovl
+        jr c,he2
+        ld a,(cby)
+        ld b,a
+        add a,7
+        ld c,a
+        ld a,(ix+E_Y)
+        inc a
+        ld d,a
+        add a,13
+        ld e,a
+        call ovl
+        jr c,he2
+        pop bc
+        call ekill
+        scf
+        ret
+he2:    pop bc
+he3:    ld de,ESZ
+        add ix,de
+        djnz he1
+        or a
+        ret
+
+; ekill: el enemigo IX explota y sus puntos van al marcador (BCD)
+ekill:  ld (ix+E_ST),2
+        ld (ix+E_TMR),EXT
+        ld e,(ix+E_TYP)
+        ld d,0
+        ld hl,ptstab
+        add hl,de
+        ld a,(hl)
+        ld hl,score+2
+        add a,(hl)
+        daa
+        ld (hl),a
+        dec hl
+        ld a,(hl)
+        adc a,0
+        daa
+        ld (hl),a
+        dec hl
+        ld a,(hl)
+        adc a,0
+        daa
+        ld (hl),a
+        ret
+
+; pdie: la nave explota
+pdie:   ld a,1
+        ld (pstate),a
+        ld a,EXT
+        ld (ptimer),a
+        ld hl,deaths
+        inc (hl)
+        ret
+
+; efire: cada enemigo vivo de un tipo con cadencia cuenta; al llegar a 0
+; vuelve a empezar y, si esta en Y 32-92 y la nave no esta explotando,
+; dispara
+efire:  ld ix,enes
+        ld b,NENE
+ef1:    ld a,(ix+E_ST)
+        dec a
+        jr nz,ef3
+        ld a,(ix+E_FT)
+        or a
+        jr z,ef3                ; este tipo no dispara
+        dec (ix+E_FT)
+        jr nz,ef3
+        push bc
+        ld e,(ix+E_TYP)
+        ld d,0
+        ld hl,eftab
+        add hl,de
+        ld a,(hl)
+        ld (ix+E_FT),a
+        ld a,(ix+E_Y)
+        cp 32
+        jr c,ef2
+        cp 93
+        jr nc,ef2
+        ld a,(pstate)
+        dec a
+        call nz,ebfire
+ef2:    pop bc
+ef3:    ld de,ESZ
+        add ix,de
+        djnz ef1
+        ret
+
+; ebfire: un disparo del enemigo IX en (X + 4, Y + 12), en el primer hueco;
+; dx = +1 si el centro de la nave esta 16 o mas a la derecha del suyo, -1 si
+; 16 o mas a la izquierda, 0 si no
+ebfire: ld hl,ebs
+        ld b,NEB
+eb4:    ld a,(hl)
+        or a
+        jr z,eb5
+        inc hl
+        inc hl
+        inc hl
+        inc hl
+        djnz eb4
+        ret                     ; sin hueco
+eb5:    ld (hl),1
+        inc hl
+        ld a,(ix+E_X)
+        add a,4
+        ld (hl),a
+        inc hl
+        ld a,(ix+E_Y)
+        add a,12
+        ld (hl),a
+        inc hl
+        ld a,(ix+E_X)           ; E = centro del enemigo
+        add a,8
+        ld e,a
+        ld a,(shx)              ; D = centro de la nave
+        add a,SOFS+8
+        ld d,a
+        ld c,0
+        ld a,e
+        add a,16
+        ld b,a
+        ld a,d
+        cp b
+        jr c,eb6                ; nave < enemigo + 16
+        inc c
+        jr eb7
+eb6:    add a,16                ; nave + 16 <= enemigo?
+        cp e
+        jr z,eb8
+        jr nc,eb7
+eb8:    dec c
+eb7:    ld (hl),c
+        ret
+
+; waves: las oleadas que ya tocan (s >= WAVE_POS) y las que sueltan
+; enemigos de uno en uno (espera 0: sale uno y la espera pasa a SPACING)
+waves:  ld hl,(wptr)
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ld hl,(scr)
+        or a
+        sbc hl,de
+        jr c,wv2
+        ld hl,(wptr)
+        push hl
+        ld de,WAVE_SIZE
+        add hl,de
+        ld (wptr),hl
+        pop hl
+        call wstart
+        jr waves
+wv2:    ld ix,spns
+        ld b,NSPN
+wv3:    ld a,(ix+0)             ; quedan
+        or a
+        jr z,wv5
+        ld a,(ix+3)             ; espera
+        or a
+        jr z,wv4
+        dec a
+        ld (ix+3),a
+        jr nz,wv5
+wv4:    push bc
+        ld l,(ix+1)
+        ld h,(ix+2)
+        push hl
+        ld de,WAVE_X
+        add hl,de
+        ld c,(hl)
+        pop hl
+        call spawn
+        pop bc
+        dec (ix+0)
+        ld l,(ix+1)
+        ld h,(ix+2)
+        ld de,WAVE_SPACING
+        add hl,de
+        ld a,(hl)
+        ld (ix+3),a
+wv5:    ld de,SPSZ
+        add ix,de
+        djnz wv3
+        ret
+
+; wstart: empieza la oleada HL
+wstart: push hl
+        ld de,WAVE_TYPE
+        add hl,de
+        ld a,(hl)
+        pop hl
+        cp 6
+        ret nc                  ; jefe y mejoras: fase 7
+        push hl
+        ld de,WAVE_FLAGS
+        add hl,de
+        ld a,(hl)
+        pop hl
+        and WF_ROW
+        jr z,ws3
+        push hl                 ; en fila: todos a la vez
+        ld de,WAVE_SPACING
+        add hl,de
+        ld e,(hl)
+        pop hl
+        push hl
+        ld bc,WAVE_COUNT
+        add hl,bc
+        ld b,(hl)
+        pop hl
+        push hl
+        push de
+        ld de,WAVE_X
+        add hl,de
+        ld c,(hl)
+        pop de
+        pop hl
+        ld a,b
+        or a
+        ret z
+ws1:    push bc
+        push de
+        push hl
+        call spawn
+        pop hl
+        pop de
+        pop bc
+        ld a,c
+        add a,e
+        ld c,a
+        djnz ws1
+        ret
+ws3:    ld ix,spns              ; de uno en uno: un hueco de NSPN
+        ld b,NSPN
+ws4:    ld a,(ix+0)
+        or a
+        jr z,ws5
+        ld de,SPSZ
+        add ix,de
+        djnz ws4
+        ld hl,dropw             ; sin hueco: la oleada se pierde
+        inc (hl)
+        ret
+ws5:    push hl
+        ld de,WAVE_COUNT
+        add hl,de
+        ld a,(hl)
+        pop hl
+        ld (ix+0),a
+        ld (ix+1),l
+        ld (ix+2),h
+        ld (ix+3),0
+        ret
+
+; spawn: un enemigo de la oleada HL en x = C (de pantalla), en el primer
+; hueco libre, en Y = 16 (y = -16), al principio de su trayectoria.
+; Conserva IX.
+spawn:  push ix
+        ld ix,enes
+        ld b,NENE
+sw1:    ld a,(ix+E_ST)
+        or a
+        jr z,sw2
+        ld de,ESZ
+        add ix,de
+        djnz sw1
+        ld hl,drope             ; sin hueco: se pierde
+        inc (hl)
+        pop ix
+        ret
+sw2:    ld (ix+E_ST),1
+        ld a,c
+        add a,SOFS
+        ld (ix+E_X),a
+        ld (ix+E_Y),SOFS-16
+        ld (ix+E_TMR),0
+        push hl
+        ld de,WAVE_FLAGS
+        add hl,de
+        ld a,(hl)
+        ld (ix+E_FLG),a
+        pop hl
+        push hl
+        ld de,WAVE_TYPE
+        add hl,de
+        ld a,(hl)
+        ld (ix+E_TYP),a
+        ld e,a
+        ld d,0
+        ld hl,eftab
+        add hl,de
+        ld a,(hl)
+        ld (ix+E_FT),a
+        pop hl
+        ld de,WAVE_PATH
+        add hl,de
+        ld a,(hl)               ; trayectoria: [n][dx dy]*n
+        add a,a
+        ld e,a
+        ld d,0
+        ld hl,PATHTAB
+        add hl,de
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ld a,(de)
+        ld (ix+E_LEFT),a
+        inc de
+        ld (ix+E_PTR),e
+        ld (ix+E_PTR+1),d
+        pop ix
+        ret
+
+; upplay: la explosion de la nave y la invulnerabilidad cuentan; al acabar
+; la explosion, la nave vuelve a su sitio, recta e invulnerable INVT ticks
+upplay: ld a,(pstate)
+        or a
+        ret z
+        ld hl,ptimer
+        dec (hl)
+        ret nz
+        dec a
+        jr nz,pp1
+        ld a,XSTART
+        ld (shx),a
+        ld a,YSTART
+        ld (shy),a
+        ld a,1
+        ld (tilt),a
+        ld a,2
+        ld (pstate),a
+        ld a,INVT
+        ld (ptimer),a
+        ret
+pp1:    xor a
+        ld (pstate),a
         ret
 
 ; ficheros de la SD (ordenes 53, 55 y 57 del MCU)
@@ -1021,9 +1811,30 @@ ofg:    defb 0
 shx:    defb 0                  ; nave: x, y de pantalla, inclinacion (0-2)
 shy:    defb 0
 tilt:   defb 0
+etab:   defb ENEMY1,ENEMY2,ENEMY3,ENEMY4,ENEMY5,ENEMY6   ; pagina de cada tipo
+eftab:  defb 96,0,80,72,36,60   ; ticks entre disparo y disparo (0 = no dispara)
+ptstab: defb 10h,20h,30h,40h,60h,50h    ; puntos (BCD)
+wptr:   defw 0                  ; siguiente oleada
+nstp:   defb 0                  ; pasos de scroll de esta imagen
+cbx:    defb 0                  ; colisiones: cajas de trabajo
+cby:    defb 0
+cpx:    defb 0
+cpy:    defb 0
+; lo que gminit pone a 0
+gvars:
 cd:     defb 0                  ; imagenes hasta poder disparar otra vez
-tick:   defb 0                  ; contador de imagenes (la llama)
+tick:   defb 0                  ; contador de ticks (llama, animaciones)
+pstate: defb 0                  ; nave: 0 viva, 1 explotando, 2 invulnerable
+ptimer: defb 0                  ; ticks que le quedan a la explosion o a la invulnerabilidad
+deaths: defb 0                  ; veces que han dado a la nave
+drope:  defb 0                  ; enemigos que no cupieron (sin hueco)
+dropw:  defb 0                  ; oleadas que no cupieron (NSPN ocupadas)
+score:  defs 3                  ; marcador en BCD, la cifra mas alta primero
 balas:  defs 3*NBALAS           ; disparos: activo, x, y (con signo)
+enes:   defs ESZ*NENE           ; enemigos
+ebs:    defs 4*NEB              ; disparos enemigos: activo, X, Y, dx
+spns:   defs SPSZ*NSPN          ; oleadas soltando enemigos
+gvend:
 rowtab: defs 2*RING
 lytab:  defs 2*16
 codeend:
@@ -1031,6 +1842,7 @@ codeend:
 ; detras del codigo, sin ocupar el binario
 PALBUF  equ codeend             ; la paleta del .I16 (512 bytes)
 LVLBUF  equ PALBUF+512          ; NIVEL1.MAP
+GVLEN   equ gvend-gvars
 MAXLVL  equ 7000h-LVLBUF        ; hasta la hoja de los sprites
 
         end start

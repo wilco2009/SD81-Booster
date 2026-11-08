@@ -1,5 +1,5 @@
 @echo off
-rem Ensambla ESTELA y lo copia al emulador con el nivel y los sprites (out\NIVEL1.I16, NIVEL1.MAP y HOJA.BIN).
+rem Ensambla ESTELA y lo copia al emulador con el nivel, los sprites y la musica (out\NIVEL1.I16, NIVEL1.MAP, HOJA.BIN y NIVEL1.VGM).
 cd /d "%~dp0"
 set DEST=C:\ClaudeCode\Eightyone2\EightyOne\SD81\SD81\GAMES\ESTELA
 
@@ -15,6 +15,9 @@ rem antes de $7000: si no cabe, el juego vuelve con el error 5
 copy /y out\NIVEL1.I16 "%DEST%\NIVEL1.I16" >nul || goto error
 copy /y out\NIVEL1.MAP "%DEST%\NIVEL1.MAP" >nul || goto error
 copy /y out\HOJA.BIN "%DEST%\HOJA.BIN" >nul || goto error
+rem la musica del nivel (opcional: sin ella el juego va sin musica): out\NIVEL1.VGM si existe; si no, de momento
+rem la de la prueba SONIDO de la fase 0 (..\VGM\music0002.vgm)
+if exist out\NIVEL1.VGM (copy /y out\NIVEL1.VGM "%DEST%\NIVEL1.VGM" >nul || goto error) else (copy /y ..\VGM\music0002.vgm "%DEST%\NIVEL1.VGM" >nul || goto error)
 echo OK: copiado en %DEST%
 exit /b 0
 

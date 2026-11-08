@@ -85,13 +85,15 @@ struct Level {
   uint16_t pal(int i) const { return (uint16_t)(i16[4 + 2 * i] | (i16[5 + 2 * i] << 8)); }
 };
 
-// ---- MCU: ordenes 53 (fopen), 55 (fread), 57 (fclose)
+// ---- MCU: ordenes 53 (fopen), 55 (fread), 57 (fclose); 38 (LOOP_VGM), 34 (PLAY_VGM: longitud y nombre en ZX81, responde 0 si
+// suena) y 35 (STOP_VGM), que se apuntan en mlog con sus parametros (y la respuesta de la 34 al final)
 static std::map<std::string, std::vector<uint8_t>> sdfiles;
 static int mcu_clk = 0;
 static std::vector<uint8_t> mcu_in, mcu_out; static size_t mcu_outpos = 0;
 static const std::vector<uint8_t>* openf = nullptr; static size_t fpos = 0;
 static std::vector<std::string> opened;
 static int fopen_open = 0;
+static std::vector<std::vector<int>> mlog;
 static void mcu_byte(uint8_t b) {
   mcu_in.push_back(b);
   int c = mcu_in[0];
@@ -111,6 +113,16 @@ static void mcu_byte(uint8_t b) {
     }
   } else if (c == 57) {
     if (mcu_in.size() == 2) { if (openf) fopen_open--; openf = nullptr; mcu_out.push_back(0); mcu_in.clear(); }
+  } else if (c == 38) {
+    if (mcu_in.size() == 2) { mlog.push_back(std::vector<int>(mcu_in.begin(), mcu_in.end())); mcu_in.clear(); }
+  } else if (c == 35) {
+    mlog.push_back({35}); mcu_in.clear();
+  } else if (c == 34) {
+    if (mcu_in.size() >= 2 && (int)mcu_in.size() == 2 + mcu_in[1]) {
+      std::vector<int> v(mcu_in.begin(), mcu_in.end());
+      int st = sdfiles.count("NIVEL1.VGM") ? 0 : 1;
+      v.push_back(st); mlog.push_back(v); mcu_out.push_back((uint8_t)st); mcu_in.clear();
+    }
   } else { printf("orden del MCU inesperada: %d\n", c); errors++; mcu_in.clear(); }
 }
 
@@ -126,6 +138,7 @@ static int code_hi = 0x4800, buf_lo = 0, buf_hi = 0;
 static long ring_vis_writes = 0; static bool checking_vis = false, in_restart = false, restart_seen = false;
 static uint8_t keyrows[8];
 static int map_bad = 0;
+static int aysel[2], ayreg[2][16];                       // los dos AY de la FPGA: A ($CF/$0F) y B ($C7/$07)
 static uint16_t pal[256]; static int palptr = 0, pallo = 0;
 static int cyc_lo = 0, cyc_hi = 0; static long cyc_maxlat = 0, cyc_writes = 0;
 // sprites: los registros de la ventana de POKEs
@@ -183,6 +196,8 @@ void z80_writeport_wrapper(int port, int d, int*) {
   if (lo == 0xEF && hi == 0x7F) { int c = d & 0x2F; if (borders.empty() || borders.back() != c) borders.push_back(c); return; }
   if (lo == 0xE7) { int blk = d & 7, pg = (d >> 3) & 31; if (pg != (hi & 31)) map_bad++; mapb[blk] = pg; return; }
   if (lo == 0xA7) { mcu_byte((uint8_t)d); mcu_clk ^= 1; return; }
+  if (lo == 0xCF || lo == 0xC7) { aysel[lo == 0xC7] = d & 15; return; }
+  if (lo == 0x0F || lo == 0x07) { ayreg[lo == 0x07][aysel[lo == 0x07]] = d; return; }
   printf("OUT inesperado al puerto %04X\n", port & 0xFFFF); errors++;
 }
 BYTE z80_readport_wrapper(int port, int*) {
@@ -213,7 +228,8 @@ struct Result { int bc; long frames; int vis_ok, vis_bad; long maxlat, maxloop; 
                 int spawned, kills, deaths, drope, dropw, ebfired, maxene, maxline, over12, score, waves, score_shown;
                 // reparto por linea como el motor: lineas de sprite perdidas, por clase (0 enemigos, 1 disparos, 2 disparos enemigos,
                 // 3 nave y llama, 4 marcador); imagenes con alguna perdida; racha mas larga de un enemigo con lineas perdidas
-                long lost_lines, lost_cls[5]; int lost_frames, first_lost, consec[8], max_consec, ene_lost_frames; };
+                long lost_lines, lost_cls[5]; int lost_frames, first_lost, consec[8], max_consec, ene_lost_frames;
+                int ay_bad; };
 
 // ---- el juego, escrito aqui con la especificacion (cabecera de estela.asm y juego160.md §8.3), no con el codigo del Z80.
 // Nave: x 16-128, y 0-76, 1 px por imagen con O P Q A; inclinacion = dx + 1. Disparos: 8 huecos, suben 3 px por tick, se borran
@@ -227,19 +243,49 @@ static const int EFT[6] = {96, 0, 80, 72, 36, 60}, PTS[6] = {10, 20, 30, 40, 60,
 struct Ene { int st, typ, x, y, path, k, flg, tmr, ft, w; };      // w: la oleada (para el caso peor del reparto)
 struct EB { int a, x, y, dx; };
 struct Spn { int rem, w, t; };
-struct Game { int x, y, tilt, cd, tick; int ba[8], bx[8], by[8]; int pstate, ptimer, score; Ene e[8]; EB b[7]; Spn sp[4]; int w; };
+struct Game { int x, y, tilt, cd, tick; int ba[8], bx[8], by[8]; int pstate, ptimer, score; Ene e[8]; EB b[7]; Spn sp[4]; int w;
+             int fxp[4], fxpr[4]; };      // efectos: siguiente par de cada voz (0 = libre) y su prioridad
+// Efectos (cabecera de estela.asm): 4 voces; cada una escribe en cada imagen un par (valor, volumen) de su tabla en sus
+// registros: 0 disparo (AY A, R4 y R10), 1 disparo enemigo por la izquierda (AY A, R0 y R8), 2 por la derecha (AY A, R2 y
+// R9), 3 explosiones (AY B, ruido R6 y R10). Volumen $FF = fin: volumen 0 y libre. Un efecto entra si la voz esta libre o el
+// suyo tiene tanta o mas prioridad (primer byte de la tabla). Las tablas se leen de la memoria del Z80.
+static const int FXD[4][3] = { {0, 4, 10}, {0, 0, 8}, {0, 2, 9}, {1, 6, 10} };
+static int ayexp[2][16];
+static long fx_started[5];                                // disparo, enemigo izquierda, derecha, explosion, nave
+static void fxgo(Game& g, int v, const char* tab, int k) {
+  int t = S(tab), pr = rd(t);
+  if (g.fxp[v] == 0 || pr >= g.fxpr[v]) { g.fxp[v] = t + 1; g.fxpr[v] = pr; }
+  fx_started[k]++;
+}
+static void fxstep(Game& g) {
+  for (int v = 0; v < 4; v++) if (g.fxp[v]) {
+    int val = rd(g.fxp[v]), vol = rd(g.fxp[v] + 1); g.fxp[v] += 2;
+    if (vol == 0xFF) { ayexp[FXD[v][0]][FXD[v][2]] = 0; g.fxp[v] = 0; }
+    else { ayexp[FXD[v][0]][FXD[v][1]] = val; ayexp[FXD[v][0]][FXD[v][2]] = vol; }
+  }
+}
+static void ay_model_setup() {                            // aysetup: tonos de A, ruido C de B, volumenes 0 (los periodos quedan)
+  ayexp[0][7] = 0x38; ayexp[0][1] = ayexp[0][3] = ayexp[0][5] = 0; ayexp[1][7] = 0x1F;
+  for (int c = 0; c < 2; c++) ayexp[c][8] = ayexp[c][9] = ayexp[c][10] = 0;
+}
+static bool ay_match() {
+  static const int ra[] = {0, 1, 2, 3, 4, 5, 7, 8, 9, 10}, rb[] = {6, 7, 8, 9, 10};
+  for (int r : ra) if (ayreg[0][r] != ayexp[0][r]) return false;
+  for (int r : rb) if (ayreg[1][r] != ayexp[1][r]) return false;
+  return true;
+}
 static int woff() { return u16(g_map, 8); }
 static void ginit(Game& g) {
   g.x = 72; g.y = 76; g.tilt = 1; g.cd = 0; g.tick = 0; g.pstate = 0; g.ptimer = 0; g.score = 0;
   for (int i = 0; i < 8; i++) { g.ba[i] = 0; g.e[i] = Ene{}; }
   for (int i = 0; i < 7; i++) g.b[i] = EB{};
-  for (int i = 0; i < 4; i++) g.sp[i] = Spn{};
+  for (int i = 0; i < 4; i++) { g.sp[i] = Spn{}; g.fxp[i] = g.fxpr[i] = 0; }
   g.w = woff();
 }
 static bool keydown(const std::vector<Key>& sc, long f, int row, int bit) { for (auto& k : sc) if (f >= k.from && f < k.to && k.row == row && k.bit == bit) return true; return false; }
 static bool ovl(int b, int c, int d, int e) { return !((e & 255) < (b & 255)) && !((c & 255) < (d & 255)); }
-static void kill(Game& g, Ene& e, Result& R) { e.st = 2; e.tmr = 16; g.score = (g.score + PTS[e.typ]) % 1000000; R.kills++; }
-static void pdie(Game& g, Result& R) { g.pstate = 1; g.ptimer = 16; R.deaths++; }
+static void kill(Game& g, Ene& e, Result& R) { e.st = 2; e.tmr = 16; g.score = (g.score + PTS[e.typ]) % 1000000; R.kills++; fxgo(g, 3, "fxboom", 3); }
+static void pdie(Game& g, Result& R) { g.pstate = 1; g.ptimer = 16; R.deaths++; fxgo(g, 3, "fxdie", 4); }
 static void spawn(Game& g, int w, int x, Result& R) {
   const uint8_t* r = &g_map[w];
   for (int i = 0; i < 8; i++) if (g.e[i].st == 0) {
@@ -261,7 +307,7 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
     bool fire = true;
     if (g.cd > 0) { g.cd--; if (g.cd > 0) fire = false; }
     if (fire && keydown(sc, f, 7, 0))
-      for (int i = 0; i < 8; i++) if (!g.ba[i]) { g.ba[i] = 1; g.bx[i] = g.x + 4; g.by[i] = g.y - 6; g.cd = 6; R.fired++; break; }
+      for (int i = 0; i < 8; i++) if (!g.ba[i]) { g.ba[i] = 1; g.bx[i] = g.x + 4; g.by[i] = g.y - 6; g.cd = 6; R.fired++; fxgo(g, 0, "fxshot", 0); break; }
   }
   // enemigos
   for (auto& e : g.e) {
@@ -302,7 +348,9 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
         b.a = 1; b.x = (e.x + 4) & 255; b.y = (e.y + 12) & 255;
         int ec = e.x + 8, pc = g.x + 40;
         b.dx = pc >= ec + 16 ? 1 : (pc + 16 <= ec ? -1 : 0);
-        b.dx &= 255; R.ebfired++; break;
+        b.dx &= 255; R.ebfired++;
+        if (ec < 112) fxgo(g, 1, "fxebs", 1); else fxgo(g, 2, "fxebs", 2);
+        break;
       }
   }
   for (auto& b : g.b) if (b.a && b.dx == 255) b.dx = -1;
@@ -415,7 +463,9 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
   memset(spr, 0, sizeof spr); spr_sel = 0; spr_blk = 2; spr_xtr = 0; pal16_on = 0; memset(pal16, 0, sizeof pal16); spr_maxlat = 0;
   Game g; ginit(g); size_t nspr = 0; bool prev_r = false;
   R.minx = R.miny = 999; R.maxx = R.maxy = -999;
-  mcu_in.clear(); mcu_out.clear(); mcu_outpos = 0; mcu_clk = 0; openf = nullptr; opened.clear(); fopen_open = 0;
+  mcu_in.clear(); mcu_out.clear(); mcu_outpos = 0; mcu_clk = 0; openf = nullptr; opened.clear(); fopen_open = 0; mlog.clear();
+  for (auto& c : ayreg) for (int& r : c) r = 0xAA; memset(ayexp, 0, sizeof ayexp); ay_model_setup(); memset(fx_started, 0, sizeof fx_started);
+  for (int c = 0; c < 2; c++) for (int r = 0; r < 16; r++) if (r == 0 || r == 2 || r == 4 || r == 6) ayexp[c][r] = 0xAA;   // periodos: los de antes
   z80_init(); z80_reset();
   z80.sp.w = 0x47F0; wr_raw(0x47F0, RET_AT & 255); wr_raw(0x47F1, RET_AT >> 8);
   z80.pc.w = 0x4800; z80.halted = 0; z80.iff1 = z80.iff2 = 0;
@@ -451,8 +501,14 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
       int scr_now = rd16(scr_sym);                    // el scroll despues de los pasos de esta imagen (con R se descarta)
       gupdate(g, script, f, scr_now, scr_now - vwrites.back().s, R);
       bool r = keydown(script, f, 2, 3);
-      if (r && !prev_r) ginit(g);
+      fxstep(g);                                      // sfx va justo despues de update
+      if (r && !prev_r) { ginit(g); ay_model_setup(); }   // R: aysetup (voces libres, volumenes 0)
       prev_r = r;
+      if (!ay_match() && R.ay_bad++ == 0) {
+        printf("        AY distinto del modelo en la imagen %ld:", f);
+        for (int c = 0; c < 2; c++) for (int q = 0; q < 11; q++) if (ayreg[c][q] != ayexp[c][q]) printf(" %c R%d = %d (modelo %d)", c ? 'B' : 'A', q, ayreg[c][q], ayexp[c][q]);
+        printf("\n");
+      }
     }
     z80_do_opcode(); total_t += (uint64_t)tstates;
     if (vwrites.size() > nvw) {                       // acaba de escribir POKE 2072: la paleta tiene que estar girada lo que toca
@@ -491,6 +547,14 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
   if (!vwrites.empty() && vwrites.back().v == 0 && mode == 85) vwrites.pop_back();        // el POKE 2072,0 de la salida
   for (auto& w : vwrites) { long lat = (long)(w.t % FRAME); if (lat > R.maxlat) R.maxlat = lat; }
   return R;
+}
+
+static void fx_report(const Result& L, bool all) {
+  printf("        efectos: %ld disparos, %ld disparos enemigos por la izquierda y %ld por la derecha, %ld explosiones, %ld de la nave;"
+         " AY distinto del modelo en %d imagenes\n", fx_started[0], fx_started[1], fx_started[2], fx_started[3], fx_started[4], L.ay_bad);
+  CHECK(L.ay_bad == 0, "en cada imagen, los registros de los dos AY de la FPGA son los del modelo de los efectos (periodos, ruido, volumenes, mezcladores)");
+  if (all) CHECK(fx_started[0] > 0 && fx_started[1] > 0 && fx_started[2] > 0 && fx_started[3] > 0 && fx_started[4] > 0,
+                 "suenan los cinco efectos (disparo, disparo enemigo por cada lado, explosion, explosion de la nave)");
 }
 
 static void lost_report(const Result& L) {
@@ -540,6 +604,24 @@ static void exit_checks(const char* what, int want_bc) {
   snprintf(m, sizeof m, "%s: modo 85, anillo a 0, $7FEF = $0C, paginas de los bloques 6 y 7 e IX como estaban", what);
   CHECK(mode == 85 && vofs == 0 && vring == 0 && hofs == 0 && hring == 0 && !borders.empty() && borders.back() == 0x0C &&
         !memcmp(mapb, init, sizeof mapb) && map_bad == 0 && z80.ix.w == 0x0281, m);
+  {
+    bool quiet = true;
+    for (int c = 0; c < 2; c++) { if (ayreg[c][7] != 0x3F) quiet = false; for (int r = 8; r <= 10; r++) if (ayreg[c][r] != 0) quiet = false; }
+    snprintf(m, sizeof m, "%s: los dos AY de la FPGA callados (mezclador $3F, volumenes 0)", what); CHECK(quiet, m);
+    std::vector<int> play = {34, 10};
+    for (const char* c = "NIVEL1.VGM"; *c; c++) play.push_back(*c >= 'A' && *c <= 'Z' ? 38 + *c - 'A' : *c >= '0' && *c <= '9' ? 28 + *c - '0' : 27);
+    bool ok;
+    if (want_bc != 0) { ok = mlog.empty(); snprintf(m, sizeof m, "%s: ninguna orden de musica (no se ha llegado a jugar)", what); }
+    else {
+      bool has = sdfiles.count("NIVEL1.VGM") > 0;
+      play.push_back(has ? 0 : 1);
+      ok = mlog.size() == (has ? 3u : 2u) && mlog[0] == std::vector<int>({38, 1}) && mlog[1] == play && (!has || mlog[2] == std::vector<int>({35}));
+      snprintf(m, sizeof m, has ? "%s: musica: LOOP_VGM 1 y PLAY_VGM \"NIVEL1.VGM\" al empezar, STOP_VGM al salir y nada mas"
+                                : "%s: sin NIVEL1.VGM: LOOP_VGM 1 y PLAY_VGM al empezar y sin STOP_VGM", what);
+    }
+    CHECK(ok, m);
+    if (!ok) { printf("        mlog:"); for (auto& v : mlog) { printf(" ["); for (int x : v) printf(" %d", x); printf(" ]"); } printf("\n"); }
+  }
   snprintf(m, sizeof m, "%s: ningun fichero abierto y nada escrito fuera de su sitio", what);
   CHECK(fopen_open == 0 && !bad_write, m);
   if (bad_write) printf("        primera escritura rara en $%04X\n", bad_addr);
@@ -598,7 +680,7 @@ int main(int argc, char** argv) {
 
   // ===== 1. el nivel 1, con las cuatro velocidades y R
   printf("-- nivel 1 --\n");
-  sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = lv.map; sdfiles["HOJA.BIN"] = hoja;
+  sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = lv.map; sdfiles["HOJA.BIN"] = hoja; sdfiles["NIVEL1.VGM"] = {'V', 'g', 'm', ' '};
   // filas del teclado: 0 SHIFT Z X C V, 1 A S D F G, 2 Q W E R T, 5 P O I U Y, 7 ESPACIO . M N B
   std::vector<Key> script = { {30, 60, 5, 0},      // P: derecha
                               {60, 170, 5, 1},     // O: izquierda hasta el borde
@@ -682,6 +764,7 @@ int main(int argc, char** argv) {
   }
   printf("        juego: %d oleadas, %d enemigos, %d derribados, %d disparos enemigos, %d veces tocada, marcador %d, hasta %d enemigos a la vez\n",
          R.waves, R.spawned, R.kills, R.ebfired, R.deaths, R.score, R.maxene);
+  fx_report(R, false);
   CHECK(R.blk_bad == 0 && R.p16_bad == 0, "en cada imagen del juego: hoja en el bloque SHEET_BLOCK (POKE 2129), sin extra, paleta de 16 activa (POKE 2067,1)");
   exit_checks("nivel 1", 0);
 
@@ -693,7 +776,7 @@ int main(int argc, char** argv) {
     for (long f = 40; f < 4400; f += 100) { sc.push_back({f, f + 45, 5, 1}); sc.push_back({f + 50, f + 95, 5, 0}); }   // O y P
     for (long f = 300; f < 4400; f += 700) { sc.push_back({f, f + 60, 2, 0}); sc.push_back({f + 200, f + 260, 1, 0}); }  // Q y A
     sc.push_back({4450, 4454, 0, 2});                                // X
-    sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = lv.map; sdfiles["HOJA.BIN"] = hoja;
+    sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = lv.map; sdfiles["HOJA.BIN"] = hoja; sdfiles["NIVEL1.VGM"] = {'V', 'g', 'm', ' '};
     Result L = run(lv, sc, 4500, 300, true);
     printf("        %d imagenes; %d oleadas, %d enemigos, %d derribados, %d disparos enemigos, %d veces tocada, marcador %d\n",
            L.spr_checked, L.waves, L.spawned, L.kills, L.ebfired, L.deaths, L.score);
@@ -703,6 +786,7 @@ int main(int argc, char** argv) {
     printf("        vuelta mas larga del bucle %ld T; sprites escritos hasta %ld T tras el flanco\n", L.maxloop, spr_maxlat);
     lost_report(L);
     CHECK(L.lost_frames == 0 && L.maxline <= 12, "con el reparto del motor no se pierde ninguna linea de sprite en todo el nivel");
+    fx_report(L, true);
     if (!L.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", L.spr_bad.size(), L.spr_bad[0]);
     CHECK(L.spr_checked > 4300 && L.spr_bad.empty(), "en cada imagen del nivel entero, los 64 sprites son los del modelo (nave, disparos, enemigos, explosiones, marcador)");
     CHECK(L.vis_ok >= 250 && L.vis_bad == 0 && L.pal_bad.empty(), "lo visible y la paleta, exactos en todo el nivel");
@@ -752,13 +836,14 @@ int main(int argc, char** argv) {
         for (long f = 300; f < 4400; f += 700) { sc.push_back({f, f + 60, 2, 0}); sc.push_back({f + 200, f + 260, 1, 0}); }
       }
       sc.push_back({4450, 4454, 0, 2});
-      sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = lv.map; sdfiles["HOJA.BIN"] = hoja;
+      sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = lv.map; sdfiles["HOJA.BIN"] = hoja; sdfiles["NIVEL1.VGM"] = {'V', 'g', 'm', ' '};
       Result L = run(lv, sc, 4500, 50, true);
       printf("        %d imagenes; %d oleadas, %d enemigos, %d derribados, %d disparos enemigos, %d veces tocada; marcador visible en %d\n",
              L.spr_checked, L.waves, L.spawned, L.kills, L.ebfired, L.deaths, L.score_shown);
       printf("        hasta %d enemigos a la vez; hasta %d sprites en una linea (%d imagenes con mas de 12)\n", L.maxene, L.maxline, L.over12);
       lost_report(L);
       CHECK(L.lost_frames == 0 && L.maxline <= 12, "con el reparto del motor no se pierde ninguna linea de sprite (y el marcador sale mas a menudo)");
+      fx_report(L, false);
       if (!L.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", L.spr_bad.size(), L.spr_bad[0]);
       CHECK(L.spr_checked > 4300 && L.spr_bad.empty() && L.vis_bad == 0 && L.pal_bad.empty(), "los 64 sprites, lo visible y la paleta, iguales al modelo");
       exit_checks(c.what, 0);
@@ -783,6 +868,7 @@ int main(int argc, char** argv) {
     CHECK(maxs == sh.end && stuck == after && after > 40, "el scroll se para en LVL_END y no pinta mas alla del mapa");
     CHECK(reset_ok == 1 && vwrites.back().s == sh.end, "R vuelve a s = 0 y el nivel se recorre otra vez hasta LVL_END");
     CHECK(R.vis_ok >= 150 && R.vis_bad == 0 && R.pal_bad.empty() && R.spr_bad.empty(), "lo visible, la paleta y los sprites, exactos tambien aqui");
+    CHECK(R.ay_bad == 0, "sin NIVEL1.VGM el juego sigue igual, con los efectos");
   }
   exit_checks("nivel corto", 0);
 

@@ -2,7 +2,7 @@
 ; ESTELA.ASM -- matamarcianos vertical para el modo 160x100 a 256 colores
 ; del SD81 Booster. Plan: claude/planning/juego160.md
 ;
-; FASE 4: enemigos. Modo 175, anillo de 160x102 en $8000 con dos paneles
+; FASE 6: sonido. Modo 175, anillo de 160x102 en $8000 con dos paneles
 ; laterales fijos de 16 pixeles, scroll vertical del nivel 1, la nave con sus
 ; disparos y las oleadas de enemigos del nivel, con sus disparos, colisiones,
 ; explosiones y el marcador, todo en sprites de formato B:
@@ -63,6 +63,17 @@
 ;   - Marcador: 6 cifras BCD en los sprites SP_DIG.., en una fila centrada
 ;     arriba de la zona de juego (x 56-103, y 2), solo mientras la nave
 ;     explota o parpadea despues de una muerte y al final del nivel.
+;   - Musica: NIVEL1.VGM (de la SD, carpeta actual) en bucle, la toca el MCU
+;     en su AY emulado sin gastar CPU (comandos 38 y 34; 35 al salir). Si no
+;     esta, el juego sigue sin musica.
+;   - Efectos en los AY de la FPGA (ZonX, puertos $CF/$0F y $C7/$07), que no
+;     tocan el del MCU (la fase 0 lo comprobo en la placa): 4 voces, cada una
+;     con una tabla de pares (periodo o ruido, volumen) que avanza un par por
+;     imagen (sfx): el disparo de la nave en el canal C del AY A (sale por los
+;     dos lados), los disparos enemigos en el A (izquierda) o el B (derecha)
+;     del AY A segun el lado del que salen, y las explosiones con ruido en el
+;     canal C del AY B. Un efecto nuevo corta el de su voz si no tiene menos
+;     prioridad: la explosion de la nave no la corta la de un enemigo.
 ;   - Cada imagen: en el borrado, los sprites con el estado calculado en la
 ;     vuelta anterior, el ciclo de la paleta y el scroll; despues, update
 ;     (nave, disparos, enemigos, colisiones, oleadas), que se ve en la imagen
@@ -82,7 +93,8 @@
 ;
 ; Ensamblar: pasmo estela.asm estela.bin estela.sym   (o compila.bat)
 ; Cargar: ESTELA.B81 (CLEAR 18431, LOAD FAST "ESTELA.BIN" CODE 18432);
-; NIVEL1.I16, NIVEL1.MAP y HOJA.BIN (de out/) en la misma carpeta de la SD.
+; NIVEL1.I16, NIVEL1.MAP y HOJA.BIN (de out/) y NIVEL1.VGM (opcional) en la
+; misma carpeta de la SD.
 ; El codigo tiene que acabar antes de $7000 (la hoja de los sprites).
 ; =============================================================
 
@@ -147,6 +159,18 @@ NSPN    equ 4                   ; oleadas soltando enemigos a la vez
 SPSZ    equ 4                   ; registro: quedan, oleada (2), espera
 EXT     equ 16                  ; ticks de una explosion
 INVT    equ 100                 ; ticks de invulnerabilidad
+AYA_SEL equ 0CFh                ; AY A de la FPGA (ZonX): registro / dato
+AYA_DAT equ 0Fh
+AYB_SEL equ 0C7h                ; AY B (puertos impares: los pares son de la ULA)
+AYB_DAT equ 07h
+CMD_PLAYVGM equ 34              ; ordenes del MCU para la musica
+CMD_STOPVGM equ 35
+CMD_LOOPVGM equ 38
+NFX     equ 4                   ; voces de efectos (ver fxdesc)
+FX_SHOT equ 0                   ;   disparo de la nave
+FX_EBL  equ 1                   ;   disparo enemigo por la izquierda
+FX_EBR  equ 2                   ;   por la derecha
+FX_BOOM equ 3                   ;   explosiones
 
         jp start
 
@@ -155,6 +179,9 @@ INVT    equ 100                 ; ticks de invulnerabilidad
 ; -------------------------------------------------------------
 start:  di
         push ix                 ; la ROM usa IX en SLOW
+        xor a                   ; sin musica hasta que el MCU la acepte
+        ld (vgmok),a
+        call ayquiet
         ld c,6                  ; paginas de los bloques 6 y 7 (las de antes)
         call read_page
         ld (sv6),a
@@ -195,6 +222,8 @@ start:  di
         call fillring
         call cycinit
         call setpal
+        call aysetup
+        call music
         ld a,(LVLBUF+LVL_SCROLL) ; la velocidad del nivel: 1 -> 1 px por
         cp 2                    ; imagen (0), 2 o mas -> 1 cada 2 (1)
         ld a,0
@@ -227,6 +256,7 @@ mn1:    push bc
         pop bc
 mn2:    djnz mn1
         call update             ; el juego (se ve en la imagen siguiente)
+        call sfx                ; los efectos que tocan en esta imagen
         call keys
         jr nz,main
         xor a                   ; sin error
@@ -234,6 +264,12 @@ mn2:    djnz mn1
 ; --- salida (A = error): modo normal, color apagado, paginas de antes ---
 quit:   ld (errc),a
         call sproff
+        ld a,(vgmok)
+        or a
+        jr z,qt1
+        ld a,CMD_STOPVGM
+        call mcu_send
+qt1:    call ayquiet
         xor a
         ld (2072),a
         ld (2073),a
@@ -721,7 +757,8 @@ ky2:    ld a,0feh               ; X: salir
 ; restart: el nivel desde el principio, con la paleta en negro mientras
 ; se repinta el anillo (unas 4 imagenes)
 restart:
-        call gminit
+        call gminit             ; (las voces de los efectos, libres)
+        call aysetup            ; y calladas; la musica sigue
         call blackpal
         call fillring
         call cycinit
@@ -740,6 +777,228 @@ showspd:
         out (c),a
         ret
 spdcol: defb 4,5,6,2            ; verde, cyan, amarillo, rojo
+
+; -------------------------------------------------------------
+; Sonido
+; -------------------------------------------------------------
+; music: NIVEL1.VGM en bucle (si el MCU no lo puede abrir, sin musica)
+music:  ld a,CMD_LOOPVGM
+        call mcu_send
+        ld a,1
+        call mcu_send
+        ld hl,nmvgm
+        ld a,CMD_PLAYVGM
+        call mcu_name           ; A = 0 si suena
+        or a
+        ld a,1
+        jr z,mu1
+        xor a
+mu1:    ld (vgmok),a
+        ret
+
+; sfxgo: C = voz, HL = efecto (prioridad y pares (valor, volumen); volumen
+; $FF = fin). Empieza si la voz esta libre o lo que suena no tiene mas
+; prioridad. Conserva todo.
+sfxgo:  push af
+        push bc
+        push de
+        push hl
+        ld a,c
+        add a,a
+        add a,c
+        ex de,hl                ; DE = efecto
+        ld hl,fxv               ; HL = la voz (3C): puntero (2), prioridad
+        add a,l
+        ld l,a
+        jr nc,sg0
+        inc h
+sg0:
+        ld a,(hl)
+        inc hl
+        or (hl)
+        jr z,sg1                ; libre
+        inc hl
+        ld a,(de)
+        cp (hl)
+        jr c,sg2                ; menos prioridad que lo que suena
+        dec hl
+sg1:    dec hl
+        ld a,(de)
+        inc de
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        inc hl
+        ld (hl),a
+sg2:    pop hl
+        pop de
+        pop bc
+        pop af
+        ret
+
+; sfx: una vez por imagen, el siguiente par de cada voz que suena: el valor
+; al registro de periodo (o de ruido) y el volumen al de volumen; al acabar,
+; volumen 0 y la voz libre
+sfx:    ld ix,fxv
+        ld hl,fxdesc
+        ld b,NFX
+sx1:    push bc
+        ld e,(ix+0)
+        ld d,(ix+1)
+        ld a,d
+        or e
+        jr z,sx4                ; libre
+        ld c,(hl)               ; C = puerto del chip
+        inc hl
+        ld a,(de)               ; B = valor, A = volumen
+        ld b,a
+        inc de
+        ld a,(de)
+        inc de
+        ld (ix+0),e
+        ld (ix+1),d
+        cp 0ffh
+        jr nz,sx2
+        xor a                   ; fin
+        ld (ix+0),a
+        ld (ix+1),a
+        inc hl
+        ld e,a
+        jr sx3
+sx2:    ld d,(hl)               ; periodo o ruido
+        ld e,b
+        call aywr
+        inc hl
+        ld e,a
+sx3:    ld d,(hl)               ; volumen
+        call aywr
+        inc hl
+        jr sx5
+sx4:    inc hl
+        inc hl
+        inc hl
+sx5:    ld de,3
+        add ix,de
+        pop bc
+        djnz sx1
+        ret
+
+; fxdesc: cada voz: puerto del chip, registro del periodo (o del ruido),
+; registro del volumen
+fxdesc: defb AYA_SEL,4,10       ; FX_SHOT: AY A, canal C
+        defb AYA_SEL,0,8        ; FX_EBL: AY A, canal A (izquierda)
+        defb AYA_SEL,2,9        ; FX_EBR: AY A, canal B (derecha)
+        defb AYB_SEL,6,10       ; FX_BOOM: AY B, ruido en el canal C
+
+; aysetup: AY A con los tonos de los tres canales (periodos altos a 0) y
+; AY B con el ruido del canal C; volumenes a 0
+aysetup:
+        call ayquiet
+        ld c,AYA_SEL
+        ld de,0738h
+        call aywr
+        ld de,0100h
+        call aywr
+        ld de,0300h
+        call aywr
+        ld de,0500h
+        call aywr
+        ld c,AYB_SEL
+        ld de,071fh
+        jp aywr
+
+; ayquiet: los dos AY de la FPGA callados (mezclador apagado, volumenes a 0)
+ayquiet:
+        ld c,AYA_SEL
+        call aq1
+        ld c,AYB_SEL
+aq1:    ld de,073fh
+        call aywr
+        ld de,0800h
+        call aywr
+        ld de,0900h
+        call aywr
+        ld de,0a00h
+        jp aywr
+
+; aywr: C = puerto de seleccion del chip, D = registro, E = valor. El del
+; dato es C AND $3F ($CF -> $0F, $C7 -> $07). Conserva todos los registros.
+aywr:   out (c),d
+        push bc
+        push af
+        ld a,c
+        and 3fh
+        ld c,a
+        out (c),e
+        pop af
+        pop bc
+        ret
+
+; mcu_name: A = orden, HL = nombre en ASCII acabado en 0 -> lo manda en
+; codigo ZX81 (longitud y caracteres) y devuelve A = estado (0 = bien)
+mcu_name:
+        call mcu_send
+        push hl
+        ld b,0
+nn1:    ld a,(hl)
+        or a
+        jr z,nn2
+        inc b
+        inc hl
+        jr nn1
+nn2:    pop hl
+        ld a,b
+        call mcu_send
+nn3:    ld a,(hl)
+        or a
+        jp z,mcu_recv
+        cp 'A'                  ; ASCII (mayusculas, cifras y .) -> ZX81
+        jr c,nn4
+        sub 'A'-26h
+        jr nn6
+nn4:    cp '0'
+        jr c,nn5
+        sub '0'-1ch
+        jr nn6
+nn5:    ld a,1bh                ; '.'
+nn6:    call mcu_send
+        inc hl
+        jr nn3
+
+; efectos: prioridad y pares (periodo del tono o del ruido, volumen) por
+; imagen; volumen $FF = fin
+fxshot: ; disparo de la nave: tono que baja
+        defb 1                   ; prioridad
+        defb 30,11,44,10,58,9,72,8
+        defb 86,6,100,4
+        defb 0,0FFh
+fxebs:  ; disparo enemigo: tono que sube
+        defb 1                   ; prioridad
+        defb 150,9,140,9,130,8,120,7
+        defb 110,5,100,3
+        defb 0,0FFh
+fxboom: ; explosion de un enemigo: ruido que se apaga
+        defb 1                   ; prioridad
+        defb 6,13,7,13,8,12,9,11
+        defb 10,10,11,9,12,9,13,8
+        defb 14,7,15,6,16,5,17,5
+        defb 18,4,19,3,20,2,21,1
+        defb 0,0FFh
+fxdie:  ; explosion de la nave: mas larga y fuerte
+        defb 2                   ; prioridad
+        defb 8,15,8,15,9,15,9,15
+        defb 10,14,10,14,11,14,11,13
+        defb 12,13,12,13,13,12,13,12
+        defb 14,12,14,11,15,11,15,11
+        defb 16,10,16,10,17,10,17,10
+        defb 18,9,18,9,19,9,19,8
+        defb 20,8,20,8,21,7,21,7
+        defb 22,7,22,6,23,6,23,6
+        defb 24,5,24,5,25,5,25,5
+        defb 26,4,26,4,27,4,27,3
+        defb 28,3,28,3,29,2,29,2
+        defb 30,2,30,1,31,1,31,1
+        defb 0,0FFh
 
 ; -------------------------------------------------------------
 ; waitvs: espera el flanco de subida del VSYNC (bit 0, puerto $AF)
@@ -1211,7 +1470,9 @@ uf3:    ld (ix+0),1
         ld (ix+2),a
         ld a,TFIRE
         ld (cd),a
-        ret
+        ld c,FX_SHOT
+        ld hl,fxshot
+        jp sfxgo
 
 ; upene: los enemigos vivos avanzan un paso de su trayectoria (y los de
 ; suelo, lo que haya avanzado el scroll) y se borran al salir; los que
@@ -1475,7 +1736,9 @@ ekill:  ld (ix+E_ST),2
         adc a,0
         daa
         ld (hl),a
-        ret
+        ld c,FX_BOOM
+        ld hl,fxboom
+        jp sfxgo
 
 ; pdie: la nave explota
 pdie:   ld a,1
@@ -1484,7 +1747,9 @@ pdie:   ld a,1
         ld (ptimer),a
         ld hl,deaths
         inc (hl)
-        ret
+        ld c,FX_BOOM
+        ld hl,fxdie
+        jp sfxgo
 
 ; efire: cada enemigo vivo de un tipo con cadencia cuenta; al llegar a 0
 ; vuelve a empezar y, si esta en Y 32-92 y la nave no esta explotando,
@@ -1565,7 +1830,13 @@ eb6:    add a,16                ; nave + 16 <= enemigo?
         jr nc,eb7
 eb8:    dec c
 eb7:    ld (hl),c
-        ret
+        ld c,FX_EBL             ; el sonido, por el lado del enemigo
+        ld a,e
+        cp SOFS+80
+        jr c,eb9
+        inc c
+eb9:    ld hl,fxebs
+        jp sfxgo
 
 ; waves: las oleadas que ya tocan (s >= WAVE_POS) y las que sueltan
 ; enemigos de uno en uno (espera 0: sale uno y la espera pasa a SPACING)
@@ -1786,6 +2057,8 @@ pp1:    xor a
 nmi16:  defb "NIVEL1.I16",0
 nmmap:  defb "NIVEL1.MAP",0
 nmhoja: defb "HOJA.BIN",0
+nmvgm:  defb "NIVEL1.VGM",0
+vgmok:  defb 0                  ; 1 = el MCU toca la musica
 magi16: defb "I160"
 magmap: defb "ELV1"
 vofs:   defb 0                  ; fila del anillo arriba (la que se escribe en el VSYNC)
@@ -1834,6 +2107,7 @@ balas:  defs 3*NBALAS           ; disparos: activo, x, y (con signo)
 enes:   defs ESZ*NENE           ; enemigos
 ebs:    defs 4*NEB              ; disparos enemigos: activo, X, Y, dx
 spns:   defs SPSZ*NSPN          ; oleadas soltando enemigos
+fxv:    defs 3*NFX              ; voces de los efectos: puntero (0 = libre), prioridad
 gvend:
 rowtab: defs 2*RING
 lytab:  defs 2*16

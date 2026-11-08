@@ -12,14 +12,14 @@ El plan entero (fases, mapa de memoria, sprites) está en
 | `PRUEBAS/` | pruebas de la fase 0 en la placa (carga, VSYNC, sonido, paginación) |
 | `tools/`, `assets/`, `out/` | herramientas del PC y gráficos del nivel (las lleva otra sesión; §8 del plan) |
 
-## Estado: fase 5 (reparto de sprites por línea, comprobado en el PC)
+## Estado: fase 6 (sonido)
 
 Lo que hay ahora es el **fondo del nivel 1 con scroll**, la **nave del jugador**
-con sus disparos y las **oleadas de enemigos** del nivel, con sus disparos,
-colisiones, explosiones y el marcador. Faltan el jefe, las mejoras, las vidas y
-el fin de partida (fase 7), y el sonido (fase 6). La fase 5 no cambia el juego:
-es la comprobación en el arnés de que, con el límite de 12 sprites por línea del
-motor, no se pierde ningún trozo de sprite (ver abajo):
+con sus disparos, las **oleadas de enemigos** del nivel, con sus disparos,
+colisiones, explosiones y el marcador, y el **sonido**: música y efectos. Faltan el
+jefe, las mejoras, las vidas, el fin de partida y la voz de los avisos (fase 7). La
+fase 5 no cambió el juego: es la comprobación en el arnés de que, con el límite de
+12 sprites por línea del motor, no se pierde ningún trozo de sprite (ver abajo):
 
 - **Carga de la SD** (de la misma carpeta que `ESTELA.BIN`), con la pantalla en
   negro:
@@ -27,7 +27,9 @@ motor, no se pierde ningún trozo de sprite (ver abajo):
     va tal cual a `$C000` (los bloques 6 y 7 se mapean a las páginas 6 y 7 mientras
     corre el juego y se devuelven al salir);
   - `NIVEL1.MAP`: cabecera, oleadas y mapa de 8 tiles de ancho, detrás del código;
-  - `HOJA.BIN`: la hoja de los sprites (celdas de 8x8 a 16 colores), en `$7000`.
+  - `HOJA.BIN`: la hoja de los sprites (celdas de 8x8 a 16 colores), en `$7000`;
+  - `NIVEL1.VGM` (opcional): la música, que la toca el MCU en bucle sin gastar
+    CPU. Si no está, el juego va sin música.
 
   Los tres los genera `tools/make.py` en `out/` (§8 del plan).
 - **Modo 175**, **anillo de 160x102** en `$8000` (100 filas visibles y 2 ocultas
@@ -66,6 +68,16 @@ motor, no se pierde ningún trozo de sprite (ver abajo):
   al final del nivel. El modo de 256 colores no tiene plano de texto (el de 40x25
   es solo del modo de 16 colores) y con el scroll vertical no se puede dejar una
   franja fija arriba, así que el marcador son sprites.
+- **Efectos** en los dos AY de la FPGA (los del ZonX), que no tocan el AY del MCU
+  donde suena la música (la prueba SONIDO de la fase 0 lo comprobó en la placa):
+  - **disparo** de la nave: tono corto que baja (6 imágenes), canal C del AY A,
+    por los dos lados;
+  - **disparo enemigo**: tono corto que sube, por el canal A del AY A
+    (izquierda) si el enemigo está en la mitad izquierda, o por el B (derecha);
+  - **explosión** de un enemigo: ruido que se apaga (16 imágenes), canal C del
+    AY B;
+  - **explosión de la nave**: ruido más largo y fuerte (48 imágenes, casi 1
+    segundo), en la misma voz, y una explosión de un enemigo no la corta.
 
 ## Teclas
 
@@ -85,7 +97,7 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
 | 2 | `NIVEL1.I16` no es un `.I16` (no empieza por `I160`) |
 | 3 | no hay `NIVEL1.MAP` |
 | 4 | `NIVEL1.MAP` no es un nivel (no empieza por `ELV1`) |
-| 5 | el nivel no cabe entre el código y `$7000` (caben 3.221 bytes; el de ejemplo tiene 2.488) |
+| 5 | el nivel no cabe entre el código y `$7000` (caben 2.683 bytes; el de ejemplo tiene 2.488) |
 | 6 | la cabecera del nivel no cuadra (menos de 7 filas, o el mapa se sale del fichero) |
 | 7 | no hay `HOJA.BIN` |
 
@@ -114,12 +126,17 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
 - No desaparecen trozos de sprites (como mucho hay 10 sprites en una misma línea
   y el límite es 12).
 - R vuelve al principio; al final del nivel el fondo se para.
-- Al salir, el BASIC se lee.
+- Suena la **música** (`compila.bat` copia como `NIVEL1.VGM` la de la prueba
+  SONIDO, `EXAMPLES/VGM/music0002.vgm`, hasta que haya una del juego) y, a la vez,
+  los **efectos**: cada disparo, los de los enemigos por el lado del que salen, las
+  explosiones, y la de la nave más larga. Con R los efectos se cortan y la música
+  sigue.
+- Al salir, el BASIC se lee y la música se para.
 
-**Qué hay que mandar:** si se ve así; si no, qué falla (una foto ayuda). Y, a ojo,
-si la dificultad tiene sentido: cuánto disparan los enemigos (`eftab`, en ticks
-entre disparo y disparo: 96, sin disparos, 80, 72, 36 y 60 para los tipos 1-6) y
-el tamaño de las cajas de choque.
+**Qué hay que mandar:** si se oye así; si no, qué falla. Y, de oído: si los
+efectos se oyen bien con la música, si el volumen relativo es razonable, si el
+disparo (que suena cada 6 imágenes con ESPACIO pulsado) cansa, y si se nota el lado
+de los disparos enemigos.
 
 ## Comprobado en el PC
 
@@ -177,9 +194,19 @@ especificación, aparte del código del Z80:
 - al salir: modo 85, anillo a 0, `$7FEF = $0C`, páginas de los bloques 6 y 7 como
   estaban, IX, los 64 sprites apagados y en formato A, sin extra, la hoja en el
   bloque 2 y la paleta de 16 desactivada, y nada escrito fuera de su sitio;
-- la vuelta más larga del bucle: unos 31.000 T de los 64.584 de una imagen.
+- el **sonido**: un modelo de los efectos (las 4 voces, las prioridades, los
+  disparos de la nave, los enemigos por su lado y las explosiones del modelo del
+  juego, con las tablas de la memoria del Z80) da en **cada imagen** los registros
+  de los dos AY de la FPGA (periodos, ruido, volúmenes, mezcladores): iguales en
+  todas las partidas (en la del nivel entero, 718 disparos, 12 disparos enemigos,
+  35 explosiones y 5 de la nave). Si se cambia en el código el lado de los
+  disparos enemigos, el arnés lo ve. Música: `LOOP_VGM 1` y `PLAY_VGM "NIVEL1.VGM"`
+  después de cargar, `STOP_VGM` al salir y ninguna otra orden; sin `NIVEL1.VGM`, el
+  juego sigue igual y sin `STOP_VGM`; con un error de carga, ninguna orden de
+  música. Al salir, los dos AY callados;
+- la vuelta más larga del bucle: unos 32.000 T de los 64.584 de una imagen.
 
-Las fases 1 a 4 están **probadas en la placa** (2026-11-08). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
+Las fases 1 a 4 y la 6 están **probadas en la placa** (2026-11-08). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
 y desde entonces el arnés ensambla y prueba el `estela.bin` de esta carpeta, el
 mismo que va a la SD.
 
@@ -188,13 +215,15 @@ mismo que va a la SD.
 `compila.bat` ensambla con pasmo, comprueba que el binario no pasa de `$6FFF`
 (la hoja de los sprites está en `$7000` y el ZX81 no ejecuta código por encima de
 `$8000`) y lo copia al emulador (`SD81\SD81\GAMES\ESTELA`) con `out\NIVEL1.I16`,
-`out\NIVEL1.MAP` y `out\HOJA.BIN`. Para la placa, copia `ESTELA.BIN`, `ESTELA.B81`,
-`NIVEL1.I16`, `NIVEL1.MAP` y `HOJA.BIN` a una misma carpeta de la SD y carga
-`ESTELA.B81`.
+`out\NIVEL1.MAP`, `out\HOJA.BIN` y la música como `NIVEL1.VGM` (`out\NIVEL1.VGM` si
+existe; si no, `..\VGM\music0002.vgm`). Para la placa, copia `ESTELA.BIN`,
+`ESTELA.B81`, `NIVEL1.I16`, `NIVEL1.MAP`, `HOJA.BIN` y `NIVEL1.VGM` a una misma
+carpeta de la SD y carga `ESTELA.B81`.
 
-Memoria: código y tablas en `$4800-$616A` (las trayectorias de `LEVEL.INC` y la
-`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$616B-$636A`,
-`NIVEL1.MAP` desde `$636B` (hasta `$6FFF`), hoja de los sprites en `$7000-$7F1F`
+Memoria: código y tablas en `$4800-$6384` (las trayectorias de `LEVEL.INC` y la
+`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$6385-$6584`,
+`NIVEL1.MAP` desde `$6585` (hasta `$6FFF`: caben 2.683 bytes y el nivel tiene
+2.488; para la fase 7 hará falta más sitio), hoja de los sprites en `$7000-$7F1F`
 (bloque 3), anillo en `$8000-$BFBF`, tileset en `$C000-$FE7F` (páginas 6 y 7).
 Sprites: enemigos en el 0-31 (4 cada uno), disparos de la nave en el 34-41,
 disparos enemigos en el 42-48, la llama en el 49, la nave en el 50-53 y el

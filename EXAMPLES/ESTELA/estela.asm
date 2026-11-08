@@ -2,7 +2,7 @@
 ; ESTELA.ASM -- matamarcianos vertical para el modo 160x100 a 256 colores
 ; del SD81 Booster. Plan: claude/planning/juego160.md
 ;
-; FASE 6: sonido. Modo 175, anillo de 160x102 en $8000 con dos paneles
+; FASE 7a: vidas y fin de partida. Modo 175, anillo de 160x102 en $8000 con dos paneles
 ; laterales fijos de 16 pixeles, scroll vertical del nivel 1, la nave con sus
 ; disparos y las oleadas de enemigos del nivel, con sus disparos, colisiones,
 ; explosiones y el marcador, todo en sprites de formato B:
@@ -13,7 +13,11 @@
 ;     (PANEL_ADDR: +0..15 el izquierdo, +144..159 el derecho). Los bloques 6 y
 ;     7 se mapean a las paginas 6 y 7 (libres en los modos del SD81).
 ;   - NIVEL1.MAP (de la SD): cabecera, oleadas y mapa de 8 tiles de ancho
-;     (formato en juego160.md 8.3), detras del codigo (LVLBUF).
+;     (formato en juego160.md 8.3), en LVLBUF = $2000: la pagina LVLPG de la
+;     SRAM, mapeada en el bloque 1 mientras corre el juego (sin ROM: todo con
+;     DI; hasta 8 KB de nivel). Al salir el bloque 1 vuelve a tener su pagina y
+;     se reescribe sobre si mismo, para que la sombra de la FPGA de
+;     $2000-$3FFF vuelva a tener lo de la ROM.
 ;   - Lineas del nivel: la fila r del mapa ocupa las lineas 16r..16r+15
 ;     contando desde abajo; la linea j del tile (0 = arriba) es la 16r+15-j.
 ;     Con s pixeles de scroll hechos, la fila k de la pantalla (0 = arriba)
@@ -59,13 +63,25 @@
 ;     nave [X+4,X+11] x [Y+3,Y+13]: disparo enemigo [X+3,X+4] x [Y+3,Y+4] y
 ;     enemigo que no es de suelo [X+2,X+13] x [Y+2,Y+13]: la nave explota
 ;     (EXT ticks), vuelve a su sitio e invulnerable INVT ticks (parpadea).
-;     Las vidas y el fin de partida son de la fase 7.
+;   - Vidas: LIVES0 naves al empezar; cada muerte quita una. Si al acabar la
+;     explosion no queda ninguna, fin de partida (pstate 3): sin nave, los
+;     enemigos no disparan, sale el cartel GAME OVER en el centro (dos filas de
+;     4 letras, x 64-95, y 40 y 50; tabla cartel) y, pasados GOT ticks, ESPACIO (una pulsacion nueva) vuelve a
+;     empezar el nivel con LIVES0 vidas y el marcador a 0. Las vidas que
+;     quedan se ven con el marcador: iconos VIDA (sprites SP_VIDA..) en una
+;     fila debajo de las cifras (x 68-91, y 12).
 ;   - Marcador: 6 cifras BCD en los sprites SP_DIG.., en una fila centrada
 ;     arriba de la zona de juego (x 56-103, y 2), solo mientras la nave
-;     explota o parpadea despues de una muerte y al final del nivel.
+;     explota o parpadea despues de una muerte, en el fin de partida y al
+;     final del nivel.
+;   - Letras del cartel: G A M E O V R de 7x7 (letras, en el codigo), que se
+;     copian detras de HOJA.BIN, en las celdas libres del bloque 3 (paginas
+;     LETRAS..LETRAS+6, en SHEET_END): la hoja tiene que dejar 7 celdas.
 ;   - Musica: NIVEL1.VGM (de la SD, carpeta actual) en bucle, la toca el MCU
-;     en su AY emulado sin gastar CPU (comandos 38 y 34; 35 al salir). Si no
-;     esta, el juego sigue sin musica.
+;     en su AY emulado sin gastar CPU (comandos 38 y 34; 35 al salir). En el
+;     fin de partida se para y suena GAMEOVER.VGM una vez (sin bucle); al
+;     volver a empezar, otra vez NIVEL1.VGM en bucle. Si una no esta, el juego
+;     sigue sin esa musica.
 ;   - Efectos en los AY de la FPGA (ZonX, puertos $CF/$0F y $C7/$07), que no
 ;     tocan el del MCU (la fase 0 lo comprobo en la placa): 4 voces, cada una
 ;     con una tabla de pares (periodo o ruido, volumen) que avanza un par por
@@ -85,17 +101,18 @@
 ;         S = velocidad (la del nivel al empezar: 1 px por imagen, borde
 ;         verde, o 1 px cada 2, cyan; luego 2 px por imagen, amarillo;
 ;         parado, rojo)
-;         R = volver al principio del nivel (y la nave a su sitio)
+;         R = volver al principio del nivel (y la nave a su sitio, con
+;         LIVES0 vidas y el marcador a 0); en el fin de partida, ESPACIO
 ;         X = salir a BASIC
 ; Devuelve en BC 0, o un error de carga: 1 no hay NIVEL1.I16, 2 no es un
-; .I16, 3 no hay NIVEL1.MAP, 4 no es un nivel (ELV1), 5 no cabe antes de
-; $7000, 6 cabecera del nivel incoherente, 7 no hay HOJA.BIN.
+; .I16, 3 no hay NIVEL1.MAP, 4 no es un nivel (ELV1), 5 pasa de
+; 8 KB, 6 cabecera del nivel incoherente, 7 no hay HOJA.BIN.
 ;
 ; Ensamblar: pasmo estela.asm estela.bin estela.sym   (o compila.bat)
 ; Cargar: ESTELA.B81 (CLEAR 18431, LOAD FAST "ESTELA.BIN" CODE 18432);
 ; NIVEL1.I16, NIVEL1.MAP y HOJA.BIN (de out/) y NIVEL1.VGM (opcional) en la
 ; misma carpeta de la SD.
-; El codigo tiene que acabar antes de $7000 (la hoja de los sprites).
+; El codigo y PALBUF tienen que acabar antes de $7000 (la hoja de los sprites).
 ; =============================================================
 
         org 4800h
@@ -171,6 +188,18 @@ FX_SHOT equ 0                   ;   disparo de la nave
 FX_EBL  equ 1                   ;   disparo enemigo por la izquierda
 FX_EBR  equ 2                   ;   por la derecha
 FX_BOOM equ 3                   ;   explosiones
+LVLPG   equ 20                  ; pagina del nivel (en el bloque 1); la de la prueba PAGINA
+LVLBUF  equ 2000h               ; NIVEL1.MAP
+MAXLVL  equ 2000h               ; hasta 8 KB
+LIVES0  equ 3                   ; vidas al empezar
+GOT     equ 100                 ; ticks del fin de partida antes de aceptar ESPACIO
+LETRAS  equ SHEET_PAGE0+SHEET_CELLS     ; pagina de la G (luego A M E O V R)
+NLET    equ 7                   ; (SHEET_CELLS + NLET <= 128: lo comprueba el arnes)
+CARTX   equ 64                  ; cartel: x de pantalla de la primera letra
+CARTY   equ 40                  ;   y de GAME (OVER, 10 mas abajo)
+SP_VIDA equ 55                  ; iconos de las vidas: 55-57
+VIDAX   equ 68                  ; x de pantalla del primero (3 x 8 px, centrados)
+VIDAY   equ DIGY+10             ; y de pantalla: debajo de las cifras
 
         jp start
 
@@ -188,6 +217,12 @@ start:  di
         ld c,7
         call read_page
         ld (sv7),a
+        ld c,1                  ; el bloque 1 (la ROM): su pagina, para volver
+        call read_page
+        ld (sv1),a
+        ld a,LVLPG              ; y la del nivel en su lugar
+        ld c,1
+        call map_page
         ld a,PGTIL
         ld c,6
         call map_page
@@ -223,6 +258,7 @@ start:  di
         call cycinit
         call setpal
         call aysetup
+        xor a                   ; la musica del nivel
         call music
         ld a,(LVLBUF+LVL_SCROLL) ; la velocidad del nivel: 1 -> 1 px por
         cp 2                    ; imagen (0), 2 o mas -> 1 cada 2 (1)
@@ -236,6 +272,8 @@ st1:    ld (speed),a
         ld (prevs),a
         ld a,8
         ld (prevr),a
+        ld a,1                  ; ESPACIO sin pulsar
+        ld (prevsp),a
         call showspd
 
 ; -------------------------------------------------------------
@@ -286,6 +324,13 @@ qt1:    call ayquiet
         ld a,(sv7)
         ld c,7
         call map_page
+        ld a,(sv1)              ; el bloque 1 vuelve a tener la ROM; reescrita
+        ld c,1                  ; sobre si misma, la sombra de $2000-$3FFF
+        call map_page           ; vuelve a ser la de la ROM (en la ROM no se
+        ld hl,2000h             ; escribe nada: son los mismos bytes)
+        ld de,2000h
+        ld bc,2000h
+        ldir
         ld hl,4000h             ; la sombra de $C000-$FFFF vuelve a ser la de
         ld de,0C000h            ; $4000-$7FFF (son las mismas paginas: se
         ld bc,4000h             ; reescriben los mismos bytes)
@@ -543,6 +588,10 @@ loadlvl:
         call f_read_n
         ld a,(fh)
         call f_close
+        ld hl,letras            ; las letras del cartel, detras
+        ld de,SHEET_END
+        ld bc,32*NLET
+        ldir
         xor a
         ret
 lderr:  push de                 ; E = error, con el fichero abierto
@@ -749,7 +798,26 @@ ky1:    ld a,0fbh               ; Q W E R T
         or a
         jr z,ky2
         call restart
-ky2:    ld a,0feh               ; X: salir
+ky2:    ld a,07fh               ; ESPACIO (bit 0): en el fin de partida,
+        in a,(0feh)             ; pasada la espera, una pulsacion nueva
+        and 1                   ; vuelve a empezar
+        ld c,a
+        ld a,(prevsp)
+        ld b,a
+        ld a,c
+        ld (prevsp),a
+        or a
+        jr nz,ky3
+        ld a,b
+        or a
+        jr z,ky3
+        ld a,(pstate)
+        cp 3
+        jr nz,ky3
+        ld a,(ptimer)
+        or a
+        call z,restart
+ky3:    ld a,0feh               ; X: salir
         in a,(0feh)
         and 4
         ret
@@ -757,8 +825,13 @@ ky2:    ld a,0feh               ; X: salir
 ; restart: el nivel desde el principio, con la paleta en negro mientras
 ; se repinta el anillo (unas 4 imagenes)
 restart:
-        call gminit             ; (las voces de los efectos, libres)
-        call aysetup            ; y calladas; la musica sigue
+        ld a,(musno)            ; si sonaba la del fin de partida, otra vez la
+        or a                    ; del nivel (si no, la musica sigue)
+        jr z,rs1
+        xor a
+        call music
+rs1:    call gminit             ; (las voces de los efectos, libres)
+        call aysetup            ; y calladas
         call blackpal
         call fillring
         call cycinit
@@ -781,19 +854,33 @@ spdcol: defb 4,5,6,2            ; verde, cyan, amarillo, rojo
 ; -------------------------------------------------------------
 ; Sonido
 ; -------------------------------------------------------------
-; music: NIVEL1.VGM en bucle (si el MCU no lo puede abrir, sin musica)
-music:  ld a,CMD_LOOPVGM
+; music: A = 0 la del nivel (NIVEL1.VGM, en bucle), 1 la del fin de partida
+; (GAMEOVER.VGM, una vez). Para antes la que sonaba; si el MCU no puede abrir
+; la nueva, sin musica
+music:  ld (musno),a
+        ld a,(vgmok)
+        or a
+        jr z,mu0
+        ld a,CMD_STOPVGM
         call mcu_send
-        ld a,1
+mu0:    ld hl,nmvgm
+        ld e,1                  ; en bucle
+        ld a,(musno)
+        or a
+        jr z,mu1
+        ld hl,nmgov
+        ld e,0                  ; una vez
+mu1:    ld a,CMD_LOOPVGM
         call mcu_send
-        ld hl,nmvgm
+        ld a,e
+        call mcu_send
         ld a,CMD_PLAYVGM
         call mcu_name           ; A = 0 si suena
         or a
         ld a,1
-        jr z,mu1
+        jr z,mu2
         xor a
-mu1:    ld (vgmok),a
+mu2:    ld (vgmok),a
         ret
 
 ; sfxgo: C = voz, HL = efecto (prioridad y pares (valor, volumen); volumen
@@ -965,6 +1052,34 @@ nn6:    call mcu_send
         inc hl
         jr nn3
 
+; cartel: sprite, X, Y, pagina de cada letra (GAME arriba, OVER debajo)
+cartel: defb 50,SOFS+CARTX,SOFS+CARTY,LETRAS+0          ; G
+        defb 51,SOFS+CARTX+8,SOFS+CARTY,LETRAS+1        ; A
+        defb 52,SOFS+CARTX+16,SOFS+CARTY,LETRAS+2       ; M
+        defb 53,SOFS+CARTX+24,SOFS+CARTY,LETRAS+3       ; E
+        defb 49,SOFS+CARTX,SOFS+CARTY+10,LETRAS+4       ; O
+        defb 54,SOFS+CARTX+8,SOFS+CARTY+10,LETRAS+5     ; V
+        defb 32,SOFS+CARTX+16,SOFS+CARTY+10,LETRAS+3    ; E
+        defb 33,SOFS+CARTX+24,SOFS+CARTY+10,LETRAS+6    ; R
+; letras: G A M E O V R, celdas del formato B (8 filas de 4 bytes, nibble
+; alto = pixel de la izquierda); colores de PAL16: 12 amarillo, 13 naranja,
+; 9 rojo (degradado por filas) y 1 (oscuro) de sombra abajo a la derecha
+letras:
+        defb 00Ch,0CCh,0CCh,000h,0CCh,011h,011h,010h,0CCh,010h,000h,000h,0DDh,01Dh,0DDh,0D0h    ; G
+        defb 0DDh,010h,01Dh,0D1h,099h,010h,009h,091h,009h,099h,099h,011h,000h,011h,011h,010h
+        defb 000h,0CCh,0C0h,000h,00Ch,0C1h,0CCh,000h,0CCh,011h,00Ch,0C0h,0DDh,010h,00Dh,0D1h    ; A
+        defb 0DDh,0DDh,0DDh,0D1h,099h,011h,019h,091h,099h,010h,009h,091h,001h,010h,000h,011h
+        defb 0CCh,000h,00Ch,0C0h,0CCh,0C0h,0CCh,0C1h,0CCh,0CCh,0CCh,0C1h,0DDh,01Dh,01Dh,0D1h    ; M
+        defb 0DDh,010h,01Dh,0D1h,099h,010h,009h,091h,099h,010h,009h,091h,001h,010h,000h,011h
+        defb 0CCh,0CCh,0CCh,0C0h,0CCh,011h,011h,011h,0CCh,010h,000h,000h,0DDh,0DDh,0DDh,000h    ; E
+        defb 0DDh,011h,011h,010h,099h,010h,000h,000h,099h,099h,099h,090h,001h,011h,011h,011h
+        defb 00Ch,0CCh,0CCh,000h,0CCh,011h,01Ch,0C0h,0CCh,010h,00Ch,0C1h,0DDh,010h,00Dh,0D1h    ; O
+        defb 0DDh,010h,00Dh,0D1h,099h,010h,009h,091h,009h,099h,099h,011h,000h,011h,011h,010h
+        defb 0CCh,000h,00Ch,0C0h,0CCh,010h,00Ch,0C1h,0CCh,010h,00Ch,0C1h,0DDh,010h,00Dh,0D1h    ; V
+        defb 00Dh,0D0h,0DDh,011h,000h,099h,091h,010h,000h,009h,011h,000h,000h,000h,010h,000h
+        defb 0CCh,0CCh,0CCh,000h,0CCh,011h,01Ch,0C0h,0CCh,010h,00Ch,0C1h,0DDh,0DDh,0DDh,011h    ; R
+        defb 0DDh,01Dh,0D1h,010h,099h,010h,099h,000h,099h,010h,009h,090h,001h,010h,000h,011h
+
 ; efectos: prioridad y pares (periodo del tono o del ruido, volumen) por
 ; imagen; volumen $FF = fin
 fxshot: ; disparo de la nave: tono que baja
@@ -1112,6 +1227,8 @@ gminit: ld a,XSTART
         ld bc,GVLEN-1
         ld (hl),0
         ldir
+        ld a,LIVES0
+        ld (lives),a
         ld hl,(LVLBUF+LVL_WAVES)
         ld de,LVLBUF
         add hl,de
@@ -1123,6 +1240,15 @@ gminit: ld a,XSTART
 ; ~9.800 T tras el flanco: 64 sprites; luego va el ciclo de paleta).
 ; -------------------------------------------------------------
 drawspr:
+        ld a,(pstate)
+        cp 3
+        jp z,dcart              ; fin de partida: el cartel en lugar de la nave
+        ld c,32                 ; si no, los sprites del cartel que no son de
+        call off1               ; la nave ni de la llama, apagados
+        inc c
+        call off1
+        ld c,54
+        call off1
         ld a,(pstate)
         cp 2
         jr nz,dn1
@@ -1268,10 +1394,15 @@ db3:    inc ix
         or a
         sbc hl,de
         jr nc,dd0
-        ld b,6                  ; si no, apagado
+        ld b,6                  ; si no, apagado: las cifras
 dd2:    call off1
         inc c
         djnz dd2
+        ld c,SP_VIDA            ; y las vidas
+        ld b,3
+dd3:    call off1
+        inc c
+        djnz dd3
         ret
 dd0:    ld hl,score
         ld b,3
@@ -1287,7 +1418,54 @@ dd1:    ld a,(hl)
         call digit
         inc hl
         djnz dd1
+        ld a,(lives)            ; las vidas: VIDA en SP_VIDA+i si i < vidas
+        ld b,a
+        ld c,SP_VIDA
+        ld e,SOFS+VIDAX
+dv1:    ld a,c
+        ld (SPR_SEL),a
+        sub SP_VIDA
+        cp b
+        jr nc,dv2
+        ld a,e
+        ld (SPR_XL),a
+        ld a,SOFS+VIDAY
+        ld (SPR_Y),a
+        ld a,VIDA
+        ld (SPR_PG),a
+        ld a,1
+        jr dv3
+dv2:    xor a
+dv3:    ld (SPR_EN),a
+        ld a,e
+        add a,8
+        ld e,a
+        inc c
+        ld a,c
+        cp SP_VIDA+3
+        jr nz,dv1
         ret
+
+; dcart: el cartel GAME OVER con la tabla cartel (8 sprites: los de la nave y
+; la llama, el 54, el 32 y el 33); luego los disparos y lo demas
+dcart:  ld hl,cartel
+        ld b,8
+dc1:    push bc
+        ld c,(hl)               ; sprite, X, Y, pagina
+        inc hl
+        ld e,(hl)
+        inc hl
+        ld a,(hl)
+        inc hl
+        ld d,(hl)
+        inc hl
+        push hl
+        ld l,a
+        call put1
+        pop hl
+        pop bc
+        djnz dc1
+        jp dbal
 
 ; digit: la cifra A en el sprite C (el SP_DIG+i en x = DIGX + 8i); C sube 1
 digit:  add a,CIFRA
@@ -1368,8 +1546,10 @@ off1:   ld a,c
 update: ld hl,tick
         inc (hl)
         ld a,(pstate)
-        dec a
-        jr z,up6                ; explotando: ni se mueve ni dispara
+        cp 1
+        jr z,up6                ; explotando o fin de partida: ni se mueve
+        cp 3                    ; ni dispara
+        jr z,up6
         ld a,0dfh               ; Y U I O P: P bit 0, O bit 1
         in a,(0feh)
         cpl
@@ -1430,9 +1610,11 @@ ub2:    inc ix
         inc ix
         djnz ub1
         ld a,(pstate)
-        dec a
+        cp 1
+        jr z,up7
+        cp 3
         call nz,pfire
-        call upene
+up7:    call upene
         call upeb
         call collide
         call efire
@@ -1747,6 +1929,8 @@ pdie:   ld a,1
         ld (ptimer),a
         ld hl,deaths
         inc (hl)
+        ld hl,lives
+        dec (hl)
         ld c,FX_BOOM
         ld hl,fxdie
         jp sfxgo
@@ -1777,7 +1961,9 @@ ef1:    ld a,(ix+E_ST)
         cp 93
         jr nc,ef2
         ld a,(pstate)
-        dec a
+        cp 1
+        jr z,ef2
+        cp 3
         call nz,ebfire
 ef2:    pop bc
 ef3:    ld de,ESZ
@@ -2023,10 +2209,20 @@ upplay: ld a,(pstate)
         or a
         ret z
         ld hl,ptimer
+        cp 3
+        jr nz,pp0
+        ld a,(hl)               ; fin de partida: la espera baja hasta 0
+        or a
+        ret z
         dec (hl)
+        ret
+pp0:    dec (hl)
         ret nz
         dec a
         jr nz,pp1
+        ld a,(lives)            ; acaba la explosion: sin vidas, fin
+        or a
+        jr z,pp2
         ld a,XSTART
         ld (shx),a
         ld a,YSTART
@@ -2041,6 +2237,12 @@ upplay: ld a,(pstate)
 pp1:    xor a
         ld (pstate),a
         ret
+pp2:    ld a,3
+        ld (pstate),a
+        ld a,GOT
+        ld (ptimer),a
+        ld a,1                  ; la musica del fin de partida
+        jp music
 
 ; ficheros de la SD (ordenes 53, 55 y 57 del MCU)
         include "../PHOTO/mcu.asm"
@@ -2058,7 +2260,11 @@ nmi16:  defb "NIVEL1.I16",0
 nmmap:  defb "NIVEL1.MAP",0
 nmhoja: defb "HOJA.BIN",0
 nmvgm:  defb "NIVEL1.VGM",0
-vgmok:  defb 0                  ; 1 = el MCU toca la musica
+sv1:    defb 0                  ; pagina del bloque 1 al empezar (la ROM)
+prevsp: defb 1
+nmgov:  defb "GAMEOVER.VGM",0
+vgmok:  defb 0                  ; 1 = el MCU toca (o ha tocado) una musica: STOP_VGM al cambiar o salir
+musno:  defb 0                  ; la que suena: 0 la del nivel, 1 la del fin de partida
 magi16: defb "I160"
 magmap: defb "ELV1"
 vofs:   defb 0                  ; fila del anillo arriba (la que se escribe en el VSYNC)
@@ -2097,7 +2303,8 @@ cpy:    defb 0
 gvars:
 cd:     defb 0                  ; imagenes hasta poder disparar otra vez
 tick:   defb 0                  ; contador de ticks (llama, animaciones)
-pstate: defb 0                  ; nave: 0 viva, 1 explotando, 2 invulnerable
+pstate: defb 0                  ; nave: 0 viva, 1 explotando, 2 invulnerable, 3 fin de partida
+lives:  defb 0                  ; vidas (con la nave en juego)
 ptimer: defb 0                  ; ticks que le quedan a la explosion o a la invulnerabilidad
 deaths: defb 0                  ; veces que han dado a la nave
 drope:  defb 0                  ; enemigos que no cupieron (sin hueco)
@@ -2115,8 +2322,7 @@ codeend:
 
 ; detras del codigo, sin ocupar el binario
 PALBUF  equ codeend             ; la paleta del .I16 (512 bytes)
-LVLBUF  equ PALBUF+512          ; NIVEL1.MAP
+PALEND  equ PALBUF+512          ; hasta $7000 (la hoja de los sprites)
 GVLEN   equ gvend-gvars
-MAXLVL  equ 7000h-LVLBUF        ; hasta la hoja de los sprites
 
         end start

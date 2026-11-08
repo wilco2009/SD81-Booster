@@ -12,13 +12,14 @@ El plan entero (fases, mapa de memoria, sprites) está en
 | `PRUEBAS/` | pruebas de la fase 0 en la placa (carga, VSYNC, sonido, paginación) |
 | `tools/`, `assets/`, `out/` | herramientas del PC y gráficos del nivel (las lleva otra sesión; §8 del plan) |
 
-## Estado: fase 6 (sonido)
+## Estado: fase 7a (vidas y fin de partida), probada
 
 Lo que hay ahora es el **fondo del nivel 1 con scroll**, la **nave del jugador**
 con sus disparos, las **oleadas de enemigos** del nivel, con sus disparos,
-colisiones, explosiones y el marcador, y el **sonido**: música y efectos. Faltan el
-jefe, las mejoras, las vidas, el fin de partida y la voz de los avisos (fase 7). La
-fase 5 no cambió el juego: es la comprobación en el arnés de que, con el límite de
+colisiones, explosiones y el marcador, el **sonido** (música y efectos) y las
+**vidas** con el **fin de partida** (cartel GAME OVER). La fase 7 va por partes:
+faltan el jefe (7b), las mejoras (7c) y el título con el récord (7d).
+La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el límite de
 12 sprites por línea del motor, no se pierde ningún trozo de sprite (ver abajo):
 
 - **Carga de la SD** (de la misma carpeta que `ESTELA.BIN`), con la pantalla en
@@ -26,10 +27,14 @@ fase 5 no cambió el juego: es la comprobación en el arnés de que, con el lím
   - `NIVEL1.I16`: la paleta de 256 del nivel y el tileset (60 tiles de 16x16), que
     va tal cual a `$C000` (los bloques 6 y 7 se mapean a las páginas 6 y 7 mientras
     corre el juego y se devuelven al salir);
-  - `NIVEL1.MAP`: cabecera, oleadas y mapa de 8 tiles de ancho, detrás del código;
+  - `NIVEL1.MAP`: cabecera, oleadas y mapa de 8 tiles de ancho, en una página de
+    la SRAM (la 20) que mientras se juega está en el bloque 1 (`$2000`, en lugar
+    de la ROM; caben niveles de hasta 8 KB);
   - `HOJA.BIN`: la hoja de los sprites (celdas de 8x8 a 16 colores), en `$7000`;
   - `NIVEL1.VGM` (opcional): la música, que la toca el MCU en bucle sin gastar
-    CPU. Si no está, el juego va sin música.
+    CPU. Si no está, el juego va sin música;
+  - `GAMEOVER.VGM` (opcional): la música del fin de partida, que suena una vez (sin
+    bucle) en lugar de la del nivel; al volver a empezar vuelve la del nivel.
 
   Los tres los genera `tools/make.py` en `out/` (§8 del plan).
 - **Modo 175**, **anillo de 160x102** en `$8000` (100 filas visibles y 2 ocultas
@@ -61,11 +66,16 @@ fase 5 no cambió el juego: es la comprobación en el arnés de que, con el lím
 - **Colisiones**: un disparo que toca a un enemigo lo hace **explotar** y suma sus
   puntos (10 a 60). Si a la nave le da un disparo enemigo o choca con un enemigo
   (no con los de suelo), la nave **explota**, vuelve abajo en el centro y
-  **parpadea** 2 segundos sin que le pase nada. De momento no hay vidas: se puede
-  seguir sin fin.
-- **Marcador** de 6 cifras en una fila centrada arriba de la zona de juego, solo
-  después de cada muerte (mientras la nave explota y parpadea, unos 2,3 segundos) y
-  al final del nivel. El modo de 256 colores no tiene plano de texto (el de 40x25
+  **parpadea** 2 segundos sin que le pase nada.
+- **Vidas**: 3 naves. Cada vez que le dan a la nave se pierde una; las que quedan se
+  ven con el marcador, como iconos debajo de las cifras. Si explota la última:
+  **fin de partida**. La nave no vuelve, los enemigos siguen pasando pero no
+  disparan, el marcador se queda a la vista, sale el cartel **GAME OVER** en el
+  centro (dos filas, "GAME" y "OVER") y, pasados 2 segundos, **ESPACIO** vuelve a empezar el nivel con 3
+  vidas y el marcador a 0.
+- **Marcador** de 6 cifras en una fila centrada arriba de la zona de juego, con las
+  vidas debajo, solo después de cada muerte (mientras la nave explota y parpadea,
+  unos 2,3 segundos), en el fin de partida y al final del nivel. El modo de 256 colores no tiene plano de texto (el de 40x25
   es solo del modo de 16 colores) y con el scroll vertical no se puede dejar una
   franja fija arriba, así que el marcador son sprites.
 - **Efectos** en los dos AY de la FPGA (los del ZonX), que no tocan el AY del MCU
@@ -84,9 +94,9 @@ fase 5 no cambió el juego: es la comprobación en el arnés de que, con el lím
 | Tecla | Acción |
 |-------|--------|
 | O P Q A | Mover la nave (izquierda, derecha, arriba, abajo; mantener) |
-| ESPACIO | Disparar (mantenido: un disparo cada 6 imágenes). Con `LOAD *JOY "OPQA "` el joystick DB9 hace lo mismo |
+| ESPACIO | Disparar (mantenido: un disparo cada 6 imágenes). Con `LOAD *JOY "OPQA "` el joystick DB9 hace lo mismo. En el fin de partida, pasados 2 segundos, una pulsación nueva vuelve a empezar |
 | S | Velocidad del scroll: la del nivel al empezar (1 píxel por imagen, borde **verde**) → 1 cada 2 imágenes (**cyan**) → 2 por imagen (**amarillo**) → parado (**rojo**) → 1 por imagen |
-| R | Volver al principio del nivel, con la nave en su sitio (la pantalla se queda en negro unas 4 imágenes mientras se repinta) |
+| R | Volver al principio del nivel, con la nave en su sitio, 3 vidas y el marcador a 0 (la pantalla se queda en negro unas 4 imágenes mientras se repinta) |
 | X | Salir a BASIC (modo normal, color apagado, páginas de antes) |
 
 Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`:
@@ -97,7 +107,7 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
 | 2 | `NIVEL1.I16` no es un `.I16` (no empieza por `I160`) |
 | 3 | no hay `NIVEL1.MAP` |
 | 4 | `NIVEL1.MAP` no es un nivel (no empieza por `ELV1`) |
-| 5 | el nivel no cabe entre el código y `$7000` (caben 2.683 bytes; el de ejemplo tiene 2.488) |
+| 5 | el nivel pasa de 8 KB (el de ejemplo tiene 2.488 bytes) |
 | 6 | la cabecera del nivel no cuadra (menos de 7 filas, o el mapa se sale del fichero) |
 | 7 | no hay `HOJA.BIN` |
 
@@ -122,7 +132,12 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
   salen por los bordes. Los **tanques y torretas** van pegados al suelo, quietos
   respecto al fondo.
 - Al darles, **explotan**; al darle a la nave, explota, reaparece abajo y parpadea
-  un rato, y mientras tanto sale el **marcador** arriba.
+  un rato, y mientras tanto sale el **marcador** arriba con las **vidas** que
+  quedan (2 iconos tras la primera muerte, 1 tras la segunda).
+- A la tercera, **fin de partida**: sin nave, marcador fijo sin iconos, el cartel
+  **GAME OVER** en el centro (letras amarillas que pasan a rojo, con sombra) y,
+  pasados 2 segundos, ESPACIO vuelve a empezar (hay que soltarlo y
+  pulsarlo otra vez).
 - No desaparecen trozos de sprites (como mucho hay 10 sprites en una misma línea
   y el límite es 12).
 - R vuelve al principio; al final del nivel el fondo se para.
@@ -131,12 +146,15 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
   los **efectos**: cada disparo, los de los enemigos por el lado del que salen, las
   explosiones, y la de la nave más larga. Con R los efectos se cortan y la música
   sigue.
+- En el **fin de partida** se para la música del nivel y suena `GAMEOVER.VGM` una
+  vez (`compila.bat` copia de momento `EXAMPLES/VGM/ledstorm-2.vgm`, la más corta,
+  hasta que haya una del juego); al volver a empezar (ESPACIO o R), otra vez la del
+  nivel desde el principio.
 - Al salir, el BASIC se lee y la música se para.
 
-**Qué hay que mandar:** si se oye así; si no, qué falla. Y, de oído: si los
-efectos se oyen bien con la música, si el volumen relativo es razonable, si el
-disparo (que suena cada 6 imágenes con ESPACIO pulsado) cansa, y si se nota el lado
-de los disparos enemigos.
+**Qué hay que mandar:** si se ve y se oye así; si no, qué falla. En particular:
+si el juego arranca y el nivel se ve bien (ahora el nivel está en el bloque 1, en
+lugar de la ROM) y si el cartel GAME OVER se lee bien.
 
 ## Comprobado en el PC
 
@@ -200,13 +218,24 @@ especificación, aparte del código del Z80:
   de los dos AY de la FPGA (periodos, ruido, volúmenes, mezcladores): iguales en
   todas las partidas (en la del nivel entero, 718 disparos, 12 disparos enemigos,
   35 explosiones y 5 de la nave). Si se cambia en el código el lado de los
-  disparos enemigos, el arnés lo ve. Música: `LOOP_VGM 1` y `PLAY_VGM "NIVEL1.VGM"`
-  después de cargar, `STOP_VGM` al salir y ninguna otra orden; sin `NIVEL1.VGM`, el
-  juego sigue igual y sin `STOP_VGM`; con un error de carga, ninguna orden de
-  música. Al salir, los dos AY callados;
+  disparos enemigos, el arnés lo ve. Música: la secuencia entera de órdenes contra un
+  modelo: `LOOP_VGM 1` y `PLAY_VGM "NIVEL1.VGM"` después de cargar; en cada fin de
+  partida `STOP_VGM`, `LOOP_VGM 0` y `PLAY_VGM "GAMEOVER.VGM"`; al volver a empezar,
+  otra vez la del nivel; `STOP_VGM` al salir; ninguna otra orden. Sin `NIVEL1.VGM` o
+  sin `GAMEOVER.VGM`, el juego sigue igual y sin el `STOP_VGM` de la que falta; con
+  un error de carga, ninguna orden de música. Al salir, los dos AY callados;
+- **vidas y fin de partida** en el modelo del juego: los sprites (sin nave, iconos
+  de las vidas) siguen iguales al modelo en cada imagen; en las partidas del nivel
+  entero hay 2, 5 y 1 fines de partida, y en las que pulsan ESPACIO se vuelve a
+  empezar las mismas veces; el cartel (8 sprites con las 7 letras, que se copian
+  detrás de `HOJA.BIN`) sale en cada imagen del fin de partida y en ninguna otra;
+  ninguna orden de voz;
+- el nivel en la página 20 (en el bloque 1 mientras se juega); al salir, el bloque 1
+  vuelve a tener su página y la "ROM" (rellenada con un patrón en el arnés) no
+  cambia ni un byte;
 - la vuelta más larga del bucle: unos 32.000 T de los 64.584 de una imagen.
 
-Las fases 1 a 4 y la 6 están **probadas en la placa** (2026-11-08). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
+Las fases 1 a 4, la 6 y la 7a están **probadas en la placa** (2026-11-08). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
 y desde entonces el arnés ensambla y prueba el `estela.bin` de esta carpeta, el
 mismo que va a la SD.
 
@@ -215,19 +244,24 @@ mismo que va a la SD.
 `compila.bat` ensambla con pasmo, comprueba que el binario no pasa de `$6FFF`
 (la hoja de los sprites está en `$7000` y el ZX81 no ejecuta código por encima de
 `$8000`) y lo copia al emulador (`SD81\SD81\GAMES\ESTELA`) con `out\NIVEL1.I16`,
-`out\NIVEL1.MAP`, `out\HOJA.BIN` y la música como `NIVEL1.VGM` (`out\NIVEL1.VGM` si
-existe; si no, `..\VGM\music0002.vgm`). Para la placa, copia `ESTELA.BIN`,
-`ESTELA.B81`, `NIVEL1.I16`, `NIVEL1.MAP`, `HOJA.BIN` y `NIVEL1.VGM` a una misma
+`out\NIVEL1.MAP`, `out\HOJA.BIN` y las músicas como `NIVEL1.VGM` (`out\NIVEL1.VGM` si
+existe; si no, `..\VGM\music0002.vgm`) y `GAMEOVER.VGM` (`out\GAMEOVER.VGM`; si no,
+`..\VGM\ledstorm-2.vgm`). Para la placa, copia `ESTELA.BIN`, `ESTELA.B81`,
+`NIVEL1.I16`, `NIVEL1.MAP`, `HOJA.BIN`, `NIVEL1.VGM` y `GAMEOVER.VGM` a una misma
 carpeta de la SD y carga `ESTELA.B81`.
 
-Memoria: código y tablas en `$4800-$6384` (las trayectorias de `LEVEL.INC` y la
-`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$6385-$6584`,
-`NIVEL1.MAP` desde `$6585` (hasta `$6FFF`: caben 2.683 bytes y el nivel tiene
-2.488; para la fase 7 hará falta más sitio), hoja de los sprites en `$7000-$7F1F`
-(bloque 3), anillo en `$8000-$BFBF`, tileset en `$C000-$FE7F` (páginas 6 y 7).
+Memoria: código y tablas en `$4800-$65B1` (las trayectorias de `LEVEL.INC` y la
+`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$65B2-$67B1` (quedan
+2.126 bytes libres hasta `$7000` para el código de la fase 7), hoja de los sprites
+en `$7000-$7F1F` y las 7 letras del cartel detrás, en `$7F20-$7FFF` (bloque 3), anillo en `$8000-$BFBF`, tileset en `$C000-$FE7F`
+(páginas 6 y 7), `NIVEL1.MAP` en la página 20 de la SRAM, mapeada en el bloque 1
+(`$2000-$3FFF`) mientras se juega. Al salir, el bloque 1 vuelve a tener la ROM y
+se reescribe sobre sí mismo (los mismos bytes), para que la copia de la FPGA de
+esas direcciones vuelva a ser la de la ROM, como se hace con `$C000-$FFFF`.
 Sprites: enemigos en el 0-31 (4 cada uno), disparos de la nave en el 34-41,
-disparos enemigos en el 42-48, la llama en el 49, la nave en el 50-53 y el
-marcador en el 58-63 (apagados mientras no se ve).
+disparos enemigos en el 42-48, la llama en el 49, la nave en el 50-53, las vidas
+en el 55-57 y el marcador en el 58-63 (apagados mientras no se ven); el cartel
+GAME OVER usa los de la nave y la llama, el 54, el 32 y el 33.
 
 **El emulador** todavía no tiene el scroll en anillo de los modos 160
 (`sprites_scroll160_emulador.md`): ahí el fondo no se moverá bien. Hay que probarlo

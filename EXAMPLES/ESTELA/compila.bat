@@ -18,6 +18,8 @@ copy /y out\HOJA.BIN "%DEST%\HOJA.BIN" >nul || goto error
 rem la musica del nivel (opcional: sin ella el juego va sin musica): out\NIVEL1.VGM si existe; si no, de momento
 rem la de la prueba SONIDO de la fase 0 (..\VGM\music0002.vgm)
 if exist out\NIVEL1.VGM (copy /y out\NIVEL1.VGM "%DEST%\NIVEL1.VGM" >nul || goto error) else (copy /y ..\VGM\music0002.vgm "%DEST%\NIVEL1.VGM" >nul || goto error)
+rem la del fin de partida (suena una vez): out\GAMEOVER.VGM si existe; si no, de momento ..\VGM\ledstorm-2.vgm (la mas corta)
+if exist out\GAMEOVER.VGM (copy /y out\GAMEOVER.VGM "%DEST%\GAMEOVER.VGM" >nul || goto error) else (copy /y ..\VGM\ledstorm-2.vgm "%DEST%\GAMEOVER.VGM" >nul || goto error)
 echo OK: copiado en %DEST%
 exit /b 0
 

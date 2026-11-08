@@ -1,0 +1,20 @@
+# sprites.def -- generado por gensprites.py (el orden de las lineas es el orden de las paginas)
+# nombre   x y   w h   fases      (x y, w h en celdas de 8x8)
+NAVE      0  0  2 2  3
+LLAMA     6  0  1 1  2
+ENEMY1    8  0  2 2  2
+ENEMY2   12  0  2 2  2
+ENEMY3    0  2  2 2  2
+ENEMY4    4  2  2 2  2
+ENEMY5    8  2  2 2  2
+ENEMY6   12  2  2 2  2
+EXPL      0  4  2 2  4
+BALAJ     8  4  1 1  2
+BALAE    10  4  1 1  2
+CIFRA     0  6  1 1  10
+VIDA     10  6  1 1  1
+BOMBA    11  6  1 1  1
+ITEM1    12  6  1 1  1
+ITEM2    13  6  1 1  1
+ITEM3    14  6  1 1  1
+JEFE      0  7  4 3  2

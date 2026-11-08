@@ -6,7 +6,7 @@ Juego original: solo el género es conocido; sin nombres, personajes ni gráfico
 
 **Nombre provisional:** `ESTELA` (carpeta `EXAMPLES/ESTELA`, sin "_"). Se puede cambiar antes de la fase 1.
 
-**Estado:** fases 0 y 1 hechas y probadas en la placa (2026-11-08); la 2 sin empezar. Detalle por fase en el §11.
+**Estado:** fases 0 y 1 hechas y probadas en la placa; fase 2 hecha en el PC, falta probarla en la placa (2026-11-08). Detalle por fase en el §11.
 
 ---
 
@@ -301,7 +301,8 @@ Probados con pasmo 0.5.4 (`selftest.py`).
 |---|---|
 | **0** | **Hecha y probada en la placa (2026-11-08).** CARGA: bien, 1.415 bytes libres entre `E_LINE` y `$4800`. VSYNC: F = 64.574 medido (= 312 lineas x 207 = 64.584 T), W = 1.650 (VSYNC de 8 lineas); con D = 48.658 el corte cae hacia la fila 87, asi que **D0 ~ 12.600 T** (unas 61 lineas desde el flanco; estimado de una foto, falta afinarlo). SONIDO: bien (musica VGM + efectos en el canal C de los AY de la FPGA). PAGINA: bien en las cuatro fases (bloque 1, bloque 0 y dentro de la ventana de POKEs), `RESULTADO 0`. Programas en `EXAMPLES/ESTELA/PRUEBAS`, arnes `claude/mqtttest/build_estela0.sh` |
 | 1 | **Hecha y probada en la placa** (2026-11-08). `EXAMPLES/ESTELA/estela.asm` (1.416 bytes, `$4800-$4D87`), `ESTELA.B81`, `compila.bat` (comprueba que el binario no pasa de `$6FFF`) y README. Modo 175, paleta de prueba (RGB 3-3-2 + grises 240-255), anillo 160x102 en `$8000`, paneles de 16 px, scroll de 0, 1/2, 1 o 2 px por imagen (tecla S). Tileset generado en `$C000` con el formato del `.I16` (paginas 6 y 7 en los bloques 6 y 7; al salir se devuelven y se reescribe `$4000-$7FFF` sobre `$C000` para rehacer la sombra) y mapa generado de 8 tiles. Fila nueva: ~2.600 T (8 tiles con LDI; los paneles se pintan una vez). Arnes `claude/mqtttest/build_estela.sh`: lo visible = el mundo del modelo C++ en 466 instantes, sin escrituras en filas visibles, POKE 2072 a <= 71 T del flanco. El arnes encontro un fallo (getmap machacaba DE). **Primera prueba en la placa (2026-11-08): basura y cuelgue**, pero con un `estela.bin` viejo, de antes de ese arreglo (el arnes ensamblaba su propia copia). El snapshot `ESTELA001.Z81` lo confirma: cada fila y = 15 se escribia en DE = ((5f+24) mod 256)*256 + f/4, que es lo que deja getmap (tileset, anillo, ventana de POKEs y por fin el propio codigo). `build_estela.sh` ahora ensambla y prueba el `estela.bin` de la carpeta. Con el binario nuevo funciona en la placa (usuario, 2026-11-08) |
-| 2-8 | Sin empezar |
+| 2 | **Hecha en el PC, sin probar en la placa** (2026-11-08). `estela.asm` carga de la SD `NIVEL1.I16` (paleta a `PALBUF`, pixeles a `$C000`) y `NIVEL1.MAP` (a `LVLBUF`, detras del codigo, hasta `$7000`), con errores 1-6 devueltos en BC (`ESTELA.B81` los escribe). Lineas como en el 8.3 (fila k de la pantalla = linea 99+s-k; se pinta la 100+s), `TILEADR` de `LEVEL.INC`, paneles de la fila 96 del tileset, scroll parado en `LVL_END`, velocidad inicial de `LVL_SCROLL`, R vuelve al principio. Ciclo de paleta en el borrado: agua cada 4 imagenes, lava cada 6, luces cada 8 (`TCYW/TCYL/TCYG`). Codigo y tablas `$4800-$5920` (4.385 B con las trayectorias). Arnes `build_estela.sh` con un MCU que sirve `out/`: lo visible = el nivel del modelo en 472 instantes, paleta exacta en cada imagen, nivel corto (parada en `LVL_END`, R), 7 errores de carga; vuelta mas larga 13.854 T |
+| 3-8 | Sin empezar |
 
 ### 11.1 Fase 0: qué mide cada prueba y qué decide
 

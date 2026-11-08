@@ -1,5 +1,5 @@
 @echo off
-rem Ensambla ESTELA y lo copia al emulador.
+rem Ensambla ESTELA y lo copia al emulador con el nivel (out\NIVEL1.I16 y out\NIVEL1.MAP).
 cd /d "%~dp0"
 set DEST=C:\ClaudeCode\Eightyone2\EightyOne\SD81\SD81\GAMES\ESTELA
 
@@ -10,6 +10,10 @@ for %%F in (estela.bin) do if %%~zF GTR 10240 (echo *** estela.bin pasa de $6FFF
 if not exist "%DEST%" mkdir "%DEST%"
 copy /y estela.bin "%DEST%\ESTELA.BIN" >nul || goto error
 copy /y ESTELA.B81 "%DEST%\ESTELA.B81" >nul || goto error
+rem el nivel (lo genera tools\make.py en out\); detras del binario van la paleta (512 bytes) y NIVEL1.MAP, tambien
+rem antes de $7000: si no cabe, el juego vuelve con el error 5
+copy /y out\NIVEL1.I16 "%DEST%\NIVEL1.I16" >nul || goto error
+copy /y out\NIVEL1.MAP "%DEST%\NIVEL1.MAP" >nul || goto error
 echo OK: copiado en %DEST%
 exit /b 0
 

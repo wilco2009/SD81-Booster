@@ -2,33 +2,44 @@
 ; ESTELA.ASM -- matamarcianos vertical para el modo 160x100 a 256 colores
 ; del SD81 Booster. Plan: claude/planning/juego160.md
 ;
-; FASE 1: esqueleto. Modo 175, paleta de prueba, anillo de 160x102 en
-; $8000 con dos paneles laterales fijos de 16 pixeles y scroll vertical
-; continuo de un fondo de tiles de 16x16.
+; FASE 2: el fondo del nivel. Modo 175, anillo de 160x102 en $8000 con dos
+; paneles laterales fijos de 16 pixeles y scroll vertical del nivel 1:
 ;
-;   - El tileset es una imagen de 160x96 en $C000 con el formato de un .I16
-;     (60 tiles, 10 por fila, 160 bytes de una fila a la siguiente). En la
-;     fase 1 la genera el propio codigo; en la fase 2 sera el .I16 del nivel.
-;     Los bloques 6 y 7 se mapean a las paginas 6 y 7 (libres en los modos
-;     del SD81) mientras corre el juego.
-;   - El mapa es de 8 tiles de ancho (128 pixeles). En la fase 1 tambien se
-;     genera: tile(fila, columna) = ((fila*5 + columna*3) XOR (fila/4)) mod 60,
-;     en 8 bits.
+;   - NIVEL1.I16 (de la SD, carpeta actual): la paleta de 256 del nivel y el
+;     tileset, 160x100 con 60 tiles de 16x16 (10 por fila), en $C000 tal cual
+;     (TILEADR de LEVEL.INC). La fila 96 lleva el dibujo de los paneles
+;     (PANEL_ADDR: +0..15 el izquierdo, +144..159 el derecho). Los bloques 6 y
+;     7 se mapean a las paginas 6 y 7 (libres en los modos del SD81).
+;   - NIVEL1.MAP (de la SD): cabecera, oleadas y mapa de 8 tiles de ancho
+;     (formato en juego160.md 8.3), detras del codigo (LVLBUF).
+;   - Lineas del nivel: la fila r del mapa ocupa las lineas 16r..16r+15
+;     contando desde abajo; la linea j del tile (0 = arriba) es la 16r+15-j.
+;     Con s pixeles de scroll hechos, la fila k de la pantalla (0 = arriba)
+;     es la linea 99+s-k, y la que entra por arriba en el siguiente paso es
+;     la 100+s. Al llegar a s = LVL_END el scroll se para.
 ;   - Anillo: 102 filas de 160 bytes (POKE 2073,102). La fila del anillo
-;     (vofs + r) mod 102 tiene la fila cy + r del mundo, r = 0..99. Para
-;     subir un pixel se pinta la fila oculta vofs-1 con la fila cy-1 del
-;     mundo y luego vofs y cy bajan uno; el nuevo vofs se escribe en POKE 2072
-;     justo despues del siguiente VSYNC. Con las dos filas ocultas se pueden
-;     dar 2 pixeles por imagen.
-;   - Paneles: las columnas 0-15 y 144-159 son iguales en todas las filas del
-;     anillo: se ven quietas aunque el anillo se mueva. Se pintan una vez.
+;     (vofs + k) mod 102 tiene la linea 99+s-k, k = 0..99. Para subir un
+;     pixel se pinta la fila oculta vofs-1 con la linea 100+s y luego vofs
+;     baja y s sube; el nuevo vofs se escribe en POKE 2072 justo despues del
+;     siguiente VSYNC. Con las dos filas ocultas se pueden dar 2 px por imagen.
+;   - Paneles: las columnas 0-15 y 144-159 son iguales en todas las filas
+;     del anillo: se ven quietas aunque el anillo se mueva. Se pintan una vez.
+;   - Ciclo de paleta: el agua (PAL_WATER), la lava (PAL_LAVA) y las luces
+;     (PAL_LIGHTS) giran una posicion cada TCYW, TCYL y TCYG imagenes, en el
+;     borrado, a partir de la paleta del .I16 (PALBUF).
 ;
-; Teclas: S = velocidad (1 px por imagen, borde verde; 1 px cada 2,
-;         cyan; 2 px por imagen, amarillo; parado, rojo)
+; Teclas: S = velocidad (la del nivel al empezar: 1 px por imagen, borde
+;         verde, o 1 px cada 2, cyan; luego 2 px por imagen, amarillo;
+;         parado, rojo)
+;         R = volver al principio del nivel
 ;         X = salir a BASIC
+; Devuelve en BC 0, o un error de carga: 1 no hay NIVEL1.I16, 2 no es un
+; .I16, 3 no hay NIVEL1.MAP, 4 no es un nivel (ELV1), 5 no cabe antes de
+; $7000, 6 cabecera del nivel incoherente.
 ;
 ; Ensamblar: pasmo estela.asm estela.bin estela.sym   (o compila.bat)
-; Cargar: ESTELA.B81 (CLEAR 18431, LOAD FAST "ESTELA.BIN" CODE 18432)
+; Cargar: ESTELA.B81 (CLEAR 18431, LOAD FAST "ESTELA.BIN" CODE 18432);
+; NIVEL1.I16 y NIVEL1.MAP (de out/) en la misma carpeta de la SD.
 ; El codigo tiene que acabar antes de $7000 (la hoja de los sprites, fase 3).
 ; =============================================================
 
@@ -37,12 +48,13 @@
 IMG     equ 8000h               ; anillo
 RING    equ 102                 ; filas del anillo
 VIS     equ 100                 ; filas visibles
-TILES   equ 0C000h              ; tileset (formato .I16, 160 bytes por fila)
-TROWS   equ 96                  ; filas del tileset con tiles (6 x 16)
-NTILES  equ 60
 PANEL   equ 16                  ; ancho de cada panel
 PGTIL   equ 6                   ; paginas para los bloques 6 y 7
 MAPPORT equ 0E7h
+I16PIX  equ 16000               ; pixeles de un .I16
+TCYW    equ 4                   ; imagenes por paso del ciclo del agua
+TCYL    equ 6                   ; de la lava
+TCYG    equ 8                   ; de las luces
 
         jp start
 
@@ -64,7 +76,7 @@ start:  di
         ld c,7
         call map_page
 
-        call blackpal           ; todo negro mientras se pinta
+        call blackpal           ; todo negro mientras se carga y se pinta
         xor a                   ; HFILE = $8000
         ld (2043),a
         ld a,IMG/256
@@ -81,29 +93,26 @@ start:  di
         ld a,175                ; modo 160x100 a 8 bpp
         ld (2045),a
 
-        call mktiles
+        call loadlvl            ; A = 0, o el error
+        or a
+        jp nz,quit
         call mktabs
         call panels
-        xor a                   ; el mundo desde la fila 0
-        ld (vofs),a
-        ld (mapok),a
-        ld hl,0
-        ld (cy),hl
-        ld c,0                  ; filas 0..101 del anillo = filas 0..101 del mundo
-st1:    ld a,c
-        ld l,c
-        ld h,0
-        push bc
-        call prow
-        pop bc
-        inc c
-        ld a,c
-        cp RING
-        jr nz,st1
+        call fillring
+        call cycinit
         call setpal
+        ld a,(LVLBUF+LVL_SCROLL) ; la velocidad del nivel: 1 -> 1 px por
+        cp 2                    ; imagen (0), 2 o mas -> 1 cada 2 (1)
+        ld a,0
+        jr c,st1
+        inc a
+st1:    ld (speed),a
         xor a
-        ld (speed),a
         ld (fcnt),a
+        ld a,2                  ; S y R sin pulsar
+        ld (prevs),a
+        ld a,8
+        ld (prevr),a
         call showspd
 
 ; -------------------------------------------------------------
@@ -112,6 +121,7 @@ st1:    ld a,c
 main:   call waitvs
         ld a,(vofs)             ; lo preparado en la vuelta anterior
         ld (2072),a
+        call cycle              ; ciclo de la paleta, en el borrado
         call nsteps             ; B = pasos de esta imagen (0, 1 o 2)
         inc b
         jr mn2
@@ -121,9 +131,11 @@ mn1:    push bc
 mn2:    djnz mn1
         call keys
         jr nz,main
+        xor a                   ; sin error
 
-; --- salida: modo normal, color apagado, paginas de antes ---
-quit:   xor a
+; --- salida (A = error): modo normal, color apagado, paginas de antes ---
+quit:   ld (errc),a
+        xor a
         ld (2072),a
         ld (2073),a
         ld (2074),a
@@ -144,27 +156,35 @@ quit:   xor a
         ld bc,4000h             ; reescriben los mismos bytes)
         ldir
         pop ix
-        ld bc,0
+        ld a,(errc)
+        ld c,a
+        ld b,0
         ret
 
 ; -------------------------------------------------------------
-; step: sube un pixel. Pinta la fila oculta vofs-1 del anillo con la fila
-; cy-1 del mundo y baja vofs y cy.
+; step: sube un pixel si no se ha llegado al final del nivel. Pinta la
+; fila oculta vofs-1 del anillo con la linea 100+s, baja vofs y sube s.
 ; -------------------------------------------------------------
-step:   ld a,(vofs)
+step:   ld hl,(scr)
+        ld de,(lvlend)
+        or a
+        sbc hl,de
+        ret nc                  ; s >= LVL_END: final del nivel
+        ld a,(vofs)
         or a
         jr nz,sp1
         ld a,RING
 sp1:    dec a
-        ld hl,(cy)
-        dec hl
+        ld hl,(scr)
+        ld de,VIS
+        add hl,de
         push af
-        push hl
         call prow
-        pop hl
         pop af
         ld (vofs),a
-        ld (cy),hl
+        ld hl,(scr)
+        inc hl
+        ld (scr),hl
         ret
 
 ; nsteps: B = pasos segun la velocidad (0: 1, 1: 1 cada 2 imagenes, 2: 2, 3: 0)
@@ -187,9 +207,35 @@ ns1:    dec a
         ld b,0
         ret
 
+; fillring: el principio del nivel (s = 0, vofs = 0): la fila c del anillo
+; tiene la linea 99-c (c = 0..99); las ocultas 100 y 101, las 101 y 100.
+fillring:
+        xor a
+        ld (vofs),a
+        ld hl,0
+        ld (scr),hl
+        ld c,0
+fr1:    ld a,c
+        cp VIS
+        ld a,VIS-1
+        jr c,fr2
+        ld a,VIS+RING-1
+fr2:    sub c
+        ld l,a
+        ld h,0
+        ld a,c
+        push bc
+        call prow
+        pop bc
+        inc c
+        ld a,c
+        cp RING
+        jr nz,fr1
+        ret
+
 ; -------------------------------------------------------------
-; prow: pinta las columnas 16-143 de la fila A del anillo con la fila HL
-; del mundo. ~2.600 T. Toca todos los registros menos IX.
+; prow: pinta las columnas 16-143 de la fila A del anillo con la linea HL
+; del nivel. ~2.600 T. Toca todos los registros menos IX.
 ; -------------------------------------------------------------
 prow:   push hl
         ld l,a                  ; DE = rowtab[A] + PANEL
@@ -203,9 +249,10 @@ prow:   push hl
         ld hl,PANEL
         add hl,de
         ex de,hl
-        pop hl                  ; HL = fila del mundo
-        ld a,l                  ; lyoff = (y mod 16) * 160
+        pop hl                  ; HL = linea
+        ld a,l                  ; lyoff = (15 - (L mod 16)) * 160
         and 15
+        xor 15
         add a,a
         ld c,a
         ld b,0
@@ -217,32 +264,22 @@ prow:   push hl
         ld b,(hl)
         ld (lyoff),bc
         pop hl
-        ld a,l                  ; A = fila de tiles (y / 16, 8 bits)
-        rrca
-        rrca
-        rrca
-        rrca
-        and 0fh
-        ld c,a
-        ld a,h
-        add a,a
-        add a,a
-        add a,a
-        add a,a
-        or c
-        push de                 ; getmap usa D y E
-        call getmap
-        pop de
-        ld hl,mapbuf
+        ld a,l                  ; HL = mapbase + (L / 16) * 8
+        and 0f0h                ;    = mapbase + (L AND $FFF0) / 2
+        ld l,a
+        srl h
+        rr l
+        ld bc,(mapbase)
+        add hl,bc
         ld b,8
 pr1:    push bc
         ld a,(hl)               ; tile de esta columna
         inc hl
         push hl
-        add a,a                 ; HL = tbase[t] + lyoff
+        add a,a                 ; HL = TILEADR[t] + lyoff
         ld l,a
         ld h,0
-        ld bc,tbase
+        ld bc,TILEADR
         add hl,bc
         ld a,(hl)
         inc hl
@@ -271,138 +308,114 @@ pr1:    push bc
         djnz pr1
         ret
 
-; getmap: A = fila de tiles -> mapbuf = sus 8 tiles (se guarda la ultima)
-; FASE 1: generado. tile(f, c) = ((f*5 + c*3) XOR (f/4)) mod 60, en 8 bits
-getmap: ld hl,mapok
-        ld c,a
-        ld a,(hl)
+; -------------------------------------------------------------
+; loadlvl: NIVEL1.I16 (paleta a PALBUF, pixeles a $C000) y NIVEL1.MAP
+; (a LVLBUF). A = 0 bien, o el error (ver la cabecera).
+; -------------------------------------------------------------
+loadlvl:
+        ld hl,nmi16
+        call f_open
+        cp 0ffh
+        ld e,1
+        jp z,lderr0
+        ld (fh),a
+        ld hl,hdr
+        ld bc,4
+        call f_read_n
+        ld hl,hdr
+        ld de,magi16
+        call cmp4
+        ld e,2
+        jp nz,lderr
+        ld a,(fh)
+        ld hl,PALBUF
+        ld bc,512
+        call f_read_n
+        ld a,(fh)
+        ld hl,TILESET_BASE
+        ld bc,I16PIX
+        call f_read_n
+        ld a,(fh)
+        call f_close
+
+        ld hl,nmmap
+        call f_open
+        cp 0ffh
+        ld e,3
+        jp z,lderr0
+        ld (fh),a
+        ld hl,LVLBUF
+        ld bc,LVL_HDR_SIZE
+        call f_read_n
+        ld hl,LVLBUF
+        ld de,magmap
+        call cmp4
+        ld e,4
+        jp nz,lderr
+        ld hl,(LVLBUF+LVL_LEN)  ; LVL_HDR_SIZE <= longitud <= MAXLVL
+        ld de,MAXLVL+1
         or a
-        jr z,gm0
-        ld a,(mapcur)
-        cp c
-        ret z
-gm0:    ld (hl),1
-        ld a,c
-        ld (mapcur),a
-        add a,a                 ; D = f*5
-        add a,a
-        add a,c
-        ld d,a
-        ld a,c                  ; E = f/4
-        rrca
-        rrca
-        and 3fh
-        ld e,a
-        ld hl,mapbuf
-        ld b,8
-gm1:    ld a,d
-        xor e
-gm2:    cp NTILES
-        jr c,gm3
-        sub NTILES
-        jr gm2
-gm3:    ld (hl),a
-        inc hl
-        ld a,d
-        add a,3
-        ld d,a
-        djnz gm1
-        ret
-
-; -------------------------------------------------------------
-; mktiles: FASE 1: el tileset generado en $C000 (en la fase 2, el .I16).
-; Pixel (x, y) del tile t: 0 (negro) en x = 0 o y = 0; 255 (blanco) en la
-; diagonal x = y; si no, c1(t) si (x XOR y) AND 8, c2(t) si no, con
-; c1(t) = (7t mod 220) + 8 y c2(t) = (13t mod 220) + 12.
-; -------------------------------------------------------------
-mktiles:
-        ld ix,ctab              ; ctab[t] = c1(t), ctab[60+t] = c2(t)
-        ld b,NTILES
-        ld c,0
-        ld e,0
-mt0:    ld a,c
-        add a,8
-        ld (ix+0),a
-        ld a,e
-        add a,12
-        ld (ix+NTILES),a
-        inc ix
-        ld a,c
-        add a,7
-        cp 220
-        jr c,mt1
-        sub 220
-mt1:    ld c,a
-        ld a,e
-        add a,13
-        cp 220
-        jr c,mt2
-        sub 220
-mt2:    ld e,a
-        djnz mt0
-        ld hl,TILES
-        ld d,0                  ; D = fila (0-95)
-my:     ld e,0                  ; E = columna (0-159)
-mx:     ld a,e
-        and 15
-        ld b,a                  ; B = x
-        ld a,d
-        and 15
-        ld c,a                  ; C = y
+        sbc hl,de
+        ld e,5
+        jp nc,lderr
+        ld hl,(LVLBUF+LVL_LEN)
+        ld de,LVL_HDR_SIZE
+        or a
+        sbc hl,de
+        ld e,6
+        jp c,lderr
+        ld b,h                  ; el resto del fichero
+        ld c,l
+        ld a,(fh)
+        ld hl,LVLBUF+LVL_HDR_SIZE
+        call f_read_n
+        ld a,(fh)
+        call f_close
+        ld hl,(LVLBUF+LVL_ROWS) ; al menos 7 filas (las 102 lineas del anillo)
+        ld de,7
+        or a
+        sbc hl,de
+        ld a,6
+        ret c
+        ld hl,(LVLBUF+LVL_ROWS) ; LVL_MAP + 8 * filas <= longitud
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        ld de,(LVLBUF+LVL_MAP)
+        add hl,de
+        ex de,hl
+        ld hl,(LVLBUF+LVL_LEN)
+        or a
+        sbc hl,de
+        ld a,6
+        ret c
+        ld hl,(LVLBUF+LVL_MAP)
+        ld de,LVLBUF
+        add hl,de
+        ld (mapbase),hl
+        ld hl,(LVLBUF+LVL_END)
+        ld (lvlend),hl
         xor a
-        cp b
-        jr z,mpx                ; x = 0: negro
-        cp c
-        jr z,mpx                ; y = 0: negro
-        ld a,b
-        cp c
-        ld a,255
-        jr z,mpx                ; diagonal: blanco
-        ld a,b
-        xor c
-        and 8
-        ld b,a                  ; B = 8: c1, 0: c2
-        ld a,d                  ; t = (fila / 16) * 10 + columna / 16
-        and 0f0h
-        rrca
-        ld c,a
-        rrca
-        rrca
-        add a,c
-        ld c,a
-        ld a,e
-        rrca
-        rrca
-        rrca
-        rrca
-        and 0fh
-        add a,c
-        push hl
-        ld hl,ctab
-        bit 3,b
-        jr nz,mc1
-        ld hl,ctab+NTILES
-mc1:    add a,l
-        ld l,a
-        jr nc,mc2
-        inc h
-mc2:    ld a,(hl)
-        pop hl
-mpx:    ld (hl),a
+        ret
+lderr:  push de                 ; E = error, con el fichero abierto
+        ld a,(fh)
+        call f_close
+        pop de
+lderr0: ld a,e
+        ret
+
+; cmp4: Z si los 4 bytes de HL y DE son iguales
+cmp4:   ld b,4
+cm1:    ld a,(de)
+        cp (hl)
+        ret nz
         inc hl
-        inc e
-        ld a,e
-        cp 160
-        jr nz,mx
-        inc d
-        ld a,d
-        cp TROWS
-        jr nz,my
+        inc de
+        djnz cm1
         ret
 
 ; -------------------------------------------------------------
-; mktabs: rowtab (principio de cada fila del anillo), tbase (principio de
-; cada tile en el tileset) y lytab (y * 160)
+; mktabs: rowtab (principio de cada fila del anillo) y lytab (y * 160)
 ; -------------------------------------------------------------
 mktabs: ld hl,IMG
         ld ix,rowtab
@@ -414,26 +427,8 @@ mk1:    ld (ix+0),l
         inc ix
         add hl,de
         djnz mk1
-        ld ix,tbase
-        ld hl,TILES             ; HL = principio de la fila de tiles
-        ld c,6
-mk2:    push hl
-        ld b,10
-mk3:    ld (ix+0),l
-        ld (ix+1),h
-        inc ix
-        inc ix
-        ld de,16
-        add hl,de
-        djnz mk3
-        pop hl
-        ld de,16*160
-        add hl,de
-        dec c
-        jr nz,mk2
         ld ix,lytab
         ld hl,0
-        ld de,160
         ld b,16
 mk4:    ld (ix+0),l
         ld (ix+1),h
@@ -443,18 +438,19 @@ mk4:    ld (ix+0),l
         djnz mk4
         ret
 
-; panels: las columnas 0-15 y 144-159 de las 102 filas del anillo
+; panels: las columnas 0-15 y 144-159 de las 102 filas del anillo, de la
+; fila de los paneles del tileset
 panels: ld hl,IMG
         ld b,RING
 pa1:    push bc
         ex de,hl
-        ld hl,pnl_l
+        ld hl,PANEL_ADDR
         ld bc,PANEL
         ldir                    ; DE = columna 16
         ld hl,160-2*PANEL
         add hl,de
         ex de,hl
-        ld hl,pnl_r
+        ld hl,PANEL_ADDR+160-PANEL
         ld bc,PANEL
         ldir                    ; DE = columna 0 de la fila siguiente
         ex de,hl
@@ -462,14 +458,8 @@ pa1:    push bc
         djnz pa1
         ret
 
-; colores de los paneles: rampa de grises 240-255 de la paleta
-pnl_l:  defb 242,244,246,248,250,252,254,255,253,251,249,247,245,243,241,240
-pnl_r:  defb 240,241,243,245,247,249,251,253,255,254,252,250,248,246,244,242
-
 ; -------------------------------------------------------------
 ; Paleta. 2063 puntero, 2064 {G,B}, 2065 {BRIGHT,R}: escribe y avanza.
-; setpal: 0-239 RGB 3-3-2 (la de fabrica), 240-255 grises (0-15 en los
-; cuatro canales, el 255 blanco).
 ; -------------------------------------------------------------
 blackpal:
         xor a
@@ -480,62 +470,95 @@ bp1:    ld (2064),a
         djnz bp1
         ret
 
+; setpal: las 256 entradas de PALBUF (la paleta del .I16)
 setpal: xor a
         ld (2063),a
-        ld c,0
-sp8:    ld a,c
-        cp 240
-        jr nc,spg
-        rrca                    ; G = bits 4-2
-        rrca
-        and 7
-        call lev3
-        add a,a
-        add a,a
-        add a,a
-        add a,a
-        ld b,a
-        ld a,c                  ; B = bits 1-0: 0, 5, 10, 15
-        and 3
-        ld d,a
-        add a,a
-        add a,a
-        add a,d
-        or b
+        ld hl,PALBUF
+        ld b,0
+sp8:    ld a,(hl)
         ld (2064),a
-        ld a,c                  ; R = bits 7-5
-        rlca
-        rlca
-        rlca
-        and 7
-        call lev3
+        inc hl
+        ld a,(hl)
         ld (2065),a
-        jr sp9
-spg:    and 0fh                 ; gris d: los cuatro canales a d
-        ld b,a
-        add a,a
-        add a,a
-        add a,a
-        add a,a
-        or b
-        ld (2064),a
-        ld (2065),a
-sp9:    inc c
-        jr nz,sp8
+        inc hl
+        djnz sp8
         ret
-lev3:   push hl
-        ld hl,l3tab
-        add a,l
+
+; cycinit: los tres rangos sin girar y los contadores al principio
+cycinit:
+        xor a
+        ld (ofw),a
+        ld (ofl),a
+        ld (ofg),a
+        ld a,TCYW
+        ld (cyw),a
+        ld a,TCYL
+        ld (cyl),a
+        ld a,TCYG
+        ld (cyg),a
+        ret
+
+; cycle: una vez por imagen; cada rango gira una posicion cuando su
+; contador llega a 0 (como mucho 32 entradas, ~2.300 T)
+cycle:  ld hl,cyw
+        ld de,ofw
+        ld bc,PAL_WATER_N*256+PAL_WATER
+        ld a,TCYW
+        call cyc1
+        ld hl,cyl
+        ld de,ofl
+        ld bc,PAL_LAVA_N*256+PAL_LAVA
+        ld a,TCYL
+        call cyc1
+        ld hl,cyg
+        ld de,ofg
+        ld bc,PAL_LIGHTS_N*256+PAL_LIGHTS
+        ld a,TCYG
+        ; sigue en cyc1
+; HL = contador, DE = giro, A = imagenes por paso, C = primera entrada,
+; B = cuantas
+cyc1:   dec (hl)
+        ret nz
+        ld (hl),a
+        ld a,(de)               ; giro = (giro + 1) mod B
+        inc a
+        cp b
+        jr c,cc1
+        xor a
+cc1:    ld (de),a
+        ld e,a
+; cycrng: entradas C..C+B-1 = las de PALBUF giradas E posiciones: la
+; entrada C+i toma el color C+((i+E) mod B)
+cycrng: ld a,c
+        ld (2063),a
+        ld d,0
+cr1:    ld a,d
+        add a,e
+        cp b
+        jr c,cr2
+        sub b
+cr2:    add a,c
         ld l,a
-        jr nc,lv1
-        inc h
-lv1:    ld a,(hl)
-        pop hl
+        ld h,0
+        add hl,hl
+        push de
+        ld de,PALBUF
+        add hl,de
+        pop de
+        ld a,(hl)
+        ld (2064),a
+        inc hl
+        ld a,(hl)
+        ld (2065),a
+        inc d
+        ld a,d
+        cp b
+        jr nz,cr1
         ret
-l3tab:  defb 0,2,4,6,9,11,13,15
 
 ; -------------------------------------------------------------
-; keys: S cambia la velocidad (al pulsar). NZ = seguir, Z = X pulsada.
+; keys: S cambia la velocidad y R vuelve al principio (al pulsar).
+; NZ = seguir, Z = X pulsada.
 ; -------------------------------------------------------------
 keys:   ld a,0fdh               ; A S D F G
         in a,(0feh)
@@ -555,10 +578,32 @@ keys:   ld a,0fdh               ; A S D F G
         and 3
         ld (speed),a
         call showspd
-ky1:    ld a,0feh               ; X: salir
+ky1:    ld a,0fbh               ; Q W E R T
+        in a,(0feh)
+        and 8
+        ld c,a
+        ld a,(prevr)
+        ld b,a
+        ld a,c
+        ld (prevr),a
+        or a
+        jr nz,ky2               ; R no pulsada
+        ld a,b
+        or a
+        jr z,ky2
+        call restart
+ky2:    ld a,0feh               ; X: salir
         in a,(0feh)
         and 4
         ret
+
+; restart: el nivel desde el principio, con la paleta en negro mientras
+; se repinta el anillo (unas 4 imagenes)
+restart:
+        call blackpal
+        call fillring
+        call cycinit
+        jp setpal
 
 ; showspd: el borde segun la velocidad
 showspd:
@@ -609,24 +654,46 @@ read_page:
         pop bc
         ret
 
+; ficheros de la SD (ordenes 53, 55 y 57 del MCU)
+        include "../PHOTO/mcu.asm"
+
+; formatos del nivel, trayectorias y TILEADR (generado por tools/map2bin.py)
+        include "out/LEVEL.INC"
+
 ; -------------------------------------------------------------
 ; variables y tablas
 ; -------------------------------------------------------------
+nmi16:  defb "NIVEL1.I16",0
+nmmap:  defb "NIVEL1.MAP",0
+magi16: defb "I160"
+magmap: defb "ELV1"
 vofs:   defb 0                  ; fila del anillo arriba (la que se escribe en el VSYNC)
-cy:     defw 0                  ; fila del mundo arriba (la de vofs)
+scr:    defw 0                  ; s: pixeles de scroll hechos (arriba, la linea 99+s)
+lvlend: defw 0                  ; LVL_END del nivel
+mapbase: defw 0                 ; principio del mapa (LVLBUF + LVL_MAP)
 speed:  defb 0
 fcnt:   defb 0
 prevs:  defb 2
+prevr:  defb 8
 sv6:    defb 0
 sv7:    defb 0
-mapok:  defb 0
-mapcur: defb 0
+errc:   defb 0
+fh:     defb 0
+hdr:    defs 4
 lyoff:  defw 0
-mapbuf: defs 8
-ctab:   defs 2*NTILES
+cyw:    defb 0                  ; ciclo de la paleta: contadores y giros
+cyl:    defb 0
+cyg:    defb 0
+ofw:    defb 0
+ofl:    defb 0
+ofg:    defb 0
 rowtab: defs 2*RING
-tbase:  defs 2*NTILES
 lytab:  defs 2*16
 codeend:
+
+; detras del codigo, sin ocupar el binario
+PALBUF  equ codeend             ; la paleta del .I16 (512 bytes)
+LVLBUF  equ PALBUF+512          ; NIVEL1.MAP
+MAXLVL  equ 7000h-LVLBUF        ; hasta la hoja de los sprites
 
         end start

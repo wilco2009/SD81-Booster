@@ -1,0 +1,47 @@
+# paths.def -- trayectorias de los enemigos de ESTELA (las lee map2bin.py desde el nivel con "include paths.def").
+#
+# Cada trayectoria es una lista de tramos; la unidad es el tick de juego y la velocidad se da en pixeles por tick (admite
+# decimales: map2bin los reparte en pasos enteros de 1 pixel). El enemigo sale en (X de la oleada, Y = -alto) y a cada tick
+# suma el paso (dx, dy) de la trayectoria; con el flag mirror de la oleada, dx cambia de signo. Pasado el ultimo paso se
+# repite el ultimo (por eso todas acaban con un tramo que saca al enemigo de la pantalla). La trayectoria 0 es STILL (quieta)
+# y la anade map2bin; sirve para los enemigos de suelo, que se mueven solo con el scroll.
+#
+#   line N VX VY            N ticks en linea recta
+#   sine N AMP CICLOS VY    N ticks: x oscila AMP*sin(2*pi*CICLOS*t/N) mientras y avanza VY por tick
+
+path DOWN               # recto hacia abajo
+  line 120 0 2
+
+path SLOW               # baja despacio (mejoras)
+  line 200 0 1
+
+path SINE               # serpentea mientras baja
+  sine 120 24 2 1.5
+  line 60 0 2
+
+path ZIGZAG             # zigzag de 24 pixeles de amplitud
+  line 12 2 1.5
+  line 24 -2 1.5
+  line 24 2 1.5
+  line 24 -2 1.5
+  line 24 2 1.5
+  line 60 0 2
+
+path DIVE               # baja, vira hacia un lado y se lanza en picado
+  line 40 0 1.5
+  line 20 1 2.5
+  line 100 2.5 3
+
+path SWEEP              # entra y cruza la zona de lado a lado casi en horizontal
+  line 20 0 2
+  line 120 1.2 0.4
+  line 100 1.2 2
+
+path HOVER              # baja, se queda quieto disparando y se va por arriba
+  line 40 0 2
+  line 120 0 0
+  line 70 0 -2
+
+path ENTER              # el jefe: baja despacio hasta su sitio y se queda
+  line 50 0 1
+  line 1 0 0

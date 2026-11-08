@@ -2,8 +2,9 @@
 ; ESTELA.ASM -- matamarcianos vertical para el modo 160x100 a 256 colores
 ; del SD81 Booster. Plan: claude/planning/juego160.md
 ;
-; FASE 2: el fondo del nivel. Modo 175, anillo de 160x102 en $8000 con dos
-; paneles laterales fijos de 16 pixeles y scroll vertical del nivel 1:
+; FASE 3: la nave del jugador sobre el fondo del nivel. Modo 175, anillo
+; de 160x102 en $8000 con dos paneles laterales fijos de 16 pixeles, scroll
+; vertical del nivel 1 y la nave con sus disparos en sprites de formato B:
 ;
 ;   - NIVEL1.I16 (de la SD, carpeta actual): la paleta de 256 del nivel y el
 ;     tileset, 160x100 con 60 tiles de 16x16 (10 por fila), en $C000 tal cual
@@ -27,20 +28,34 @@
 ;   - Ciclo de paleta: el agua (PAL_WATER), la lava (PAL_LAVA) y las luces
 ;     (PAL_LIGHTS) giran una posicion cada TCYW, TCYL y TCYG imagenes, en el
 ;     borrado, a partir de la paleta del .I16 (PALBUF).
+;   - Sprites (formato B): HOJA.BIN (de la SD) en SHEET_ADDR = $7000 (bloque
+;     3, POKE 2129,3) y la paleta de 16 PAL16 de HOJA.INC (POKE 2067,1). La
+;     nave es 16x16 (sprites SP_NAVE..+3: arriba-izquierda, arriba-derecha,
+;     abajo-izquierda, abajo-derecha) con 3 inclinaciones (NAVE_0 izquierda,
+;     NAVE_1 recta, NAVE_2 derecha), la llama del motor debajo (SP_LLAMA, 2
+;     fases que cambian cada 4 imagenes) y hasta NBALAS disparos (sprites
+;     SP_BALA..+7). Coordenadas de pantalla: la zona de juego es x 16-143;
+;     X de hardware = x + 32, Y = y + 32.
+;   - Cada imagen: en el borrado, los sprites con el estado calculado en la
+;     vuelta anterior, el ciclo de la paleta y el scroll; despues, las
+;     teclas y el movimiento (update), que se ven en la imagen siguiente.
 ;
-; Teclas: S = velocidad (la del nivel al empezar: 1 px por imagen, borde
+; Teclas: O P Q A = mover la nave (1 pixel por imagen), ESPACIO = disparar
+;         (mantenido: uno cada TFIRE imagenes); con LOAD *JOY "OPQA " el
+;         joystick hace lo mismo
+;         S = velocidad (la del nivel al empezar: 1 px por imagen, borde
 ;         verde, o 1 px cada 2, cyan; luego 2 px por imagen, amarillo;
 ;         parado, rojo)
-;         R = volver al principio del nivel
+;         R = volver al principio del nivel (y la nave a su sitio)
 ;         X = salir a BASIC
 ; Devuelve en BC 0, o un error de carga: 1 no hay NIVEL1.I16, 2 no es un
 ; .I16, 3 no hay NIVEL1.MAP, 4 no es un nivel (ELV1), 5 no cabe antes de
-; $7000, 6 cabecera del nivel incoherente.
+; $7000, 6 cabecera del nivel incoherente, 7 no hay HOJA.BIN.
 ;
 ; Ensamblar: pasmo estela.asm estela.bin estela.sym   (o compila.bat)
 ; Cargar: ESTELA.B81 (CLEAR 18431, LOAD FAST "ESTELA.BIN" CODE 18432);
-; NIVEL1.I16 y NIVEL1.MAP (de out/) en la misma carpeta de la SD.
-; El codigo tiene que acabar antes de $7000 (la hoja de los sprites, fase 3).
+; NIVEL1.I16, NIVEL1.MAP y HOJA.BIN (de out/) en la misma carpeta de la SD.
+; El codigo tiene que acabar antes de $7000 (la hoja de los sprites).
 ; =============================================================
 
         org 4800h
@@ -55,6 +70,29 @@ I16PIX  equ 16000               ; pixeles de un .I16
 TCYW    equ 4                   ; imagenes por paso del ciclo del agua
 TCYL    equ 6                   ; de la lava
 TCYG    equ 8                   ; de las luces
+; sprites (ventana de POKEs, Apendice H)
+SPR_SEL equ 2100
+SPR_EN  equ 2101
+SPR_XL  equ 2102
+SPR_XH  equ 2103                ; bit 0: X bit 8; bits 4-7: transparente
+SPR_Y   equ 2104
+SPR_MSK equ 2121                ; 2121-2128: mascara de las 8 filas
+SPR_BLK equ 2129                ; bloque de la hoja
+SPR_PG  equ 2130                ; pagina (0 = formato A)
+SPR_XTR equ 2131                ; sprites extra
+SP_NAVE equ 50                  ; nave: 50-53 (juego160.md 4.1)
+SP_LLAMA equ 49                 ; llama del motor
+SP_BALA equ 34                  ; disparos del jugador: 34-41
+NBALAS  equ 8
+SOFS    equ 32                  ; coordenada de sprite = pixel + 32
+XMIN    equ 16                  ; la nave (esquina de arriba a la izquierda)
+XMAX    equ 128                 ;   en x 16-128 (la zona de juego es 16-143)
+YMIN    equ 0
+YMAX    equ 76                  ;   y en y 0-76 (la llama, en 92-99)
+XSTART  equ 72
+YSTART  equ 76
+VBALA   equ 3                   ; pixeles por imagen de los disparos
+TFIRE   equ 6                   ; imagenes entre disparo y disparo
 
         jp start
 
@@ -96,6 +134,8 @@ start:  di
         call loadlvl            ; A = 0, o el error
         or a
         jp nz,quit
+        call sprinit
+        call gminit
         call mktabs
         call panels
         call fillring
@@ -121,6 +161,7 @@ st1:    ld (speed),a
 main:   call waitvs
         ld a,(vofs)             ; lo preparado en la vuelta anterior
         ld (2072),a
+        call drawspr            ; los sprites, en el borrado
         call cycle              ; ciclo de la paleta, en el borrado
         call nsteps             ; B = pasos de esta imagen (0, 1 o 2)
         inc b
@@ -129,12 +170,14 @@ mn1:    push bc
         call step
         pop bc
 mn2:    djnz mn1
+        call update             ; teclas, nave y disparos (para la siguiente)
         call keys
         jr nz,main
         xor a                   ; sin error
 
 ; --- salida (A = error): modo normal, color apagado, paginas de antes ---
 quit:   ld (errc),a
+        call sproff
         xor a
         ld (2072),a
         ld (2073),a
@@ -395,6 +438,17 @@ loadlvl:
         ld (mapbase),hl
         ld hl,(LVLBUF+LVL_END)
         ld (lvlend),hl
+        ld hl,nmhoja            ; la hoja de los sprites
+        call f_open
+        cp 0ffh
+        ld e,7
+        jp z,lderr0
+        ld (fh),a
+        ld hl,SHEET_ADDR
+        ld bc,SHEET_END-SHEET_ADDR
+        call f_read_n
+        ld a,(fh)
+        call f_close
         xor a
         ret
 lderr:  push de                 ; E = error, con el fichero abierto
@@ -600,6 +654,7 @@ ky2:    ld a,0feh               ; X: salir
 ; restart: el nivel desde el principio, con la paleta en negro mientras
 ; se repinta el anillo (unas 4 imagenes)
 restart:
+        call gminit
         call blackpal
         call fillring
         call cycinit
@@ -654,17 +709,293 @@ read_page:
         pop bc
         ret
 
+; -------------------------------------------------------------
+; sprinit: hoja en el bloque SHEET_BLOCK, sin extra, la paleta de 16 de los
+; sprites (PAL16) activada y los sprites de la nave, la llama y los
+; disparos en formato B, con las 8 filas de la mascara a 1, transparente 0
+; y apagados
+; -------------------------------------------------------------
+sprinit:
+        ld a,SHEET_BLOCK
+        ld (SPR_BLK),a
+        xor a
+        ld (SPR_XTR),a
+        ld c,SP_BALA
+si1:    ld a,c
+        ld (SPR_SEL),a
+        xor a
+        ld (SPR_EN),a
+        ld (SPR_XH),a
+        ld hl,SPR_MSK
+        ld b,8
+        ld a,0ffh
+si2:    ld (hl),a
+        inc hl
+        djnz si2
+        ld a,NAVE_1
+        ld (SPR_PG),a
+        inc c
+        ld a,c
+        cp SP_NAVE+4
+        jr nz,si1
+        xor a                   ; PAL16: POKE 2063 puntero, 2064 {G,B},
+        ld (2063),a             ; 2066 {BRIGHT,R} (escribe y avanza)
+        ld hl,PAL16
+        ld b,16
+si3:    ld a,(hl)
+        ld (2064),a
+        inc hl
+        ld a,(hl)
+        ld (2066),a
+        inc hl
+        djnz si3
+        ld a,1                  ; paleta de 16 activa
+        ld (2067),a
+        ret
+
+; sproff: los 64 sprites apagados y en formato A, sin extra, la hoja en el
+; bloque 2 y la paleta de 16 desactivada (como despues de un reset)
+sproff: ld c,0
+so1:    ld a,c
+        ld (SPR_SEL),a
+        xor a
+        ld (SPR_EN),a
+        ld (SPR_PG),a
+        inc c
+        ld a,c
+        cp 64
+        jr nz,so1
+        xor a
+        ld (SPR_XTR),a
+        ld (2067),a
+        ld a,2
+        ld (SPR_BLK),a
+        ret
+
+; gminit: la nave abajo en el centro, recta, sin disparos
+gminit: ld a,XSTART
+        ld (shx),a
+        ld a,YSTART
+        ld (shy),a
+        ld a,1
+        ld (tilt),a
+        xor a
+        ld (cd),a
+        ld (tick),a
+        ld hl,balas
+        ld b,3*NBALAS
+gi1:    ld (hl),a
+        inc hl
+        djnz gi1
+        ret
+
+; -------------------------------------------------------------
+; drawspr: los sprites con el estado de (shx, shy, tilt, tick, balas).
+; ~1.300 T, en el borrado.
+; -------------------------------------------------------------
+drawspr:
+        ld a,(tilt)             ; D = pagina de arriba a la izquierda
+        add a,a
+        add a,a
+        add a,NAVE
+        ld d,a
+        ld a,(shx)
+        add a,SOFS
+        ld e,a                  ; E = X
+        ld a,(shy)
+        add a,SOFS
+        ld l,a                  ; L = Y
+        ld c,SP_NAVE
+        call put1               ; arriba a la izquierda
+        inc c
+        inc d
+        ld a,e
+        add a,8
+        ld e,a
+        call put1               ; arriba a la derecha
+        inc c
+        inc d
+        ld a,e
+        sub 8
+        ld e,a
+        ld a,l
+        add a,8
+        ld l,a
+        call put1               ; abajo a la izquierda
+        inc c
+        inc d
+        ld a,e
+        add a,8
+        ld e,a
+        call put1               ; abajo a la derecha
+        ld a,e                  ; llama: (x + 4, y + 16)
+        sub 4
+        ld e,a
+        ld a,l
+        add a,8
+        ld l,a
+        ld a,(tick)
+        rrca
+        rrca
+        and 1
+        add a,LLAMA
+        ld d,a
+        ld c,SP_LLAMA
+        call put1
+        ld ix,balas             ; disparos
+        ld c,SP_BALA
+ds1:    ld a,(ix+0)
+        or a
+        jr z,ds2
+        ld a,(ix+1)
+        add a,SOFS
+        ld e,a
+        ld a,(ix+2)
+        add a,SOFS
+        ld l,a
+        ld d,BALAJ_0
+        call put1
+        jr ds3
+ds2:    ld a,c                  ; libre: apagado
+        ld (SPR_SEL),a
+        xor a
+        ld (SPR_EN),a
+ds3:    inc ix
+        inc ix
+        inc ix
+        inc c
+        ld a,c
+        cp SP_BALA+NBALAS
+        jr nz,ds1
+        ret
+
+; put1: sprite C en X = E, Y = L, pagina D, encendido (X < 256)
+put1:   ld a,c
+        ld (SPR_SEL),a
+        ld a,e
+        ld (SPR_XL),a
+        ld a,l
+        ld (SPR_Y),a
+        ld a,d
+        ld (SPR_PG),a
+        ld a,1
+        ld (SPR_EN),a
+        ret
+
+; -------------------------------------------------------------
+; update: una vez por imagen, despues del scroll. O P Q A mueven la nave un
+; pixel (dentro de XMIN-XMAX e YMIN-YMAX) e inclinan la nave segun el
+; movimiento en X; los disparos suben VBALA pixeles y se borran al salir
+; por arriba (y < -7); con ESPACIO pulsado y la espera (cd) a 0 sale un
+; disparo nuevo en (x + 4, y - 6), en el primer hueco, y cd = TFIRE.
+; -------------------------------------------------------------
+update: ld hl,tick
+        inc (hl)
+        ld a,0dfh               ; Y U I O P: P bit 0, O bit 1
+        in a,(0feh)
+        cpl
+        ld b,a
+        ld c,0                  ; C = dx
+        bit 0,b
+        jr z,up1
+        inc c
+up1:    bit 1,b
+        jr z,up2
+        dec c
+up2:    ld a,c                  ; inclinacion: dx + 1
+        inc a
+        ld (tilt),a
+        ld a,(shx)
+        add a,c
+        cp XMIN
+        jr c,up3
+        cp XMAX+1
+        jr c,up4
+        ld a,XMAX
+        jr up4
+up3:    ld a,XMIN
+up4:    ld (shx),a
+        ld a,0fbh               ; Q: arriba
+        in a,(0feh)
+        cpl
+        and 1
+        ld b,a
+        ld a,0fdh               ; A: abajo
+        in a,(0feh)
+        cpl
+        and 1
+        sub b                   ; dy
+        ld c,a
+        ld a,(shy)
+        add a,c
+        cp YMAX+1
+        jr c,up5                ; dentro (0..YMAX)
+        bit 7,c
+        ld a,YMIN               ; se ha pasado por arriba
+        jr nz,up5
+        ld a,YMAX               ; o por abajo
+up5:    ld (shy),a
+        ld ix,balas             ; los disparos suben
+        ld b,NBALAS
+ub1:    ld a,(ix+0)
+        or a
+        jr z,ub2
+        ld a,(ix+2)
+        sub VBALA
+        ld (ix+2),a
+        add a,7                 ; y < -7: fuera por arriba
+        jp p,ub2
+        ld (ix+0),0
+ub2:    inc ix
+        inc ix
+        inc ix
+        djnz ub1
+        ld hl,cd                ; espera entre disparos
+        ld a,(hl)
+        or a
+        jr z,uf1
+        dec (hl)
+        ret nz                  ; todavia esperando
+uf1:    ld a,07fh               ; ESPACIO (fila B N M . ESPACIO, bit 0)
+        in a,(0feh)
+        rrca
+        ret c                   ; no pulsado
+        ld ix,balas
+        ld b,NBALAS
+uf2:    ld a,(ix+0)
+        or a
+        jr z,uf3
+        inc ix
+        inc ix
+        inc ix
+        djnz uf2
+        ret                     ; sin hueco
+uf3:    ld (ix+0),1
+        ld a,(shx)
+        add a,4
+        ld (ix+1),a
+        ld a,(shy)
+        sub 6
+        ld (ix+2),a
+        ld a,TFIRE
+        ld (cd),a
+        ret
+
 ; ficheros de la SD (ordenes 53, 55 y 57 del MCU)
         include "../PHOTO/mcu.asm"
 
 ; formatos del nivel, trayectorias y TILEADR (generado por tools/map2bin.py)
         include "out/LEVEL.INC"
 
+; paginas de cada grafico de la hoja y PAL16 (generado por tools/spr2cel.py)
+        include "out/HOJA.INC"
+
 ; -------------------------------------------------------------
 ; variables y tablas
 ; -------------------------------------------------------------
 nmi16:  defb "NIVEL1.I16",0
 nmmap:  defb "NIVEL1.MAP",0
+nmhoja: defb "HOJA.BIN",0
 magi16: defb "I160"
 magmap: defb "ELV1"
 vofs:   defb 0                  ; fila del anillo arriba (la que se escribe en el VSYNC)
@@ -687,6 +1018,12 @@ cyg:    defb 0
 ofw:    defb 0
 ofl:    defb 0
 ofg:    defb 0
+shx:    defb 0                  ; nave: x, y de pantalla, inclinacion (0-2)
+shy:    defb 0
+tilt:   defb 0
+cd:     defb 0                  ; imagenes hasta poder disparar otra vez
+tick:   defb 0                  ; contador de imagenes (la llama)
+balas:  defs 3*NBALAS           ; disparos: activo, x, y (con signo)
 rowtab: defs 2*RING
 lytab:  defs 2*16
 codeend:

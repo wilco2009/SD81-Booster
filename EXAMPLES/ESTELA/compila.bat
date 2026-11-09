@@ -17,6 +17,15 @@ copy /y out\NIVEL1.MAP "%DEST%\NIVEL1.MAP" >nul || goto error
 copy /y out\HOJA.BIN "%DEST%\HOJA.BIN" >nul || goto error
 rem el titulo (opcional: sin el, el juego empieza directamente): out\TITULO.I16 si existe. ESTELA.REC (el record) lo crea el juego
 if exist out\TITULO.I16 (copy /y out\TITULO.I16 "%DEST%\TITULO.I16" >nul || goto error)
+rem los niveles 2 a 5 (fase 8a): out\NIVELn.I16 y out\NIVELn.MAP si existen los dos (los hace tools\make.py); out\NIVELn.VGM, si existe,
+rem es la musica de ese nivel (si falta, suena la del 1). Si falta un nivel, tras el jefe se vuelve al 1 con una vuelta mas de dificultad
+for %%N in (2 3 4 5) do (
+  if exist out\NIVEL%%N.I16 if exist out\NIVEL%%N.MAP (
+    copy /y out\NIVEL%%N.I16 "%DEST%\NIVEL%%N.I16" >nul || goto error
+    copy /y out\NIVEL%%N.MAP "%DEST%\NIVEL%%N.MAP" >nul || goto error
+    if exist out\NIVEL%%N.VGM (copy /y out\NIVEL%%N.VGM "%DEST%\NIVEL%%N.VGM" >nul || goto error)
+  )
+)
 rem la musica del nivel (opcional: sin ella el juego va sin musica): out\NIVEL1.VGM si existe; si no, de momento
 rem la de la prueba SONIDO de la fase 0 (..\VGM\music0002.vgm)
 if exist out\NIVEL1.VGM (copy /y out\NIVEL1.VGM "%DEST%\NIVEL1.VGM" >nul || goto error) else (copy /y ..\VGM\music0002.vgm "%DEST%\NIVEL1.VGM" >nul || goto error)

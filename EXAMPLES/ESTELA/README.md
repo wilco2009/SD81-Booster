@@ -12,7 +12,44 @@ El plan entero (fases, mapa de memoria, sprites) está en
 | `PRUEBAS/` | pruebas de la fase 0 en la placa (carga, VSYNC, sonido, paginación) |
 | `tools/`, `assets/`, `out/` | herramientas del PC y gráficos del nivel (las lleva otra sesión; §8 del plan) |
 
-## Estado: fase 7d (título y récord: hecha en el PC, sin probar en la placa)
+## Estado: fase 8a (varios niveles y dificultad: hecha en el PC, sin probar en la placa)
+
+**Varios niveles (8a).** El juego carga `NIVEL1..NIVEL5` (`.I16`, `.MAP` y `.VGM` opcional,
+de la carpeta actual; `HOJA.BIN` es común a todos):
+- Al vencer al jefe sale WELL DONE y se carga el **nivel siguiente**, con el marcador y las
+  vidas (las bombas y el arma se pierden, como siempre al empezar un nivel). La carga tarda
+  unas 40 imágenes (la pantalla se queda quieta con WELL DONE) y luego unas 4 en negro mientras
+  se repinta. **Tras el 5, o si el siguiente falta o está mal** (cualquier error de carga),
+  **vuelta al nivel 1 con una vuelta más de dificultad**; si ni el 1 se puede cargar, el juego
+  sale a BASIC con `ERROR DE CARGA n`.
+- **Música:** `NIVELn.VGM` de cada nivel; si falta, suena la del 1.
+- **Cifra del nivel:** al empezar cada nivel (también con R y tras el fin de partida) sale la
+  cifra en el sprite 54, centrada (x 76, y 46), unas 100 imágenes (1,7 s). Mientras sale, las
+  mejoras esperan quietas arriba.
+- **R** vuelve al principio del nivel actual (con 3 vidas y el marcador a 0, como antes); tras el
+  **fin de partida**, ESPACIO vuelve al **nivel 1 con la dificultad inicial**.
+- **Dificultad** `d = (nivel - 1) + 5 * vueltas` (0-14; las vueltas se quedan en 2): el jefe
+  aguanta `40 + 10 d` disparos, dispara cada `max(15, 30 - 3 d)` imágenes y los enemigos
+  disparan más a menudo: su cadencia base (96, -, 80, 72, 36, 60) pasa `d` veces a
+  `v - v / 8`, como poco la mitad. En el nivel 1 de la primera vuelta es lo de siempre.
+  Está en `setdif` de `estela.asm` (`BHP0`, `BFT0`, `eftab0`).
+- Instalación con solo el nivel 1 (como hasta ahora): tras el jefe, el 1 otra vez, más difícil.
+- `compila.bat` copia `out\NIVEL2..5.I16/.MAP` (y `.VGM`) si existen.
+
+**Arnés (8a)** (`test_z80estela.cpp`, sección 1h): niveles de prueba de 12 filas (jefe y una mejora
+en s = 0; los `out\NIVELn.I16/.MAP` reales si existen, para el tileset y la paleta; si no, copias
+del 1 con los píxeles desplazados; velocidad 1 en los impares y 2 en los pares). Comprobado
+imagen a imagen contra el modelo: los 64 sprites (con la cifra del nivel en el 54), los AY, lo
+visible, la paleta y la memoria del Z80 (nivel, vueltas, dificultad, velocidad). Cadena
+1 2 3 4 5 y vuelta al 1 y al 2 (música sin `NIVEL3.VGM` -> la del 1; los siete jefes sucesivos con
+las cifras de la tabla: 40/50/60/70/80/90/100 vidas, salvas 30/27/24/21/18/15/15, cadencia 96/84/74/65/57/50/48);
+solo el nivel 1 (1 1 1, vueltas 0-2); `NIVEL2.MAP` que no cabe; `NIVEL3.I16` sin firma; el 1
+que desaparece de la SD (el Z80 sale con BC = 1); R en el nivel 2 y fin de partida en el 2 con
+ESPACIO (vuelve al 1 con la dificultad inicial). Los ficheros que abre el Z80, en orden. **Cuatro
+pruebas en negativo** (binario cambiado a propósito): la cifra un píxel más abajo, 9 vidas del
+jefe por nivel, la cadencia sin el mínimo de la mitad y la música de respaldo mal: las cuatro se ven.
+
+## Estado anterior: fase 7d (título y récord: hecha en el PC, sin probar en la placa)
 
 Lo que hay ahora es el **fondo del nivel 1 con scroll**, la **nave del jugador**
 con sus disparos, las **oleadas de enemigos** del nivel, con sus disparos,
@@ -143,9 +180,9 @@ La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el l
 |-------|--------|
 | O P Q A | Mover la nave (izquierda, derecha, arriba, abajo; mantener) |
 | B | Bomba (pulsación nueva; si llevas alguna): toda la pantalla **tiembla** 24 imágenes con un ruido grave, los enemigos en pantalla explotan y el jefe pierde 10 vidas |
-| ESPACIO | Disparar (mantenido: un disparo cada 6 imágenes). Con `LOAD *JOY "OPQA "` el joystick DB9 hace lo mismo. En el fin de partida, pasados 2 segundos, una pulsación nueva vuelve a empezar |
+| ESPACIO | Disparar (mantenido: un disparo cada 6 imágenes). Con `LOAD *JOY "OPQA "` el joystick DB9 hace lo mismo. En el fin de partida, pasados 2 segundos, una pulsación nueva vuelve a empezar **por el nivel 1** con la dificultad inicial |
 | S | Velocidad del scroll: la del nivel al empezar (1 píxel por imagen, borde **verde**) → 1 cada 2 imágenes (**cyan**) → 2 por imagen (**amarillo**) → parado (**rojo**) → 1 por imagen |
-| R | Volver al principio del nivel, con la nave en su sitio, 3 vidas y el marcador a 0 (la pantalla se queda en negro unas 4 imágenes mientras se repinta) |
+| R | Volver al principio del nivel **actual**, con la nave en su sitio, 3 vidas y el marcador a 0 (la pantalla se queda en negro unas 4 imágenes mientras se repinta; misma dificultad) |
 | I | Vidas infinitas sí / no, para probar (el borde se pone del mismo color, pero brillante); dura hasta salir |
 | X | Salir a BASIC (modo normal, color apagado, páginas de antes) |
 
@@ -153,7 +190,7 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
 
 | n | Qué pasa |
 |---|---|
-| 1 | no hay `NIVEL1.I16` en la carpeta |
+| 1 | no hay `NIVEL1.I16` en la carpeta (también si, a mitad de partida, falta el siguiente nivel **y** el 1) |
 | 2 | `NIVEL1.I16` no es un `.I16` (no empieza por `I160`) |
 | 3 | no hay `NIVEL1.MAP` |
 | 4 | `NIVEL1.MAP` no es un nivel (no empieza por `ELV1`) |
@@ -190,7 +227,7 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
   pulsarlo otra vez).
 - Al final del nivel, WARNING parpadeando, el jefe que baja y va de lado a lado
   disparando, parpadea con cada disparo que le da y, a los 40, explota; WELL DONE
-  y otra vez el principio del nivel con el marcador y las vidas que había.
+  y el nivel siguiente (con su cifra en el centro) con el marcador y las vidas que había; tras el 5, el 1 más difícil.
 - Las **mejoras**: el icono baja despacio y recto; al tocarlo con la nave desaparece,
   suena el tono que sube, sale el marcador un instante y se nota el efecto: con el arma salen **dos disparos** a la
   vez (uno a cada lado de la nave); con el escudo la nave **parpadea unos 5 s** y no
@@ -355,7 +392,7 @@ especificación, aparte del código del Z80:
   en negativo** (binario cambiado a propósito): la firma `FREC` en lugar de `EREC` y
   guardar siempre aunque no se supere: el arnés ve las dos;
 - la vuelta más larga del bucle: unos 32.000 T de los 64.584 de una imagen. Sprites escritos
-  antes de 11.618 T tras el flanco y ciclo de paleta antes de 11.977 T.
+  antes de 11.841 T tras el flanco (con los jefes de la vuelta 2, que disparan más) y ciclo de paleta antes de 11.998 T.
 
 Las fases 1 a 4, la 6, la 7a, la 7b y la 7c están **probadas en la placa** (la 7d, no) (2026-11-08/09). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
 y desde entonces el arnés ensambla y prueba el `estela.bin` de esta carpeta, el
@@ -373,8 +410,8 @@ existe; si no, `..\VGM\music0002.vgm`) y `GAMEOVER.VGM` (`out\GAMEOVER.VGM`; si 
 `TITULO.I16` a una misma carpeta de la SD y carga `ESTELA.B81`; el juego crea solo
 `ESTELA.REC` (el récord) en esa carpeta.
 
-Memoria: código y tablas en `$4800-$6D9D` (9.630 bytes; las trayectorias de `LEVEL.INC` y la
-`PAL16` de `HOJA.INC` ya van dentro; quedan **450 bytes libres** hasta `$6F60`;
+Memoria: código y tablas en `$4800-$6EDD` (9.950 bytes; las trayectorias de `LEVEL.INC` y la
+`PAL16` de `HOJA.INC` ya van dentro; quedan **130 bytes libres** hasta `$6F60`; nada se ha movido al bloque 1;
 `compila.bat` deja 10.080 como máximo). La paleta del nivel (`PALBUF`) y la del título
 (`TPALBUF`) ya no están detrás del código: van en los últimos 1.024 bytes de la página del nivel
 (`$3C00-$3FFF`, bloque 1), que por eso admite niveles de 7 KB en lugar de 8. Las letras W N I L D en

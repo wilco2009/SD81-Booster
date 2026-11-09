@@ -4,6 +4,10 @@
 // la SD, servidos desde EXAMPLES/ESTELA/out) y un modelo del scroll en anillo del modo 175 (mode160_emulador.md §6):
 //   pixel x de la fila r de la pantalla = byte $8000 + ((r + vofs) mod hc) * 160 + x   (hofs = 0, wc = 160)
 //
+// FASE 8a: varios niveles y dificultad (seccion 1h): NIVEL1..5 de prueba (cortos, jefe + mejora en s = 0; los de out/ si existen), paso de nivel
+//   tras el jefe, vuelta al 1 con +1 de dificultad, fallos de carga del siguiente, el 1 que desaparece (el Z80 sale con BC = 1), cifra del nivel
+//   en el sprite 54 (la mejora espera), musica de respaldo, R en el nivel actual y fin de partida -> nivel 1. El modelo Game lleva nivel, vueltas
+//   y dificultad (g_curlv/g_lvstore/model_load) y se compara con la memoria del Z80 en cada imagen; cuatro pruebas en negativo.
 // FASE 7c: mejoras (tipos 8-10 de las oleadas: arma, escudo, bomba), el disparo doble, el escudo de 250 ticks, las bombas (B) y sus
 //   iconos. El modelo Game lleva tambien todo eso. Dos partidas con niveles hechos aqui (ver 1f): una con las tres mejoras y una
 //   bomba contra enemigos, y otra con el jefe y bombas; y tres pruebas en negativo con el binario cambiado a proposito.
@@ -89,6 +93,10 @@ struct Level {
   uint16_t pal(int i) const { return (uint16_t)(i16[4 + 2 * i] | (i16[5 + 2 * i] << 8)); }
 };
 
+static Level mklevel(const std::vector<uint8_t>& i16, const std::vector<uint8_t>& map) {
+  Level L; L.i16 = i16; L.map = map; L.rows = u16(map, 6); L.mapoff = u16(map, 10); L.end = u16(map, 14); return L;
+}
+
 // ---- MCU: ordenes 53 (fopen), 55 (fread), 56 (fwrite), 57 (fclose), 71 (fcreate: crea o vacia y abre); 38 (LOOP_VGM), 34 (PLAY_VGM: longitud y nombre en ZX81, responde 0 si
 // suena) y 35 (STOP_VGM), que se apuntan en mlog con sus parametros (y la respuesta de la 34 al final)
 static std::map<std::string, std::vector<uint8_t>> sdfiles;
@@ -96,6 +104,7 @@ static int mcu_clk = 0;
 static std::vector<uint8_t> mcu_in, mcu_out; static size_t mcu_outpos = 0;
 static const std::vector<uint8_t>* openf = nullptr; static size_t fpos = 0;
 static std::vector<std::string> opened, created;         // ficheros abiertos con la 53 y creados con la 71
+static std::string g_vanish;                              // prueba del fallo fatal: este fichero desaparece de la SD tras las 5 primeras aperturas
 static int written_n = 0;                                 // ordenes 56 recibidas
 static int fopen_open = 0;
 static std::vector<std::vector<int>> mlog, says;
@@ -133,12 +142,14 @@ static std::vector<int> playcmd(const char* nm, bool ok) {
   for (const char* c = nm; *c; c++) v.push_back(*c >= 'A' && *c <= 'Z' ? 38 + *c - 'A' : *c >= '0' && *c <= '9' ? 28 + *c - '0' : 27);
   v.push_back(ok ? 0 : 1); return v;
 }
-static void mus_go(int which) {
-  const char* nm = which ? "GAMEOVER.VGM" : "NIVEL1.VGM";
+// which 0: la del nivel lvl (NIVELn.VGM; si falta y lvl no es el 1, se prueba la del 1); 1: la del fin de partida
+static void mus_go(int which, int lvl = 1) {
+  std::string nm = which ? "GAMEOVER.VGM" : "NIVEL" + std::to_string(lvl) + ".VGM";
   if (g_mok) mexp.push_back({35});
   mexp.push_back({38, which ? 0 : 1});
   bool ok = sdfiles.count(nm) > 0;
-  mexp.push_back(playcmd(nm, ok)); g_mok = ok; g_musno = which;
+  mexp.push_back(playcmd(nm.c_str(), ok)); g_mok = ok; g_musno = which;
+  if (!ok && !which && lvl != 1) { ok = sdfiles.count("NIVEL1.VGM") > 0; mexp.push_back(playcmd("NIVEL1.VGM", ok)); g_mok = ok; }
 }       // says: ordenes 23 (voz): longitud y texto en ZX81
 static void mcu_byte(uint8_t b) {
   mcu_in.push_back(b);
@@ -146,6 +157,7 @@ static void mcu_byte(uint8_t b) {
   if (c == 53) {
     if (mcu_in.size() >= 2 && (int)mcu_in.size() == 2 + mcu_in[1]) {
       std::string nm(mcu_in.begin() + 2, mcu_in.end()); opened.push_back(nm);
+      if (!g_vanish.empty() && opened.size() == 5) sdfiles.erase(g_vanish);
       auto it = sdfiles.find(nm);
       if (it == sdfiles.end() || openf) mcu_out.push_back(0xFF); else { openf = &it->second; fpos = 0; fopen_open++; mcu_out.push_back(0); }
       mcu_in.clear();
@@ -304,7 +316,10 @@ struct Result { int bc; long frames; int vis_ok, vis_bad; long maxlat, maxloop; 
                 long lost_lines, lost_cls[5]; int lost_frames, first_lost, consec[8], max_consec, ene_lost_frames;
                 int ay_bad, gameovers, goresets, cartel;
                 int bwarn, benter, bkills, bhits, bshots, laps, bdeaths, bmaxhp, inftoggles;
-                int items[3], itemmiss, dblvolleys, bombuse, bombkills, bombboss, bclamp, weaplost, shielded; int hofs_bad, hofs_nz, bhp_bad, bhp_min, vis_shk; std::string lostinfo; };
+                int items[3], itemmiss, dblvolleys, bombuse, bombkills, bombboss, bclamp, weaplost, shielded; int hofs_bad, hofs_nz, bhp_bad, bhp_min, vis_shk; std::string lostinfo;
+                // fase 8a: cambios de nivel (imagen, nivel al que se pasa), partidas nuevas con ESPACIO, salidas por fallo fatal y imagenes en que
+                // la memoria del Z80 (nivel, vueltas, dificultad, velocidad) no es la del modelo
+                std::vector<std::pair<long, int>> lvchg; int newgames, fatals, dif_bad; };
 
 // ---- el juego, escrito aqui con la especificacion (cabecera de estela.asm y juego160.md §8.3), no con el codigo del Z80.
 // Nave: x 16-128, y 0-76, 1 px por imagen con O P Q A; inclinacion = dx + 1. Disparos: 8 huecos, suben 3 px por tick, se borran
@@ -314,14 +329,24 @@ struct Result { int bc; long frames; int vis_ok, vis_bad; long maxlat, maxloop; 
 static std::vector<uint8_t> g_map;                       // NIVEL1.MAP
 static std::vector<std::vector<int>> g_paths;            // PATHTAB de LEVEL.INC: pares dx, dy
 static bool g_immortal = false;                          // caso peor del reparto: sin colisiones ni disparos enemigos
-static const int EFT[6] = {96, 0, 80, 72, 36, 60}, PTS[6] = {10, 20, 30, 40, 60, 50};
+static const int EFT0[6] = {96, 0, 80, 72, 36, 60}, PTS[6] = {10, 20, 30, 40, 60, 50};
+// Varios niveles (fase 8a). g_curlv = el nivel que se juega (lo visible y la paleta se comparan con el); g_lvstore[n] = el nivel n tal como
+// lo ha cargado el modelo de la SD; g_exp_open = los ficheros que el modelo espera que el Z80 abra al cambiar de nivel (en orden);
+// g_difs = (nivel, vuelta, vidas del jefe, ticks entre salvas, cadencia del tipo 0) en cada comienzo de nivel; g_fatal = el modelo
+// espera que el Z80 salga (ni el siguiente nivel ni el 1 se cargan)
+static Level g_lvstore[6];
+static const Level* g_curlv = nullptr;
+static std::vector<std::string> g_exp_open;
+static std::vector<std::vector<int>> g_difs;
+static bool g_fatal = false, g_chk_speed = false;
 struct Ene { int st, typ, x, y, path, k, flg, tmr, ft, w; };      // w: la oleada (para el caso peor del reparto)
 struct EB { int a, x, y, dx; };
 struct Spn { int rem, w, t; };
 struct Game { int x, y, tilt, cd, tick; int ba[8], bx[8], by[8]; int pstate, ptimer, score; Ene e[8]; EB b[7]; Spn sp[4]; int w;
              int fxp[4], fxpr[4]; int lives;
              int bpend, bst, btmr, jx, jy, bk, bhp, bdir, bft, bflash, bwx, bpath;
-             int ityp, itx, ity, ik, ipath, weap, bombs, prevb, stimer, shk, hofv; };   // mejoras (7c): ityp 0 ninguna, 1 arma, 2 escudo, 3 bomba; prevb = B en bruto (0 = pulsada)   // el jefe (cabecera de estela.asm)      // efectos: siguiente par de cada voz (0 = libre) y su prioridad
+             int ityp, itx, ity, ik, ipath, weap, bombs, prevb, stimer, shk, hofv;
+             int lvl, laps, lvt, bhp0, bft0, eft[6]; };   // fase 8a: nivel (1-5), vueltas, ticks de la cifra del nivel, dificultad (vidas del jefe, ticks entre salvas, cadencias)   // mejoras (7c): ityp 0 ninguna, 1 arma, 2 escudo, 3 bomba; prevb = B en bruto (0 = pulsada)   // el jefe (cabecera de estela.asm)      // efectos: siguiente par de cada voz (0 = libre) y su prioridad
 // Efectos (cabecera de estela.asm): 4 voces; cada una escribe en cada imagen un par (valor, volumen) de su tabla en sus
 // registros: 0 disparo (AY A, R4 y R10), 1 disparo enemigo por la izquierda (AY A, R0 y R8), 2 por la derecha (AY A, R2 y
 // R9), 3 explosiones (AY B, ruido R6 y R10). Volumen $FF = fin: volumen 0 y libre. Un efecto entra si la voz esta libre o el
@@ -361,6 +386,28 @@ static void ginit(Game& g) {
   g.lives = S("LIVES0");
   g.bpend = g.bst = g.btmr = g.jx = g.jy = g.bk = g.bhp = g.bdir = g.bft = g.bflash = g.bwx = g.bpath = 0;
   g.ityp = g.itx = g.ity = g.ik = g.ipath = g.weap = g.bombs = g.prevb = g.stimer = g.shk = g.hofv = 0;
+  // el principio de un nivel (lvl y laps ya puestos): la cifra del nivel 100 ticks y la dificultad d = (nivel - 1) + 5 * vueltas:
+  // jefe con 40 + 10 d vidas y una salva cada max(15, 30 - 3 d) ticks; cadencia de los enemigos: la base con v = v - v / 8, d veces, y como poco la mitad
+  g.lvt = S("LVLT0");
+  int d = (g.lvl - 1) + 5 * g.laps;
+  g.bhp0 = S("BHP0") + 10 * d; g.bft0 = std::max(15, S("BFT0") - 3 * d);
+  for (int i = 0; i < 6; i++) { int v = EFT0[i]; for (int k = 0; k < d; k++) v = std::max(v - v / 8, EFT0[i] / 2); g.eft[i] = v; }
+  g_difs.push_back({g.lvl, g.laps, g.bhp0, g.bft0, g.eft[0]});
+}
+// cargar el nivel n como loadlvl (errores 1-6): apunta en g_exp_open los ficheros que el Z80 abre y, si vale, lo deja en g_lvstore[n]
+static bool model_load(int n) {
+  std::string a = "NIVEL" + std::to_string(n) + ".I16", b = "NIVEL" + std::to_string(n) + ".MAP";
+  g_exp_open.push_back(a);
+  auto ia = sdfiles.find(a); if (ia == sdfiles.end()) return false;
+  if (ia->second.size() < 4 || memcmp(&ia->second[0], "I160", 4)) return false;
+  g_exp_open.push_back(b);
+  auto ib = sdfiles.find(b); if (ib == sdfiles.end()) return false;
+  const std::vector<uint8_t>& m = ib->second;
+  if (m.size() < 16 || memcmp(&m[0], "ELV1", 4)) return false;
+  int len = u16(m, 12), rows = u16(m, 6), mo = u16(m, 10);
+  if (len > S("MAXLVL") || len < 16 || rows < 7 || mo + 8 * rows > len) return false;
+  Level& L = g_lvstore[n]; L.i16 = ia->second; L.map = m; L.rows = rows; L.mapoff = mo; L.end = u16(m, 14);
+  return true;
 }
 static bool keydown(const std::vector<Key>& sc, long f, int row, int bit) { for (auto& k : sc) if (f >= k.from && f < k.to && k.row == row && k.bit == bit) return true; return false; }
 static bool ovl(int b, int c, int d, int e) { return !((e & 255) < (b & 255)) && !((c & 255) < (d & 255)); }
@@ -370,7 +417,7 @@ static void pdie(Game& g, Result& R) { if (g.weap) R.weaplost++; g.weap = 0; g.p
 static void spawn(Game& g, int w, int x, Result& R) {
   const uint8_t* r = &g_map[w];
   for (int i = 0; i < (g.bpend ? 5 : 8); i++) if (g.e[i].st == 0) {
-    Ene& e = g.e[i]; e.st = 1; e.typ = r[2]; e.x = (x + 32) & 255; e.y = 16; e.tmr = 0; e.flg = r[7]; e.ft = EFT[e.typ]; e.path = r[4]; e.k = 0; e.w = w;
+    Ene& e = g.e[i]; e.st = 1; e.typ = r[2]; e.x = (x + 32) & 255; e.y = 16; e.tmr = 0; e.flg = r[7]; e.ft = g.eft[e.typ]; e.path = r[4]; e.k = 0; e.w = w;
     R.spawned++; return;
   }
   R.drope++;
@@ -407,6 +454,7 @@ static void bosshit(Game& g, Result& R) {
 static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int nstp, Result& R) {
   g.tick = (g.tick + 1) & 255;
   if (g.stimer) g.stimer--;                              // el marcador de la mejora recogida (SCT ticks)
+  if (g.lvt) g.lvt--;                                    // la cifra del nivel
   if (g.pstate != 1 && g.pstate != 3) {                  // explotando o fin de partida: ni se mueve ni dispara
     int dx = (keydown(sc, f, 5, 0) ? 1 : 0) - (keydown(sc, f, 5, 1) ? 1 : 0);
     g.tilt = dx + 1; g.x = std::min(128, std::max(16, g.x + dx));
@@ -472,7 +520,7 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
   }
   // la mejora: un paso de su trayectoria (el ultimo se repite); sale por abajo (Y >= 132); con la nave viva o parpadeando, si toca
   // su caja [X+1,X+6] x [Y+1,Y+6] con la de la nave, se recoge
-  if (g.ityp) {
+  if (g.ityp && !g.lvt) {                                // (con la cifra del nivel a la vista, la mejora espera)
     const std::vector<int>& p = g_paths[g.ipath]; int n = (int)p.size() / 2;
     g.itx = (g.itx + p[2 * g.ik]) & 255; g.ity = (g.ity + p[2 * g.ik + 1]) & 255;
     if (g.ik < n - 1) g.ik++;
@@ -491,7 +539,7 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
   if (!g_immortal)
   for (auto& e : g.e) if (e.st == 1 && e.ft != 0) {
     if (--e.ft != 0) continue;
-    e.ft = EFT[e.typ];
+    e.ft = g.eft[e.typ];
     if (e.y >= 32 && e.y < 93 && g.pstate != 1 && g.pstate != 3) ebfire_m(g, e.x, e.y, R);
   }
   for (auto& b : g.b) if (b.a && b.dx == 255) b.dx = -1;
@@ -520,26 +568,31 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
     if (g.bflash) g.bflash--;
     switch (g.bst) {
       case 0: if (g.bpend && !g.e[5].st && !g.e[6].st && !g.e[7].st) { g.bst = 1; g.btmr = S("WARNT"); R.bwarn++; } break;
-      case 1: if (--g.btmr == 0) { g.bst = 2; g.jx = (g.bwx + 32) & 255; g.jy = 8; g.bhp = S("BHP0"); g.bk = 0; R.benter++; } break;
+      case 1: if (--g.btmr == 0) { g.bst = 2; g.jx = (g.bwx + 32) & 255; g.jy = 8; g.bhp = g.bhp0; g.bk = 0; R.benter++; } break;
       case 2: {
         const std::vector<int>& p = g_paths[g.bpath]; int n = (int)p.size() / 2;
         g.jx = (g.jx + p[2 * g.bk]) & 255; g.jy = (g.jy + p[2 * g.bk + 1]) & 255;
-        if (g.bk < n - 1) g.bk++; else { g.bst = 3; g.bdir = 1; g.bft = S("BFT0"); }
+        if (g.bk < n - 1) g.bk++; else { g.bst = 3; g.bdir = 1; g.bft = g.bft0; }
         bosshit(g, R); break;
       }
       case 3:
         g.jx = (g.jx + g.bdir) & 255;
         if (g.jx == S("BXMIN") || g.jx == S("BXMAX")) g.bdir = -g.bdir;
         if (--g.bft == 0) {
-          g.bft = S("BFT0");
+          g.bft = g.bft0;
           if (g.pstate != 1 && g.pstate != 3) { ebfire_m(g, g.jx, g.jy + 8, R); ebfire_m(g, g.jx + 16, g.jy + 8, R); R.bshots++; }
         }
         bosshit(g, R); break;
       case 4: if (--g.btmr == 0) { g.bst = 5; g.btmr = S("CLEART"); } break;
       case 5:
         if (--g.btmr == 0) {                            // lap: restart con el mismo marcador y las mismas vidas
-          int sc = g.score, lv = g.lives;
-          if (g_musno) mus_go(0);
+          // tras el jefe: el nivel siguiente (si existe y vale); tras el 5, o si no, el 1 con una vuelta mas (hasta LAPMAX); si ni el 1 se carga, el Z80 sale
+          int sc = g.score, lv = g.lives, n = g.lvl + 1; bool ok = false;
+          if (n <= 5) ok = model_load(n);
+          if (!ok) { if (g.laps < S("LAPMAX")) g.laps++; n = 1; ok = model_load(1); }
+          if (!ok) { g_fatal = true; R.fatals++; break; }
+          g.lvl = n; g_curlv = &g_lvstore[n]; g_map = g_lvstore[n].map; R.lvchg.push_back({frame(), n});
+          mus_go(0, n);
           ginit(g); ay_model_setup(); g.score = sc; g.lives = lv; R.laps++;
         }
         break;
@@ -581,7 +634,10 @@ static int spr_check(const Game& g, int scr, Result& R) {
     if (g.pstate != 1) chk(49, g.x + 36, g.y + 48, LLAMA + ((g.tick >> 2) & 1));
   }
   for (int i = 0; i < 8; i++) if (g.ba[i]) chk(34 + i, g.bx[i] + 32, g.by[i] + 32, BALA);
-  if (g.ityp && g.pstate != 3) chk(54, g.itx, g.ity, S("ITEM1") + g.ityp - 1);       // la mejora (sprite 54; en el fin de partida, la V del cartel)
+  if (g.pstate != 3) {                                  // sprite 54 (en el fin de partida, la V del cartel): la cifra del nivel (x 76, y 46) o la mejora
+    if (g.lvt) chk(54, 32 + 76, 32 + 46, S("CIFRA") + g.lvl);
+    else if (g.ityp) chk(54, g.itx, g.ity, S("ITEM1") + g.ityp - 1);
+  }
   int ne = 0;
   for (int i = 0; i < (g.bst ? 5 : 8); i++) {            // con jefe, sus sprites son los de los huecos 5-7
     const Ene& e = g.e[i];
@@ -698,7 +754,7 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
   map_bad = 0; memset(pal, 0, sizeof pal); palptr = pallo = 0; cyc_maxlat = 0; cyc_writes = 0;
   memset(spr, 0, sizeof spr); spr_sel = 0; spr_blk = 2; spr_xtr = 0; pal16_on = 0; memset(pal16, 0, sizeof pal16); spr_maxlat = 0;
   rec_init(); title_seen = false; title_bad = -1; rec_start_bad = 0;
-  Game g; ginit(g); size_t nspr = 0; bool prev_r = false, prev_sp = false, prev_i = false; g_inf = false;
+  Game g{}; g.lvl = 1; g.laps = 0; g_difs.clear(); g_exp_open.clear(); g_fatal = false; g_curlv = &lv; ginit(g); size_t nspr = 0; bool prev_r = false, prev_sp = false, prev_i = false; g_inf = false;
   R.minx = R.miny = 999; R.maxx = R.maxy = -999;
   mcu_in.clear(); mcu_out.clear(); mcu_outpos = 0; mcu_clk = 0; openf = nullptr; opened.clear(); created.clear(); written_n = 0; fopen_open = 0; mlog.clear(); says.clear(); mexp.clear(); g_musno = 0; g_mok = sdfiles.count("NIVEL1.VGM") > 0;
   for (auto& c : ayreg) for (int& r : c) r = 0xAA; memset(ayexp, 0, sizeof ayexp); ay_model_setup(); memset(fx_started, 0, sizeof fx_started);
@@ -748,10 +804,17 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
       gupdate(g, script, f, scr_now, scr_now - vwrites.back().s, R);
       bool r = keydown(script, f, 2, 3);
       fxstep(g);                                      // sfx va justo despues de update
-      if (r && !prev_r) { if (g_musno) mus_go(0); ginit(g); ay_model_setup(); }   // R: aysetup (voces libres, volumenes 0); la musica del nivel
+      if (r && !prev_r) { if (g_musno) mus_go(0, g.lvl); ginit(g); ay_model_setup(); }   // R: aysetup (voces libres, volumenes 0); la musica del nivel
       prev_r = r;
       bool sp = keydown(script, f, 7, 0);               // fin de partida: pasada la espera, una pulsacion nueva de ESPACIO
-      if (sp && !prev_sp && g.pstate == 3 && g.ptimer == 0) { if (g_musno) mus_go(0); ginit(g); ay_model_setup(); R.goresets++; }
+      if (sp && !prev_sp && g.pstate == 3 && g.ptimer == 0) {   // newgame: el nivel 1 con la dificultad inicial (si estaba en otro, se carga)
+        g.laps = 0;
+        if (g.lvl != 1) {
+          if (model_load(1)) { g.lvl = 1; g_curlv = &g_lvstore[1]; g_map = g_lvstore[1].map; R.lvchg.push_back({frame(), 1}); }
+          else { g_fatal = true; R.fatals++; }
+        }
+        if (!g_fatal) { if (g_musno) mus_go(0, g.lvl); ginit(g); ay_model_setup(); R.goresets++; R.newgames++; }
+      }
       prev_sp = sp;
       if (g.bst == 2 || g.bst == 3) {                    // vidas del jefe: las de la memoria del Z80 (ya con esta vuelta hecha) son las del modelo, y nunca menos de 1
         int h = rd(S("bhp")); if (h != g.bhp) R.bhp_bad++;
@@ -760,6 +823,12 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
       bool ik = keydown(script, f, 5, 2);               // I: vidas infinitas si / no
       if (ik && !prev_i) { g_inf = !g_inf; R.inftoggles++; }
       prev_i = ik;
+      if (!g_fatal) {                                    // nivel, vueltas, dificultad y velocidad: la memoria del Z80 es la del modelo
+        bool bad = rd(S("lvlno")) != g.lvl || rd(S("laps")) != g.laps || rd(S("dif")) != (g.lvl - 1) + 5 * g.laps || rd(S("bhpv")) != g.bhp0 || rd(S("bftv")) != g.bft0;
+        for (int i = 0; i < 6; i++) if (rd(S("eftab") + i) != g.eft[i]) bad = true;
+        if (g_chk_speed && rd(S("speed")) != (g_curlv->map[4] >= 2 ? 1 : 0)) bad = true;
+        if (bad) R.dif_bad++;
+      }
       if (!ay_match() && R.ay_bad++ == 0) {
         printf("        AY distinto del modelo en la imagen %ld:", f);
         for (int c = 0; c < 2; c++) for (int q = 0; q < 11; q++) if (ayreg[c][q] != ayexp[c][q]) printf(" %c R%d = %d (modelo %d)", c ? 'B' : 'A', q, ayreg[c][q], ayexp[c][q]);
@@ -773,10 +842,10 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
         if (calls < 0) calls = 0;
         int bad = 0;
         for (int i = 0; i < 256; i++) {
-          uint16_t want = lv.pal(i);
+          uint16_t want = g_curlv->pal(i);
           for (auto& g : rngs) if (i >= g.base && i < g.base + g.n) {
             int o = calls >= g.c0 ? (int)((1 + (calls - g.c0) / g.t) % g.n) : 0;
-            want = lv.pal(g.base + ((i - g.base) + o) % g.n);
+            want = g_curlv->pal(g.base + ((i - g.base) + o) % g.n);
           }
           if (pal[i] != want) bad++;
         }
@@ -791,7 +860,7 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
       for (int r = 0; r < 100 && bad < 3; r++)
         for (int x = 0; x < 160; x++) {
           int xs = (x + hofs) % 160;                      // el pixel x de la pantalla es el del anillo (x + hofs) mod 160
-          uint8_t got = rd(0x8000 + ((r + vofs) % 102) * 160 + xs), want = lv.at(99 + s_shown - r, xs);
+          uint8_t got = rd(0x8000 + ((r + vofs) % 102) * 160 + xs), want = g_curlv->at(99 + s_shown - r, xs);
           if (got != want) { printf("        instante %zu (imagen %ld): fila %d x %d = %d, nivel %d (vofs %d, s %d)\n", ci, frame(), r, x, got, want, vofs, s_shown); bad++; break; }
         }
       if (bad) R.vis_bad++; else R.vis_ok++;
@@ -844,7 +913,7 @@ static void lost_report(const Result& L) {
 // lineas del marcador (y 2-9) quitar ademas sus 6, pero solo sale tras una muerte (unos 2,3 s).
 struct Worst { int maxe, maxe_top, over3, over3_top, frames; long at; std::vector<int> waves; };
 static Worst worst_case() {
-  Worst W{}; Result R{}; Game g; ginit(g); g_immortal = true;
+  Worst W{}; Result R{}; Game g{}; g.lvl = 1; ginit(g); g_immortal = true;
   int spd = std::max(1, (int)g_map[4]), end = u16(g_map, 14), prev = 0;
   for (long f = 0; ; f++) {
     int scr = std::min(end, (int)(f / spd));
@@ -864,6 +933,19 @@ static Worst worst_case() {
   return W;
 }
 
+// las ordenes de musica que tiene que haber hecho el Z80: NIVEL1.VGM en bucle al empezar, las del modelo (mexp) y STOP_VGM al salir si sonaba
+static bool mlog_matches() {
+  std::vector<std::vector<int>> want = { {38, 1}, playcmd("NIVEL1.VGM", sdfiles.count("NIVEL1.VGM") > 0) };
+  for (auto& v : mexp) want.push_back(v);
+  if (g_mok) want.push_back({35});
+  return mlog == want;
+}
+// los ficheros que ha abierto el Z80: los 5 del principio (nivel 1, hoja, record y titulo) y los de los cambios de nivel que espera el modelo
+static bool opened_matches() {
+  std::vector<std::string> want = {"NIVEL1.I16", "NIVEL1.MAP", "HOJA.BIN", "ESTELA.REC", "TITULO.I16"};
+  for (auto& n : g_exp_open) want.push_back(n);
+  return opened == want;
+}
 static void exit_checks(const char* what, int want_bc, int played = -1) {
   bool pl = played < 0 ? want_bc == 0 : played != 0;
   {
@@ -884,10 +966,7 @@ static void exit_checks(const char* what, int want_bc, int played = -1) {
     bool ok;
     if (!pl) { ok = mlog.empty(); snprintf(m, sizeof m, "%s: ninguna orden de musica (no se ha llegado a jugar)", what); }
     else {
-      std::vector<std::vector<int>> want = { {38, 1}, playcmd("NIVEL1.VGM", sdfiles.count("NIVEL1.VGM") > 0) };
-      for (auto& v : mexp) want.push_back(v);
-      if (g_mok) want.push_back({35});
-      ok = mlog == want;
+      ok = mlog_matches();
       int ngo = 0; for (auto& v : mexp) if (v.size() > 1 && v[0] == 38 && v[1] == 0) ngo++;
       snprintf(m, sizeof m, "%s: musica: NIVEL1.VGM en bucle al empezar; %d veces GAMEOVER.VGM sin bucle y de vuelta la del nivel; STOP_VGM antes de cambiar y al salir%s",
                what, ngo, sdfiles.count("NIVEL1.VGM") ? "" : " (sin NIVEL1.VGM)");
@@ -1214,23 +1293,24 @@ int main(int argc, char** argv) {
     const int SLOW = S("PATH_SLOW"), SINE = S("PATH_SINE"), DIVE = S("PATH_DIVE"), DOWN = S("PATH_DOWN");
     // --- A: arma, bombas (con el tope de 2), escudo y enemigos: la nave quieta en x = 72 (la mejora cae en su X) y luego movida a la derecha
     printf("-- mejoras (nivel de 150 filas con oleadas de tipo 8-10 y el jefe al final; la nave quieta en x = 72, luego en el borde derecho) --\n");
-    Level bl; std::vector<uint8_t> bm = mk({ {0, 8, 72, SLOW, 1, 0, 0}, {150, 10, 72, SLOW, 1, 0, 0}, {260, 10, 72, SLOW, 1, 0, 0}, {380, 10, 72, SLOW, 1, 0, 0},
-                                             {500, 9, 72, SLOW, 1, 0, 0}, {600, 0, 48, SINE, 4, 16, 0}, {640, 1, 24, DIVE, 3, 18, 0}, {900, 1, 72, DOWN, 1, 0, 0},
-                                             {1100, 8, 72, SLOW, 1, 0, 0}, {1200, 9, 20, SLOW, 1, 0, 0}, {1350, 9, 130, SLOW, 1, 0, 0},
-                                             {1380, 10, 130, SLOW, 1, 0, 0}, {1480, 10, 130, SLOW, 1, 0, 0}, {1520, 6, 64, S("PATH_ENTER"), 1, 0, 0} }, 150, bl);
-    std::vector<Key> sc = { {30, 880, 7, 0}, {1010, 2240, 7, 0},                    // ESPACIO; se suelta para que el enemigo que baja derecho toque la nave
-                            {120, 124, 7, 4}, {700, 704, 7, 4}, {760, 764, 7, 4},   // B: sin bombas, y dos veces con enemigos delante
-                            {1320, 1420, 5, 0},                                      // P: la nave al borde derecho
-                            {1300, 1304, 5, 2},                                      // I: vidas infinitas (el jefe llega al final)
-                            {1850, 1854, 7, 4}, {1950, 1954, 7, 4}, {2050, 2054, 7, 4},   // B contra el jefe (las dos bombas recogidas a 130)
-                            {2260, 2264, 0, 2} };                                    // X
-    auto runA = [&]() { basefiles(bm); g_map = bm; Result L = run(bl, sc, 2320, 500, true); g_map = lv.map; return L; };
+    Level bl; std::vector<uint8_t> bm = mk({ {0, 8, 72, SLOW, 1, 0, 0}, {250, 10, 72, SLOW, 1, 0, 0}, {360, 10, 72, SLOW, 1, 0, 0}, {480, 10, 72, SLOW, 1, 0, 0},
+                                             {600, 9, 72, SLOW, 1, 0, 0}, {700, 0, 48, SINE, 4, 16, 0}, {740, 1, 24, DIVE, 3, 18, 0}, {1000, 1, 72, DOWN, 1, 0, 0},
+                                             {1200, 8, 72, SLOW, 1, 0, 0}, {1300, 9, 20, SLOW, 1, 0, 0}, {1450, 9, 130, SLOW, 1, 0, 0},
+                                             {1480, 10, 130, SLOW, 1, 0, 0}, {1580, 10, 130, SLOW, 1, 0, 0}, {1620, 6, 64, S("PATH_ENTER"), 1, 0, 0} }, 156, bl);
+    // (con la cifra del nivel a la vista, 100 ticks, la mejora de s = 0 espera: las demas empiezan 100 mas tarde que en la fase 7c y las teclas tambien)
+    std::vector<Key> sc = { {30, 980, 7, 0}, {1110, 2340, 7, 0},                    // ESPACIO; se suelta para que el enemigo que baja derecho toque la nave
+                            {220, 224, 7, 4}, {800, 804, 7, 4}, {860, 864, 7, 4},   // B: sin bombas, y dos veces con enemigos delante
+                            {1420, 1520, 5, 0},                                      // P: la nave al borde derecho
+                            {1400, 1404, 5, 2},                                      // I: vidas infinitas (el jefe llega al final)
+                            {1950, 1954, 7, 4}, {2050, 2054, 7, 4}, {2150, 2154, 7, 4},   // B contra el jefe (las dos bombas recogidas a 130)
+                            {2360, 2364, 0, 2} };                                    // X
+    auto runA = [&]() { basefiles(bm); g_map = bm; Result L = run(bl, sc, 2420, 500, true); g_map = lv.map; return L; };
     Result L = runA();
     item_report(L); lost_report(L);
     printf("        hasta %d sprites en una linea; %d imagenes con perdidas; sprites escritos hasta %ld T; vuelta mas larga %ld T; la nave tocada %d veces\n",
            L.maxline, L.lost_frames, spr_maxlat, L.maxloop, L.deaths);
     if (!L.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", L.spr_bad.size(), L.spr_bad[0]);
-    CHECK(L.spr_checked > 2200 && L.spr_bad.empty() && L.ay_bad == 0 && L.vis_bad == 0 && L.pal_bad.empty(),
+    CHECK(L.spr_checked > 2300 && L.spr_bad.empty() && L.ay_bad == 0 && L.vis_bad == 0 && L.pal_bad.empty(),
           "los 64 sprites (mejora en el 54, iconos de las bombas en el 32-33, disparo doble), los AY, lo visible y la paleta, iguales al modelo en cada imagen");
     CHECK(L.items[0] >= 2 && L.items[1] >= 2 && L.items[2] >= 3 && L.itemmiss >= 1 && fx_started[6] == L.items[0] + L.items[1] + L.items[2],
           "se recogen las tres mejoras (arma, escudo, bomba; una bomba de mas con el tope), una se va por abajo sin recogerla y cada recogida suena");
@@ -1293,7 +1373,8 @@ int main(int argc, char** argv) {
     boss_report(J); item_report(J);
     printf("        sprites escritos hasta %ld T tras el flanco; hasta %d sprites en una linea\n", spr_maxlat, J.maxline);
     if (!J.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", J.spr_bad.size(), J.spr_bad[0]);
-    CHECK(J.spr_checked > 3800 && J.spr_bad.empty() && J.ay_bad == 0 && J.vis_bad == 0 && J.pal_bad.empty(),
+    printf("        spr_bad %zu, ay_bad %d, vis_bad %d, pal_bad %zu\n", J.spr_bad.size(), J.ay_bad, J.vis_bad, J.pal_bad.size());
+    CHECK(J.spr_checked > 3500 && J.spr_bad.empty() && J.ay_bad == 0 && J.vis_bad == 0 && J.pal_bad.empty(),
           "con el jefe, los 64 sprites, los AY, lo visible y la paleta, iguales al modelo");
     CHECK(J.hofs_bad == 0 && J.bhp_bad == 0 && J.bhp_min >= 1, "con el jefe, el temblor y las vidas del jefe (que nunca bajan de 1) son los del modelo en cada imagen");
     CHECK(J.bombboss >= 2 && J.bclamp >= 1 && J.bkills >= 1, "las bombas le quitan 10 vidas al jefe (y una, con menos de 11, lo deja en 1) y aun asi se le puede derribar");
@@ -1396,6 +1477,200 @@ int main(int argc, char** argv) {
       }
       bin = good;
     }
+  }
+
+  // ===== 1h. varios niveles y dificultad (fase 8a): NIVEL1..NIVEL5, cifra del nivel, paso de nivel tras el jefe, vuelta al 1, fallos de carga
+  // Niveles de prueba: cada uno es corto (12 filas: solo el jefe y una mejora en s = 0) y distinto (el tileset de out/NIVELn.I16 si existe,
+  // si no el del 1 con los pixeles desplazados; velocidad 1 en los impares y 2 en los pares). Se juega con vidas infinitas disparando.
+  {
+    struct Real { bool has; std::vector<uint8_t> i16, map; } real[6] = {};
+    int nreal = 0;
+    for (int n = 2; n <= 5; n++) {
+      real[n].i16 = readfile(out + "/NIVEL" + std::to_string(n) + ".I16"); real[n].map = readfile(out + "/NIVEL" + std::to_string(n) + ".MAP");
+      real[n].has = real[n].i16.size() == 16516 && !memcmp(&real[n].i16[0], "I160", 4) && real[n].map.size() >= 16 && !memcmp(&real[n].map[0], "ELV1", 4) &&
+                    u16(real[n].map, 6) >= 12 && u16(real[n].map, 10) + 8 * 12 <= (int)real[n].map.size();
+      if (real[n].has) nreal++;
+    }
+    printf("-- varios niveles: NIVEL2..5 de out/: %d de 4 (los demas, copias del 1 con los pixeles desplazados) --\n", nreal);
+    const int ENTER = S("PATH_ENTER"), SLOW = S("PATH_SLOW");
+    struct W { int pos, typ, x, path, count, spc, flg; };
+    auto mkmap = [&](const std::vector<uint8_t>& base, const std::vector<W>& ws, int rows, int scroll) {
+      int bmo = u16(base, 10);
+      std::vector<uint8_t> m(base.begin(), base.begin() + 16);
+      for (auto& w : ws) { uint8_t r[8] = {(uint8_t)(w.pos & 255), (uint8_t)(w.pos >> 8), (uint8_t)w.typ, (uint8_t)w.x, (uint8_t)w.path, (uint8_t)w.count, (uint8_t)w.spc, (uint8_t)w.flg}; m.insert(m.end(), r, r + 8); }
+      uint8_t t[8] = {0xFF, 0xFF, 0, 0, 0, 0, 0, 0}; m.insert(m.end(), t, t + 8);
+      int mo = (int)m.size();
+      for (int i = 0; i < 8 * rows; i++) m.push_back(base[bmo + i]);
+      int end = 16 * rows - 100;
+      m[4] = (uint8_t)scroll; m[5] = (uint8_t)ws.size(); m[6] = (uint8_t)rows; m[7] = (uint8_t)(rows >> 8); m[8] = 16; m[9] = 0; m[10] = (uint8_t)mo; m[11] = (uint8_t)(mo >> 8);
+      m[12] = (uint8_t)m.size(); m[13] = (uint8_t)(m.size() >> 8); m[14] = (uint8_t)end; m[15] = (uint8_t)(end >> 8);
+      return m;
+    };
+    // los ficheros del nivel n: tileset (el real o el del 1 desplazado 17 (n - 1)) y mapa corto
+    auto lvfiles = [&](int n, std::vector<uint8_t>& i16, std::vector<uint8_t>& map) {
+      i16 = real[n].has ? real[n].i16 : lv.i16;
+      if (!real[n].has && n > 1) for (int a = 0; a < 16000; a++) i16[4 + 512 + a] = (uint8_t)(i16[4 + 512 + a] + 17 * (n - 1));
+      map = mkmap(real[n].has ? real[n].map : lv.map, { {0, 6, 64, ENTER, 1, 0, 0}, {0, 8 + n % 3, 72, SLOW, 1, 0, 0} }, 12, n % 2 ? 1 : 2);
+    };
+    // la SD con los niveles de la lista (y su musica, salvo la de los de skipvgm)
+    auto build = [&](const std::vector<int>& lvls, const std::vector<int>& skipvgm) {
+      sdfiles.clear(); sdfiles["HOJA.BIN"] = hoja; sdfiles["GAMEOVER.VGM"] = {'V', 'g', 'm', ' '};
+      for (int n : lvls) {
+        std::vector<uint8_t> i16, map; lvfiles(n, i16, map);
+        sdfiles["NIVEL" + std::to_string(n) + ".I16"] = i16; sdfiles["NIVEL" + std::to_string(n) + ".MAP"] = map;
+        if (std::find(skipvgm.begin(), skipvgm.end(), n) == skipvgm.end()) sdfiles["NIVEL" + std::to_string(n) + ".VGM"] = {'V', 'g', 'm', ' '};
+      }
+    };
+    // las teclas: ESPACIO todo el rato, I (vidas infinitas) y O / P cada 100 imagenes, hasta la imagen upto
+    auto gen = [&](long upto) {
+      std::vector<Key> sc;
+      auto add = [&](long a, long b, int row, int bit) { if (a < upto) sc.push_back({a, std::min(b, upto), row, bit}); };
+      add(30, 1000000, 7, 0); add(60, 64, 5, 2);
+      for (long f = 100; f < 30000; f += 100) { add(f, f + 40, 5, 1); add(f + 50, f + 90, 5, 0); }
+      return sc;
+    };
+    // (nivel, vuelta, vidas del jefe, ticks entre salvas, cadencia del tipo 0) al empezar cada nivel: las cifras de la especificacion, no del modelo
+    // d = 0..10: 40 + 10 d, max(15, 30 - 3 d), 96 con v - v / 8 repetido y como poco 48
+    static const int EXPB[11] = {40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140}, EXPF[11] = {30, 27, 24, 21, 18, 15, 15, 15, 15, 15, 15},
+                     EXPE[11] = {96, 84, 74, 65, 57, 50, 48, 48, 48, 48, 48};
+    auto chk_difs = [&](const char* what, size_t n) {
+      bool ok = g_difs.size() >= n; size_t at = 0;
+      for (size_t i = 0; ok && i < n; i++) {
+        int d = (g_difs[i][0] - 1) + 5 * g_difs[i][1];
+        if (d > 10 || g_difs[i][2] != EXPB[d] || g_difs[i][3] != EXPF[d] || g_difs[i][4] != EXPE[d]) { ok = false; at = i; }
+      }
+      char m[240]; snprintf(m, sizeof m, "%s: la dificultad de cada nivel es la de la tabla (jefe 40 + 10 d vidas, salva cada max(15, 30 - 3 d), enemigos v - v / 8 d veces, como poco la mitad)", what);
+      CHECK(ok, m);
+      if (!ok) printf("        nivel %d, vuelta %d: jefe %d, salvas %d, cadencia %d (n = %zu, hay %zu)\n", g_difs.size() > at ? g_difs[at][0] : -1, g_difs.size() > at ? g_difs[at][1] : -1,
+                      g_difs.size() > at ? g_difs[at][2] : -1, g_difs.size() > at ? g_difs[at][3] : -1, g_difs.size() > at ? g_difs[at][4] : -1, n, g_difs.size());
+    };
+    auto lvseq = [&](const Result& L) { std::string s; for (auto& c : L.lvchg) s += " " + std::to_string(c.second); return s; };
+    // una cadena de niveles: want = los niveles a los que tiene que ir pasando; fin = el nivel en que acaba el modelo
+    auto chain = [&](const char* title, long maxf, const std::vector<int>& want, bool fatal) {
+      printf("-- %s --\n", title);
+      std::vector<uint8_t> i1 = sdfiles["NIVEL1.I16"], m1 = sdfiles["NIVEL1.MAP"];
+      Level L1 = mklevel(i1, m1); g_map = L1.map;
+      std::vector<Key> sc = gen(maxf - 60); sc.push_back({maxf - 50, maxf - 46, 0, 2});
+      g_chk_speed = true;
+      Result L = run(L1, sc, maxf, 150, true);
+      g_chk_speed = false; g_map = lv.map;
+      if (fatal) { g_exp_open.push_back("NIVEL3.I16"); g_exp_open.push_back("NIVEL1.I16"); }   // el Z80 sale en mitad de un update: el modelo no llega a verlo
+      std::string got = lvseq(L), w;
+      for (int x : want) w += " " + std::to_string(x);
+      printf("        %ld imagenes; niveles a los que pasa:%s; jefes derribados %d; sprites escritos hasta %ld T; hasta %d sprites en una linea; vuelta mas larga %ld T\n",
+             L.frames, got.c_str(), L.bkills, spr_maxlat, L.maxline, L.maxloop);
+      bool seq = L.lvchg.size() >= want.size();
+      for (size_t i = 0; seq && i < want.size(); i++) if (L.lvchg[i].second != want[i]) seq = false;
+      if (!seq) printf("        esperaba:%s\n", w.c_str());
+      char m[300];
+      snprintf(m, sizeof m, "%s: tras cada jefe pasa a los niveles%s (el siguiente; tras el 5 o si falta o no vale, el 1)", title, w.c_str());
+      CHECK(seq, m);
+      if (!L.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", L.spr_bad.size(), L.spr_bad[0]);
+      printf("        imagenes de cada cambio:"); for (auto& c : L.lvchg) printf(" %ld", c.first); printf("; spr_bad %zu, ay_bad %d, vis_bad %d (ok %d), pal_bad %zu\n", L.spr_bad.size(), L.ay_bad, L.vis_bad, L.vis_ok, L.pal_bad.size());
+      snprintf(m, sizeof m, "%s: en cada imagen los 64 sprites (con la cifra del nivel en el 54 y la mejora esperando), los AY, lo visible y la paleta son los del modelo", title);
+      CHECK(L.spr_bad.empty() && L.ay_bad == 0 && L.vis_bad == 0 && L.pal_bad.empty() && L.vis_ok >= 20 && L.spr_checked > (fatal ? 500 : maxf - 150 - 100 * (int)want.size()), m);   // (cada carga de un nivel son unas 40 imagenes sin escribir nada; si falla el siguiente, se cargan dos)
+      snprintf(m, sizeof m, "%s: en cada imagen, nivel, vueltas, dificultad (vidas y salvas del jefe, cadencias) y velocidad del nivel de la memoria del Z80 son los del modelo", title);
+      CHECK(L.dif_bad == 0, m);
+      snprintf(m, sizeof m, "%s: abre los ficheros que espera el modelo, en orden (NIVELn.I16, NIVELn.MAP del siguiente; si falla, los del 1)", title);
+      CHECK(opened_matches() && (fatal || !g_fatal), m);
+      if (!opened_matches()) { printf("        abiertos:"); for (auto& n : opened) printf(" %s", n.c_str()); printf("\n        esperados:"); for (auto& n : g_exp_open) printf(" %s", n.c_str()); printf("\n"); }
+      CHECK(spr_maxlat < 12000 && L.lost_frames <= 1, "los sprites se escriben antes de 12.000 T y no se pierden lineas (como mucho una imagen)");
+      return L;
+    };
+    // --- todos los niveles, con musica salvo la del 3: 1 2 3 4 5 y vuelta al 1 (+1 de dificultad), 2
+    build({1, 2, 3, 4, 5}, {3});
+    Result L = chain("niveles 1 a 5 y vuelta", 9500, {2, 3, 4, 5, 1, 2}, false);
+    chk_difs("niveles 1 a 5 y vuelta", 7);
+    CHECK(L.laps >= 6 && L.bkills >= 6, "seis jefes derribados y seis cambios de nivel");
+    exit_checks("niveles 1 a 5 y vuelta", 0);
+    long f2 = L.lvchg.empty() ? 1000 : L.lvchg[0].first;
+    // --- solo el 1 (una instalacion antigua): tras el jefe, otra vez el 1 con una vuelta mas, y otra; luego se queda en LAPMAX
+    build({1}, {});
+    L = chain("solo el nivel 1", 7000, {1, 1, 1}, false);
+    chk_difs("solo el nivel 1", 3);   // (1,0), (1,1) con d = 5 y (1,2) con d = 10
+    exit_checks("solo el nivel 1", 0);
+    // --- NIVEL2.MAP que no cabe (longitud 8 KB + 1: error 5) -> al 1 con una vuelta mas
+    build({1, 2}, {});
+    sdfiles["NIVEL2.MAP"][12] = 0x01; sdfiles["NIVEL2.MAP"][13] = 0x20;
+    L = chain("NIVEL2.MAP que no cabe", 4500, {1, 1}, false);
+    exit_checks("NIVEL2.MAP que no cabe", 0);
+    // --- NIVEL3.I16 que no es un .I16: 1 2 (3 mal) 1 2
+    build({1, 2, 3}, {});
+    sdfiles["NIVEL3.I16"][3] = '1';
+    L = chain("NIVEL3.I16 sin firma", 6500, {2, 1, 2}, false);
+    chk_difs("NIVEL3.I16 sin firma", 4);
+    exit_checks("NIVEL3.I16 sin firma", 0);
+    // --- el 1 desaparece de la SD tras empezar: 1 2 (3 falta) (el 1 falta): el Z80 sale con el error 1
+    build({1, 2}, {});
+    g_vanish = "NIVEL1.I16";
+    L = chain("el nivel 1 desaparece de la SD", 4500, {2}, true);
+    g_vanish.clear();
+    CHECK(L.bc == 1, "ni el 3 ni el 1 se cargan (aperturas comprobadas arriba): el Z80 sale en mitad de la partida con BC = 1 (no cuelga ni sigue)");
+    exit_checks("el nivel 1 desaparece", 1, 1);
+
+    // --- fin de partida y R en el nivel 2: R vuelve al principio del 2 (misma dificultad) y tras el fin de partida ESPACIO vuelve al 1 con la dificultad inicial
+    {
+      build({1, 2, 3}, {});
+      printf("-- R en el nivel 2 y fin de partida en el nivel 2: ESPACIO vuelve al nivel 1 --\n");
+      long upto = f2 + 25, maxf = f2 + 2600;
+      std::vector<Key> sc = gen(upto);
+      sc.push_back({f2 + 10, f2 + 13, 2, 3});                   // R: el nivel 2 desde el principio
+      sc.push_back({upto, upto + 4, 5, 2});                      // I: otra vez vidas normales
+      for (long t = upto + 5; t < maxf - 60; t += 12) sc.push_back({t, t + 3, 7, 0});    // ESPACIO a golpes (no se queda disparando)
+      sc.push_back({maxf - 50, maxf - 46, 0, 2});
+      Level L1 = mklevel(sdfiles["NIVEL1.I16"], sdfiles["NIVEL1.MAP"]); g_map = L1.map; g_chk_speed = true;
+      L = run(L1, sc, maxf, 150, true);
+      g_chk_speed = false; g_map = lv.map;
+      printf("        niveles:%s; %d fines de partida, %d partidas nuevas; sprites escritos hasta %ld T\n", lvseq(L).c_str(), L.gameovers, L.newgames, spr_maxlat);
+      if (!L.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", L.spr_bad.size(), L.spr_bad[0]);
+      bool seq = L.lvchg.size() >= 2 && L.lvchg[0].second == 2 && L.lvchg[1].second == 1;
+      CHECK(seq && L.gameovers >= 1 && L.newgames >= 1, "con el nivel 2 en juego: fin de partida y, con ESPACIO, vuelve al nivel 1");
+      CHECK(g_difs.size() >= 4 && g_difs[1][0] == 2 && g_difs[2][0] == 2 && g_difs[2][1] == 0 && g_difs[3][0] == 1 && g_difs[3][1] == 0 && g_difs[3][2] == EXPB[0] && g_difs[3][3] == EXPF[0] && g_difs[3][4] == EXPE[0],
+            "R se queda en el nivel 2 (dificultad 1) y el fin de partida vuelve al 1 con la dificultad inicial (40 vidas, salvas cada 30, cadencia 96)");
+      CHECK(L.spr_bad.empty() && L.ay_bad == 0 && L.vis_bad == 0 && L.pal_bad.empty() && L.dif_bad == 0 && opened_matches(),
+            "los 64 sprites, los AY, lo visible, la paleta, la dificultad y los ficheros abiertos, iguales al modelo");
+      exit_checks("R y fin de partida en el nivel 2", 0);
+    }
+
+    // --- pruebas en negativo: cambios a proposito en el codigo y el arnes tiene que verlos
+    {
+      std::vector<uint8_t> good = bin;
+      auto find_in = [&](int lo, int hi, const std::vector<uint8_t>& pat) {
+        int at = -1, n = 0; int top = std::min(hi - 0x4800, (int)good.size()); for (int i = lo - 0x4800; i + (int)pat.size() <= top; i++) if (!memcmp(&good[i], pat.data(), pat.size())) { at = i; n++; } return n == 1 ? at : -1; };
+      struct Neg { const char* what; int lo, hi; std::vector<uint8_t> pat; int off; uint8_t val; int kind; } negs[] = {
+        { "la cifra del nivel un pixel mas abajo", 0x4800, 0x7000, {0x1E, (uint8_t)(32 + 76), 0x2E, (uint8_t)(32 + 46), 0xCD}, 3, (uint8_t)(32 + 47), 0 },
+        { "9 vidas del jefe por nivel en lugar de 10", S("setdif"), S("drawspr"), {0x7D, 0xC6, 0x0A, 0x6F}, 2, 9, 1 },
+        { "la cadencia sin el minimo de la mitad (srl a -> nop nop)", S("setdif"), S("drawspr"), {0xCB, 0x3F, 0xB9, 0x38}, 0, 0, 2 },
+        { "sin musica de respaldo: el 1 se vuelve a probar con la del 1", S("music"), S("sfxgo"), {0x3A, (uint8_t)(S("lvlno") & 255), (uint8_t)(S("lvlno") >> 8), 0xFE, 0x01}, 4, 9, 3 } };
+      for (auto& n : negs) {
+        int at = find_in(n.lo, n.hi, n.pat);
+        CHECK(at >= 0, "(prueba en negativo) el trozo de codigo a cambiar esta una sola vez");
+        if (at < 0) continue;
+        bin = good; bin[at + n.off] = n.val; if (n.kind == 2) bin[at + 1] = 0;
+        int e0 = errors;
+        bool seen;
+        if (n.kind == 3) {                                  // sin NIVEL1.VGM el Z80 solo debe probar una vez; con el cambio, dos
+          build({1}, {1}); sdfiles.erase("NIVEL1.VGM");
+          Level L1 = mklevel(sdfiles["NIVEL1.I16"], sdfiles["NIVEL1.MAP"]); g_map = L1.map;
+          run(L1, { {60, 64, 0, 2} }, 120, 0, false); g_map = lv.map;
+          seen = !mlog_matches();
+        } else {
+          build(n.kind == 0 ? std::vector<int>{1} : std::vector<int>{1, 2}, {});
+          Level L1 = mklevel(sdfiles["NIVEL1.I16"], sdfiles["NIVEL1.MAP"]); g_map = L1.map; g_chk_speed = true;
+          long mf = n.kind == 0 ? 150 : f2 + 60;
+          std::vector<Key> sc = gen(mf - 20); sc.push_back({mf - 15, mf - 11, 0, 2});
+          Result N = run(L1, sc, mf, 0, false);
+          g_chk_speed = false; g_map = lv.map;
+          seen = n.kind == 0 ? !N.spr_bad.empty() : N.dif_bad > 0;
+          if (n.kind != 0) printf("        (%d imagenes con la memoria distinta del modelo)\n", N.dif_bad);
+        }
+        errors = e0;                                       // los fallos de dentro de run no cuentan: se buscan
+        char m[240]; snprintf(m, sizeof m, "(prueba en negativo) con %s, el arnes lo ve", n.what);
+        CHECK(seen, m);
+      }
+      bin = good;
+    }
+    sdfiles.clear();
   }
 
   // ===== 2. un nivel corto: el scroll se para en LVL_END; R vuelve al principio

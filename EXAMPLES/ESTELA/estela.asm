@@ -2,6 +2,17 @@
 ; ESTELA.ASM -- matamarcianos vertical para el modo 160x100 a 256 colores
 ; del SD81 Booster. Plan: claude/planning/juego160.md
 ;
+; FASE 8a: varios niveles y dificultad. NIVEL1..NIVEL5 (.I16, .MAP y .VGM opcional) de la carpeta actual;
+; HOJA.BIN es comun. El nivel que se juega es lvlno (1-5); los nombres NIVELn.* llevan la cifra en el sexto
+; caracter (lvlnames). Al vencer al jefe (WELL DONE) lap carga el siguiente (loadnum: ficheros y velocidad del
+; nivel) con su musica, el marcador y las vidas; tras el 5, o si el siguiente falta o no vale (cualquier error de
+; loadlvl), vuelve al 1 con una vuelta mas (laps, hasta LAPMAX); si ni el 1 se carga, fatal = el error y main sale.
+; Si NIVELn.VGM falta, suena NIVEL1.VGM (music). R vuelve al principio del nivel actual; en el fin de partida,
+; ESPACIO (newgame) vuelve al 1 con la dificultad inicial. Al empezar cada nivel (gminit), la cifra del nivel
+; (CIFRA + lvlno) en el sprite 54, x 76, y 46, durante LVLT0 = 100 ticks (se escribe en la primera imagen; mientras
+; sale, las mejoras esperan quietas: upitem). Dificultad d = (lvlno - 1) + 5 * laps (0-14), en setdif: vidas del
+; jefe BHP0 + 10 d (bhpv), salvas del jefe cada max(15, BFT0 - 3 d) ticks (bftv) y cadencia de los enemigos
+; (eftab) = eftab0 con v = v - v / 8 repetido d veces, como poco la mitad.
 ; FASE 7d: titulo y record (tras las mejoras de la 7c). Modo 175, anillo de 160x102 en $8000 con dos paneles
 ; laterales fijos de 16 pixeles, scroll vertical del nivel 1, la nave con sus
 ; disparos y las oleadas de enemigos del nivel, con sus disparos, colisiones,
@@ -150,14 +161,14 @@
 ;         B = bomba (si hay alguna)
 ;         I = vidas infinitas si / no (para probar; el borde, brillante)
 ;         X = salir a BASIC
-; Devuelve en BC 0, o un error de carga: 1 no hay NIVEL1.I16, 2 no es un
-; .I16, 3 no hay NIVEL1.MAP, 4 no es un nivel (ELV1), 5 pasa de
+; Devuelve en BC 0, o un error de carga (del nivel 1 al empezar, o del 1 en mitad de la partida): 1 no hay
+; NIVEL1.I16, 2 no es un .I16, 3 no hay NIVEL1.MAP, 4 no es un nivel (ELV1), 5 pasa de
 ; 7 KB, 6 cabecera del nivel incoherente, 7 no hay HOJA.BIN.
 ;
 ; Ensamblar: pasmo estela.asm estela.bin estela.sym   (o compila.bat)
 ; Cargar: ESTELA.B81 (CLEAR 18431, LOAD FAST "ESTELA.BIN" CODE 18432);
 ; NIVEL1.I16, NIVEL1.MAP y HOJA.BIN (de out/) y NIVEL1.VGM (opcional) en la
-; misma carpeta de la SD.
+; misma carpeta de la SD (y NIVEL2..5.*, opcionales).
 ; El codigo tiene que acabar antes de $6F60 (letras2 y la hoja de los sprites).
 ; =============================================================
 
@@ -271,6 +282,11 @@ BOMBHP  equ 10                  ; vidas que le quita una bomba al jefe (sin baja
 SHLDT   equ 250                 ; ticks del escudo
 SHKN    equ 24                  ; imagenes que tiembla la pantalla con una bomba (tabla shktab)
 SCT     equ 60                  ; ticks que se ve el marcador al recoger una mejora
+NLEV    equ 5                   ; niveles: NIVEL1..NIVEL5 (el digito esta en el sexto caracter de los nombres)
+LVLT0   equ 100                 ; ticks que se ve la cifra del nivel al empezarlo (sprite 54)
+LVLX    equ 76                  ; x de pantalla de la cifra (8 px, centrada en 16-143)
+LVLY    equ 46                  ; y de pantalla
+LAPMAX  equ 2                   ; vueltas con mas dificultad (con 5 niveles: dificultad 0-14)
 
         jp start
 
@@ -318,7 +334,16 @@ start:  di
         ld a,175                ; modo 160x100 a 8 bpp
         ld (2045),a
 
+        ld a,1                  ; nivel 1, sin vueltas
+        ld (lvlno),a
+        call lvlnames
+        xor a
+        ld (laps),a
+        ld (fatal),a
         call loadlvl            ; A = 0, o el error
+        or a
+        jp nz,quit
+        call loadsheet
         or a
         jp nz,quit
         call sprinit
@@ -336,14 +361,7 @@ start:  di
         call aysetup
         xor a                   ; la musica del nivel
         call music
-        ld a,(LVLBUF+LVL_SCROLL) ; la velocidad del nivel: 1 -> 1 px por
-        cp 2                    ; imagen (0), 2 o mas -> 1 cada 2 (1)
-        ld a,0
-        jr c,st1
-        inc a
-st1:    ld (speed),a
-        xor a
-        ld (fcnt),a
+        call setspeed
         ld a,2                  ; S y R sin pulsar
         ld (prevs),a
         ld a,8
@@ -379,8 +397,12 @@ mn2:    djnz mn1
         call hstep              ; el desplazamiento horizontal de la imagen siguiente
         call sfx                ; los efectos que tocan en esta imagen
         call keys
-        jr nz,main
-        xor a                   ; sin error
+        jr nz,mn3
+        xor a                   ; X: sin error
+        jr quit
+mn3:    ld a,(fatal)            ; un nivel que no se puede cargar y el 1 tampoco
+        or a
+        jr z,main
 
 ; --- salida (A = error): modo normal, color apagado, paginas de antes ---
 quit:   ld (errc),a
@@ -683,6 +705,11 @@ loadlvl:
         ld (mapbase),hl
         ld hl,(LVLBUF+LVL_END)
         ld (lvlend),hl
+        xor a
+        ret
+
+; loadsheet: HOJA.BIN (comun a todos los niveles) y las letras; solo al empezar. A = 0 o el error 7
+loadsheet:
         ld hl,nmhoja            ; la hoja de los sprites
         call f_open
         cp 0ffh
@@ -709,6 +736,38 @@ lderr:  push de                 ; E = error, con el fichero abierto
         call f_close
         pop de
 lderr0: ld a,e
+        ret
+
+; lvlnames: la cifra de NIVELn.I16 y NIVELn.MAP = lvlno
+lvlnames:
+        ld a,(lvlno)
+        add a,'0'
+        ld (nmi16+5),a
+        ld (nmmap+5),a
+        ret
+
+; setspeed: la velocidad del nivel cargado: 1 -> 1 px por imagen (0), 2 o mas -> 1 cada 2 (1)
+setspeed:
+        ld a,(LVLBUF+LVL_SCROLL)
+        cp 2
+        ld a,0
+        jr c,st1
+        inc a
+st1:    ld (speed),a
+        xor a
+        ld (fcnt),a
+        ret
+
+; loadnum: carga el nivel A (lvlno, nombres, ficheros y velocidad) -> A = 0 (Z) o el error de loadlvl
+loadnum:
+        ld (lvlno),a
+        call lvlnames
+        call loadlvl
+        or a
+        ret nz
+        call setspeed
+        call showspd            ; el borde segun la velocidad
+        xor a
         ret
 
 ; cmp4: Z si los 4 bytes de HL y DE son iguales
@@ -926,7 +985,7 @@ ky2:    ld a,07fh               ; ESPACIO (bit 0): en el fin de partida,
         jr nz,ky3
         ld a,(ptimer)
         or a
-        call z,restart
+        call z,newgame
 ky3:    ld a,0dfh               ; I (fila Y U I O P, bit 2): vidas infinitas
         in a,(0feh)             ; si / no, con cada pulsacion nueva
         and 4
@@ -947,6 +1006,20 @@ ky3:    ld a,0dfh               ; I (fila Y U I O P, bit 2): vidas infinitas
 ky4:    ld a,0feh               ; X: salir
         in a,(0feh)
         and 4
+        ret
+
+; newgame: el fin de partida y ESPACIO: el nivel 1 con la dificultad inicial (si estabamos en otro, se
+; carga; si no se puede, fatal)
+newgame:
+        xor a
+        ld (laps),a
+        ld a,(lvlno)
+        cp 1
+        jr z,restart
+        ld a,1
+        call loadnum
+        jr z,restart
+        ld (fatal),a
         ret
 
 ; restart: el nivel desde el principio, con la paleta en negro mientras
@@ -1170,7 +1243,10 @@ music:  ld (musno),a
         jr z,mu0
         ld a,CMD_STOPVGM
         call mcu_send
-mu0:    ld hl,nmvgm
+mu0:    ld a,(lvlno)            ; NIVELn.VGM
+        add a,'0'
+        ld (nmvgm+5),a
+        ld hl,nmvgm
         ld e,1                  ; en bucle
         ld a,(musno)
         or a
@@ -1184,9 +1260,23 @@ mu1:    ld a,CMD_LOOPVGM
         ld a,CMD_PLAYVGM
         call mcu_name           ; A = 0 si suena
         or a
-        ld a,1
-        jr z,mu2
-        xor a
+        jr z,mu3
+        ld a,(musno)            ; no suena: la del nivel (no la del fin de partida)
+        or a                    ; y distinto del 1 prueba con la del 1
+        jr nz,mu4
+        ld a,(lvlno)
+        cp 1
+        jr z,mu4
+        ld a,'1'
+        ld (nmvgm+5),a
+        ld hl,nmvgm
+        ld a,CMD_PLAYVGM
+        call mcu_name
+        or a
+        jr nz,mu4
+mu3:    ld a,1
+        jr mu2
+mu4:    xor a
 mu2:    ld (vgmok),a
         ret
 
@@ -1599,6 +1689,69 @@ gminit: ld a,XSTART
         ld de,LVLBUF
         add hl,de
         ld (wptr),hl
+        ld a,LVLT0              ; la cifra del nivel, un rato
+        ld (lvlt),a
+
+; setdif: la dificultad d = (lvlno - 1) + 5 * laps (0-14) a las variables del nivel: vidas del jefe
+; bhpv = BHP0 + 10 d, salvas del jefe bftv = BFT0 - 3 d (como poco 15) y la cadencia de los enemigos
+; eftab: la de eftab0 con v = v - v / 8 repetido d veces (como poco la mitad de la de eftab0)
+setdif: ld a,(laps)
+        ld b,a
+        add a,a
+        add a,a
+        add a,b
+        ld b,a
+        ld a,(lvlno)
+        dec a
+        add a,b
+        ld (dif),a
+        ld b,a
+        ld hl,BHP0+BFT0*256     ; L = vidas del jefe, H = ticks entre salvas
+        or a
+        jr z,sd3
+sd1:    ld a,l
+        add a,10
+        ld l,a
+        ld a,h
+        sub 3
+        cp 15
+        jr nc,sd2
+        ld a,15
+sd2:    ld h,a
+        djnz sd1
+sd3:    ld (bhpv),hl            ; (bhpv y bftv seguidas)
+        ld hl,eftab0
+        ld de,eftab
+        ld bc,6
+        ldir
+        ld a,(dif)
+        or a
+        ret z
+        ld b,a
+sd4:    push bc
+        ld hl,eftab
+        ld de,eftab0
+        ld b,6
+sd5:    ld a,(hl)
+        ld c,a
+        rrca
+        rrca
+        rrca
+        and 1fh                 ; v / 8
+        neg
+        add a,c                 ; v - v / 8
+        ld c,a
+        ld a,(de)
+        srl a                   ; la mitad de la base
+        cp c
+        jr c,sd6
+        ld c,a
+sd6:    ld (hl),c
+        inc hl
+        inc de
+        djnz sd5
+        pop bc
+        djnz sd4
         ret
 
 ; -------------------------------------------------------------
@@ -1613,8 +1766,20 @@ drawspr:
         call off1               ; la nave ni de la llama, apagados (32-33: luego
         inc c                   ; los iconos de las bombas)
         call off1
-        ld c,SP_ITEM            ; la mejora, si hay (si no, apagado)
-        ld a,(ityp)
+        ld c,SP_ITEM            ; la cifra del nivel, un rato; si no, la mejora, si hay (si no, apagado)
+        ld a,(lvlt)
+        or a
+        jr z,dit0
+        cp LVLT0                ; solo se escribe la primera imagen: luego el sprite sigue igual
+        jr nz,dit2
+        ld a,(lvlno)
+        add a,CIFRA
+        ld d,a
+        ld e,SOFS+LVLX
+        ld l,SOFS+LVLY
+        call put1
+        jr dit2
+dit0:   ld a,(ityp)
         or a
         jr nz,dit1
         call off1
@@ -2043,7 +2208,12 @@ update: ld hl,tick
         or a
         jr z,up0
         dec (hl)
-up0:
+up0:    ld hl,lvlt              ; la cifra del nivel, cuenta atras
+        ld a,(hl)
+        or a
+        jr z,up00
+        dec (hl)
+up00:
         ld a,(pstate)
         cp 1
         jr z,up6                ; explotando o fin de partida: ni se mueve
@@ -2527,7 +2697,7 @@ bo1:    dec a
         ld (bx),a
         ld a,SOFS-24
         ld (by),a
-        ld a,BHP0
+        ld a,(bhpv)
         ld (bhp),a
         ld a,(bpath)
         add a,a
@@ -2559,12 +2729,12 @@ bo2:    dec a
         jr z,bo2a
         ld (bleft),a
         ld (bptr),hl
-        jr bhit
+        jp bhit
 bo2a:   ld a,3                  ; acabada: a pelear
         ld (bst),a
         ld a,1
         ld (bdir),a
-        ld a,BFT0
+        ld a,(bftv)
         ld (bft),a
         jr bhit
 bo3:    dec a
@@ -2584,7 +2754,8 @@ bo3a:   ld a,b
 ub3b:   ld hl,bft
         dec (hl)
         jr nz,bhit
-        ld (hl),BFT0
+        ld a,(bftv)
+        ld (hl),a
         ld a,(pstate)           ; dispara si la nave no explota ni es el fin
         cp 1
         jr z,bhit
@@ -2715,13 +2886,33 @@ bdie:   ld a,4                  ; sin vidas: explota y 1000 puntos
         ld hl,fxdie
         jp sfxgo
 
-; lap: el nivel otra vez desde el principio con el mismo marcador y vidas
+; lap: tras el jefe, el nivel siguiente (con su musica) con el mismo marcador y vidas. Tras el 5, o si el
+; siguiente falta o no vale, el 1 con una vuelta mas de dificultad (laps, hasta LAPMAX); si ni el 1 se
+; carga, fatal = el error y main sale
 lap:    ld hl,score
         ld de,lapsv
         ld bc,3
         ldir
         ld a,(lives)
         ld (de),a
+        ld a,(lvlno)
+        inc a
+        cp NLEV+1
+        jr nc,lp1
+        call loadnum
+        jr z,lp2
+lp1:    ld hl,laps
+        ld a,(hl)
+        cp LAPMAX
+        jr nc,lp1b
+        inc (hl)
+lp1b:   ld a,1
+        call loadnum
+        jr z,lp2
+        ld (fatal),a
+        ret
+lp2:    xor a                   ; la musica de este nivel
+        call music
         call restart
         ld hl,lapsv
         ld de,score
@@ -2948,7 +3139,10 @@ wsitem: cp 8
 ; su caja [X+1,X+6] x [Y+1,Y+6] toca la de la nave, se recoge: arma (disparo
 ; doble hasta perder la nave), escudo (invulnerable SHLDT ticks) o una bomba
 ; (hasta BOMBMAX); suena fxitem
-upitem: ld a,(ityp)
+upitem: ld a,(lvlt)             ; con la cifra del nivel, la mejora espera
+        or a
+        ret nz
+        ld a,(ityp)
         or a
         ret z
         ld hl,(iptr)
@@ -3258,7 +3452,14 @@ shx:    defb 0                  ; nave: x, y de pantalla, inclinacion (0-2)
 shy:    defb 0
 tilt:   defb 0
 etab:   defb ENEMY1,ENEMY2,ENEMY3,ENEMY4,ENEMY5,ENEMY6   ; pagina de cada tipo
-eftab:  defb 96,0,80,72,36,60   ; ticks entre disparo y disparo (0 = no dispara)
+eftab0: defb 96,0,80,72,36,60   ; ticks entre disparo y disparo (0 = no dispara) con la dificultad 0
+eftab:  defs 6                  ; los de ahora (setdif)
+lvlno:  defb 1                  ; nivel que se juega (1-NLEV)
+laps:   defb 0                  ; vueltas completas a los NLEV niveles (0-LAPMAX)
+dif:    defb 0                  ; dificultad = lvlno - 1 + 5 * laps
+bhpv:   defb 0                  ; vidas del jefe ahora (setdif)
+bftv:   defb 0                  ; ticks entre salvas del jefe ahora (justo detras de bhpv)
+fatal:  defb 0                  ; error de carga que obliga a salir en mitad de la partida
 ptstab: defb 10h,20h,30h,40h,60h,50h    ; puntos (BCD)
 wptr:   defw 0                  ; siguiente oleada
 nstp:   defb 0                  ; pasos de scroll de esta imagen
@@ -3296,6 +3497,7 @@ prevb:  defb 0                  ; B en la imagen anterior (bit 4; 0 = pulsada)
 shk:    defb 0                  ; imagenes de temblor que quedan
 hofv:   defb 0                  ; hofs (POKE 2074) de la imagen siguiente
 stimer: defb 0                  ; ticks que quedan de marcador por una mejora recogida
+lvlt:   defb 0                  ; ticks que quedan de la cifra del nivel (sprite 54)
 ptimer: defb 0                  ; ticks que le quedan a la explosion o a la invulnerabilidad
 deaths: defb 0                  ; veces que han dado a la nave
 drope:  defb 0                  ; enemigos que no cupieron (sin hueco)

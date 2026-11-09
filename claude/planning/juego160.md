@@ -387,3 +387,12 @@ el código tendría que pasar de nivel tras el jefe en vez de `lap`), gráficos 
   mismo orden de páginas (las etiquetas de `HOJA.INC` pueden cambiar de valor, no de nombre). Mejorar los gráficos provisionales.
 - **8c Manual** (al final, sesión Sonnet con la skill docx, flujo docx-first): sección de ESTELA (carga, teclas, mejoras, jefe,
   récord, ficheros de la SD), con lo apuntado en `manual_pendiente.md`.
+- **8d Músicas y tecla de música** (petición del usuario, 2026-11-09; después de la 8a, la misma sesión). Ficheros opcionales
+  sin "_" (si falta uno, se sigue con la que haya o sin música): `TITULO.VGM` en bucle en la pantalla del título; `JEFE.VGM` en
+  bucle desde el aviso WARNING hasta que el jefe explota (luego WELL DONE en silencio o con la del nivel siguiente al cargarlo);
+  `FINAL.VGM` una vez al vencer al jefe del último nivel (durante su WELL DONE, alargado lo que haga falta, antes de volver al
+  nivel 1); `GAMEOVER.VGM` y `NIVELn.VGM` como ahora. Tecla **M** (fila B N M . ESPACIO, bit 2, pulsación nueva): música sí /
+  no hasta salir; con no, `STOP_VGM` y ninguna `PLAY_VGM`; al volver a sí, la que toque en ese momento desde el principio. Todo con
+  `music` (la rutina de ahora, ampliada a un número de música). `compila.bat`: `out\*.VGM` si existe; si no, provisionales de
+  `EXAMPLES/VGM` (`ledstorm-3` el título, `ledstorm-1` el jefe, `ledstorm-2` el final). Arnés: la secuencia de órdenes de música
+  contra el modelo (título, jefe, final, M en cada estado).

@@ -366,3 +366,24 @@ Arnés: MCU con la 71 y la 56 simuladas (el fichero se escribe en `sdfiles`), r�
 **8 Pulido** (mayormente del usuario y de estela-herramientas): dificultad (`eftab`, `BHP0`, `BFT0`), más niveles (`NIVEL2.*`:
 el código tendría que pasar de nivel tras el jefe en vez de `lap`), gráficos definitivos, músicas propias (`out/NIVEL1.VGM`,
 `out/GAMEOVER.VGM`), y el manual (`manual_pendiente.md`).
+
+### 12.1 Fase 8: alcance decidido por el usuario (2026-11-09)
+
+**5 niveles**, gráficos generados por estela-herramientas, y la sección del manual al final. Tres trabajos:
+
+- **8a Código: varios niveles** (sesión Sonnet; `estela.asm` + arnés). Ficheros `NIVEL1..NIVEL5` (`.I16`, `.MAP`, y `.VGM`
+  opcional: si falta, la del 1); la hoja `HOJA.BIN` es común. Tras el jefe (WELL DONE) se carga el nivel siguiente (mismo
+  `loadlvl` con la cifra del nombre cambiada) con el marcador y las vidas; tras el 5, o si falta el fichero del siguiente, vuelta al
+  1 con una **vuelta más** de dificultad. R vuelve al principio del nivel actual; el fin de partida y ESPACIO, al nivel 1 con la
+  dificultad inicial. Dificultad por nivel y vuelta en una tabla del código: vidas del jefe (`BHP0` 40 + 10 por nivel), salvas del jefe
+  (`BFT0` 30 - 3 por nivel, mínimo 15) y cadencia de los enemigos (`eftab` x 7/8 por nivel y vuelta, mínimo la mitad). Cartel del
+  número de nivel al empezar cada uno: la cifra del nivel en el sprite 54 centrada (y 46) unas 100 imágenes, sin letras nuevas. Los
+  errores de carga a mitad de partida (un nivel que no cabe o está mal): volver al 1 en lugar de salir. Memoria: lo que no quepa
+  en `$4800-$6F5F`, a la página del bloque 1 (detrás del nivel, como hizo la 7d). Arnés: niveles 2-5 de prueba (copias del 1 con
+  otro `LVL_SCROLL`/paleta, o los de herramientas si ya están), paso de nivel, vuelta al 1, dificultad, fallo del nivel siguiente.
+- **8b Niveles 2-5 y gráficos definitivos** (estela-herramientas): un tileset y paleta por nivel (temas distintos: p. ej. hielo,
+  desierto, ciudad, nave alienígena), oleadas cada vez más difíciles con su jefe al final (tipo 6, trayectoria `ENTER`), mejoras
+  repartidas; cada nivel <= 7 KB, la regla de 3 por línea (`map2bin --check`); la hoja sigue dejando 7 celdas libres al final y el
+  mismo orden de páginas (las etiquetas de `HOJA.INC` pueden cambiar de valor, no de nombre). Mejorar los gráficos provisionales.
+- **8c Manual** (al final, sesión Sonnet con la skill docx, flujo docx-first): sección de ESTELA (carga, teclas, mejoras, jefe,
+  récord, ficheros de la SD), con lo apuntado en `manual_pendiente.md`.

@@ -4,6 +4,10 @@
 // la SD, servidos desde EXAMPLES/ESTELA/out) y un modelo del scroll en anillo del modo 175 (mode160_emulador.md §6):
 //   pixel x de la fila r de la pantalla = byte $8000 + ((r + vofs) mod hc) * 160 + x   (hofs = 0, wc = 160)
 //
+// FASE 7c: mejoras (tipos 8-10 de las oleadas: arma, escudo, bomba), el disparo doble, el escudo de 250 ticks, las bombas (B) y sus
+//   iconos. El modelo Game lleva tambien todo eso. Dos partidas con niveles hechos aqui (ver 1f): una con las tres mejoras y una
+//   bomba contra enemigos, y otra con el jefe y bombas; y tres pruebas en negativo con el binario cambiado a proposito.
+//
 // FASE 4 (sobre la 3): oleadas de enemigos, disparos enemigos, colisiones, explosiones y marcador. El modelo Game lleva tambien
 //   todo eso (las oleadas de NIVEL1.MAP y las trayectorias leidas del texto de LEVEL.INC) y se compara con los 64 sprites en cada
 //   imagen; ademas cuenta los sprites por linea (el limite del hardware es 12). Una ejecucion del nivel entero.
@@ -250,7 +254,8 @@ struct Result { int bc; long frames; int vis_ok, vis_bad; long maxlat, maxloop; 
                 // 3 nave y llama, 4 marcador); imagenes con alguna perdida; racha mas larga de un enemigo con lineas perdidas
                 long lost_lines, lost_cls[5]; int lost_frames, first_lost, consec[8], max_consec, ene_lost_frames;
                 int ay_bad, gameovers, goresets, cartel;
-                int bwarn, benter, bkills, bhits, bshots, laps, bdeaths, bmaxhp, inftoggles; };
+                int bwarn, benter, bkills, bhits, bshots, laps, bdeaths, bmaxhp, inftoggles;
+                int items[3], itemmiss, dblvolleys, bombuse, bombkills, bombboss, bclamp, weaplost, shielded; int hofs_bad, hofs_nz, bhp_bad, bhp_min, vis_shk; std::string lostinfo; };
 
 // ---- el juego, escrito aqui con la especificacion (cabecera de estela.asm y juego160.md §8.3), no con el codigo del Z80.
 // Nave: x 16-128, y 0-76, 1 px por imagen con O P Q A; inclinacion = dx + 1. Disparos: 8 huecos, suben 3 px por tick, se borran
@@ -266,14 +271,15 @@ struct EB { int a, x, y, dx; };
 struct Spn { int rem, w, t; };
 struct Game { int x, y, tilt, cd, tick; int ba[8], bx[8], by[8]; int pstate, ptimer, score; Ene e[8]; EB b[7]; Spn sp[4]; int w;
              int fxp[4], fxpr[4]; int lives;
-             int bpend, bst, btmr, jx, jy, bk, bhp, bdir, bft, bflash, bwx, bpath; };   // el jefe (cabecera de estela.asm)      // efectos: siguiente par de cada voz (0 = libre) y su prioridad
+             int bpend, bst, btmr, jx, jy, bk, bhp, bdir, bft, bflash, bwx, bpath;
+             int ityp, itx, ity, ik, ipath, weap, bombs, prevb, stimer, shk, hofv; };   // mejoras (7c): ityp 0 ninguna, 1 arma, 2 escudo, 3 bomba; prevb = B en bruto (0 = pulsada)   // el jefe (cabecera de estela.asm)      // efectos: siguiente par de cada voz (0 = libre) y su prioridad
 // Efectos (cabecera de estela.asm): 4 voces; cada una escribe en cada imagen un par (valor, volumen) de su tabla en sus
 // registros: 0 disparo (AY A, R4 y R10), 1 disparo enemigo por la izquierda (AY A, R0 y R8), 2 por la derecha (AY A, R2 y
 // R9), 3 explosiones (AY B, ruido R6 y R10). Volumen $FF = fin: volumen 0 y libre. Un efecto entra si la voz esta libre o el
 // suyo tiene tanta o mas prioridad (primer byte de la tabla). Las tablas se leen de la memoria del Z80.
 static const int FXD[4][3] = { {0, 4, 10}, {0, 0, 8}, {0, 2, 9}, {1, 6, 10} };
 static int ayexp[2][16];
-static long fx_started[6];                                // disparo, enemigo izquierda, derecha, explosion, nave, impacto en el jefe
+static long fx_started[8];                                // disparo, enemigo izquierda, derecha, explosion, nave, impacto en el jefe
 static void fxgo(Game& g, int v, const char* tab, int k) {
   int t = S(tab), pr = rd(t);
   if (g.fxp[v] == 0 || pr >= g.fxpr[v]) { g.fxp[v] = t + 1; g.fxpr[v] = pr; }
@@ -305,12 +311,13 @@ static void ginit(Game& g) {
   g.w = woff();
   g.lives = S("LIVES0");
   g.bpend = g.bst = g.btmr = g.jx = g.jy = g.bk = g.bhp = g.bdir = g.bft = g.bflash = g.bwx = g.bpath = 0;
+  g.ityp = g.itx = g.ity = g.ik = g.ipath = g.weap = g.bombs = g.prevb = g.stimer = g.shk = g.hofv = 0;
 }
 static bool keydown(const std::vector<Key>& sc, long f, int row, int bit) { for (auto& k : sc) if (f >= k.from && f < k.to && k.row == row && k.bit == bit) return true; return false; }
 static bool ovl(int b, int c, int d, int e) { return !((e & 255) < (b & 255)) && !((c & 255) < (d & 255)); }
 static void kill(Game& g, Ene& e, Result& R) { e.st = 2; e.tmr = 16; g.score = (g.score + PTS[e.typ]) % 1000000; R.kills++; fxgo(g, 3, "fxboom", 3); }
 static bool g_inf = false;                                // vidas infinitas (tecla I)
-static void pdie(Game& g, Result& R) { g.pstate = 1; g.ptimer = 16; R.deaths++; if (!g_inf) g.lives--; fxgo(g, 3, "fxdie", 4); }
+static void pdie(Game& g, Result& R) { if (g.weap) R.weaplost++; g.weap = 0; g.pstate = 1; g.ptimer = 16; R.deaths++; if (!g_inf) g.lives--; fxgo(g, 3, "fxdie", 4); }
 static void spawn(Game& g, int w, int x, Result& R) {
   const uint8_t* r = &g_map[w];
   for (int i = 0; i < (g.bpend ? 5 : 8); i++) if (g.e[i].st == 0) {
@@ -350,6 +357,7 @@ static void bosshit(Game& g, Result& R) {
 }
 static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int nstp, Result& R) {
   g.tick = (g.tick + 1) & 255;
+  if (g.stimer) g.stimer--;                              // el marcador de la mejora recogida (SCT ticks)
   if (g.pstate != 1 && g.pstate != 3) {                  // explotando o fin de partida: ni se mueve ni dispara
     int dx = (keydown(sc, f, 5, 0) ? 1 : 0) - (keydown(sc, f, 5, 1) ? 1 : 0);
     g.tilt = dx + 1; g.x = std::min(128, std::max(16, g.x + dx));
@@ -360,8 +368,29 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
   if (g.pstate != 1 && g.pstate != 3) {
     bool fire = true;
     if (g.cd > 0) { g.cd--; if (g.cd > 0) fire = false; }
-    if (fire && keydown(sc, f, 7, 0))
-      for (int i = 0; i < 8; i++) if (!g.ba[i]) { g.ba[i] = 1; g.bx[i] = g.x + 4; g.by[i] = g.y - 6; g.cd = 6; R.fired++; fxgo(g, 0, "fxshot", 0); break; }
+    if (fire && keydown(sc, f, 7, 0)) {                 // con el arma, dos disparos: x + 0 en el primer hueco y x + 8 en el siguiente libre
+      int first = -1, second = -1;
+      for (int i = 0; i < 8; i++) if (!g.ba[i]) { first = i; break; }
+      if (first >= 0) {
+        if (g.weap) for (int i = first + 1; i < 8; i++) if (!g.ba[i]) { second = i; break; }
+        g.ba[first] = 1; g.bx[first] = g.x + (g.weap ? 0 : 4); g.by[first] = g.y - 6; R.fired++;
+        if (second >= 0) { g.ba[second] = 1; g.bx[second] = g.x + 8; g.by[second] = g.y - 6; R.fired++; R.dblvolleys++; }
+        g.cd = 6; fxgo(g, 0, "fxshot", 0);
+      }
+    }
+    // bomba: B (fila 7, bit 4), pulsacion nueva y con alguna bomba
+    int raw = keydown(sc, f, 7, 4) ? 0 : 16;
+    bool newp = raw == 0 && g.prevb != 0; g.prevb = raw;
+    if (newp && g.bombs > 0) {
+      g.bombs--; R.bombuse++;
+      for (auto& e : g.e) if (e.st == 1) { kill(g, e, R); R.bombkills++; }
+      if (g.bst == 2 || g.bst == 3) {                    // el jefe pierde 10 vidas sin bajar de 1
+        int nh = g.bhp - 10; if (nh <= 0) { nh = 1; R.bclamp++; }
+        g.bhp = nh; g.bflash = 6; R.bombboss++;
+      }
+      g.shk = 24;                                        // la pantalla tiembla 24 imagenes
+      fxgo(g, 3, "fxbomb", 7);                           // ruido grave largo, prioridad 3
+    }
   }
   // enemigos
   for (auto& e : g.e) {
@@ -392,6 +421,23 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
     for (auto& b : g.b) if (b.a && ovl(b.x + 3, b.x + 4, cpx, cpx + 7) && ovl(b.y + 3, b.y + 4, cpy, cpy + 10)) { b.a = 0; pdie(g, R); hit = true; break; }
     if (!hit) for (auto& e : g.e) if (e.st == 1 && !(e.flg & 4) && ovl(e.x + 2, e.x + 13, cpx, cpx + 7) && ovl(e.y + 2, e.y + 13, cpy, cpy + 10)) { kill(g, e, R); pdie(g, R); break; }
   }
+  // la mejora: un paso de su trayectoria (el ultimo se repite); sale por abajo (Y >= 132); con la nave viva o parpadeando, si toca
+  // su caja [X+1,X+6] x [Y+1,Y+6] con la de la nave, se recoge
+  if (g.ityp) {
+    const std::vector<int>& p = g_paths[g.ipath]; int n = (int)p.size() / 2;
+    g.itx = (g.itx + p[2 * g.ik]) & 255; g.ity = (g.ity + p[2 * g.ik + 1]) & 255;
+    if (g.ik < n - 1) g.ik++;
+    if (g.ity >= 132) { g.ityp = 0; R.itemmiss++; }
+    else if (!(g.pstate & 1)) {
+      int cpx = g.x + 36, cpy = g.y + 35;
+      if (ovl(cpx, cpx + 7, g.itx + 1, g.itx + 6) && ovl(cpy, cpy + 10, g.ity + 1, g.ity + 6)) {
+        int t = g.ityp; g.ityp = 0; g.stimer = S("SCT"); R.items[t - 1]++; fxgo(g, 0, "fxitem", 6);
+        if (t == 1) g.weap = 1;
+        else if (t == 2) { g.pstate = 2; g.ptimer = S("SHLDT"); R.shielded++; }
+        else if (g.bombs < 2) g.bombs++;
+      }
+    }
+  }
   // disparos de los enemigos
   if (!g_immortal)
   for (auto& e : g.e) if (e.st == 1 && e.ft != 0) {
@@ -405,7 +451,10 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
     int w = g.w; g.w += 8; R.waves++;
     const uint8_t* r = &g_map[w];
     if (r[2] == 6) { g.bwx = r[3]; g.bpath = r[4]; g.bpend = 1; continue; }   // el jefe
-    if (r[2] > 6) continue;                                                    // mejoras: fase 7c
+    if (r[2] > 6) {                                                            // mejoras (tipos 8-10): una a la vez, en (WAVE_X, -8)
+      if (r[2] >= 8 && !g.ityp) { g.ityp = r[2] - 7; g.itx = (r[3] + 32) & 255; g.ity = 24; g.ik = 0; g.ipath = r[4]; }
+      continue;
+    }
     if (r[7] & 2) { for (int i = 0; i < r[5]; i++) spawn(g, w, r[3] + i * r[6], R); }
     else {
       bool ok = false;
@@ -451,10 +500,13 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
   if (g.pstate == 3) { if (g.ptimer) g.ptimer--; }      // fin de partida: la espera baja hasta 0
   else if (g.pstate && --g.ptimer == 0) {
     if (g.pstate == 1) {
-      if (g.lives == 0) { g.pstate = 3; g.ptimer = S("GOT"); R.gameovers++; mus_go(1); }
+      if (g.lives == 0) { g.pstate = 3; g.ptimer = S("GOT"); g.shk = 0; R.gameovers++; mus_go(1); }
       else { g.x = 72; g.y = 76; g.tilt = 1; g.pstate = 2; g.ptimer = 100; }
     } else g.pstate = 0;
   }
+  // el desplazamiento horizontal de la imagen siguiente (se escribe en el VSYNC junto a POKE 2072)
+  static const int SHK[24] = {3, -3, 3, -3, 3, -3, 2, -2, 2, -2, 2, -2, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, 0};
+  if (g.shk > 0) { g.hofv = (SHK[24 - g.shk] + 160) % 160; g.shk--; } else g.hofv = 0;
 }
 static long line_loss(Result& R, int& mx, bool elost[8]);
 // los registros de los 64 sprites tienen que ser los de este estado; cuenta tambien los sprites por linea
@@ -480,6 +532,7 @@ static int spr_check(const Game& g, int scr, Result& R) {
     if (g.pstate != 1) chk(49, g.x + 36, g.y + 48, LLAMA + ((g.tick >> 2) & 1));
   }
   for (int i = 0; i < 8; i++) if (g.ba[i]) chk(34 + i, g.bx[i] + 32, g.by[i] + 32, BALA);
+  if (g.ityp && g.pstate != 3) chk(54, g.itx, g.ity, S("ITEM1") + g.ityp - 1);       // la mejora (sprite 54; en el fin de partida, la V del cartel)
   int ne = 0;
   for (int i = 0; i < (g.bst ? 5 : 8); i++) {            // con jefe, sus sprites son los de los huecos 5-7
     const Ene& e = g.e[i];
@@ -505,10 +558,11 @@ static int spr_check(const Game& g, int scr, Result& R) {
     }
   }
   // marcador: una fila de 6 cifras en x 56-103, y 2, solo con la nave explotando o parpadeando o al final del nivel
-  if (g.pstate != 0 || scr >= u16(g_map, 14)) {
+  if (g.pstate != 0 || g.stimer || scr >= u16(g_map, 14)) {
     int dig[6] = { g.score / 100000, g.score / 10000 % 10, g.score / 1000 % 10, g.score / 100 % 10, g.score / 10 % 10, g.score % 10 };
     for (int i = 0; i < 6; i++) chk(58 + i, 32 + 56 + 8 * i, 32 + 2, CIFRA + dig[i]);
     for (int i = 0; i < 3 && i < g.lives; i++) chk(55 + i, 32 + 68 + 8 * i, 32 + 12, S("VIDA"));   // vidas: x 68-91, y 12
+    if (g.pstate != 3) for (int i = 0; i < 2 && i < g.bombs; i++) chk(32 + i, 32 + 100 + 8 * i, 32 + 12, S("BOMBA"));  // bombas: x 100-115, y 12 (32-33: en el fin de partida, el cartel)
     R.score_shown++;
   }
   for (int n = 0; n < 64; n++) if (!used[n] && spr[n].en) bad++;
@@ -538,6 +592,10 @@ static long line_loss(Result& R, int& mx, bool elost[8]) {
       cnt++;
       if (!stop && (loaded == 12 || steps + 8 > 171)) stop = true;
       if (stop) {
+        if (R.lostinfo.empty()) {                         // la primera perdida: fila y sprites que la cruzan
+          char b[64]; snprintf(b, sizeof b, "fila %d, pierde el %d, cruzan:", row, n); R.lostinfo = b;
+          for (int q = 63; q >= 0; q--) if (spr[q].en && (((row + 32) - spr[q].y) & 511) < 8) { snprintf(b, sizeof b, " %d", q); R.lostinfo += b; }
+        }
         lost++;
         int c = n < 32 ? 0 : n < 42 ? 1 : n < 49 ? 2 : n < 58 ? 3 : 4;
         R.lost_cls[c]++;
@@ -553,7 +611,7 @@ static long line_loss(Result& R, int& mx, bool elost[8]) {
 
 // una ejecucion: hasta que vuelve o hasta maxf imagenes
 static Result run(const Level& lv, const std::vector<Key>& script, long maxf, int nchecks, bool check_pal) {
-  Result R{}; R.bc = -1;
+  Result R{}; R.bc = -1; R.bhp_min = 255;
   memset(sram, 0, sizeof sram); memcpy(mapb, init, sizeof mapb);
   for (int i = 0; i < 8192; i++) sram[1][i] = (uint8_t)(i * 13 + 5 + (i >> 9));       // "ROM" del bloque 1, para ver si se toca
   sram[0][0] = 0xD3;
@@ -597,6 +655,8 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
     if (in_main && z80.pc.w == WAITVS && vwrites.size() > nspr) {
       // acaba una vuelta: lo que se ha visto en esta imagen es el estado de antes de update; luego update con las teclas de la imagen
       nspr = vwrites.size(); long f = vwrites.back().f;
+      if (hofs != g.hofv) R.hofs_bad++;                  // POKE 2074: el temblor de la bomba, en cada imagen
+      if (hofs) R.hofs_nz++;
       if (spr_check(g, vwrites.back().s, R)) R.spr_bad.push_back((int)f);     // drawspr va antes de los pasos: el scroll del POKE 2072
       if (spr_blk != S("SHEET_BLOCK") || spr_xtr != 0) R.blk_bad++;
       if (pal16_on != 1) R.p16_bad++;
@@ -612,6 +672,10 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
       bool sp = keydown(script, f, 7, 0);               // fin de partida: pasada la espera, una pulsacion nueva de ESPACIO
       if (sp && !prev_sp && g.pstate == 3 && g.ptimer == 0) { if (g_musno) mus_go(0); ginit(g); ay_model_setup(); R.goresets++; }
       prev_sp = sp;
+      if (g.bst == 2 || g.bst == 3) {                    // vidas del jefe: las de la memoria del Z80 (ya con esta vuelta hecha) son las del modelo, y nunca menos de 1
+        int h = rd(S("bhp")); if (h != g.bhp) R.bhp_bad++;
+        R.bhp_min = std::min(R.bhp_min, h);
+      }
       bool ik = keydown(script, f, 5, 2);               // I: vidas infinitas si / no
       if (ik && !prev_i) { g_inf = !g_inf; R.inftoggles++; }
       prev_i = ik;
@@ -641,14 +705,16 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
     }
     if (++guard > 600000000L) { printf("ERROR: no termina (PC=%04X)\n", z80.pc.w); errors++; break; }
     while (ci < checks.size() && total_t >= checks[ci]) {
-      if (!checking_vis || in_restart || !shown_valid || mode != 175 || vring != 102 || hofs != 0 || hring != 0) { ci++; continue; }
+      if (!checking_vis || in_restart || !shown_valid || mode != 175 || vring != 102 || hring != 0) { ci++; continue; }
       int bad = 0;
       for (int r = 0; r < 100 && bad < 3; r++)
         for (int x = 0; x < 160; x++) {
-          uint8_t got = rd(0x8000 + ((r + vofs) % 102) * 160 + x), want = lv.at(99 + s_shown - r, x);
+          int xs = (x + hofs) % 160;                      // el pixel x de la pantalla es el del anillo (x + hofs) mod 160
+          uint8_t got = rd(0x8000 + ((r + vofs) % 102) * 160 + xs), want = lv.at(99 + s_shown - r, xs);
           if (got != want) { printf("        instante %zu (imagen %ld): fila %d x %d = %d, nivel %d (vofs %d, s %d)\n", ci, frame(), r, x, got, want, vofs, s_shown); bad++; break; }
         }
       if (bad) R.vis_bad++; else R.vis_ok++;
+      if (hofs) R.vis_shk++;
       ci++;
     }
     if (fr > maxf) { printf("  ERROR: no sale (PC=%04X)\n", z80.pc.w); errors++; break; }
@@ -688,7 +754,7 @@ static void lost_report(const Result& L) {
          L.lost_frames, L.lost_lines, L.lost_cls[0], L.lost_cls[1], L.lost_cls[2], L.lost_cls[3], L.lost_cls[4]);
   printf("        enemigos con lineas perdidas en %d imagenes; racha mas larga de un mismo enemigo: %d imagenes%s\n",
          L.ene_lost_frames, L.max_consec, L.lost_frames ? "" : " (ninguna)");
-  if (L.lost_frames) printf("        primera perdida en el tick %d\n", L.first_lost);
+  if (L.lost_frames) printf("        primera perdida en el tick %d (%s)\n", L.first_lost, L.lostinfo.c_str());
 }
 
 // caso peor del reparto, solo con el modelo: el nivel entero a su velocidad con los enemigos inmortales (nadie los derriba ni
@@ -1030,6 +1096,119 @@ int main(int argc, char** argv) {
     }
     CHECK(spr_maxlat < 12000, "los sprites se escriben en el borrado (antes de los ~12.600 T de la primera linea)");
     exit_checks("jefe", 0);
+  }
+
+  // ===== 1f. mejoras (fase 7c): niveles cortos hechos aqui con sus oleadas de tipo 8-10 (arma, escudo, bomba)
+  {
+    struct W { int pos, typ, x, path, count, spc, flg; };
+    auto mk = [&](const std::vector<W>& ws, int rows, Level& bl) {
+      std::vector<uint8_t> m(lv.map.begin(), lv.map.begin() + 16);
+      for (auto& w : ws) { uint8_t r[8] = {(uint8_t)(w.pos & 255), (uint8_t)(w.pos >> 8), (uint8_t)w.typ, (uint8_t)w.x, (uint8_t)w.path, (uint8_t)w.count, (uint8_t)w.spc, (uint8_t)w.flg}; m.insert(m.end(), r, r + 8); }
+      uint8_t t[8] = {0xFF, 0xFF, 0, 0, 0, 0, 0, 0}; m.insert(m.end(), t, t + 8);
+      int mo = (int)m.size();
+      for (int i = 0; i < 8 * rows; i++) m.push_back(lv.map[lv.mapoff + i]);
+      int end = 16 * rows - 100;
+      m[5] = (uint8_t)ws.size(); m[6] = (uint8_t)rows; m[7] = (uint8_t)(rows >> 8); m[10] = (uint8_t)mo; m[11] = (uint8_t)(mo >> 8);
+      m[12] = (uint8_t)m.size(); m[13] = (uint8_t)(m.size() >> 8); m[14] = (uint8_t)end; m[15] = (uint8_t)(end >> 8);
+      bl = lv; bl.map = m; bl.rows = rows; bl.mapoff = mo; bl.end = end;
+      return m;
+    };
+    auto item_report = [&](const Result& L) {
+      printf("        mejoras recogidas: %d armas, %d escudos, %d bombas; %d se van por abajo; %d salvas dobles; %d bombas usadas (%d enemigos, jefe %d veces, %d sin bajar de 1);"
+             " arma perdida %d veces; %ld sonidos de recogida\n", L.items[0], L.items[1], L.items[2], L.itemmiss, L.dblvolleys, L.bombuse, L.bombkills, L.bombboss, L.bclamp, L.weaplost, fx_started[6]);
+    };
+    auto basefiles = [&](const std::vector<uint8_t>& bm) {
+      sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = bm; sdfiles["HOJA.BIN"] = hoja; sdfiles["NIVEL1.VGM"] = {'V', 'g', 'm', ' '};
+      sdfiles["GAMEOVER.VGM"] = {'V', 'g', 'm', ' '};
+    };
+    const int SLOW = S("PATH_SLOW"), SINE = S("PATH_SINE"), DIVE = S("PATH_DIVE"), DOWN = S("PATH_DOWN");
+    // --- A: arma, bombas (con el tope de 2), escudo y enemigos: la nave quieta en x = 72 (la mejora cae en su X) y luego movida a la derecha
+    printf("-- mejoras (nivel de 150 filas con oleadas de tipo 8-10 y el jefe al final; la nave quieta en x = 72, luego en el borde derecho) --\n");
+    Level bl; std::vector<uint8_t> bm = mk({ {0, 8, 72, SLOW, 1, 0, 0}, {150, 10, 72, SLOW, 1, 0, 0}, {260, 10, 72, SLOW, 1, 0, 0}, {380, 10, 72, SLOW, 1, 0, 0},
+                                             {500, 9, 72, SLOW, 1, 0, 0}, {600, 0, 48, SINE, 4, 16, 0}, {640, 1, 24, DIVE, 3, 18, 0}, {900, 1, 72, DOWN, 1, 0, 0},
+                                             {1100, 8, 72, SLOW, 1, 0, 0}, {1200, 9, 20, SLOW, 1, 0, 0}, {1350, 9, 130, SLOW, 1, 0, 0},
+                                             {1380, 10, 130, SLOW, 1, 0, 0}, {1480, 10, 130, SLOW, 1, 0, 0}, {1520, 6, 64, S("PATH_ENTER"), 1, 0, 0} }, 150, bl);
+    std::vector<Key> sc = { {30, 880, 7, 0}, {1010, 2240, 7, 0},                    // ESPACIO; se suelta para que el enemigo que baja derecho toque la nave
+                            {120, 124, 7, 4}, {700, 704, 7, 4}, {760, 764, 7, 4},   // B: sin bombas, y dos veces con enemigos delante
+                            {1320, 1420, 5, 0},                                      // P: la nave al borde derecho
+                            {1300, 1304, 5, 2},                                      // I: vidas infinitas (el jefe llega al final)
+                            {1850, 1854, 7, 4}, {1950, 1954, 7, 4}, {2050, 2054, 7, 4},   // B contra el jefe (las dos bombas recogidas a 130)
+                            {2260, 2264, 0, 2} };                                    // X
+    auto runA = [&]() { basefiles(bm); g_map = bm; Result L = run(bl, sc, 2320, 500, true); g_map = lv.map; return L; };
+    Result L = runA();
+    item_report(L); lost_report(L);
+    printf("        hasta %d sprites en una linea; %d imagenes con perdidas; sprites escritos hasta %ld T; vuelta mas larga %ld T; la nave tocada %d veces\n",
+           L.maxline, L.lost_frames, spr_maxlat, L.maxloop, L.deaths);
+    if (!L.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", L.spr_bad.size(), L.spr_bad[0]);
+    CHECK(L.spr_checked > 2200 && L.spr_bad.empty() && L.ay_bad == 0 && L.vis_bad == 0 && L.pal_bad.empty(),
+          "los 64 sprites (mejora en el 54, iconos de las bombas en el 32-33, disparo doble), los AY, lo visible y la paleta, iguales al modelo en cada imagen");
+    CHECK(L.items[0] >= 2 && L.items[1] >= 2 && L.items[2] >= 3 && L.itemmiss >= 1 && fx_started[6] == L.items[0] + L.items[1] + L.items[2],
+          "se recogen las tres mejoras (arma, escudo, bomba; una bomba de mas con el tope), una se va por abajo sin recogerla y cada recogida suena");
+    CHECK(L.dblvolleys > 30 && L.weaplost >= 1, "con el arma salen dos disparos por salva (x + 0 y x + 8) y se pierde al perder la nave");
+    CHECK(L.bombuse >= 3 && L.bombkills > 0, "B sin bombas no hace nada; con ellas, todos los enemigos vivos explotan (con sus puntos)");
+    {
+      printf("        temblor: %d imagenes con POKE 2074 distinto de 0; %d instantes de lo visible comprobados con el desplazamiento; jefe: %d bombas, mas bajo que llega: %d vidas\n",
+             L.hofs_nz, L.vis_shk, L.bombboss, L.bhp_min);
+      CHECK(L.hofs_bad == 0 && L.hofs_nz >= 23 * L.bombuse / 2, "POKE 2074 en cada imagen es el del modelo (tabla de 24 desplazamientos que se apagan, 0 al acabar, junto al POKE 2072)");
+      CHECK(L.vis_shk > 0, "durante el temblor, lo visible es el anillo rotado por hofs (el pixel x sale de la columna (x + hofs) mod 160)");
+      CHECK(L.bombboss >= 1 && L.bhp_bad == 0 && L.bhp_min >= 1, "bomba contra el jefe: sus vidas (bhp, en la memoria del Z80) son las del modelo en cada imagen y nunca baja de 1");
+      CHECK(fx_started[7] == L.bombuse, "cada bomba suena con fxbomb");
+      int t = S("fxbomb"), tdie = S("fxdie"), bad = rd(t) <= rd(tdie) ? 1 : 0, n = 0;
+      for (int a = t + 1; rd(a + 1) != 0xFF; a += 2, n++) { int per = rd(a), vol = rd(a + 1); if (per < 24 || per > 31 || vol > 15 || vol == 0) bad++; if (n && vol > rd(a - 1)) bad++; }
+      printf("        fxbomb: prioridad %d (fxdie %d), %d pares, volumen inicial %d\n", rd(t), rd(tdie), n, rd(t + 2));
+      CHECK(bad == 0 && n >= 60 && n <= 68 && rd(t + 2) == 15, "fxbomb: prioridad 3 (mayor que fxdie), unas 64 imagenes de ruido grave (periodo 24-31), volumen 15 que baja despacio");
+    }
+    CHECK(L.shielded >= 2 && spr_maxlat < 12000, "dos escudos (250 ticks, parpadea la nave) y los sprites escritos antes de 12.000 T");
+    // El escudo deja el marcador (6 cifras, y 2-9) a la vista 250 ticks; con 3 enemigos entrando a la vez justo debajo, 2 disparos de la
+    // salva doble y el marcador pasan de 12 en esas filas: se pierden unas lineas de arriba de un enemigo en una imagen (limite conocido
+    // desde la fase 5; en el nivel real, con las mejoras donde estan, no ocurre: ver el nivel entero)
+    CHECK(L.lost_frames <= 2 && L.lost_lines == L.lost_cls[0] && L.maxline <= 14,
+          "con esta oleada de 3 enemigos que entra bajo el marcador del escudo, solo se pierden unas lineas de arriba de un enemigo (como mucho en 2 imagenes)");
+    exit_checks("mejoras", 0);
+
+    // --- pruebas en negativo: seis cambios a proposito en el codigo (el escudo, el tope de bombas, la separacion del disparo doble, la duracion y la tabla del temblor, el dano de la bomba al jefe) y el arnes tiene que verlos
+    {
+      std::vector<uint8_t> good = bin;
+      auto find1 = [&](const std::vector<uint8_t>& pat) { int at = -1, n = 0; for (size_t i = 0; i + pat.size() <= good.size(); i++) if (!memcmp(&good[i], pat.data(), pat.size())) { at = (int)i; n++; } return n == 1 ? at : -1; };
+      int pt = S("ptimer");
+      struct Neg { const char* what; std::vector<uint8_t> pat; int off; uint8_t val; } negs[] = {
+        { "escudo de 200 ticks en lugar de 250", {0x3E, 0xFA, 0x32, (uint8_t)(pt & 255), (uint8_t)(pt >> 8)}, 1, 200 },
+        { "tope de 3 bombas en lugar de 2", {0x7E, 0xFE, 0x02, 0xD0, 0x34, 0xC9}, 2, 3 },
+        { "el segundo disparo en x + 9 en lugar de x + 8", {0x1E, 0x08, 0xDD, 0x36, 0x00, 0x01}, 1, 9 },
+        { "el temblor de 23 imagenes en lugar de 24", {0x3E, 0x18, 0x32, (uint8_t)(S("shk") & 255), (uint8_t)(S("shk") >> 8)}, 1, 23 },
+        { "el primer desplazamiento del temblor en 4 en lugar de 3", {3, 157, 3, 157, 3, 157, 2, 158}, 0, 4 },
+        { "la bomba quita 9 vidas al jefe en lugar de 10", {0x3A, (uint8_t)(S("bhp") & 255), (uint8_t)(S("bhp") >> 8), 0xD6, 0x0A}, 4, 9 } };
+      for (auto& n : negs) {
+        int at = find1(n.pat);
+        CHECK(at >= 0, "(prueba en negativo) el trozo de codigo a cambiar esta una sola vez");
+        if (at < 0) continue;
+        bin = good; bin[at + n.off] = n.val;
+        int e0 = errors;
+        Result N = runA();
+        errors = e0;                                   // los fallos de dentro de run no cuentan: se buscan
+        char m[240]; snprintf(m, sizeof m, "(prueba en negativo) con %s, el arnes lo ve (%zu imagenes de sprites mal, %d de POKE 2074, %d de vidas del jefe)", n.what, N.spr_bad.size(), N.hofs_bad, N.bhp_bad);
+        CHECK(!N.spr_bad.empty() || N.hofs_bad > 0 || N.bhp_bad > 0, m);
+      }
+      bin = good;
+    }
+
+    // --- B: el jefe y las bombas: vidas infinitas; la bomba le quita 10 vidas (sin bajar de 1)
+    printf("-- mejoras con el jefe (nivel de 70 filas: el jefe y una bomba cada 100 en s = 0-800; B cada 30 imagenes; vidas infinitas) --\n");
+    std::vector<uint8_t> bm2 = mk({ {0, 6, 64, S("PATH_ENTER"), 1, 0, 0}, {0, 10, 72, SLOW, 1, 0, 0}, {100, 10, 72, SLOW, 1, 0, 0}, {200, 10, 72, SLOW, 1, 0, 0}, {300, 10, 72, SLOW, 1, 0, 0}, {400, 10, 72, SLOW, 1, 0, 0}, {500, 10, 72, SLOW, 1, 0, 0}, {600, 10, 72, SLOW, 1, 0, 0}, {700, 10, 72, SLOW, 1, 0, 0}, {800, 10, 72, SLOW, 1, 0, 0} }, 70, bl);
+    std::vector<Key> sc2 = { {30, 3940, 7, 0}, {60, 64, 5, 2}, {3950, 3954, 0, 2} };
+    for (long t = 120; t < 3900; t += 30) sc2.push_back({t, t + 4, 7, 4});
+    basefiles(bm2); g_map = bm2;
+    Result J = run(bl, sc2, 4000, 100, true);
+    g_map = lv.map;
+    boss_report(J); item_report(J);
+    printf("        sprites escritos hasta %ld T tras el flanco; hasta %d sprites en una linea\n", spr_maxlat, J.maxline);
+    if (!J.spr_bad.empty()) printf("        sprites mal en %zu imagenes, la primera %d\n", J.spr_bad.size(), J.spr_bad[0]);
+    CHECK(J.spr_checked > 3800 && J.spr_bad.empty() && J.ay_bad == 0 && J.vis_bad == 0 && J.pal_bad.empty(),
+          "con el jefe, los 64 sprites, los AY, lo visible y la paleta, iguales al modelo");
+    CHECK(J.hofs_bad == 0 && J.bhp_bad == 0 && J.bhp_min >= 1, "con el jefe, el temblor y las vidas del jefe (que nunca bajan de 1) son los del modelo en cada imagen");
+    CHECK(J.bombboss >= 2 && J.bclamp >= 1 && J.bkills >= 1, "las bombas le quitan 10 vidas al jefe (y una, con menos de 11, lo deja en 1) y aun asi se le puede derribar");
+    CHECK(J.lost_frames == 0 && spr_maxlat < 12000, "sin lineas perdidas y los sprites escritos antes de 12.000 T");
+    exit_checks("mejoras con el jefe", 0);
   }
 
   // ===== 2. un nivel corto: el scroll se para en LVL_END; R vuelve al principio

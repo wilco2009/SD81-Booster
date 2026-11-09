@@ -2,7 +2,7 @@
 ; ESTELA.ASM -- matamarcianos vertical para el modo 160x100 a 256 colores
 ; del SD81 Booster. Plan: claude/planning/juego160.md
 ;
-; FASE 7b: el jefe. Modo 175, anillo de 160x102 en $8000 con dos paneles
+; FASE 7c: mejoras (tras el jefe de la 7b). Modo 175, anillo de 160x102 en $8000 con dos paneles
 ; laterales fijos de 16 pixeles, scroll vertical del nivel 1, la nave con sus
 ; disparos y las oleadas de enemigos del nivel, con sus disparos, colisiones,
 ; explosiones y el marcador, todo en sprites de formato B:
@@ -44,8 +44,8 @@
 ;   - Oleadas (tabla de NIVEL1.MAP, juego160.md 8.3): la siguiente sale en el
 ;     primer tick con s >= WAVE_POS. Con WF_ROW salen todos sus enemigos a la
 ;     vez (X + i*SPACING); si no, uno cada SPACING ticks (hasta NSPN oleadas
-;     soltando enemigos a la vez). El tipo 6 es el jefe (ver abajo); los de
-;     7 en adelante (mejoras) se saltan por ahora (fase 7c).
+;     soltando enemigos a la vez). El tipo 6 es el jefe y los 8-10 son
+;     mejoras (ver abajo).
 ;   - Enemigos: hasta NENE a la vez, el e en los sprites 4e..4e+3, en
 ;     coordenadas de hardware (X = x + 32, Y = y + 32). Salen en Y = 16
 ;     (y = -16) y cada tick suman el paso de su trayectoria (PATHTAB; dx con
@@ -87,6 +87,25 @@
 ;     explosiones de 16x16, BEXT ticks), suma 1000 puntos y sale el cartel
 ;     WELL DONE CLEART ticks; despues el nivel vuelve a empezar con el mismo
 ;     marcador y las mismas vidas (lap).
+;   - Mejoras (oleadas de tipo 8-10: arma, escudo, bomba): una a la vez (si
+;     ya hay una, la nueva se pierde), 8x8 en el sprite 54 (SP_ITEM; en el fin
+;     de partida es la V del cartel: ahi no se ve), sale en (WAVE_X, -8) con su
+;     trayectoria, no se puede derribar y se borra al salir por abajo (Y >=
+;     132). Con la nave viva o parpadeando, si su caja [X+1,X+6] x [Y+1,Y+6]
+;     toca la de la nave, se recoge (suena fxitem, voz FX_SHOT): ARMA = disparo
+;     doble (dos disparos en x + 0 y x + 8, en dos de los mismos 8 huecos) hasta
+;     perder la nave; ESCUDO = invulnerable SHLDT ticks (como el pstate 2: la
+;     nave parpadea, y sale el marcador); BOMBA = una bomba mas (BOMBMAX), con
+;     iconos BOMBA en los sprites 32-33 (x 100-115, y VIDAY) junto a las vidas,
+;     solo cuando sale el marcador y no en el fin de partida (el cartel usa el
+;     32 y el 33). Al recoger una mejora sale el marcador SCT ticks (stimer). Tecla B (pulsacion nueva): gasta una bomba, todos los
+;     enemigos vivos explotan (con sus puntos) y el jefe, si entra o pelea,
+;     pierde BOMBHP vidas sin bajar de 1; suena fxbomb (ruido grave de ~64
+;     imagenes, prioridad 3: no lo pisan las explosiones que provoca) y toda la
+;     pantalla tiembla SHKN imagenes (hofs, POKE 2074, con la tabla shktab, escrito
+;     en el VSYNC junto al 2072; los paneles dan la vuelta; a 0 al acabar, en el
+;     fin de partida, con R y al salir). Las bombas y el arma
+;     se pierden al volver a empezar (gminit); el arma, tambien al perder la nave.
 ;   - Letras del cartel: G A M E O V R de 7x7 (letras, en el codigo), que se
 ;     copian detras de HOJA.BIN, en las celdas libres del bloque 3 (paginas
 ;     LETRAS..LETRAS+6, en SHEET_END): la hoja tiene que dejar 7 celdas.
@@ -119,6 +138,7 @@
 ;         parado, rojo)
 ;         R = volver al principio del nivel (y la nave a su sitio, con
 ;         LIVES0 vidas y el marcador a 0); en el fin de partida, ESPACIO
+;         B = bomba (si hay alguna)
 ;         I = vidas infinitas si / no (para probar; el borde, brillante)
 ;         X = salir a BASIC
 ; Devuelve en BC 0, o un error de carga: 1 no hay NIVEL1.I16, 2 no es un
@@ -227,6 +247,14 @@ CARTY   equ 40                  ;   y de GAME (OVER, 10 mas abajo)
 SP_VIDA equ 55                  ; iconos de las vidas: 55-57
 VIDAX   equ 68                  ; x de pantalla del primero (3 x 8 px, centrados)
 VIDAY   equ DIGY+10             ; y de pantalla: debajo de las cifras
+SP_ITEM equ 54                  ; mejora: sprite 54 (en el fin de partida es la V del cartel)
+SP_BOMB equ 32                  ; iconos de las bombas: 32-33 (en el fin de partida, el cartel)
+BOMBX   equ 100                 ; x de pantalla del primero (junto a las vidas, y VIDAY)
+BOMBMAX equ 2                   ; bombas que se pueden llevar
+BOMBHP  equ 10                  ; vidas que le quita una bomba al jefe (sin bajar de 1)
+SHLDT   equ 250                 ; ticks del escudo
+SHKN    equ 24                  ; imagenes que tiembla la pantalla con una bomba (tabla shktab)
+SCT     equ 60                  ; ticks que se ve el marcador al recoger una mejora
 
         jp start
 
@@ -313,6 +341,8 @@ st1:    ld (speed),a
 main:   call waitvs
         ld a,(vofs)             ; lo preparado en la vuelta anterior
         ld (2072),a
+        ld a,(hofv)             ; el temblor de la bomba: sin latch, junto al 2072
+        ld (2074),a
         call drawspr            ; los sprites, en el borrado
         call cycle              ; ciclo de la paleta, en el borrado
         xor a                   ; pasos de scroll hechos en esta imagen
@@ -325,6 +355,7 @@ mn1:    push bc
         pop bc
 mn2:    djnz mn1
         call update             ; el juego (se ve en la imagen siguiente)
+        call hstep              ; el desplazamiento horizontal de la imagen siguiente
         call sfx                ; los efectos que tocan en esta imagen
         call keys
         jr nz,main
@@ -419,6 +450,29 @@ ns1:    dec a
         ret z
         ld b,0
         ret
+
+; hstep: hofv = el desplazamiento horizontal (POKE 2074) de la imagen siguiente:
+; con shk > 0 (imagenes de temblor que quedan), shktab[SHKN - shk] y shk baja; si no, 0
+hstep:  ld a,(shk)
+        or a
+        jr z,hs1                ; 0: sin desplazar
+        ld c,a
+        ld a,SHKN
+        sub c
+        ld e,a
+        ld d,0
+        ld hl,shktab
+        add hl,de
+        ld a,(hl)
+        dec c
+        ld hl,shk
+        ld (hl),c
+hs1:    ld (hofv),a
+        ret
+
+; shktab: desplazamientos del temblor (modulo 160: 157 = -3), se apagan poco a poco
+shktab: defb 3,157,3,157,3,157,2,158,2,158,2,158
+        defb 1,159,1,159,1,159,1,159,1,159,1,0
 
 ; fillring: el principio del nivel (s = 0, vofs = 0): la fila c del anillo
 ; tiene la linea 99-c (c = 0..99); las ocultas 100 y 101, las 101 y 100.
@@ -1186,9 +1240,33 @@ fxboom: ; explosion de un enemigo: ruido que se apaga
         defb 14,7,15,6,16,5,17,5
         defb 18,4,19,3,20,2,21,1
         defb 0,0FFh
+fxitem: ; mejora recogida: tono que sube
+        defb 1                   ; prioridad
+        defb 100,12,80,12,62,11,48,11
+        defb 36,10,26,9
+        defb 0,0FFh
 fxhit:  ; disparo que da al jefe: chasquido de ruido
         defb 1                   ; prioridad
         defb 2,11,3,8,4,5
+        defb 0,0FFh
+fxbomb: ; bomba: ruido grave largo (periodo 24-31, volumen 15 que baja despacio)
+        defb 3                   ; prioridad (mayor que fxdie)
+        defb 24,15,24,15,24,15,24,15
+        defb 24,15,24,14,24,14,24,14
+        defb 25,14,25,13,25,13,25,13
+        defb 25,13,25,13,25,12,25,12
+        defb 26,12,26,12,26,11,26,11
+        defb 26,11,26,11,26,11,26,10
+        defb 27,10,27,10,27,10,27,9
+        defb 27,9,27,9,27,9,27,9
+        defb 28,8,28,8,28,8,28,8
+        defb 28,7,28,7,28,7,28,7
+        defb 29,7,29,6,29,6,29,6
+        defb 29,6,29,5,29,5,29,5
+        defb 30,5,30,5,30,4,30,4
+        defb 30,4,30,4,30,3,30,3
+        defb 31,3,31,3,31,3,31,2
+        defb 31,2,31,2,31,2,31,1
         defb 0,0FFh
 fxdie:  ; explosion de la nave: mas larga y fuerte
         defb 2                   ; prioridad
@@ -1334,13 +1412,24 @@ drawspr:
         ld a,(pstate)
         cp 3
         jp z,dcart              ; fin de partida: el cartel en lugar de la nave
-        ld c,32                 ; si no, los sprites del cartel que no son de
-        call off1               ; la nave ni de la llama, apagados
-        inc c
+        ld c,SP_BOMB            ; si no, los sprites del cartel que no son de
+        call off1               ; la nave ni de la llama, apagados (32-33: luego
+        inc c                   ; los iconos de las bombas)
         call off1
-        ld c,54
+        ld c,SP_ITEM            ; la mejora, si hay (si no, apagado)
+        ld a,(ityp)
+        or a
+        jr nz,dit1
         call off1
-        ld a,(pstate)
+        jr dit2
+dit1:   add a,ITEM1-1
+        ld d,a
+        ld a,(itx)
+        ld e,a
+        ld a,(ity)
+        ld l,a
+        call put1
+dit2:   ld a,(pstate)
         cp 2
         jr nz,dn1
         ld a,(ptimer)           ; invulnerable: parpadea (apagada si bit 2)
@@ -1487,6 +1576,9 @@ db3:    inc ix
         ld a,(pstate)           ; parpadeando, o al final del nivel
         or a
         jr nz,dd0
+        ld a,(stimer)           ; o un instante tras recoger una mejora
+        or a
+        jr nz,dd0
         ld hl,(scr)
         ld de,(lvlend)
         or a
@@ -1542,7 +1634,25 @@ dv3:    ld (SPR_EN),a
         ld a,c
         cp SP_VIDA+3
         jr nz,dv1
-        ret
+        ld a,(pstate)           ; las bombas: BOMBA en SP_BOMB+i, i < bombas
+        cp 3                    ; (no en el fin de partida: 32-33 son del cartel)
+        ret z
+        ld a,(bombs)
+        or a
+        ret z
+        ld c,SP_BOMB
+        ld e,SOFS+BOMBX
+        ld l,SOFS+VIDAY
+        ld d,BOMBA
+        call put1
+        ld a,(bombs)
+        cp 2
+        ret c
+        inc c
+        ld a,e
+        add a,8
+        ld e,a
+        jp put1
 
 ; dcart: el cartel GAME OVER con la tabla cartel (8 sprites: los de la nave y
 ; la llama, el 54, el 32 y el 33); luego los disparos y lo demas
@@ -1731,6 +1841,12 @@ off1:   ld a,c
 ; -------------------------------------------------------------
 update: ld hl,tick
         inc (hl)
+        ld hl,stimer            ; el marcador de la mejora recogida, cuenta atras
+        ld a,(hl)
+        or a
+        jr z,up0
+        dec (hl)
+up0:
         ld a,(pstate)
         cp 1
         jr z,up6                ; explotando o fin de partida: ni se mueve
@@ -1799,10 +1915,13 @@ ub2:    inc ix
         cp 1
         jr z,up7
         cp 3
-        call nz,pfire
+        jr z,up7
+        call pfire
+        call pbomb
 up7:    call upene
         call upeb
         call collide
+        call upitem
         call efire
         call waves
         call upboss
@@ -1830,17 +1949,84 @@ uf2:    ld a,(ix+0)
         inc ix
         djnz uf2
         ret                     ; sin hueco
-uf3:    ld (ix+0),1
-        ld a,(shx)
-        add a,4
-        ld (ix+1),a
-        ld a,(shy)
-        sub 6
-        ld (ix+2),a
+uf3:    ld e,4                  ; un disparo en x + 4; con el arma, dos: x + 0 en
+        ld a,(weap)             ; este hueco y x + 8 en el siguiente libre
+        or a
+        jr z,uf5
+        ld e,0
+uf5:    call putbul
         ld a,TFIRE
         ld (cd),a
         ld c,FX_SHOT
         ld hl,fxshot
+        call sfxgo
+        ld a,(weap)
+        or a
+        ret z
+uf6:    inc ix
+        inc ix
+        inc ix
+        dec b
+        ret z                   ; no queda hueco para el segundo
+        ld a,(ix+0)
+        or a
+        jr nz,uf6
+        ld e,8
+putbul: ld (ix+0),1             ; disparo IX en (x + E, y - 6)
+        ld a,(shx)
+        add a,e
+        ld (ix+1),a
+        ld a,(shy)
+        sub 6
+        ld (ix+2),a
+        ret
+
+; pbomb: B (fila B N M . ESPACIO, bit 4), pulsacion nueva y con alguna bomba:
+; gasta una; todos los enemigos vivos explotan (con sus puntos), el jefe pierde
+; BOMBHP vidas (sin bajar de 1) y suena fxdie
+pbomb:  ld a,07fh
+        in a,(0feh)
+        and 10h
+        ld c,a
+        ld a,(prevb)
+        ld b,a
+        ld a,c
+        ld (prevb),a
+        or a
+        ret nz                  ; no pulsada
+        ld a,b
+        or a
+        ret z                   ; ya lo estaba
+        ld a,(bombs)
+        or a
+        ret z
+        dec a
+        ld (bombs),a
+        ld a,SHKN               ; la pantalla tiembla
+        ld (shk),a
+        ld ix,enes
+        ld b,NENE
+pb1:    ld a,(ix+E_ST)
+        dec a
+        call z,ekill
+        ld de,ESZ
+        add ix,de
+        djnz pb1
+        ld a,(bst)              ; el jefe, si esta entrando o peleando
+        cp 2
+        jr c,pb2
+        cp 4
+        jr nc,pb2
+        ld a,6
+        ld (bflash),a
+        ld a,(bhp)
+        sub BOMBHP
+        jr z,pb3
+        jr nc,pb4
+pb3:    ld a,1
+pb4:    ld (bhp),a
+pb2:    ld c,FX_BOOM
+        ld hl,fxbomb
         jp sfxgo
 
 ; upene: los enemigos vivos avanzan un paso de su trayectoria (y los de
@@ -2349,7 +2535,9 @@ lap:    ld hl,score
         ret
 
 ; pdie: la nave explota
-pdie:   ld a,1
+pdie:   xor a                   ; se pierde el arma
+        ld (weap),a
+        inc a
         ld (pstate),a
         ld a,EXT
         ld (ptimer),a
@@ -2520,6 +2708,125 @@ wsboss: push hl
         ld (bpend),a
         ret
 
+; wsitem: la oleada HL es una mejora (A = tipo 8-10: arma, escudo, bomba):
+; una a la vez (si ya hay una, esta se pierde); sale en (WAVE_X, -8) con su
+; trayectoria, como los enemigos. ityp = tipo - 7 (1-3; 0 = ninguna)
+wsitem: cp 8
+        ret c
+        sub 7
+        ld c,a
+        ld a,(ityp)
+        or a
+        ret nz
+        ld a,c
+        ld (ityp),a
+        push hl
+        ld de,WAVE_X
+        add hl,de
+        ld a,(hl)
+        add a,SOFS
+        ld (itx),a
+        ld a,SOFS-8
+        ld (ity),a
+        pop hl
+        ld de,WAVE_PATH
+        add hl,de
+        ld a,(hl)
+        add a,a
+        ld e,a
+        ld d,0
+        ld hl,PATHTAB
+        add hl,de
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ld a,(de)
+        ld (ileft),a
+        inc de
+        ld (iptr),de
+        ret
+
+; upitem: la mejora avanza un paso de su trayectoria (el ultimo se repite) y
+; se borra al salir por abajo (Y >= 132). Con la nave viva o parpadeando, si
+; su caja [X+1,X+6] x [Y+1,Y+6] toca la de la nave, se recoge: arma (disparo
+; doble hasta perder la nave), escudo (invulnerable SHLDT ticks) o una bomba
+; (hasta BOMBMAX); suena fxitem
+upitem: ld a,(ityp)
+        or a
+        ret z
+        ld hl,(iptr)
+        ld a,(itx)
+        add a,(hl)
+        ld (itx),a
+        inc hl
+        ld a,(ity)
+        add a,(hl)
+        ld (ity),a
+        inc hl
+        ld a,(ileft)
+        dec a
+        jr z,ui1
+        ld (ileft),a
+        ld (iptr),hl
+ui1:    ld a,(ity)
+        cp 132
+        jr c,ui2
+        xor a
+        ld (ityp),a
+        ret
+ui2:    ld a,(pstate)
+        and 1
+        ret nz                  ; explotando o fin de partida
+        ld a,(shx)
+        add a,SOFS+4
+        ld b,a
+        add a,7
+        ld c,a
+        ld a,(itx)
+        inc a
+        ld d,a
+        add a,5
+        ld e,a
+        call ovl
+        ret c
+        ld a,(shy)
+        add a,SOFS+3
+        ld b,a
+        add a,10
+        ld c,a
+        ld a,(ity)
+        inc a
+        ld d,a
+        add a,5
+        ld e,a
+        call ovl
+        ret c
+        ld a,SCT                ; recogida: el marcador un instante
+        ld (stimer),a
+        ld a,(ityp)
+        ld b,a
+        xor a
+        ld (ityp),a
+        ld c,FX_SHOT
+        ld hl,fxitem
+        call sfxgo
+        djnz ui3                ; B = 1: arma
+        ld a,1
+        ld (weap),a
+        ret
+ui3:    djnz ui4                ; 2: escudo
+        ld a,2
+        ld (pstate),a
+        ld a,SHLDT
+        ld (ptimer),a
+        ret
+ui4:    ld hl,bombs             ; 3: bomba
+        ld a,(hl)
+        cp BOMBMAX
+        ret nc
+        inc (hl)
+        ret
+
 ; wstart: empieza la oleada HL
 wstart: push hl
         ld de,WAVE_TYPE
@@ -2527,8 +2834,8 @@ wstart: push hl
         ld a,(hl)
         pop hl
         cp 6
-        jr z,wsboss             ; el jefe
-        ret nc                  ; mejoras: fase 7c
+        jp z,wsboss             ; el jefe
+        jp nc,wsitem            ; 8-10: mejoras
         push hl
         ld de,WAVE_FLAGS
         add hl,de
@@ -2687,7 +2994,9 @@ pp0:    dec (hl)
 pp1:    xor a
         ld (pstate),a
         ret
-pp2:    ld a,3
+pp2:    xor a                   ; fin de partida: sin temblor
+        ld (shk),a
+        ld a,3
         ld (pstate),a
         ld a,GOT
         ld (ptimer),a
@@ -2773,6 +3082,17 @@ bft:    defb 0
 bflash: defb 0
 bwx:    defb 0                  ;   WAVE_X y WAVE_PATH de su oleada
 bpath:  defb 0
+ityp:   defb 0                  ; mejora: 0 ninguna, 1 arma, 2 escudo, 3 bomba
+itx:    defb 0                  ;   X, Y de hardware
+ity:    defb 0
+iptr:   defw 0                  ;   trayectoria: paso actual y los que quedan
+ileft:  defb 0
+weap:   defb 0                  ; 1 = disparo doble (hasta perder la nave)
+bombs:  defb 0                  ; bombas (0-BOMBMAX)
+prevb:  defb 0                  ; B en la imagen anterior (bit 4; 0 = pulsada)
+shk:    defb 0                  ; imagenes de temblor que quedan
+hofv:   defb 0                  ; hofs (POKE 2074) de la imagen siguiente
+stimer: defb 0                  ; ticks que quedan de marcador por una mejora recogida
 ptimer: defb 0                  ; ticks que le quedan a la explosion o a la invulnerabilidad
 deaths: defb 0                  ; veces que han dado a la nave
 drope:  defb 0                  ; enemigos que no cupieron (sin hueco)

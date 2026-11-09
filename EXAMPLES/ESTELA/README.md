@@ -12,14 +12,15 @@ El plan entero (fases, mapa de memoria, sprites) está en
 | `PRUEBAS/` | pruebas de la fase 0 en la placa (carga, VSYNC, sonido, paginación) |
 | `tools/`, `assets/`, `out/` | herramientas del PC y gráficos del nivel (las lleva otra sesión; §8 del plan) |
 
-## Estado: fase 7b (el jefe)
+## Estado: fase 7c (mejoras: hecha en el PC, sin probar en la placa)
 
 Lo que hay ahora es el **fondo del nivel 1 con scroll**, la **nave del jugador**
 con sus disparos, las **oleadas de enemigos** del nivel, con sus disparos,
 colisiones, explosiones y el marcador, el **sonido** (música y efectos) y las
-**vidas** con el **fin de partida** (cartel GAME OVER) y el **jefe** del final del
-nivel. La fase 7 va por partes: faltan las mejoras (7c) y el título con el récord
-(7d).
+**vidas** con el **fin de partida** (cartel GAME OVER), el **jefe** del final del
+nivel y las **mejoras** (arma, escudo y bombas). La fase 7 va por partes: falta el
+título con el récord (7d). La 7c está hecha y comprobada en el PC, **sin probar en
+la placa**.
 La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el límite de
 12 sprites por línea del motor, no se pierde ningún trozo de sprite (ver abajo):
 
@@ -60,7 +61,7 @@ La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el l
   trayectoria (`DOWN`, `SINE`, `ZIGZAG`, `DIVE`, `SWEEP`, `HOVER`...), con los
   6 tipos del nivel animados (2 fases). Los de suelo (los tanques y torretas)
   bajan pegados al fondo. Hasta 8 enemigos a la vez. Las oleadas del jefe y de las
-  mejoras se saltan por ahora.
+  mejoras (tipos 8-10) las llevan sus propias reglas (ver abajo).
 - **Disparos enemigos**: los platillos, cangrejos, giratorios, bombarderos y
   tanques disparan cada cierto tiempo hacia la nave (los dardos no); bajan 2
   píxeles por imagen, inclinados si la nave estaba lejos en horizontal.
@@ -96,12 +97,33 @@ La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el l
   **40 disparos** (parpadea con cada uno) y, si toca a la nave, la nave explota.
   Al derribarlo: dos explosiones, **1000 puntos**, cartel **WELL DONE** 3 segundos
   y el nivel vuelve a empezar con el mismo marcador y las mismas vidas.
+- **Mejoras** (las oleadas de tipo 8-10 de `NIVEL1.MAP`: en el nivel de ejemplo, en
+  `s` = 700 un arma, en 2310 un escudo y en 3980 una bomba, con la trayectoria `SLOW`):
+  un icono de 8x8 cae despacio desde arriba en la X de su oleada, no se puede
+  derribar y se pierde si sale por abajo. Una a la vez (si hay una en pantalla, la
+  siguiente se pierde). Se recoge **tocándolo con la nave** (viva o parpadeando); suena
+  un tono corto que sube y sale el **marcador** (con las vidas y las bombas) 60
+  imágenes (poco más de 1 s):
+  - **arma**: **disparo doble**, dos disparos por salva (en x + 0 y
+    x + 8) hasta que pierdas la nave;
+  - **escudo**: **invulnerable 250 imágenes** (unos 5 s), la nave
+    parpadea como tras una muerte y, mientras dura, sale el marcador;
+  - **bomba**: una bomba más, hasta **2**; se ven como iconos junto a las vidas
+    (a la derecha de ellas) cuando sale el marcador. La tecla **B** gasta una: todos
+    los enemigos en pantalla explotan (con sus puntos), el jefe pierde 10 de sus 40
+    vidas (sin bajar de 1) y suena la explosión grande. Los disparos enemigos no se
+    borran. La bomba **se nota**: la pantalla entera tiembla 24 imágenes (los paneles dan
+    la vuelta por los lados y los sprites no tiemblan) y suena un ruido grave largo (64
+    imágenes, más fuerte que cualquier explosión, que no lo pisan).
+  Las bombas y el arma se pierden al volver a empezar; el arma, también al perder la
+  nave. En el fin de partida no se ve mejora ni bombas (el cartel usa esos sprites).
 
 ## Teclas
 
 | Tecla | Acción |
 |-------|--------|
 | O P Q A | Mover la nave (izquierda, derecha, arriba, abajo; mantener) |
+| B | Bomba (pulsación nueva; si llevas alguna): toda la pantalla **tiembla** 24 imágenes con un ruido grave, los enemigos en pantalla explotan y el jefe pierde 10 vidas |
 | ESPACIO | Disparar (mantenido: un disparo cada 6 imágenes). Con `LOAD *JOY "OPQA "` el joystick DB9 hace lo mismo. En el fin de partida, pasados 2 segundos, una pulsación nueva vuelve a empezar |
 | S | Velocidad del scroll: la del nivel al empezar (1 píxel por imagen, borde **verde**) → 1 cada 2 imágenes (**cyan**) → 2 por imagen (**amarillo**) → parado (**rojo**) → 1 por imagen |
 | R | Volver al principio del nivel, con la nave en su sitio, 3 vidas y el marcador a 0 (la pantalla se queda en negro unas 4 imágenes mientras se repinta) |
@@ -150,8 +172,17 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
 - Al final del nivel, WARNING parpadeando, el jefe que baja y va de lado a lado
   disparando, parpadea con cada disparo que le da y, a los 40, explota; WELL DONE
   y otra vez el principio del nivel con el marcador y las vidas que había.
+- Las **mejoras**: el icono baja despacio y recto; al tocarlo con la nave desaparece,
+  suena el tono que sube, sale el marcador un instante y se nota el efecto: con el arma salen **dos disparos** a la
+  vez (uno a cada lado de la nave); con el escudo la nave **parpadea unos 5 s** y no
+  le hace daño nada (sale el marcador); con la bomba aparece su icono junto a las
+  vidas (cuando sale el marcador: al recoger una mejora, tras una muerte o con el escudo). Con B explotan
+  todos los enemigos y, con el jefe, aguanta 10 disparos menos. Si se pierde la nave
+  vuelve el disparo simple. Una mejora que se deja pasar sale por abajo sin más.
 - No desaparecen trozos de sprites (como mucho hay 11 sprites en una misma línea
-  y el límite es 12).
+  y el límite es 12; con el escudo, el marcador se ve 5 s y, si justo entonces
+  entran 3 enemigos por arriba bajo las cifras, pueden faltar unas líneas de arriba
+  de uno de ellos durante una imagen).
 - R vuelve al principio; al final del nivel el fondo se para.
 - Suena la **música** (`compila.bat` copia como `NIVEL1.VGM` la de la prueba
   SONIDO, `EXAMPLES/VGM/music0002.vgm`, hasta que haya una del juego) y, a la vez,
@@ -165,9 +196,13 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
 - Al salir, el BASIC se lee y la música se para.
 
 **Qué hay que mandar:** si se ve y se oye así; si no, qué falla. En particular, de
+las mejoras (7c): si se ven bien los tres iconos (arma, escudo, bomba) y se
+distinguen, si el tono de recogida suena, si el disparo doble y los 250 de escudo
+(5 s) están bien de duración, y si B hace lo que debe (también con el jefe). De
 la pelea con el jefe: si 40 disparos son muchos o pocos, si sus tiros (cada 30
 imágenes) son demasiados, y si los carteles WARNING y WELL DONE se leen bien. Para
 llegar antes al jefe vale S (2 píxeles por imagen), y la tecla I da vidas infinitas.
+Las mejoras salen en las posiciones 700, 2310 y 3980 del scroll (con S, antes).
 
 ## Comprobado en el PC
 
@@ -253,9 +288,34 @@ especificación, aparte del código del Z80:
   parpadeo, las explosiones, WELL DONE), los AY, lo visible y la paleta, iguales al
   modelo en cada imagen; como mucho 11 sprites en una línea, sin perder ninguna; los
   sprites escritos antes de 11.300 T;
+- las **mejoras** (7c), en dos partidas con niveles hechos en el arnés. **A** (150 filas
+  con una oleada de cada tipo y el jefe al final; la nave quieta en x = 72, donde cae
+  el icono, y luego en el borde derecho): el modelo (escrito aparte) y los 64 sprites
+  coinciden en **cada imagen** (mejora en el 54, iconos de las bombas en el 32-33, disparo
+  doble, nave parpadeando, marcador de 60 imágenes al recoger); 2 armas, 2 escudos y 4
+  bombas recogidas (la tercera, con el tope de 2), una mejora que se va por abajo, 130 salvas
+  dobles, el arma perdida al perder la nave, B sin bombas (no hace nada) y con ellas (3
+  enemigos explotan con sus puntos) y **una bomba contra el jefe**. En cada imagen, las
+  **vidas del jefe** (`bhp`, leídas de la memoria del Z80) son las del modelo y nunca
+  bajan de 1. **Temblor**: `POKE 2074` en cada imagen es el del modelo (tabla de 24
+  desplazamientos 3, -3, ... que se apagan, 0 al acabar), con lo visible comprobado
+  también durante el temblor (el píxel x sale de la columna (x + hofs) mod 160), y
+  `fxbomb` (prioridad 3, 64 pares de ruido de periodo 24-31 con volumen 15 que baja) en
+  cada bomba. **B**: el jefe, una bomba cada 100 de scroll y B cada 30 imágenes: 35 bombas
+  gastadas, 15 sobre el jefe (5 de ellas con 10 vidas o menos: se queda en 1), el jefe
+  sigue pudiendo caer (7 derribados); sin líneas perdidas. Los AY, lo visible y la
+  paleta, iguales al modelo; los sprites se escriben antes de **11.617 T** tras el
+  flanco (con el jefe, el marcador, las bombas, una mejora y el temblor a la vez). Con
+  el escudo y 3 enemigos entrando bajo el marcador el arnés admite, como mucho, 2 imágenes
+  con unas líneas de arriba de un enemigo perdidas (en esta partida, 0); en el nivel
+  entero real, ninguna. **Pruebas en negativo** (cambiando el binario a propósito; el
+  arnés tiene que verlo): el escudo de 200 ticks, el tope de 3 bombas, el segundo disparo
+  en x + 9, el temblor de 23 imágenes, el primer desplazamiento del temblor en 4 y la
+  bomba que quita 9 vidas al jefe: las seis se detectan (en sprites, en `POKE 2074` o
+  en las vidas del jefe);
 - la vuelta más larga del bucle: unos 32.000 T de los 64.584 de una imagen.
 
-Las fases 1 a 4, la 6, la 7a y la 7b están **probadas en la placa** (2026-11-08/09). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
+Las fases 1 a 4, la 6, la 7a, la 7b y la 7c están **probadas en la placa** (2026-11-08/09). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
 y desde entonces el arnés ensambla y prueba el `estela.bin` de esta carpeta, el
 mismo que va a la SD.
 
@@ -270,9 +330,9 @@ existe; si no, `..\VGM\music0002.vgm`) y `GAMEOVER.VGM` (`out\GAMEOVER.VGM`; si 
 `NIVEL1.I16`, `NIVEL1.MAP`, `HOJA.BIN`, `NIVEL1.VGM` y `GAMEOVER.VGM` a una misma
 carpeta de la SD y carga `ESTELA.B81`.
 
-Memoria: código y tablas en `$4800-$6998` (las trayectorias de `LEVEL.INC` y la
-`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$6999-$6B98` (quedan
-967 bytes libres para el código de las fases 7c y 7d), las letras W N I L D en
+Memoria: código y tablas en `$4800-$6C16` (9.239 bytes; las trayectorias de `LEVEL.INC` y la
+`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$6C17-$6E16` (quedan
+329 bytes libres para el código de la fase 7d; `compila.bat` deja 9.568 como máximo), las letras W N I L D en
 `$6F60-$6FFF` (páginas 123-127), hoja de los sprites en `$7000-$7F1F` y las letras
 G A M E O V R detrás, en `$7F20-$7FFF` (bloque 3), anillo en `$8000-$BFBF`,
 tileset en `$C000-$FE7F`
@@ -282,7 +342,8 @@ se reescribe sobre sí mismo (los mismos bytes), para que la copia de la FPGA de
 esas direcciones vuelva a ser la de la ROM, como se hace con `$C000-$FFFF`.
 Sprites: enemigos en el 0-31 (4 cada uno), disparos de la nave en el 34-41,
 disparos enemigos en el 42-48, la llama en el 49, la nave en el 50-53, las vidas
-en el 55-57 y el marcador en el 58-63 (apagados mientras no se ven); el cartel
+en el 55-57 y el marcador en el 58-63 (apagados mientras no se ven), la mejora en el
+54 y los iconos de las bombas en el 32-33; el cartel
 GAME OVER usa los de la nave y la llama, el 54, el 32 y el 33; el jefe, WARNING y
 WELL DONE, los 20-31 (mientras hay jefe, los enemigos solo usan los huecos 0-4).
 

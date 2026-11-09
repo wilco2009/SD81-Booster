@@ -89,17 +89,44 @@ struct Level {
   uint16_t pal(int i) const { return (uint16_t)(i16[4 + 2 * i] | (i16[5 + 2 * i] << 8)); }
 };
 
-// ---- MCU: ordenes 53 (fopen), 55 (fread), 57 (fclose); 38 (LOOP_VGM), 34 (PLAY_VGM: longitud y nombre en ZX81, responde 0 si
+// ---- MCU: ordenes 53 (fopen), 55 (fread), 56 (fwrite), 57 (fclose), 71 (fcreate: crea o vacia y abre); 38 (LOOP_VGM), 34 (PLAY_VGM: longitud y nombre en ZX81, responde 0 si
 // suena) y 35 (STOP_VGM), que se apuntan en mlog con sus parametros (y la respuesta de la 34 al final)
 static std::map<std::string, std::vector<uint8_t>> sdfiles;
 static int mcu_clk = 0;
 static std::vector<uint8_t> mcu_in, mcu_out; static size_t mcu_outpos = 0;
 static const std::vector<uint8_t>* openf = nullptr; static size_t fpos = 0;
-static std::vector<std::string> opened;
+static std::vector<std::string> opened, created;         // ficheros abiertos con la 53 y creados con la 71
+static int written_n = 0;                                 // ordenes 56 recibidas
 static int fopen_open = 0;
 static std::vector<std::vector<int>> mlog, says;
 // musica esperada (cabecera de estela.asm): mexp = las ordenes de despues de la de empezar; g_mok = la ultima PLAY_VGM fue bien
 // (entonces STOP_VGM antes de la siguiente y al salir); g_musno = 0 la del nivel, 1 la del fin de partida
+// record (fase 7d): ESTELA.REC = "EREC" + 3 bytes BCD. El modelo lo lee de sdfiles al empezar cada ejecucion (sin fichero o con
+// otra firma, 0; lo que falta de un fichero corto cuenta como 0, como el relleno del MCU) y lo sube con cada fin de partida que
+// lo supera (g_saves). g_rec0 = el fichero tal como estaba antes de la ejecucion.
+static int g_rec = 0, g_saves = 0; static bool g_rec0_has = false; static std::vector<uint8_t> g_rec0;
+static int bcd3(const uint8_t* b) { int v = 0; for (int i = 0; i < 3; i++) v = v * 100 + (b[i] >> 4) * 10 + (b[i] & 15); return v; }
+static std::vector<uint8_t> rec_bytes(int v) { std::vector<uint8_t> r = {'E', 'R', 'E', 'C'}; int d[6]; for (int i = 5; i >= 0; i--) { d[i] = v % 10; v /= 10; } for (int i = 0; i < 3; i++) r.push_back((uint8_t)(d[2 * i] << 4 | d[2 * i + 1])); return r; }
+static void rec_init() {
+  g_rec = 0; g_saves = 0; g_rec0.clear(); auto it = sdfiles.find("ESTELA.REC"); g_rec0_has = it != sdfiles.end();
+  if (g_rec0_has) {
+    g_rec0 = it->second; uint8_t b[7] = {};
+    for (size_t i = 0; i < 7 && i < g_rec0.size(); i++) b[i] = g_rec0[i];
+    if (!memcmp(b, "EREC", 4)) g_rec = bcd3(b + 4);
+  }
+}
+static void rec_gameover(int score) { if (score > g_rec) { g_rec = score; g_saves++; } }
+// el veredicto sobre ESTELA.REC despues de una ejecucion: tantas ordenes 71 como subidas del modelo y el contenido exacto
+static bool rec_verdict(std::string& why) {
+  int ncre = 0; for (auto& n : created) if (n == "ESTELA.REC") ncre++;
+  char b[160];
+  if (ncre != g_saves || (int)created.size() != ncre || written_n != ncre) { snprintf(b, sizeof b, "%d creaciones y %d escrituras de ESTELA.REC, el modelo %d", ncre, written_n, g_saves); why = b; return false; }
+  auto it = sdfiles.find("ESTELA.REC");
+  if (g_saves > 0) {
+    if (it == sdfiles.end() || it->second != rec_bytes(g_rec)) { why = "el contenido de ESTELA.REC no es EREC + el record del modelo"; return false; }
+  } else if ((it != sdfiles.end()) != g_rec0_has || (g_rec0_has && it->second != g_rec0)) { why = "ESTELA.REC ha cambiado sin superar el record"; return false; }
+  return true;
+}
 static std::vector<std::vector<int>> mexp; static bool g_mok = false; static int g_musno = 0;
 static std::vector<int> playcmd(const char* nm, bool ok) {
   std::vector<int> v = {34, (int)strlen(nm)};
@@ -121,6 +148,23 @@ static void mcu_byte(uint8_t b) {
       std::string nm(mcu_in.begin() + 2, mcu_in.end()); opened.push_back(nm);
       auto it = sdfiles.find(nm);
       if (it == sdfiles.end() || openf) mcu_out.push_back(0xFF); else { openf = &it->second; fpos = 0; fopen_open++; mcu_out.push_back(0); }
+      mcu_in.clear();
+    }
+  } else if (c == 71) {                                   // fcreate (ASCII): crea o vacia el fichero y lo abre; responde con el manejador
+    if (mcu_in.size() >= 2 && (int)mcu_in.size() == 2 + mcu_in[1]) {
+      std::string nm(mcu_in.begin() + 2, mcu_in.end()); created.push_back(nm);
+      if (openf) mcu_out.push_back(0xFF);
+      else { sdfiles[nm].clear(); openf = &sdfiles[nm]; fpos = 0; fopen_open++; mcu_out.push_back(0); }
+      mcu_in.clear();
+    }
+  } else if (c == 56) {                                   // fwrite: manejador, cuantos (2) y los bytes -> estado
+    if (mcu_in.size() >= 4 && (int)mcu_in.size() == 4 + (mcu_in[2] | (mcu_in[3] << 8))) {
+      if (!openf || mcu_in[1] != 0) { printf("        fwrite sin fichero abierto\n"); errors++; mcu_out.push_back(0xFF); }
+      else {
+        std::vector<uint8_t>* w = const_cast<std::vector<uint8_t>*>(openf);
+        for (size_t i = 4; i < mcu_in.size(); i++) { if (fpos < w->size()) (*w)[fpos] = mcu_in[i]; else w->push_back(mcu_in[i]); fpos++; }
+        written_n++; mcu_out.push_back(0);
+      }
       mcu_in.clear();
     }
   } else if (c == 55) {
@@ -245,6 +289,11 @@ BYTE z80_readport_wrapper(int port, int*) {
 static const int RET_AT = 0x4700;
 struct Key { long from, to; int row, bit; };
 static std::vector<uint8_t> bin;
+// titulo (fase 7d): el sdfile TITULO.I16 de la prueba; title_seen = pasado por la espera de teclas del titulo (tlkey) y title_bad = lo que
+// no cuadraba entonces (-1 = no ha salido); rec_start_bad = el record de la memoria del Z80 al llegar a main
+static const std::vector<uint8_t>* g_title = nullptr;     // TITULO.I16 de sdfiles si es un .I16 (si no, no hay titulo)
+static int title_check();
+static bool title_seen = false; static int title_bad = -1, rec_start_bad = 0, title_frame = 10;
 static int init[8] = {0, 1, 2, 3, 4, 5, 2, 3};
 static uint8_t basic_snap[0x8000];
 
@@ -500,7 +549,7 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
   if (g.pstate == 3) { if (g.ptimer) g.ptimer--; }      // fin de partida: la espera baja hasta 0
   else if (g.pstate && --g.ptimer == 0) {
     if (g.pstate == 1) {
-      if (g.lives == 0) { g.pstate = 3; g.ptimer = S("GOT"); g.shk = 0; R.gameovers++; mus_go(1); }
+      if (g.lives == 0) { g.pstate = 3; g.ptimer = S("GOT"); g.shk = 0; R.gameovers++; mus_go(1); rec_gameover(g.score); }
       else { g.x = 72; g.y = 76; g.tilt = 1; g.pstate = 2; g.ptimer = 100; }
     } else g.pstate = 0;
   }
@@ -609,6 +658,30 @@ static long line_loss(Result& R, int& mx, bool elost[8]) {
   return lost;
 }
 
+// El titulo, visto en su primera espera de teclas (tlkey): modo 175 con el anillo de 102 sin desplazar, la paleta de 256 y los
+// pixeles de TITULO.I16, y el record en las 6 cifras de los sprites 58-63 (x 56-103, y RECY) y nada mas encendido. Devuelve cuantas
+// cosas no cuadran (0 = bien); sin TITULO.I16 valido no tendria que llegar aqui.
+static int title_check() {
+  if (!g_title) return 1000;
+  const std::vector<uint8_t>& t = *g_title; int bad = 0;
+  if (mode != 175 || vring != 102 || vofs != 0 || hofs != 0) bad++;
+  for (int i = 0; i < 256; i++) if (pal[i] != (uint16_t)(t[4 + 2 * i] | (t[5 + 2 * i] << 8))) bad++;
+  int pb = 0;
+  for (int r = 0; r < 100; r++) for (int x = 0; x < 160; x++) if (rd(0x8000 + r * 160 + x) != t[4 + 512 + r * 160 + x]) pb++;
+  if (pb) printf("        titulo: %d pixeles distintos\n", pb);
+  bad += pb ? 1 : 0;
+  std::vector<uint8_t> rb = rec_bytes(g_rec); int dig[6];
+  for (int i = 0; i < 3; i++) { dig[2 * i] = rb[4 + i] >> 4; dig[2 * i + 1] = rb[4 + i] & 15; }
+  for (int n = 0; n < 64; n++) {
+    const Spr& q = spr[n];
+    if (n >= 58) {
+      bool m = true; for (int r = 0; r < 8; r++) if (q.mask[r] != 0xFF) m = false;
+      if (!(q.en == 1 && (q.xl | ((q.xh & 1) << 8)) == 32 + 56 + 8 * (n - 58) && q.y == 32 + S("RECY") && q.page == S("CIFRA") + dig[n - 58] && m)) bad++;
+    } else if (q.en) bad++;
+  }
+  return bad;
+}
+
 // una ejecucion: hasta que vuelve o hasta maxf imagenes
 static Result run(const Level& lv, const std::vector<Key>& script, long maxf, int nchecks, bool check_pal) {
   Result R{}; R.bc = -1; R.bhp_min = 255;
@@ -624,15 +697,19 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
   vwrites.clear(); borders.clear(); bad_write = false; ring_vis_writes = 0; checking_vis = false; in_restart = false; restart_seen = false;
   map_bad = 0; memset(pal, 0, sizeof pal); palptr = pallo = 0; cyc_maxlat = 0; cyc_writes = 0;
   memset(spr, 0, sizeof spr); spr_sel = 0; spr_blk = 2; spr_xtr = 0; pal16_on = 0; memset(pal16, 0, sizeof pal16); spr_maxlat = 0;
+  rec_init(); title_seen = false; title_bad = -1; rec_start_bad = 0;
   Game g; ginit(g); size_t nspr = 0; bool prev_r = false, prev_sp = false, prev_i = false; g_inf = false;
   R.minx = R.miny = 999; R.maxx = R.maxy = -999;
-  mcu_in.clear(); mcu_out.clear(); mcu_outpos = 0; mcu_clk = 0; openf = nullptr; opened.clear(); fopen_open = 0; mlog.clear(); says.clear(); mexp.clear(); g_musno = 0; g_mok = sdfiles.count("NIVEL1.VGM") > 0;
+  mcu_in.clear(); mcu_out.clear(); mcu_outpos = 0; mcu_clk = 0; openf = nullptr; opened.clear(); created.clear(); written_n = 0; fopen_open = 0; mlog.clear(); says.clear(); mexp.clear(); g_musno = 0; g_mok = sdfiles.count("NIVEL1.VGM") > 0;
   for (auto& c : ayreg) for (int& r : c) r = 0xAA; memset(ayexp, 0, sizeof ayexp); ay_model_setup(); memset(fx_started, 0, sizeof fx_started);
   for (int c = 0; c < 2; c++) for (int r = 0; r < 16; r++) if (r == 0 || r == 2 || r == 4 || r == 6) ayexp[c][r] = 0xAA;   // periodos: los de antes
   z80_init(); z80_reset();
   z80.sp.w = 0x47F0; wr_raw(0x47F0, RET_AT & 255); wr_raw(0x47F1, RET_AT >> 8);
   z80.pc.w = 0x4800; z80.halted = 0; z80.iff1 = z80.iff2 = 0;
   z80.ix.w = 0x0281; z80.iy.w = 0x4000;
+  int TLKEY = S("tlkey");
+  g_title = nullptr;
+  { auto it = sdfiles.find("TITULO.I16"); if (it != sdfiles.end() && it->second.size() == 16516 && !memcmp(&it->second[0], "I160", 4)) g_title = &it->second; }
   int MAIN = S("main"), RESTART = S("restart"), WAITVS = S("waitvs"), CYCLE = S("cycle"); in_draw = false;
   int TW = S("TCYW"), TL = S("TCYL"), TG = S("TCYG");
   // c0: la vuelta en la que gira por primera vez (luego cada t)
@@ -647,7 +724,11 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
     long fr = frame();
     memset(keyrows, 0, sizeof keyrows);
     for (const Key& k : script) if (fr >= k.from && fr < k.to) keyrows[k.row] |= (uint8_t)(1 << k.bit);
-    if (z80.pc.w == MAIN && !in_main) { in_main = true; checking_vis = true; shown_valid = false; calls = 0; }
+    if (z80.pc.w == TLKEY && !title_seen) { title_seen = true; title_bad = title_check(); }
+    if (z80.pc.w == MAIN && !in_main) {
+      in_main = true; checking_vis = true; shown_valid = false; calls = 0;
+      std::vector<uint8_t> rb = rec_bytes(g_rec); for (int i = 0; i < 3; i++) if (rd(S("rec") + i) != rb[4 + i]) rec_start_bad++;   // el record leido de ESTELA.REC
+    }
     if (z80.pc.w == RESTART) { in_restart = true; restart_seen = true; calls = -1; }
     if (z80.pc.w == draw_lo) in_draw = true;
     if (z80.pc.w == CYCLE) in_draw = false;
@@ -783,7 +864,8 @@ static Worst worst_case() {
   return W;
 }
 
-static void exit_checks(const char* what, int want_bc) {
+static void exit_checks(const char* what, int want_bc, int played = -1) {
+  bool pl = played < 0 ? want_bc == 0 : played != 0;
   {
     int on = 0; for (int n = 0; n < 64; n++) if (spr[n].en || spr[n].page) on++;
     char m0[200]; snprintf(m0, sizeof m0, "%s: los 64 sprites apagados y en formato A, sin extra, hoja en el bloque 2, paleta de 16 desactivada", what);
@@ -800,7 +882,7 @@ static void exit_checks(const char* what, int want_bc) {
     for (int c = 0; c < 2; c++) { if (ayreg[c][7] != 0x3F) quiet = false; for (int r = 8; r <= 10; r++) if (ayreg[c][r] != 0) quiet = false; }
     snprintf(m, sizeof m, "%s: los dos AY de la FPGA callados (mezclador $3F, volumenes 0)", what); CHECK(quiet, m);
     bool ok;
-    if (want_bc != 0) { ok = mlog.empty(); snprintf(m, sizeof m, "%s: ninguna orden de musica (no se ha llegado a jugar)", what); }
+    if (!pl) { ok = mlog.empty(); snprintf(m, sizeof m, "%s: ninguna orden de musica (no se ha llegado a jugar)", what); }
     else {
       std::vector<std::vector<int>> want = { {38, 1}, playcmd("NIVEL1.VGM", sdfiles.count("NIVEL1.VGM") > 0) };
       for (auto& v : mexp) want.push_back(v);
@@ -819,6 +901,12 @@ static void exit_checks(const char* what, int want_bc) {
   }
   snprintf(m, sizeof m, "%s: ningun fichero abierto y nada escrito fuera de su sitio", what);
   CHECK(fopen_open == 0 && !bad_write, m);
+  {
+    std::string why; bool ok = rec_verdict(why);
+    snprintf(m, sizeof m, "%s: ESTELA.REC: %d fines de partida superan el record -> otras tantas escrituras (71, 56, 57) con el contenido exacto; si no, intacto", what, g_saves);
+    CHECK(ok, m);
+    if (!ok) printf("        %s\n", why.c_str());
+  }
   if (bad_write) printf("        primera escritura rara en $%04X\n", bad_addr);
 }
 
@@ -867,13 +955,14 @@ int main(int argc, char** argv) {
   lv.rows = u16(lv.map, 6); lv.mapoff = u16(lv.map, 10); lv.end = u16(lv.map, 14);
   scr_sym = S("scr");
   int CODEEND = S("codeend"), PALBUF = S("PALBUF"), LVLBUF = S("LVLBUF"), PALEND = S("PALEND"); lvlpg = S("LVLPG");
-  code_hi = 0x4800 + (int)bin.size(); buf_lo = PALBUF; buf_hi = S("SHEET_END") + 32 * 7;     // PALBUF (hasta $7000), la hoja y las 7 letras
+  code_hi = 0x4800 + (int)bin.size(); buf_lo = 0x6F60; buf_hi = S("SHEET_END") + 32 * 7;     // las letras W N I L D ($6F60), la hoja y las 7 letras
   cyc_lo = S("cycle"); cyc_hi = S("keys");
-  printf("estela.bin: %zu bytes, $4800-$%04X; PALBUF $%04X-$%04X (libres hasta $6F60: %d bytes); nivel en $%04X, pagina %d (8 KB)\n",
-         bin.size(), code_hi - 1, PALBUF, PALEND - 1, 0x6F60 - PALEND, LVLBUF, lvlpg);
+  printf("estela.bin: %zu bytes, $4800-$%04X (libres hasta $6F60: %d bytes); nivel en $%04X, pagina %d (8 KB), con TPALBUF $%04X y PALBUF $%04X-$%04X al final\n",
+         bin.size(), code_hi - 1, 0x6F60 - CODEEND, LVLBUF, lvlpg, S("TPALBUF"), PALBUF, PALEND - 1);
   printf("NIVEL1.MAP: %zu bytes, %d filas, mapa en +%d, LVL_END %d, LVL_SCROLL %d\n", lv.map.size(), lv.rows, lv.mapoff, lv.end, lv.map[4]);
-  CHECK(PALEND <= 0x6F60 && S("LET2ADR") == 0x6F60 && S("LETRAS2") == 123 && CODEEND + 512 == PALEND && LVLBUF == 0x2000 && lv.map.size() <= 0x2000,
-        "el codigo y PALBUF acaban antes de $6F60 (letras W N I L D y la hoja de sprites); el nivel cabe en los 8 KB del bloque 1");
+  CHECK(CODEEND == code_hi && CODEEND <= 0x6F60 && S("LET2ADR") == 0x6F60 && S("LETRAS2") == 123 && LVLBUF == 0x2000 &&
+        S("TPALBUF") == LVLBUF + S("MAXLVL") && PALBUF == S("TPALBUF") + 512 && PALEND == 0x4000 && (int)lv.map.size() <= S("MAXLVL"),
+        "el codigo acaba antes de $6F60 (letras W N I L D y la hoja de sprites); el nivel (hasta MAXLVL) y las paletas TPALBUF y PALBUF caben en los 8 KB del bloque 1");
 
   // ===== 1. el nivel 1, con las cuatro velocidades y R
   printf("-- nivel 1 --\n");
@@ -898,7 +987,8 @@ int main(int argc, char** argv) {
                               {960, 964, 0, 2} };  // X
   Result R = run(lv, script, 1000, 500, true);
   printf("        %d instantes comprobados; la vuelta mas larga del bucle: %ld T (de %d)\n", R.vis_ok + R.vis_bad, R.maxloop, FRAME);
-  CHECK(opened.size() == 3 && opened[0] == "NIVEL1.I16" && opened[1] == "NIVEL1.MAP" && opened[2] == "HOJA.BIN", "abre NIVEL1.I16, NIVEL1.MAP y HOJA.BIN (y los cierra)");
+  CHECK(opened.size() == 5 && opened[0] == "NIVEL1.I16" && opened[1] == "NIVEL1.MAP" && opened[2] == "HOJA.BIN" && opened[3] == "ESTELA.REC" && opened[4] == "TITULO.I16" &&
+        !title_seen && created.empty(), "abre NIVEL1.I16, NIVEL1.MAP, HOJA.BIN, ESTELA.REC y TITULO.I16 (y los cierra); sin TITULO.I16 se salta el titulo; sin superar el record no crea nada");
   int tbad = 0;
   for (int a = 0; a < 16000; a++) { uint8_t got = a < 8192 ? sram[6][a] : sram[7][a - 8192]; if (got != lv.pix(a)) tbad++; }
   CHECK(tbad == 0, "el tileset de $C000 (paginas 6 y 7) es el de NIVEL1.I16");
@@ -960,9 +1050,9 @@ int main(int argc, char** argv) {
         "borde: verde, cyan, amarillo, rojo y verde segun la velocidad");
   {
     int touched = 0;
-    for (int a = PALEND; a < 0x8000; a++) if ((a < 0x6F60 || a >= S("SHEET_END") + 32 * 7) && rd(a) != basic_snap[a - 0x4000]) touched++;
+    for (int a = CODEEND; a < 0x8000; a++) if ((a < 0x6F60 || a >= S("SHEET_END") + 32 * 7) && rd(a) != basic_snap[a - 0x4000]) touched++;
     for (int a = 0x4000; a < 0x4700; a++) if (rd(a) != basic_snap[a - 0x4000]) touched++;
-    CHECK(touched == 0, "no toca $4000-$46FF ni lo que hay detras de PALBUF hasta $7FFF (salvo la hoja) (al copiar a $C000 se reescriben los mismos bytes)");
+    CHECK(touched == 0, "no toca $4000-$46FF ni lo que hay detras del codigo hasta $7FFF (salvo la hoja) (al copiar a $C000 se reescriben los mismos bytes)");
   }
   printf("        juego: %d oleadas, %d enemigos, %d derribados, %d disparos enemigos, %d veces tocada, marcador %d, hasta %d enemigos a la vez\n",
          R.waves, R.spawned, R.kills, R.ebfired, R.deaths, R.score, R.maxene);
@@ -1209,6 +1299,103 @@ int main(int argc, char** argv) {
     CHECK(J.bombboss >= 2 && J.bclamp >= 1 && J.bkills >= 1, "las bombas le quitan 10 vidas al jefe (y una, con menos de 11, lo deja en 1) y aun asi se le puede derribar");
     CHECK(J.lost_frames == 0 && spr_maxlat < 12000, "sin lineas perdidas y los sprites escritos antes de 12.000 T");
     exit_checks("mejoras con el jefe", 0);
+  }
+
+  // ===== 1g. titulo y record (fase 7d)
+  {
+    auto basef = [&]() { sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = lv.map; sdfiles["HOJA.BIN"] = hoja; sdfiles["NIVEL1.VGM"] = {'V', 'g', 'm', ' '};
+                         sdfiles["GAMEOVER.VGM"] = {'V', 'g', 'm', ' '}; };
+    // un TITULO.I16 de mentira: paleta y pixeles que no se parecen a los del nivel
+    auto mk_title = [&](int seed) {
+      std::vector<uint8_t> t = {'I', '1', '6', '0'};
+      for (int i = 0; i < 256; i++) { t.push_back((uint8_t)(i * 5 + seed)); t.push_back((uint8_t)(i * 3 + seed * 7 + 1)); }
+      for (int y = 0; y < 100; y++) for (int x = 0; x < 160; x++) t.push_back((uint8_t)(x * 3 + y * 5 + seed));
+      return t;
+    };
+    auto mk_rec = [&](const char* sig, int v) { std::vector<uint8_t> r(sig, sig + 4); std::vector<uint8_t> b = rec_bytes(v); r.insert(r.end(), b.begin() + 4, b.end()); return r; };
+
+    printf("-- titulo: con TITULO.I16 y ESTELA.REC = 001234; ESPACIO empieza --\n");
+    basef(); sdfiles["TITULO.I16"] = mk_title(3); sdfiles["ESTELA.REC"] = mk_rec("EREC", 1234);
+    Result T = run(lv, { {260, 264, 7, 0}, {700, 704, 0, 2} }, 760, 300, true);
+    printf("        titulo visto: %s (%d cosas distintas); record de la memoria distinto del fichero: %d; imagenes de juego comparadas: %d\n",
+           title_seen ? "si" : "no", title_bad, rec_start_bad, T.spr_checked);
+    CHECK(title_seen && title_bad == 0, "el titulo: modo 175, anillo sin desplazar, la paleta y los 16.000 pixeles de TITULO.I16, y 001234 en los sprites 58-63 (x 56-103, y RECY); los demas apagados");
+    CHECK(opened.size() == 5 && opened[3] == "ESTELA.REC" && opened[4] == "TITULO.I16" && created.empty(), "lee ESTELA.REC (53, 55, 57) y TITULO.I16; no escribe nada");
+    CHECK(rec_start_bad == 0, "el record leido (la memoria del Z80) es 001234");
+    CHECK(T.spr_checked > 300 && T.spr_bad.empty() && T.vis_bad == 0 && T.pal_bad.empty() && T.ay_bad == 0,
+          "tras ESPACIO el juego va como siempre: los 64 sprites, lo visible y la paleta iguales al modelo (el anillo y los paneles repintados)");
+    CHECK(T.vis_ok >= 20, "el nivel se ve de verdad despues del titulo (20 instantes o mas)");
+    exit_checks("titulo y juego", 0);
+
+    printf("-- titulo: X en el titulo sale al BASIC sin jugar --\n");
+    basef(); sdfiles["TITULO.I16"] = mk_title(9);
+    T = run(lv, { {260, 264, 0, 2} }, 400, 0, false);
+    CHECK(title_seen && title_bad == 0 && T.spr_checked == 0 && T.frames > 200, "con X en el titulo sale (BC = 0) sin llegar a jugar: el titulo se ve entero (paleta, pixeles, 000000)");
+    exit_checks("titulo, X", 0, 0);
+
+    printf("-- titulo: ESPACIO sigue pulsado desde antes (empieza al primer vistazo) --\n");
+    basef(); sdfiles["TITULO.I16"] = mk_title(5);
+    T = run(lv, { {0, 700, 7, 0}, {700, 704, 0, 2} }, 760, 50, true);
+    CHECK(title_seen && title_bad == 0 && T.spr_checked > 300 && T.spr_bad.empty(), "con ESPACIO pulsado desde el principio el titulo sale una imagen y empieza la partida");
+    exit_checks("titulo, ESPACIO pulsado", 0);
+
+    printf("-- titulo: TITULO.I16 que no es un .I16 --\n");
+    basef(); sdfiles["TITULO.I16"] = mk_title(2); sdfiles["TITULO.I16"][3] = '1';
+    T = run(lv, { {400, 404, 0, 2} }, 460, 20, true);
+    CHECK(!title_seen && T.spr_checked > 100 && T.spr_bad.empty() && opened.back() == "TITULO.I16", "sin firma I160 se salta el titulo: la partida empieza sola");
+    exit_checks("titulo que no es un .I16", 0);
+
+    // el nivel entero como en 1b (disparando y moviendose; 3 vidas: llega el fin de partida), con distintos ESTELA.REC
+    auto script1b = [&]() {
+      std::vector<Key> sc;
+      for (long f = 30; f < 4440; f += 200) sc.push_back({f, f + 190, 7, 0});
+      for (long f = 40; f < 4400; f += 100) { sc.push_back({f, f + 45, 5, 1}); sc.push_back({f + 50, f + 95, 5, 0}); }
+      for (long f = 300; f < 4400; f += 700) { sc.push_back({f, f + 60, 2, 0}); sc.push_back({f + 200, f + 260, 1, 0}); }
+      sc.push_back({4450, 4454, 0, 2});
+      return sc;
+    };
+    struct RC { const char* what; int kind; int v; } rcs[] = {
+      { "sin ESTELA.REC (record 0): se guarda el record", 0, 0 },
+      { "ESTELA.REC = 999999: no se supera, no se escribe nada", 1, 999999 },
+      { "ESTELA.REC con otra firma (XREC y 999999): vale 0 y se sobrescribe", 2, 999999 },
+      { "ESTELA.REC = 000100: se sube al marcador mas alto", 1, 100 } };
+    for (auto& c : rcs) {
+      printf("-- record: %s --\n", c.what);
+      basef();
+      if (c.kind == 1) sdfiles["ESTELA.REC"] = mk_rec("EREC", c.v);
+      if (c.kind == 2) sdfiles["ESTELA.REC"] = mk_rec("XREC", c.v);
+      Result L = run(lv, script1b(), 4500, 20, true);
+      printf("        %d fines de partida, marcador mas alto superado %d veces: %d ordenes fcreate, %d fwrite; record final del modelo %06d\n",
+             L.gameovers, g_saves, (int)created.size(), written_n, g_rec);
+      CHECK(L.gameovers > 0 && rec_start_bad == 0 && !title_seen, "hay fin de partida, el record leido al empezar es el del modelo y sin TITULO.I16 no hay titulo");
+      if (c.kind == 1 && c.v == 999999) CHECK(g_saves == 0 && created.empty() && written_n == 0, "no se supera el record: ni fcreate ni fwrite");
+      else CHECK(g_saves >= 1 && (int)created.size() == g_saves, "se supera el record: hay escritura(s) (solo las que lo superan)");
+      CHECK(L.spr_bad.empty() && L.vis_bad == 0 && L.pal_bad.empty(), "y los 64 sprites, lo visible y la paleta, iguales al modelo (el guardado no estropea el juego)");
+      exit_checks(c.what, 0);
+    }
+
+    // pruebas en negativo: cambios a proposito en el codigo del record; el veredicto de ESTELA.REC tiene que fallar
+    {
+      std::vector<uint8_t> good = bin;
+      auto find1 = [&](const std::vector<uint8_t>& pat) { int at = -1, n = 0; for (size_t i = 0; i + pat.size() <= good.size(); i++) if (!memcmp(&good[i], pat.data(), pat.size())) { at = (int)i; n++; } return n == 1 ? at : -1; };
+      struct Neg { const char* what; std::vector<uint8_t> pat; int off; uint8_t val; int rec; } negs[] = {
+        { "la firma FREC en lugar de EREC", {'E', 'R', 'E', 'C'}, 0, 'F', -1 },
+        { "guardar siempre, aunque no se supere (JR C pasa a JR)", {0x38, 0x06, 0xC0, 0x23, 0x13, 0x10, 0xF7, 0xC9}, 0, 0x18, 999999 } };
+      for (auto& n : negs) {
+        int at = find1(n.pat);
+        CHECK(at >= 0, "(prueba en negativo) el trozo de codigo a cambiar esta una sola vez");
+        if (at < 0) continue;
+        bin = good; bin[at + n.off] = n.val;
+        basef(); if (n.rec >= 0) sdfiles["ESTELA.REC"] = mk_rec("EREC", n.rec);
+        int e0 = errors;
+        run(lv, script1b(), 4500, 0, false);
+        std::string why; bool ok = rec_verdict(why);
+        errors = e0;                                   // los fallos de dentro de run no cuentan: se buscan
+        char m[240]; snprintf(m, sizeof m, "(prueba en negativo) con %s, el arnes lo ve (%s)", n.what, ok ? "NO" : why.c_str());
+        CHECK(!ok, m);
+      }
+      bin = good;
+    }
   }
 
   // ===== 2. un nivel corto: el scroll se para en LVL_END; R vuelve al principio

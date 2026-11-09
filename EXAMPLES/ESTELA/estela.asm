@@ -2,7 +2,7 @@
 ; ESTELA.ASM -- matamarcianos vertical para el modo 160x100 a 256 colores
 ; del SD81 Booster. Plan: claude/planning/juego160.md
 ;
-; FASE 7c: mejoras (tras el jefe de la 7b). Modo 175, anillo de 160x102 en $8000 con dos paneles
+; FASE 7d: titulo y record (tras las mejoras de la 7c). Modo 175, anillo de 160x102 en $8000 con dos paneles
 ; laterales fijos de 16 pixeles, scroll vertical del nivel 1, la nave con sus
 ; disparos y las oleadas de enemigos del nivel, con sus disparos, colisiones,
 ; explosiones y el marcador, todo en sprites de formato B:
@@ -15,7 +15,7 @@
 ;   - NIVEL1.MAP (de la SD): cabecera, oleadas y mapa de 8 tiles de ancho
 ;     (formato en juego160.md 8.3), en LVLBUF = $2000: la pagina LVLPG de la
 ;     SRAM, mapeada en el bloque 1 mientras corre el juego (sin ROM: todo con
-;     DI; hasta 8 KB de nivel). Al salir el bloque 1 vuelve a tener su pagina y
+;     DI; hasta 7 KB de nivel; al final de la pagina, TPALBUF y PALBUF). Al salir el bloque 1 vuelve a tener su pagina y
 ;     se reescribe sobre si mismo, para que la sombra de la FPGA de
 ;     $2000-$3FFF vuelva a tener lo de la ROM.
 ;   - Lineas del nivel: la fila r del mapa ocupa las lineas 16r..16r+15
@@ -32,7 +32,16 @@
 ;     del anillo: se ven quietas aunque el anillo se mueva. Se pintan una vez.
 ;   - Ciclo de paleta: el agua (PAL_WATER), la lava (PAL_LAVA) y las luces
 ;     (PAL_LIGHTS) giran una posicion cada TCYW, TCYL y TCYG imagenes, en el
-;     borrado, a partir de la paleta del .I16 (PALBUF).
+;     borrado, a partir de la paleta del .I16 (PALBUF: los ultimos 512 bytes de la
+;     pagina del nivel, $3E00-$3FFF, para no gastar sitio en el binario).
+;   - Titulo y record (fase 7d): TITULO.I16 (opcional, 160x100, de la carpeta actual) se
+;     lee al anillo con su paleta (TPALBUF, $3C00) antes de pintar el nivel, con el record
+;     en las 6 cifras de los sprites 58-63 (x 56-103, y RECY); ESPACIO empieza y X sale
+;     al BASIC. Sin TITULO.I16 (o si no es un .I16) se salta el titulo. El record vive en
+;     ESTELA.REC (carpeta actual): la firma "EREC" y 3 bytes BCD. Se lee al empezar con
+;     las ordenes 53, 55 y 57 (sin fichero o con otra firma, 0) y, al llegar el fin de
+;     partida, si el marcador lo supera se escribe con la 71 (fcreate), la 56 (fwrite)
+;     y la 57. No va a la EEPROM.
 ;   - Sprites (formato B): HOJA.BIN (de la SD) en SHEET_ADDR = $7000 (bloque
 ;     3, POKE 2129,3) y la paleta de 16 PAL16 de HOJA.INC (POKE 2067,1). La
 ;     nave es 16x16 (sprites SP_NAVE..+3: arriba-izquierda, arriba-derecha,
@@ -111,7 +120,7 @@
 ;     LETRAS..LETRAS+6, en SHEET_END): la hoja tiene que dejar 7 celdas.
 ;     W N I L D (letras2) van en las paginas LETRAS2..+4 del mismo bloque 3
 ;     ($6F60-$6FFF: las paginas de menos de 128 tambien son celdas); el
-;     codigo y PALBUF tienen que acabar antes.
+;     codigo tiene que acabar antes.
 ;   - Musica: NIVEL1.VGM (de la SD, carpeta actual) en bucle, la toca el MCU
 ;     en su AY emulado sin gastar CPU (comandos 38 y 34; 35 al salir). En el
 ;     fin de partida se para y suena GAMEOVER.VGM una vez (sin bucle); al
@@ -143,13 +152,13 @@
 ;         X = salir a BASIC
 ; Devuelve en BC 0, o un error de carga: 1 no hay NIVEL1.I16, 2 no es un
 ; .I16, 3 no hay NIVEL1.MAP, 4 no es un nivel (ELV1), 5 pasa de
-; 8 KB, 6 cabecera del nivel incoherente, 7 no hay HOJA.BIN.
+; 7 KB, 6 cabecera del nivel incoherente, 7 no hay HOJA.BIN.
 ;
 ; Ensamblar: pasmo estela.asm estela.bin estela.sym   (o compila.bat)
 ; Cargar: ESTELA.B81 (CLEAR 18431, LOAD FAST "ESTELA.BIN" CODE 18432);
 ; NIVEL1.I16, NIVEL1.MAP y HOJA.BIN (de out/) y NIVEL1.VGM (opcional) en la
 ; misma carpeta de la SD.
-; El codigo y PALBUF tienen que acabar antes de $6F60 (letras2 y la hoja de los sprites).
+; El codigo tiene que acabar antes de $6F60 (letras2 y la hoja de los sprites).
 ; =============================================================
 
         org 4800h
@@ -227,7 +236,14 @@ FX_EBR  equ 2                   ;   por la derecha
 FX_BOOM equ 3                   ;   explosiones
 LVLPG   equ 20                  ; pagina del nivel (en el bloque 1); la de la prueba PAGINA
 LVLBUF  equ 2000h               ; NIVEL1.MAP
-MAXLVL  equ 2000h               ; hasta 8 KB
+MAXLVL  equ 1C00h               ; hasta 7 KB; detras, en la misma pagina, TPALBUF y PALBUF
+TPALBUF equ LVLBUF+MAXLVL       ; paleta del titulo (512 bytes), solo mientras sale el titulo
+PALBUF  equ TPALBUF+512         ; la paleta del .I16 del nivel (512 bytes): $3E00-$3FFF, fuera del binario
+PALEND  equ PALBUF+512          ; (= $4000)
+CMD_FWRITE equ 56               ; ordenes del MCU para guardar el record
+CMD_FCREATE equ 71
+NMRECL  equ 10                  ; longitud de "ESTELA.REC"
+RECY    equ 84                  ; titulo: y de pantalla de las 6 cifras del record (x 56-103)
 LIVES0  equ 3                   ; vidas al empezar
 GOT     equ 100                 ; ticks del fin de partida antes de aceptar ESPACIO
 NLET    equ 7                   ; (SHEET_CELLS + NLET <= 128: lo comprueba el arnes)
@@ -308,6 +324,11 @@ start:  di
         call sprinit
         call gminit
         call mktabs
+        call recload            ; el record de ESTELA.REC (0 si no hay)
+        call title              ; el titulo, si hay TITULO.I16: A = 0 jugar, 1 salir
+        or a
+        ld a,0
+        jp nz,quit
         call panels
         call fillring
         call cycinit
@@ -757,9 +778,9 @@ bp1:    ld (2064),a
         ret
 
 ; setpal: las 256 entradas de PALBUF (la paleta del .I16)
-setpal: xor a
+setpal: ld hl,PALBUF
+setpal1: xor a                  ; (HL = otra paleta de 512 bytes: la del titulo)
         ld (2063),a
-        ld hl,PALBUF
         ld b,0
 sp8:    ld a,(hl)
         ld (2064),a
@@ -942,6 +963,182 @@ rs1:    call gminit             ; (las voces de los efectos, libres)
         call fillring
         call cycinit
         jp setpal
+
+; -------------------------------------------------------------
+; Titulo y record (fase 7d). ESTELA.REC (carpeta actual): la firma "EREC" y 3
+; bytes BCD (la cifra mas alta primero), 7 bytes.
+; -------------------------------------------------------------
+; recload: ESTELA.REC -> rec; sin fichero o con otra firma, 0
+recload:
+        ld hl,recf
+        ld de,recf+1
+        ld bc,6
+        ld (hl),0
+        ldir                    ; recf entero a 0
+        ld hl,nmrec
+        call f_open
+        cp 0ffh
+        ret z                   ; no hay fichero
+        ld (fh),a
+        ld hl,recf
+        ld bc,7
+        call f_read_n
+        ld a,(fh)
+        call f_close
+        ld hl,recf
+        ld de,magrec
+        call cmp4
+        ret z                   ; firma buena: ese es el record
+        xor a                   ; otra firma: 0
+        ld (rec),a
+        ld (rec+1),a
+        ld (rec+2),a
+        ret
+
+; recsave: si el marcador supera el record, lo guarda en ESTELA.REC (fcreate,
+; fwrite, fclose); si no, no hace nada
+recsave:
+        ld hl,score
+        ld de,rec
+        ld b,3
+rv1:    ld a,(de)
+        cp (hl)
+        jr c,rv2                ; record < marcador
+        ret nz                  ; record > marcador
+        inc hl
+        inc de
+        djnz rv1
+        ret                     ; iguales
+rv2:    ld hl,score
+        ld de,rec
+        ld bc,3
+        ldir
+        ld hl,magrec
+        ld de,recf
+        ld bc,4
+        ldir
+        call f_create           ; A = manejador
+        cp 4
+        ret nc                  ; no se ha podido crear
+        ld (fh),a
+        ld hl,recf
+        ld bc,7
+        call f_write
+        ld a,(fh)
+        jp f_close
+
+; f_create: orden 71 (como fopen, nombre en ASCII; crea el fichero o lo deja
+; vacio) con nmrec -> A = manejador ($FF si no se puede)
+f_create:
+        ld a,CMD_FCREATE
+        call mcu_send
+        ld a,NMRECL
+        call mcu_send
+        ld hl,nmrec
+        ld b,NMRECL
+fcr1:   ld a,(hl)
+        inc hl
+        call mcu_send
+        djnz fcr1
+        jp mcu_recv
+
+; f_write: orden 56. A = manejador, HL = origen, BC = cuantos (<= CHUNK) -> A = estado
+f_write:
+        ld e,a
+        ld a,CMD_FWRITE
+        call mcu_send
+        ld a,e
+        call mcu_send
+        ld a,c
+        call mcu_send
+        ld a,b
+        call mcu_send
+fw1:    ld a,b
+        or c
+        jp z,mcu_recv
+        ld a,(hl)
+        inc hl
+        dec bc
+        call mcu_send
+        jr fw1
+
+; title: TITULO.I16 (160x100; opcional) en el anillo con su paleta y el record con las
+; cifras en los sprites SP_DIG.. (x 56-103, y RECY); ESPACIO empieza, X sale.
+; Sin el fichero (o si no es un .I16) no hay titulo. A = 0 jugar, 1 salir. Al volver
+; la paleta esta en negro y el anillo sin repintar (start lo repinta)
+title:  ld hl,nmtit
+        call f_open
+        cp 0ffh
+        jr z,ti0                ; sin TITULO.I16: se salta el titulo
+        ld (fh),a
+        ld hl,hdr
+        ld bc,4
+        call f_read_n
+        ld hl,hdr
+        ld de,magi16
+        call cmp4
+        jr z,ti1
+        ld a,(fh)               ; no es un .I16: tambien se salta
+        call f_close
+ti0:    xor a
+        ret
+ti1:    ld a,(fh)
+        ld hl,TPALBUF
+        ld bc,512
+        call f_read_n
+        ld a,(fh)
+        ld hl,IMG
+        ld bc,I16PIX
+        call f_read_n
+        ld a,(fh)
+        call f_close
+        ld hl,rec               ; el record en los sprites SP_DIG.. (como el marcador, pero en y RECY)
+        ld c,SP_DIG
+        ld b,3
+tt1:    ld a,(hl)
+        rrca
+        rrca
+        rrca
+        rrca
+        and 0fh
+        call digit
+        ld a,(hl)
+        and 0fh
+        call digit
+        inc hl
+        djnz tt1
+        ld c,SP_DIG
+        ld b,6
+tt2:    ld a,c
+        ld (SPR_SEL),a
+        ld a,SOFS+RECY
+        ld (SPR_Y),a
+        inc c
+        djnz tt2
+        call waitvs
+        ld hl,TPALBUF
+        call setpal1
+tl1:    call waitvs
+tlkey:  ld a,0feh               ; X: salir
+        in a,(0feh)
+        and 4
+        jr z,tl2
+        ld a,07fh               ; ESPACIO: a jugar
+        in a,(0feh)
+        and 1
+        jr nz,tl1
+        xor a
+        jr tl3
+tl2:    ld a,1
+tl3:    push af
+        ld c,SP_DIG             ; las cifras apagadas, en su sitio de siempre
+        ld b,6
+tl4:    call off1
+        inc c
+        djnz tl4
+        call blackpal
+        pop af
+        ret
 
 ; showspd: el borde segun la velocidad
 showspd:
@@ -1608,7 +1805,7 @@ dd1:    ld a,(hl)
         call digit
         inc hl
         djnz dd1
-        ld a,(lives)            ; las vidas: VIDA en SP_VIDA+i si i < vidas
+        ld a,(lives)           ; las vidas: VIDA en SP_VIDA+i si i < vidas
         ld b,a
         ld c,SP_VIDA
         ld e,SOFS+VIDAX
@@ -3000,6 +3197,7 @@ pp2:    xor a                   ; fin de partida: sin temblor
         ld (pstate),a
         ld a,GOT
         ld (ptimer),a
+        call recsave            ; si supera el record, ESTELA.REC
         ld a,1                  ; la musica del fin de partida
         jp music
 
@@ -3027,6 +3225,11 @@ infl:   defb 0                  ; 1 = vidas infinitas (tecla I; hasta salir)
 bfake:  defs 4                  ; registro de enemigo para los tiros del jefe (E_X, E_Y)
 lapsv:  defs 4                  ; marcador y vidas durante lap
 nmgov:  defb "GAMEOVER.VGM",0
+nmtit:  defb "TITULO.I16",0
+nmrec:  defb "ESTELA.REC",0
+magrec: defb "EREC"
+recf:   defs 7                  ; el fichero del record: firma y 3 bytes BCD (rec)
+rec     equ recf+4
 vgmok:  defb 0                  ; 1 = el MCU toca (o ha tocado) una musica: STOP_VGM al cambiar o salir
 musno:  defb 0                  ; la que suena: 0 la del nivel, 1 la del fin de partida
 magi16: defb "I160"
@@ -3108,9 +3311,6 @@ rowtab: defs 2*RING
 lytab:  defs 2*16
 codeend:
 
-; detras del codigo, sin ocupar el binario
-PALBUF  equ codeend             ; la paleta del .I16 (512 bytes)
-PALEND  equ PALBUF+512          ; hasta $7000 (la hoja de los sprites)
 GVLEN   equ gvend-gvars
 
         end start

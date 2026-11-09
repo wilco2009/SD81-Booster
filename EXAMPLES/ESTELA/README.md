@@ -12,15 +12,33 @@ El plan entero (fases, mapa de memoria, sprites) está en
 | `PRUEBAS/` | pruebas de la fase 0 en la placa (carga, VSYNC, sonido, paginación) |
 | `tools/`, `assets/`, `out/` | herramientas del PC y gráficos del nivel (las lleva otra sesión; §8 del plan) |
 
-## Estado: fase 7c (mejoras: hecha en el PC, sin probar en la placa)
+## Estado: fase 7d (título y récord: hecha en el PC, sin probar en la placa)
 
 Lo que hay ahora es el **fondo del nivel 1 con scroll**, la **nave del jugador**
 con sus disparos, las **oleadas de enemigos** del nivel, con sus disparos,
 colisiones, explosiones y el marcador, el **sonido** (música y efectos) y las
 **vidas** con el **fin de partida** (cartel GAME OVER), el **jefe** del final del
-nivel y las **mejoras** (arma, escudo y bombas). La fase 7 va por partes: falta el
-título con el récord (7d). La 7c está hecha y comprobada en el PC, **sin probar en
-la placa**.
+nivel, las **mejoras** (arma, escudo y bombas) y, antes de jugar, el **título con
+el récord**. La fase 7 va por partes y la 7d (la última) está hecha y comprobada
+en el PC, **sin probar en la placa**; la 7c ya está probada.
+
+**Título y récord (7d):**
+- `TITULO.I16` (opcional, 160x100 con su paleta, en la misma carpeta; lo hace la
+  sesión de herramientas): si está, sale antes de cargar el nivel en el anillo, con el
+  **récord** en las 6 cifras de los sprites 58-63 (las del marcador: x 56-103, **y 84**,
+  `RECY` en el código; la imagen tiene que dejar libre esa franja y puede poner
+  encima la palabra "RECORD"). **ESPACIO** empieza la partida y **X** sale al BASIC.
+  Si no está (o no empieza por `I160`), no hay título y el juego empieza directamente.
+  `compila.bat` copia `out\TITULO.I16` si existe.
+- El **récord va en un fichero de la SD**, no en la EEPROM: `ESTELA.REC`, en la
+  carpeta actual (la del juego), de 7 bytes: la firma `EREC` y 3 bytes BCD (la cifra más
+  alta primero, como el marcador). Al empezar se lee (órdenes 53, 55 y 57 del MCU);
+  si no existe, es más corto o la firma no cuadra, el récord es 0. Al llegar el
+  **fin de partida**, si el marcador **lo supera** (estrictamente), se escribe con la
+  orden 71 `fcreate` (nombre en ASCII; crea o vacía el fichero), la 56 `fwrite` y la 57;
+  si no, no se toca nada. No se guarda al salir con X ni al terminar el nivel. El fichero
+  se escribe al acabar la explosión de la última nave: puede notarse una pausa de
+  decenas de milisegundos, mientras el MCU crea el fichero. No hace falta tocar el firmware.
 La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el límite de
 12 sprites por línea del motor, no se pierde ningún trozo de sprite (ver abajo):
 
@@ -31,7 +49,8 @@ La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el l
     corre el juego y se devuelven al salir);
   - `NIVEL1.MAP`: cabecera, oleadas y mapa de 8 tiles de ancho, en una página de
     la SRAM (la 20) que mientras se juega está en el bloque 1 (`$2000`, en lugar
-    de la ROM; caben niveles de hasta 8 KB);
+    de la ROM; caben niveles de hasta 7 KB: al final de esa página van las dos paletas
+    de 512 bytes, la del nivel (`PALBUF`) y la del título (`TPALBUF`));
   - `HOJA.BIN`: la hoja de los sprites (celdas de 8x8 a 16 colores), en `$7000`;
   - `NIVEL1.VGM` (opcional): la música, que la toca el MCU en bucle sin gastar
     CPU. Si no está, el juego va sin música;
@@ -138,7 +157,7 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
 | 2 | `NIVEL1.I16` no es un `.I16` (no empieza por `I160`) |
 | 3 | no hay `NIVEL1.MAP` |
 | 4 | `NIVEL1.MAP` no es un nivel (no empieza por `ELV1`) |
-| 5 | el nivel pasa de 8 KB (el de ejemplo tiene 2.488 bytes) |
+| 5 | el nivel pasa de 7 KB (el de ejemplo tiene 2.488 bytes) |
 | 6 | la cabecera del nivel no cuadra (menos de 7 filas, o el mapa se sale del fichero) |
 | 7 | no hay `HOJA.BIN` |
 
@@ -203,6 +222,11 @@ la pelea con el jefe: si 40 disparos son muchos o pocos, si sus tiros (cada 30
 imágenes) son demasiados, y si los carteles WARNING y WELL DONE se leen bien. Para
 llegar antes al jefe vale S (2 píxeles por imagen), y la tecla I da vidas infinitas.
 Las mejoras salen en las posiciones 700, 2310 y 3980 del scroll (con S, antes).
+Del título y el récord (7d, con un `TITULO.I16` en `out\`): si el título sale entero y a
+la primera, si las 6 cifras del récord caen donde la imagen las espera (x 56-103, y 84),
+si ESPACIO empieza y X sale, si tras el primer fin de partida con puntos aparece
+`ESTELA.REC` en la carpeta (7 bytes) y la próxima vez el título lo enseña, si la pausa al
+guardar se nota, y que no se escribe nada si no se supera el récord.
 
 ## Comprobado en el PC
 
@@ -313,9 +337,27 @@ especificación, aparte del código del Z80:
   en x + 9, el temblor de 23 imágenes, el primer desplazamiento del temblor en 4 y la
   bomba que quita 9 vidas al jefe: las seis se detectan (en sprites, en `POKE 2074` o
   en las vidas del jefe);
-- la vuelta más larga del bucle: unos 32.000 T de los 64.584 de una imagen.
+- el **título y el récord** (7d): el MCU del arnés entiende ahora también la orden 71
+  (`fcreate`) y la 56 (`fwrite`) y el fichero se escribe en `sdfiles`; el modelo lee
+  `ESTELA.REC` al empezar y sube el récord con cada fin de partida que lo supera. En
+  **todas** las ejecuciones se comprueba al salir que hay tantas órdenes 71 y 56 como subidas
+  del modelo y que el contenido es exactamente `EREC` + el récord en BCD (o que el fichero
+  sigue intacto). Título: con `TITULO.I16` (hecho en el arnés), en su primera espera de teclas
+  la paleta, los 16.000 píxeles del anillo, el modo 175 sin desplazar y las cifras `001234` en
+  los sprites 58-63 (x 56-103, y `RECY`) son los esperados y los demás sprites están apagados;
+  ESPACIO empieza y la partida va como siempre (64 sprites, lo visible y la paleta iguales
+  al modelo, con el anillo y los paneles repintados); X en el título sale sin jugar (BC = 0,
+  nada de música, todo restaurado); ESPACIO ya pulsado empieza al primer vistazo; un
+  `TITULO.I16` sin la firma `I160` se salta y la partida empieza sola; sin `TITULO.I16` no
+  hay título (todas las demás pruebas). Récord, con el nivel entero (2 fines de partida):
+  sin `ESTELA.REC` se guarda una vez (el segundo marcador, más bajo, no); con `999999` ni una
+  orden 71 ni 56; con la firma `XREC` vale 0 y se sobrescribe; con `000100`, se sube. **Pruebas
+  en negativo** (binario cambiado a propósito): la firma `FREC` en lugar de `EREC` y
+  guardar siempre aunque no se supere: el arnés ve las dos;
+- la vuelta más larga del bucle: unos 32.000 T de los 64.584 de una imagen. Sprites escritos
+  antes de 11.618 T tras el flanco y ciclo de paleta antes de 11.977 T.
 
-Las fases 1 a 4, la 6, la 7a, la 7b y la 7c están **probadas en la placa** (2026-11-08/09). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
+Las fases 1 a 4, la 6, la 7a, la 7b y la 7c están **probadas en la placa** (la 7d, no) (2026-11-08/09). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
 y desde entonces el arnés ensambla y prueba el `estela.bin` de esta carpeta, el
 mismo que va a la SD.
 
@@ -324,15 +366,18 @@ mismo que va a la SD.
 `compila.bat` ensambla con pasmo, comprueba que el binario no pasa de `$6FFF`
 (la hoja de los sprites está en `$7000` y el ZX81 no ejecuta código por encima de
 `$8000`) y lo copia al emulador (`SD81\SD81\GAMES\ESTELA`) con `out\NIVEL1.I16`,
-`out\NIVEL1.MAP`, `out\HOJA.BIN` y las músicas como `NIVEL1.VGM` (`out\NIVEL1.VGM` si
+`out\NIVEL1.MAP`, `out\HOJA.BIN`, `out\TITULO.I16` (si existe) y las músicas como `NIVEL1.VGM` (`out\NIVEL1.VGM` si
 existe; si no, `..\VGM\music0002.vgm`) y `GAMEOVER.VGM` (`out\GAMEOVER.VGM`; si no,
 `..\VGM\ledstorm-2.vgm`). Para la placa, copia `ESTELA.BIN`, `ESTELA.B81`,
-`NIVEL1.I16`, `NIVEL1.MAP`, `HOJA.BIN`, `NIVEL1.VGM` y `GAMEOVER.VGM` a una misma
-carpeta de la SD y carga `ESTELA.B81`.
+`NIVEL1.I16`, `NIVEL1.MAP`, `HOJA.BIN`, `NIVEL1.VGM`, `GAMEOVER.VGM` y, si lo hay,
+`TITULO.I16` a una misma carpeta de la SD y carga `ESTELA.B81`; el juego crea solo
+`ESTELA.REC` (el récord) en esa carpeta.
 
-Memoria: código y tablas en `$4800-$6C16` (9.239 bytes; las trayectorias de `LEVEL.INC` y la
-`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$6C17-$6E16` (quedan
-329 bytes libres para el código de la fase 7d; `compila.bat` deja 9.568 como máximo), las letras W N I L D en
+Memoria: código y tablas en `$4800-$6D9D` (9.630 bytes; las trayectorias de `LEVEL.INC` y la
+`PAL16` de `HOJA.INC` ya van dentro; quedan **450 bytes libres** hasta `$6F60`;
+`compila.bat` deja 10.080 como máximo). La paleta del nivel (`PALBUF`) y la del título
+(`TPALBUF`) ya no están detrás del código: van en los últimos 1.024 bytes de la página del nivel
+(`$3C00-$3FFF`, bloque 1), que por eso admite niveles de 7 KB en lugar de 8. Las letras W N I L D en
 `$6F60-$6FFF` (páginas 123-127), hoja de los sprites en `$7000-$7F1F` y las letras
 G A M E O V R detrás, en `$7F20-$7FFF` (bloque 3), anillo en `$8000-$BFBF`,
 tileset en `$C000-$FE7F`

@@ -8,11 +8,13 @@ Los formatos finales están en `claude/planning/juego160.md`, sección 8.
 assets/                       lo que se edita (fuentes)
     sprites.png, sprites.def      hoja de sprites (PNG indexado de 16 colores, rejilla de 8x8) y lista de gráficos
     tileset.png, tiles.def        tileset del nivel (PNG indexado 160x100, 10x6 tiles de 16x16) y nombres de los tiles
+    titulo.png                    pantalla de título (PNG indexado 160x100, paleta de 256)
     paths.def                     trayectorias de los enemigos
     NIVEL1.LVL                    el nivel: mapa legible + oleadas
 out/                          lo que se genera (se copia a la SD o se incluye en el ensamblado)
     HOJA.BIN  HOJA.PAL  HOJA.INC      celdas del formato B, pal16 y etiquetas (pasmo)
     NIVEL1.I16                        tileset + paleta de 256 (formato .I16)
+    TITULO.I16                        pantalla de título (formato .I16; ESTELA la enseña si existe)
     NIVEL1.MAP  LEVEL.INC             mapa y oleadas; formatos, trayectorias y tabla de tiles (pasmo)
 tools/
 ```
@@ -21,7 +23,7 @@ tools/
 
 ```bash
 python make.py            # genera todo lo de out/ desde assets/ y lo comprueba (o tools\make.bat)
-python make.py --regen    # además regenera los gráficos PROVISIONALES (sobreescribe sprites.png y tileset.png)
+python make.py --regen    # además regenera los gráficos PROVISIONALES (sobreescribe sprites.png, tileset.png y titulo.png)
 python selftest.py        # pruebas de las herramientas en una carpeta temporal (también prueba con pasmo si está en el PATH)
 ```
 
@@ -74,6 +76,18 @@ python gentiles.py [-o ../assets] [--preview vista.png] [--check]
 Rangos reservados: 224-239 agua, 240-247 lava, 248-255 luces (cada uno con una rampa en coseno, para ciclarlos); 0-15 colores de
 los paneles. Los tiles se repiten en vertical sin costuras. La fila 96 del PNG lleva el dibujo de los paneles laterales.
 Después se convierte con `png2i16.py` (lo hace `make.py`): `NIVEL1.I16`. `--check` regenera los 60 tiles y los compara con el PNG.
+
+### `gentitulo.py`: pantalla de título provisional
+
+```bash
+python gentitulo.py [-o ../assets] [--preview vista.png] [--check]
+```
+
+`titulo.png` (160x100 indexado, paleta de 256): «ESTELA» grande arriba (letras 5x7 ampliadas 4x3 con degradado, contorno y sombra),
+espacio con nebulosa y estrellas, la nave y unos enemigos copiados de `sprites.png` (por eso se regenera después de cambiar la
+hoja de sprites; `make.py --regen` lo hace en orden), «RECORD» en y 75-81 y «ESPACIO: JUGAR   X: SALIR» en y 94-98.
+**La franja de las cifras del récord (x 56-103, y 84-91) es de índice 0 y está lisa** (con un marco fino fuera): `--check` falla
+si se ensucia. `make.py` la convierte en `out/TITULO.I16` (formato .I16 normal) y comprueba la ida y vuelta.
 
 ### `map2bin.py`: nivel → `NIVEL1.MAP` + `LEVEL.INC`
 

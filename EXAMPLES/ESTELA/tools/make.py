@@ -3,10 +3,11 @@
 
     assets/sprites.png + sprites.def  --spr2cel-->  out/HOJA.BIN, HOJA.PAL, HOJA.INC
     assets/tileset.png                --png2i16-->  out/NIVEL1.I16
+    assets/titulo.png                 --png2i16-->  out/TITULO.I16  (pantalla de titulo; ESTELA la enseña si existe)
     assets/NIVEL1.LVL (+ tiles.def, paths.def)  --map2bin-->  out/NIVEL1.MAP, LEVEL.INC
 
-Con --regen se regeneran antes los graficos provisionales (gensprites.py y gentiles.py, que SOBREESCRIBEN sprites.png y
-tileset.png: no usarlo cuando ya hay graficos definitivos). El nivel (NIVEL1.LVL) nunca se regenera: se edita a mano.
+Con --regen se regeneran antes los graficos provisionales (gensprites.py, gentiles.py y gentitulo.py, que SOBREESCRIBEN
+sprites.png, tileset.png y titulo.png: no usarlo cuando ya hay graficos definitivos). El nivel (NIVEL1.LVL) nunca se regenera: se edita a mano.
 
 Uso:  python make.py [--regen] [--out ../out]
 """
@@ -18,6 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gensprites  # noqa: E402
 import gentiles    # noqa: E402
+import gentitulo   # noqa: E402
 import map2bin     # noqa: E402
 import pngio       # noqa: E402
 import spr2cel     # noqa: E402
@@ -47,7 +49,7 @@ def main():
     os.makedirs(out, exist_ok=True)
     rc = 0
     if a.regen:
-        for mod, name in ((gensprites, 'gensprites'), (gentiles, 'gentiles')):
+        for mod, name in ((gensprites, 'gensprites'), (gentiles, 'gentiles'), (gentitulo, 'gentitulo')):
             sys.argv = [name, '-o', assets, '--check']
             rc |= mod.main()
     # hoja de sprites
@@ -64,6 +66,17 @@ def main():
         rc |= 2
     else:
         print('NIVEL1.I16: 16.516 bytes, desviacion maxima por la red analogica %.1f %%; ida y vuelta correcta' % (worst * 100))
+    # pantalla de titulo -> TITULO.I16
+    png = os.path.join(assets, 'titulo.png')
+    i16 = os.path.join(out, 'TITULO.I16')
+    worst = make_i16(png, i16)
+    errs = gentiles.check_i16(i16, png) + gentitulo.check(png)
+    for e in errs:
+        print('FALLO: ' + e, file=sys.stderr)
+    if errs:
+        rc |= 2
+    else:
+        print('TITULO.I16: 16.516 bytes, desviacion maxima por la red analogica %.1f %%; ida y vuelta correcta' % (worst * 100))
     # mapa y oleadas
     sys.argv = ['map2bin', os.path.join(assets, 'NIVEL1.LVL'), '-o', out, '--check']
     rc |= map2bin.main()

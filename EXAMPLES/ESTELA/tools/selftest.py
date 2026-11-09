@@ -20,6 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gensprites  # noqa: E402
 import gentiles    # noqa: E402
+import gentitulo   # noqa: E402
 import make        # noqa: E402
 import map2bin     # noqa: E402
 import pngio       # noqa: E402
@@ -88,6 +89,17 @@ def test_sprites_and_tiles(tmp):
     raw[600] ^= 1
     open(i16, 'wb').write(bytes(raw))
     ok(len(gentiles.check_i16(i16, os.path.join(d, 'tileset.png'))) > 0, 'un .I16 alterado hace fallar la comprobacion')
+    print('gentitulo')
+    sys.argv = ['gentitulo', '-o', d, '--check']
+    ok(gentitulo.main() == 0, 'gentitulo: 160x100, franja de las cifras negra y lisa')
+    tpng = os.path.join(d, 'titulo.png')
+    ti16 = os.path.join(d, 'TITULO.I16')
+    make.make_i16(tpng, ti16)
+    ok(gentiles.check_i16(ti16, tpng) == [], 'TITULO.I16 = PNG')
+    w, h, img, pal = gentitulo.pngio.read_indexed(tpng)
+    img[88][60] = 5
+    gentitulo.pngio.write_indexed(tpng, w, h, img, pal)
+    ok(len(gentitulo.check(tpng)) > 0, 'un pixel en la franja de las cifras hace fallar la comprobacion')
 
 
 LVL = """name TEST

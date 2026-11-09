@@ -6,7 +6,7 @@ Juego original: solo el género es conocido; sin nombres, personajes ni gráfico
 
 **Nombre provisional:** `ESTELA` (carpeta `EXAMPLES/ESTELA`, sin "_"). Se puede cambiar antes de la fase 1.
 
-**Estado:** fases 0 a 4 hechas y probadas en la placa; la 5 hecha en el arnés (no cambia el juego); la 6 hecha y probada en la placa; la 7a (vidas, fin de partida, nivel en el bloque 1) hecha y probada en la placa (2026-11-08). Detalle por fase en el §11.
+**Estado:** fases 0 a 4 hechas y probadas en la placa; la 5 hecha en el arnés (no cambia el juego); la 6 hecha y probada en la placa; la 7a (vidas, fin de partida, nivel en el bloque 1) hecha y probada en la placa; la 7b (jefe) hecha y probada en la placa (2026-11-09). Detalle por fase en el §11.
 
 ---
 
@@ -309,7 +309,8 @@ Probados con pasmo 0.5.4 (`selftest.py`).
 | 5 | **Hecha en el arnés** (2026-11-08; `estela.asm` no cambia). `test_z80estela.cpp` cuenta cada imagen con el modelo del motor (§1.6 de `sprites_scroll160_emulador.md`: normales del 63 al 0, 12 huecos, límite 171 pasos) las líneas de sprite que no saldrían, por clase. Nivel entero disparando y dos partidas sin disparar (quieta y moviéndose; 12-13 muertes, marcador en ~1.400-1.500 imágenes): **0 líneas perdidas**, máximo 10 sprites por línea. Caso peor solo con el modelo (enemigos inmortales, nivel entero): **3 enemigos por línea** como mucho (oleada 7, fila de 3): con nave + llama + disparo + 2 disparos enemigos = 12. Solo en las líneas del marcador (y 2-9) y tras una muerte podría perderse algo (las líneas de arriba del enemigo de índice más bajo al entrar, unas imágenes). **No hace falta rotar índices.** Comprobación para niveles nuevos: el arnés falla con más de 3 enemigos en una línea. Pruebas en negativo: 14 sprites en una línea (pierde los 2 de índice más bajo) y la oleada 7 en fila de 5 |
 | 6 | **Hecha y probada en la placa** (2026-11-08). Música: `NIVEL1.VGM` (opcional) con `LOOP_VGM 1` + `PLAY_VGM` tras cargar y `STOP_VGM` al salir; `compila.bat` copia `out\NIVEL1.VGM` o, si no hay, `EXAMPLES/VGM/music0002.vgm`. Efectos en los AY de la FPGA (no en el del MCU, que pisaría la música): 4 voces con tablas (valor, volumen) por imagen y prioridad (`sfxgo`/`sfx`, después de `update`): disparo (AY A canal C), disparo enemigo por el canal A o B del AY A según el lado, explosión (ruido, AY B canal C) y la de la nave (prioridad 2, 48 imágenes). **Voz:** pasa a la fase 7, porque sus avisos ("warning" antes del jefe, "game over") son de ella. Arnés: modelo de las voces contra los registros de los dos AY en cada imagen (0 diferencias; detecta el cambio de lado de los disparos enemigos), órdenes de música con y sin `NIVEL1.VGM` y con errores de carga, AY callados al salir. Código `$4800-$6384` (7.045 B); caben niveles de 2.683 B (el 1 tiene 2.488): **la fase 7 necesitará sitio** (código en los bloques 0/1 o el nivel en otro sitio) |
 | 7a | **Hecha y probada en la placa** (2026-11-08). La fase 7 va por partes: 7a vidas y fin de partida, 7b jefe (con aviso en cartel), 7c mejoras, 7d título `.I16` y récord en la EEPROM. **Memoria:** `NIVEL1.MAP` pasa a la página 20 (la de PAGINA) mapeada en el bloque 1 (`LVLBUF = $2000`, hasta 8 KB; error 5 = más de 8 KB); al salir el bloque 1 vuelve a la ROM y se reescribe sobre sí mismo (sombra de la FPGA). Código `$4800-$65B1` + `PALBUF`: 2.126 B libres hasta `$7000`. **Vidas:** `LIVES0` = 3, una menos por muerte; iconos `VIDA` (sprites 55-57) en x 68-91, y 12, con el marcador. **Fin de partida** (pstate 3) al acabar la explosión sin vidas: sin nave, enemigos sin disparar, marcador fijo, cartel **GAME OVER** (dos filas de 4 letras en x 64-95, y 40 y 50; sprites de la nave y la llama + 54, 32 y 33; las 7 letras G A M E O V R de 7x7 están en el código y se copian detrás de `HOJA.BIN`, páginas `LETRAS` = `SHEET_PAGE0 + SHEET_CELLS` en adelante: la hoja tiene que dejar 7 celdas libres; primero se probó la voz `*GAME OVER` y no se oía). **Música del fin de partida** (petición del usuario): `GAMEOVER.VGM` una vez (`STOP_VGM`, `LOOP_VGM 0`, `PLAY_VGM`); al volver a empezar (ESPACIO o R), otra vez `NIVEL1.VGM` en bucle; `compila.bat` copia `out\GAMEOVER.VGM` o, de momento, `EXAMPLES/VGM/ledstorm-2.vgm` y, pasados `GOT` = 100 ticks, una pulsación nueva de ESPACIO llama a `restart`. Arnés: modelo con vidas y fin de partida contra los 64 sprites en cada imagen, cartel en cada imagen del fin de partida y solo entonces, letras detrás de la hoja, vuelta a empezar con ESPACIO, nivel en la página 20, la "ROM" del bloque 1 sin cambiar al salir |
-| 7b-7d, 8 | Sin empezar |
+| 7b | **Hecha y probada en la placa** (2026-11-09). Jefe = oleada de tipo 6 (`wsboss`: `bpend`, desde entonces los enemigos solo usan los huecos 0-4). Con los huecos 5-7 libres: cartel **WARNING** parpadeando `WARNT` = 100 ticks (sprites 24-30), entrada en (`WAVE_X`, -24) con su trayectoria (`ENTER`), pelea de lado a lado 1 px/tick (X de hardware 48-144), dos tiros cada `BFT0` = 30 ticks (`ebfire` con un registro falso `bfake`), caja [X+2,X+29] x [Y+2,Y+21] contra los disparos (`BHP0` = 40, parpadeo 6 ticks, chasquido `fxhit`) y contra la nave; al morir dos explosiones `BEXT` = 48 ticks, +1000 (BCD), cartel **WELL DONE** `CLEART` = 150 ticks y `lap` (restart con el mismo marcador y vidas). Sprites del jefe 20-31 (12, 2 fases de `JEFE`). Letras nuevas W N I L D en las páginas 123-127 (`$6F60`; las páginas de menos de 128 también son celdas). Código `$4800-$6998` + `PALBUF`: 967 B libres hasta `$6F60` (`compila.bat`: binario de 9.568 B como mucho). Arnés: modelo del jefe; partida de 4.000 imágenes con un nivel de solo el jefe y vidas infinitas (4 jefes, 160 impactos, 4 derribados, 3 vueltas); sin líneas perdidas (máx. 11); sprites escritos antes de 11.300 T (el margen hasta los ~12.600 se estrecha). **Tecla I** (petición del usuario, para probar el final): vidas infinitas sí / no hasta salir, borde brillante |
+| 7c-7d, 8 | Sin empezar |
 
 ### 11.1 Fase 0: qué mide cada prueba y qué decide
 
@@ -327,3 +328,36 @@ Probados con pasmo 0.5.4 (`selftest.py`).
   (8-10 KB estimados) va justo en `$4800-$6FFF`. Lecciones para el juego: el código que se copia no puede llamar a sí
   mismo con `CALL` (es absoluto: el arnés lo pilló); las páginas se rellenan mapeándolas en el bloque 7 (`$E000`), que no
   se ve, y **antes** de cargar el anillo y el tileset (escribir en un bloque escribe la sombra de esas direcciones).
+
+## 12. Plan de lo que falta (modo ahorro: planifica Opus, implementan sesiones Sonnet)
+
+Reglas para cada sesión: una fase cada vez, en esta carpeta (sin worktree); `estela.asm` + modelo en
+`claude/mqtttest/test_z80estela.cpp` (todo lo nuevo, comprobado imagen a imagen contra los sprites/AY/órdenes del MCU, con una
+prueba en negativo); `build_estela.sh` tiene que dar TODO OK; README y §11 al día; sin commit hasta que el usuario lo pida tras
+probarlo en la placa; no tocar `tools/`, `assets/`, `out/` ni el §8 (son de estela-herramientas); sin "_" en nombres de la SD;
+nada de lógica FPGA. Memoria: código + `PALBUF` hasta `$6F60` (quedan ~960 B tras la 7b); si no cabe, mover tablas/código a la
+página del nivel (bloque 1, `$2000`, el nivel ocupa 2,5 de 8 KB; código ahí solo con saltos relativos o ensamblado en `$2000+`).
+Sprites escritos antes de ~12.000 T tras el flanco (hoy 11.300).
+
+**7c Mejoras** (oleadas de tipo 8-10 de `NIVEL1.MAP`: `s` = 700, 2310, 3980, trayectoria `SLOW`). Una mejora a la vez, 8x8,
+sprite 54 (en el fin de partida lo usa el cartel: ahí sin mejora), sale en (`WAVE_X`, -8) con su trayectoria, no se puede
+derribar, se recoge si toca la caja de la nave (viva o parpadeando), se borra al salir por abajo. Páginas `ITEM1` 222 (arma),
+`ITEM2` 223 (escudo), `ITEM3` 224 (bomba). Efectos: **arma** = disparo doble (dos disparos en x+0 y x+8, mismos 8 huecos) hasta
+perder la nave; **escudo** = invulnerable 250 ticks (como pstate 2: parpadea); **bomba** = +1 bomba (máx. 2), iconos `BOMBA` 221
+en los sprites 32-33 junto a las vidas (fila y 12, x 100-115, solo cuando sale el marcador; en el fin de partida los usa el
+cartel). Tecla **B** (fila B N M . ESPACIO, bit 4, pulsación nueva): gasta una bomba = todos los enemigos vivos explotan (con
+sus puntos) y el jefe pierde 10 vidas (sin bajar de 1); efecto `fxdie`. Sonido al recoger: tabla nueva corta (tono que sube) en la
+voz `FX_SHOT`. Arnés: partida con las tres mejoras recogidas (la nave colocada con teclas en su X), comprobar disparo doble,
+escudo, bombas e iconos; la regla de 3 por línea cuenta la mejora como 0,5 (ya lo hace `map2bin --check`).
+
+**7d Título y récord.** Antes de jugar: `TITULO.I16` (160x100, opcional; si no está, se salta) en el anillo con `vofs` 0 y su
+paleta, el récord con las cifras (sprites 58-63, como el marcador) y "ESPACIO" para empezar (X sale). Récord: 3 bytes BCD en la
+EEPROM del MCU con SETBYTE/GETBYTE (índices 128-255 = EEPROM persistente; buscar los números de orden en `COMMANDS.cpp`,
+`commands[]`), p. ej. índices 200-202, con una firma en 203 para saber si está inicializado. Al acabar la partida (fin de
+partida) si el marcador lo supera, se guarda. Después del título se carga el nivel como ahora (la imagen del título va al anillo,
+que luego se repinta). Arnés: MCU con GETBYTE/SETBYTE simulados (EEPROM en un array), récord leído al empezar, guardado solo si
+se supera, y con y sin `TITULO.I16`.
+
+**8 Pulido** (mayormente del usuario y de estela-herramientas): dificultad (`eftab`, `BHP0`, `BFT0`), más niveles (`NIVEL2.*`:
+el código tendría que pasar de nivel tras el jefe en vez de `lap`), gráficos definitivos, músicas propias (`out/NIVEL1.VGM`,
+`out/GAMEOVER.VGM`), y el manual (`manual_pendiente.md`).

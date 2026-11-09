@@ -12,13 +12,14 @@ El plan entero (fases, mapa de memoria, sprites) está en
 | `PRUEBAS/` | pruebas de la fase 0 en la placa (carga, VSYNC, sonido, paginación) |
 | `tools/`, `assets/`, `out/` | herramientas del PC y gráficos del nivel (las lleva otra sesión; §8 del plan) |
 
-## Estado: fase 7a (vidas y fin de partida), probada
+## Estado: fase 7b (el jefe)
 
 Lo que hay ahora es el **fondo del nivel 1 con scroll**, la **nave del jugador**
 con sus disparos, las **oleadas de enemigos** del nivel, con sus disparos,
 colisiones, explosiones y el marcador, el **sonido** (música y efectos) y las
-**vidas** con el **fin de partida** (cartel GAME OVER). La fase 7 va por partes:
-faltan el jefe (7b), las mejoras (7c) y el título con el récord (7d).
+**vidas** con el **fin de partida** (cartel GAME OVER) y el **jefe** del final del
+nivel. La fase 7 va por partes: faltan las mejoras (7c) y el título con el récord
+(7d).
 La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el límite de
 12 sprites por línea del motor, no se pierde ningún trozo de sprite (ver abajo):
 
@@ -87,7 +88,14 @@ La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el l
   - **explosión** de un enemigo: ruido que se apaga (16 imágenes), canal C del
     AY B;
   - **explosión de la nave**: ruido más largo y fuerte (48 imágenes, casi 1
-    segundo), en la misma voz, y una explosión de un enemigo no la corta.
+    segundo), en la misma voz, y una explosión de un enemigo no la corta;
+  - **impacto en el jefe**: chasquido corto de ruido (la misma voz).
+- **Jefe** (la última oleada del nivel, en `s = 4150`): cartel **WARNING**
+  parpadeando 2 segundos; luego el jefe (32x24) baja desde arriba hasta y = 26 y
+  va de lado a lado, disparando dos tiros apuntados cada 30 imágenes. Aguanta
+  **40 disparos** (parpadea con cada uno) y, si toca a la nave, la nave explota.
+  Al derribarlo: dos explosiones, **1000 puntos**, cartel **WELL DONE** 3 segundos
+  y el nivel vuelve a empezar con el mismo marcador y las mismas vidas.
 
 ## Teclas
 
@@ -97,6 +105,7 @@ La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el l
 | ESPACIO | Disparar (mantenido: un disparo cada 6 imágenes). Con `LOAD *JOY "OPQA "` el joystick DB9 hace lo mismo. En el fin de partida, pasados 2 segundos, una pulsación nueva vuelve a empezar |
 | S | Velocidad del scroll: la del nivel al empezar (1 píxel por imagen, borde **verde**) → 1 cada 2 imágenes (**cyan**) → 2 por imagen (**amarillo**) → parado (**rojo**) → 1 por imagen |
 | R | Volver al principio del nivel, con la nave en su sitio, 3 vidas y el marcador a 0 (la pantalla se queda en negro unas 4 imágenes mientras se repinta) |
+| I | Vidas infinitas sí / no, para probar (el borde se pone del mismo color, pero brillante); dura hasta salir |
 | X | Salir a BASIC (modo normal, color apagado, páginas de antes) |
 
 Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`:
@@ -138,7 +147,10 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
   **GAME OVER** en el centro (letras amarillas que pasan a rojo, con sombra) y,
   pasados 2 segundos, ESPACIO vuelve a empezar (hay que soltarlo y
   pulsarlo otra vez).
-- No desaparecen trozos de sprites (como mucho hay 10 sprites en una misma línea
+- Al final del nivel, WARNING parpadeando, el jefe que baja y va de lado a lado
+  disparando, parpadea con cada disparo que le da y, a los 40, explota; WELL DONE
+  y otra vez el principio del nivel con el marcador y las vidas que había.
+- No desaparecen trozos de sprites (como mucho hay 11 sprites en una misma línea
   y el límite es 12).
 - R vuelve al principio; al final del nivel el fondo se para.
 - Suena la **música** (`compila.bat` copia como `NIVEL1.VGM` la de la prueba
@@ -152,9 +164,10 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
   nivel desde el principio.
 - Al salir, el BASIC se lee y la música se para.
 
-**Qué hay que mandar:** si se ve y se oye así; si no, qué falla. En particular:
-si el juego arranca y el nivel se ve bien (ahora el nivel está en el bloque 1, en
-lugar de la ROM) y si el cartel GAME OVER se lee bien.
+**Qué hay que mandar:** si se ve y se oye así; si no, qué falla. En particular, de
+la pelea con el jefe: si 40 disparos son muchos o pocos, si sus tiros (cada 30
+imágenes) son demasiados, y si los carteles WARNING y WELL DONE se leen bien. Para
+llegar antes al jefe vale S (2 píxeles por imagen), y la tecla I da vidas infinitas.
 
 ## Comprobado en el PC
 
@@ -233,9 +246,16 @@ especificación, aparte del código del Z80:
 - el nivel en la página 20 (en el bloque 1 mientras se juega); al salir, el bloque 1
   vuelve a tener su página y la "ROM" (rellenada con un patrón en el arnés) no
   cambia ni un byte;
+- el **jefe**, en una partida aparte: un nivel de 10 filas con solo su oleada y vidas
+  infinitas (tecla I: la nave tocada 16 veces sin fin de partida, borde brillante), 4.000 imágenes: sale 4 veces
+  (aviso, entrada, 160 impactos, 73 salvas, 4 derribados y 3 vueltas al nivel con
+  el marcador y las vidas), y los 64 sprites (WARNING, el jefe con sus 2 fases y su
+  parpadeo, las explosiones, WELL DONE), los AY, lo visible y la paleta, iguales al
+  modelo en cada imagen; como mucho 11 sprites en una línea, sin perder ninguna; los
+  sprites escritos antes de 11.300 T;
 - la vuelta más larga del bucle: unos 32.000 T de los 64.584 de una imagen.
 
-Las fases 1 a 4, la 6 y la 7a están **probadas en la placa** (2026-11-08). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
+Las fases 1 a 4, la 6, la 7a y la 7b están **probadas en la placa** (2026-11-08/09). La primera prueba de la fase 1 falló por un `estela.bin` viejo,
 y desde entonces el arnés ensambla y prueba el `estela.bin` de esta carpeta, el
 mismo que va a la SD.
 
@@ -250,10 +270,12 @@ existe; si no, `..\VGM\music0002.vgm`) y `GAMEOVER.VGM` (`out\GAMEOVER.VGM`; si 
 `NIVEL1.I16`, `NIVEL1.MAP`, `HOJA.BIN`, `NIVEL1.VGM` y `GAMEOVER.VGM` a una misma
 carpeta de la SD y carga `ESTELA.B81`.
 
-Memoria: código y tablas en `$4800-$65B1` (las trayectorias de `LEVEL.INC` y la
-`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$65B2-$67B1` (quedan
-2.126 bytes libres hasta `$7000` para el código de la fase 7), hoja de los sprites
-en `$7000-$7F1F` y las 7 letras del cartel detrás, en `$7F20-$7FFF` (bloque 3), anillo en `$8000-$BFBF`, tileset en `$C000-$FE7F`
+Memoria: código y tablas en `$4800-$6998` (las trayectorias de `LEVEL.INC` y la
+`PAL16` de `HOJA.INC` ya van dentro), paleta del nivel en `$6999-$6B98` (quedan
+967 bytes libres para el código de las fases 7c y 7d), las letras W N I L D en
+`$6F60-$6FFF` (páginas 123-127), hoja de los sprites en `$7000-$7F1F` y las letras
+G A M E O V R detrás, en `$7F20-$7FFF` (bloque 3), anillo en `$8000-$BFBF`,
+tileset en `$C000-$FE7F`
 (páginas 6 y 7), `NIVEL1.MAP` en la página 20 de la SRAM, mapeada en el bloque 1
 (`$2000-$3FFF`) mientras se juega. Al salir, el bloque 1 vuelve a tener la ROM y
 se reescribe sobre sí mismo (los mismos bytes), para que la copia de la FPGA de
@@ -261,7 +283,8 @@ esas direcciones vuelva a ser la de la ROM, como se hace con `$C000-$FFFF`.
 Sprites: enemigos en el 0-31 (4 cada uno), disparos de la nave en el 34-41,
 disparos enemigos en el 42-48, la llama en el 49, la nave en el 50-53, las vidas
 en el 55-57 y el marcador en el 58-63 (apagados mientras no se ven); el cartel
-GAME OVER usa los de la nave y la llama, el 54, el 32 y el 33.
+GAME OVER usa los de la nave y la llama, el 54, el 32 y el 33; el jefe, WARNING y
+WELL DONE, los 20-31 (mientras hay jefe, los enemigos solo usan los huecos 0-4).
 
 **El emulador** todavía no tiene el scroll en anillo de los modos 160
 (`sprites_scroll160_emulador.md`): ahí el fondo no se moverá bien. Hay que probarlo

@@ -2,7 +2,7 @@
 ; ESTELA.ASM -- matamarcianos vertical para el modo 160x100 a 256 colores
 ; del SD81 Booster. Plan: claude/planning/juego160.md
 ;
-; FASE 7a: vidas y fin de partida. Modo 175, anillo de 160x102 en $8000 con dos paneles
+; FASE 7b: el jefe. Modo 175, anillo de 160x102 en $8000 con dos paneles
 ; laterales fijos de 16 pixeles, scroll vertical del nivel 1, la nave con sus
 ; disparos y las oleadas de enemigos del nivel, con sus disparos, colisiones,
 ; explosiones y el marcador, todo en sprites de formato B:
@@ -44,8 +44,8 @@
 ;   - Oleadas (tabla de NIVEL1.MAP, juego160.md 8.3): la siguiente sale en el
 ;     primer tick con s >= WAVE_POS. Con WF_ROW salen todos sus enemigos a la
 ;     vez (X + i*SPACING); si no, uno cada SPACING ticks (hasta NSPN oleadas
-;     soltando enemigos a la vez). Los tipos 6 en adelante (jefe y mejoras)
-;     se saltan: son de la fase 7.
+;     soltando enemigos a la vez). El tipo 6 es el jefe (ver abajo); los de
+;     7 en adelante (mejoras) se saltan por ahora (fase 7c).
 ;   - Enemigos: hasta NENE a la vez, el e en los sprites 4e..4e+3, en
 ;     coordenadas de hardware (X = x + 32, Y = y + 32). Salen en Y = 16
 ;     (y = -16) y cada tick suman el paso de su trayectoria (PATHTAB; dx con
@@ -74,9 +74,25 @@
 ;     arriba de la zona de juego (x 56-103, y 2), solo mientras la nave
 ;     explota o parpadea despues de una muerte, en el fin de partida y al
 ;     final del nivel.
+;   - Jefe (oleada de tipo 6): en cuanto sale la oleada, los enemigos nuevos
+;     solo usan los huecos 0-4 (el jefe usa los sprites 20-31, los de los
+;     huecos 5-7). Cuando esos tres quedan libres, aviso: cartel WARNING
+;     parpadeando WARNT ticks (sprites 24-30). Luego entra en (WAVE_X, -24)
+;     con su trayectoria (ENTER: baja hasta y = 26) y, al acabarla, va de lado
+;     a lado 1 px por tick (X de hardware BXMIN-BXMAX) y cada BFT0 ticks
+;     dispara dos tiros (como los enemigos, desde X y X+16, Y+8) si la nave no
+;     explota ni es el fin de partida. Caja [X+2,X+29] x [Y+2,Y+21]: los
+;     disparos de la nave le quitan una de sus BHP0 vidas (parpadea 6 ticks)
+;     y la nave viva que lo toca explota. Al quedarse sin vidas explota (dos
+;     explosiones de 16x16, BEXT ticks), suma 1000 puntos y sale el cartel
+;     WELL DONE CLEART ticks; despues el nivel vuelve a empezar con el mismo
+;     marcador y las mismas vidas (lap).
 ;   - Letras del cartel: G A M E O V R de 7x7 (letras, en el codigo), que se
 ;     copian detras de HOJA.BIN, en las celdas libres del bloque 3 (paginas
 ;     LETRAS..LETRAS+6, en SHEET_END): la hoja tiene que dejar 7 celdas.
+;     W N I L D (letras2) van en las paginas LETRAS2..+4 del mismo bloque 3
+;     ($6F60-$6FFF: las paginas de menos de 128 tambien son celdas); el
+;     codigo y PALBUF tienen que acabar antes.
 ;   - Musica: NIVEL1.VGM (de la SD, carpeta actual) en bucle, la toca el MCU
 ;     en su AY emulado sin gastar CPU (comandos 38 y 34; 35 al salir). En el
 ;     fin de partida se para y suena GAMEOVER.VGM una vez (sin bucle); al
@@ -103,6 +119,7 @@
 ;         parado, rojo)
 ;         R = volver al principio del nivel (y la nave a su sitio, con
 ;         LIVES0 vidas y el marcador a 0); en el fin de partida, ESPACIO
+;         I = vidas infinitas si / no (para probar; el borde, brillante)
 ;         X = salir a BASIC
 ; Devuelve en BC 0, o un error de carga: 1 no hay NIVEL1.I16, 2 no es un
 ; .I16, 3 no hay NIVEL1.MAP, 4 no es un nivel (ELV1), 5 pasa de
@@ -112,7 +129,7 @@
 ; Cargar: ESTELA.B81 (CLEAR 18431, LOAD FAST "ESTELA.BIN" CODE 18432);
 ; NIVEL1.I16, NIVEL1.MAP y HOJA.BIN (de out/) y NIVEL1.VGM (opcional) en la
 ; misma carpeta de la SD.
-; El codigo y PALBUF tienen que acabar antes de $7000 (la hoja de los sprites).
+; El codigo y PALBUF tienen que acabar antes de $6F60 (letras2 y la hoja de los sprites).
 ; =============================================================
 
         org 4800h
@@ -193,8 +210,18 @@ LVLBUF  equ 2000h               ; NIVEL1.MAP
 MAXLVL  equ 2000h               ; hasta 8 KB
 LIVES0  equ 3                   ; vidas al empezar
 GOT     equ 100                 ; ticks del fin de partida antes de aceptar ESPACIO
-LETRAS  equ SHEET_PAGE0+SHEET_CELLS     ; pagina de la G (luego A M E O V R)
 NLET    equ 7                   ; (SHEET_CELLS + NLET <= 128: lo comprueba el arnes)
+LETRAS2 equ 123                 ; pagina de la W (luego N I L D), en $6F60
+LET2ADR equ 6000h+LETRAS2*32
+SP_JEFE equ 20                  ; jefe: sprites 20-31 (los de los huecos 5-7)
+NSLOTJ  equ 5                   ; huecos de enemigos mientras hay jefe
+BHP0    equ 40                  ; disparos que aguanta
+BFT0    equ 30                  ; ticks entre salva y salva
+WARNT   equ 100                 ; ticks del aviso
+BEXT    equ 48                  ; ticks de su explosion
+CLEART  equ 150                 ; ticks del cartel WELL DONE
+BXMIN   equ SOFS+16             ; X de hardware de su lado izquierdo: 48-144
+BXMAX   equ SOFS+143-31         ;   (x de pantalla 16-112)
 CARTX   equ 64                  ; cartel: x de pantalla de la primera letra
 CARTY   equ 40                  ;   y de GAME (OVER, 10 mas abajo)
 SP_VIDA equ 55                  ; iconos de las vidas: 55-57
@@ -274,6 +301,10 @@ st1:    ld (speed),a
         ld (prevr),a
         ld a,1                  ; ESPACIO sin pulsar
         ld (prevsp),a
+        ld a,4                  ; I sin pulsar, sin vidas infinitas
+        ld (previ),a
+        xor a
+        ld (infl),a
         call showspd
 
 ; -------------------------------------------------------------
@@ -592,6 +623,10 @@ loadlvl:
         ld de,SHEET_END
         ld bc,32*NLET
         ldir
+        ld hl,letras2           ; y W N I L D en las paginas LETRAS2..
+        ld de,LET2ADR
+        ld bc,32*5
+        ldir
         xor a
         ret
 lderr:  push de                 ; E = error, con el fichero abierto
@@ -817,7 +852,24 @@ ky2:    ld a,07fh               ; ESPACIO (bit 0): en el fin de partida,
         ld a,(ptimer)
         or a
         call z,restart
-ky3:    ld a,0feh               ; X: salir
+ky3:    ld a,0dfh               ; I (fila Y U I O P, bit 2): vidas infinitas
+        in a,(0feh)             ; si / no, con cada pulsacion nueva
+        and 4
+        ld c,a
+        ld a,(previ)
+        ld b,a
+        ld a,c
+        ld (previ),a
+        or a
+        jr nz,ky4
+        ld a,b
+        or a
+        jr z,ky4
+        ld a,(infl)
+        xor 1
+        ld (infl),a
+        call showspd
+ky4:    ld a,0feh               ; X: salir
         in a,(0feh)
         and 4
         ret
@@ -844,8 +896,12 @@ showspd:
         ld d,0
         ld hl,spdcol
         add hl,de
+        ld a,(infl)             ; con vidas infinitas, el color brillante
+        or a
         ld a,(hl)
-        or 20h
+        jr z,ss1
+        or 8
+ss1:    or 20h
         ld bc,7fefh
         out (c),a
         ret
@@ -1061,6 +1117,37 @@ cartel: defb 50,SOFS+CARTX,SOFS+CARTY,LETRAS+0          ; G
         defb 54,SOFS+CARTX+8,SOFS+CARTY+10,LETRAS+5     ; V
         defb 32,SOFS+CARTX+16,SOFS+CARTY+10,LETRAS+3    ; E
         defb 33,SOFS+CARTX+24,SOFS+CARTY+10,LETRAS+6    ; R
+; WARNING (sprites 24-30, x 52-107, y 40) y WELL DONE (20-27, como GAME OVER)
+warncar:
+        defb 24,SOFS+52,SOFS+40,LETRAS2+0       ; W
+        defb 25,SOFS+60,SOFS+40,LETRAS+1        ; A
+        defb 26,SOFS+68,SOFS+40,LETRAS+6        ; R
+        defb 27,SOFS+76,SOFS+40,LETRAS2+1       ; N
+        defb 28,SOFS+84,SOFS+40,LETRAS2+2       ; I
+        defb 29,SOFS+92,SOFS+40,LETRAS2+1       ; N
+        defb 30,SOFS+100,SOFS+40,LETRAS+0       ; G
+wellcar:
+        defb 20,SOFS+CARTX,SOFS+CARTY,LETRAS2+0         ; W
+        defb 21,SOFS+CARTX+8,SOFS+CARTY,LETRAS+3        ; E
+        defb 22,SOFS+CARTX+16,SOFS+CARTY,LETRAS2+3      ; L
+        defb 23,SOFS+CARTX+24,SOFS+CARTY,LETRAS2+3      ; L
+        defb 24,SOFS+CARTX,SOFS+CARTY+10,LETRAS2+4      ; D
+        defb 25,SOFS+CARTX+8,SOFS+CARTY+10,LETRAS+4     ; O
+        defb 26,SOFS+CARTX+16,SOFS+CARTY+10,LETRAS2+1   ; N
+        defb 27,SOFS+CARTX+24,SOFS+CARTY+10,LETRAS+3    ; E
+; letras2: W N I L D (como letras)
+letras2:
+        defb 0CCh,000h,00Ch,0C0h,0CCh,010h,00Ch,0C1h,0CCh,010h,00Ch,0C1h,0DDh,01Dh,00Dh,0D1h    ; W
+        defb 0DDh,0DDh,0DDh,0D1h,099h,091h,099h,091h,099h,011h,009h,091h,001h,010h,000h,011h
+        defb 0CCh,000h,00Ch,0C0h,0CCh,0C0h,00Ch,0C1h,0CCh,0CCh,00Ch,0C1h,0DDh,01Dh,0DDh,0D1h    ; N
+        defb 0DDh,010h,0DDh,0D1h,099h,010h,009h,091h,099h,010h,009h,091h,001h,010h,000h,011h
+        defb 00Ch,0CCh,0CCh,000h,000h,0CCh,0C1h,010h,000h,0CCh,0C1h,000h,000h,0DDh,0D1h,000h    ; I
+        defb 000h,0DDh,0D1h,000h,000h,099h,091h,000h,009h,099h,099h,000h,000h,011h,011h,010h
+        defb 0CCh,000h,000h,000h,0CCh,010h,000h,000h,0CCh,010h,000h,000h,0DDh,010h,000h,000h    ; L
+        defb 0DDh,010h,000h,000h,099h,010h,000h,000h,099h,099h,099h,090h,001h,011h,011h,011h
+        defb 0CCh,0CCh,0CCh,000h,0CCh,011h,01Ch,0C0h,0CCh,010h,00Ch,0C1h,0DDh,010h,00Dh,0D1h    ; D
+        defb 0DDh,010h,00Dh,0D1h,099h,010h,009h,091h,099h,099h,099h,011h,001h,011h,011h,010h
+
 ; letras: G A M E O V R, celdas del formato B (8 filas de 4 bytes, nibble
 ; alto = pixel de la izquierda); colores de PAL16: 12 amarillo, 13 naranja,
 ; 9 rojo (degradado por filas) y 1 (oscuro) de sombra abajo a la derecha
@@ -1098,6 +1185,10 @@ fxboom: ; explosion de un enemigo: ruido que se apaga
         defb 10,10,11,9,12,9,13,8
         defb 14,7,15,6,16,5,17,5
         defb 18,4,19,3,20,2,21,1
+        defb 0,0FFh
+fxhit:  ; disparo que da al jefe: chasquido de ruido
+        defb 1                   ; prioridad
+        defb 2,11,3,8,4,5
         defb 0,0FFh
 fxdie:  ; explosion de la nave: mas larga y fuerte
         defb 2                   ; prioridad
@@ -1363,9 +1454,16 @@ de5:    ld d,a
         call put4
 de4:    ld de,ESZ
         add ix,de
-        ld a,c
-        cp SP_ENE+4*NENE
+        ld a,(bst)              ; con jefe, los huecos 0-4
+        or a
+        ld a,SP_ENE+4*NENE
+        jr z,de6
+        ld a,SP_ENE+4*NSLOTJ
+de6:    cp c
         jr nz,de1
+        ld a,(bst)              ; el jefe (sprites 20-31)
+        or a
+        call nz,dboss
         ld ix,ebs               ; disparos enemigos
         ld c,SP_EB
 db1:    ld a,(ix+0)
@@ -1450,8 +1548,12 @@ dv3:    ld (SPR_EN),a
 ; la llama, el 54, el 32 y el 33); luego los disparos y lo demas
 dcart:  ld hl,cartel
         ld b,8
-dc1:    push bc
-        ld c,(hl)               ; sprite, X, Y, pagina
+        call dsign
+        jp dbal
+
+; dsign: B letras de la tabla HL (sprite, X, Y, pagina)
+dsign:  push bc
+        ld c,(hl)
         inc hl
         ld e,(hl)
         inc hl
@@ -1464,8 +1566,92 @@ dc1:    push bc
         call put1
         pop hl
         pop bc
-        djnz dc1
-        jp dbal
+        djnz dsign
+        ret
+
+; dboss: A = bst. Los sprites 20-31 apagados y luego, segun el estado:
+; 1 WARNING (parpadea: bit 4 de btmr), 2 y 3 el jefe (2 fases cada 8 ticks;
+; apagado con el bit 1 de bflash), 4 dos explosiones, 5 WELL DONE
+dboss:  push af
+        ld c,SP_JEFE
+        ld b,12
+dbo0:   call off1
+        inc c
+        djnz dbo0
+        pop af
+        dec a
+        jr nz,dbo1
+        ld a,(btmr)
+        and 16
+        ret z
+        ld hl,warncar
+        ld b,7
+        jr dsign
+dbo1:   cp 3
+        jr c,dbjefe
+        jr z,dbexpl
+        ld hl,wellcar
+        ld b,8
+        jr dsign
+dbjefe: ld a,(bflash)
+        and 2
+        ret nz
+        ld a,(tick)
+        and 8
+        jr z,dj0
+        ld a,JEFE_STEP
+dj0:    add a,JEFE
+        ld d,a
+        ld c,SP_JEFE
+        ld a,(by)
+        ld l,a
+        ld h,3
+dj1:    ld a,(bx)
+        ld e,a
+        ld b,4
+dj2:    call put1
+        inc c
+        inc d
+        ld a,e
+        add a,8
+        ld e,a
+        djnz dj2
+        ld a,l
+        add a,8
+        ld l,a
+        dec h
+        jr nz,dj1
+        ret
+dbexpl: ld a,(btmr)             ; EXPL + ((BEXT - btmr) / 2) and 12, y la otra
+        ld b,a                  ; 8 por delante, en (X+16, Y+8)
+        ld a,BEXT
+        sub b
+        rrca
+        and 0ch
+        ld b,a
+        add a,EXPL
+        ld d,a
+        ld a,(bx)
+        ld e,a
+        ld a,(by)
+        ld l,a
+        ld c,SP_JEFE
+        push bc
+        call put4
+        pop bc
+        ld a,b
+        add a,8
+        and 0ch
+        add a,EXPL
+        ld d,a
+        ld a,(bx)
+        add a,16
+        ld e,a
+        ld a,(by)
+        add a,8
+        ld l,a
+        ld c,SP_JEFE+4
+        jp put4
 
 ; digit: la cifra A en el sprite C (el SP_DIG+i en x = DIGX + 8i); C sube 1
 digit:  add a,CIFRA
@@ -1619,6 +1805,7 @@ up7:    call upene
         call collide
         call efire
         call waves
+        call upboss
         jp upplay
 
 ; pfire: la espera (cd) baja 1; con ESPACIO pulsado y la espera a 0 sale un
@@ -1922,6 +2109,245 @@ ekill:  ld (ix+E_ST),2
         ld hl,fxboom
         jp sfxgo
 
+; upboss: el jefe, una vez por tick (despues de las oleadas)
+upboss: ld a,(bflash)
+        or a
+        jr z,bo0
+        dec a
+        ld (bflash),a
+bo0:    ld a,(bst)
+        or a
+        jr nz,bo1
+        ld a,(bpend)            ; 0: esperando a que los huecos 5-7 se vacien
+        or a
+        ret z
+        ld a,(enes+5*ESZ+E_ST)
+        ld hl,enes+6*ESZ+E_ST
+        or (hl)
+        ld hl,enes+7*ESZ+E_ST
+        or (hl)
+        ret nz
+        ld a,1
+        ld (bst),a
+        ld a,WARNT
+        ld (btmr),a
+        ret
+bo1:    dec a
+        jr nz,bo2
+        ld hl,btmr              ; 1: aviso
+        dec (hl)
+        ret nz
+        ld a,2                  ; entra por arriba
+        ld (bst),a
+        ld a,(bwx)
+        add a,SOFS
+        ld (bx),a
+        ld a,SOFS-24
+        ld (by),a
+        ld a,BHP0
+        ld (bhp),a
+        ld a,(bpath)
+        add a,a
+        ld e,a
+        ld d,0
+        ld hl,PATHTAB
+        add hl,de
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ld a,(de)
+        ld (bleft),a
+        inc de
+        ld (bptr),de
+        ret
+bo2:    dec a
+        jr nz,bo3
+        ld hl,(bptr)            ; 2: un paso de la trayectoria
+        ld a,(bx)
+        add a,(hl)
+        ld (bx),a
+        inc hl
+        ld a,(by)
+        add a,(hl)
+        ld (by),a
+        inc hl
+        ld a,(bleft)
+        dec a
+        jr z,bo2a
+        ld (bleft),a
+        ld (bptr),hl
+        jr bhit
+bo2a:   ld a,3                  ; acabada: a pelear
+        ld (bst),a
+        ld a,1
+        ld (bdir),a
+        ld a,BFT0
+        ld (bft),a
+        jr bhit
+bo3:    dec a
+        jr nz,bo4
+        ld a,(bdir)             ; 3: de lado a lado
+        ld b,a
+        ld a,(bx)
+        add a,b
+        ld (bx),a
+        cp BXMIN
+        jr z,bo3a
+        cp BXMAX
+        jr nz,ub3b
+bo3a:   ld a,b
+        neg
+        ld (bdir),a
+ub3b:   ld hl,bft
+        dec (hl)
+        jr nz,bhit
+        ld (hl),BFT0
+        ld a,(pstate)           ; dispara si la nave no explota ni es el fin
+        cp 1
+        jr z,bhit
+        cp 3
+        jr z,bhit
+        ld ix,bfake             ; dos tiros, como los de los enemigos
+        ld a,(bx)
+        ld (ix+E_X),a
+        ld a,(by)
+        add a,8
+        ld (ix+E_Y),a
+        call ebfire
+        ld a,(bx)
+        add a,16
+        ld (ix+E_X),a
+        call ebfire
+        jr bhit
+bo4:    dec a
+        jr nz,bo5
+        ld hl,btmr              ; 4: explotando
+        dec (hl)
+        ret nz
+        ld a,5
+        ld (bst),a
+        ld a,CLEART
+        ld (btmr),a
+        ret
+bo5:    ld hl,btmr              ; 5: WELL DONE; luego otra vuelta
+        dec (hl)
+        ret nz
+        jp lap
+
+; bhit: los disparos de la nave contra el jefe (cada uno le quita una vida)
+; y la nave viva contra el jefe
+bhit:   ld ix,balas
+        ld b,NBALAS
+bh1:    ld a,(ix+0)
+        or a
+        jr z,bh2
+        push bc
+        ld a,(ix+1)             ; [x+35, x+36] x [y+32, y+39]
+        add a,SOFS+3
+        ld b,a
+        inc a
+        ld c,a
+        ld a,(bx)
+        add a,2
+        ld d,a
+        add a,27
+        ld e,a
+        call ovl
+        jr c,bh1n
+        ld a,(ix+2)
+        add a,SOFS
+        ld b,a
+        add a,7
+        ld c,a
+        ld a,(by)
+        add a,2
+        ld d,a
+        add a,19
+        ld e,a
+        call ovl
+        jr c,bh1n
+        ld (ix+0),0             ; tocado: el disparo se borra
+        call bdmg
+bh1n:   pop bc
+        ld a,(bst)
+        cp 4
+        ret z                   ; ha explotado
+bh2:    inc ix
+        inc ix
+        inc ix
+        djnz bh1
+        ld a,(pstate)
+        or a
+        ret nz
+        ld a,(shx)              ; la nave: [X+4,X+11] x [Y+3,Y+13]
+        add a,SOFS+4
+        ld b,a
+        add a,7
+        ld c,a
+        ld a,(bx)
+        add a,2
+        ld d,a
+        add a,27
+        ld e,a
+        call ovl
+        ret c
+        ld a,(shy)
+        add a,SOFS+3
+        ld b,a
+        add a,10
+        ld c,a
+        ld a,(by)
+        add a,2
+        ld d,a
+        add a,19
+        ld e,a
+        call ovl
+        ret c
+        jp pdie
+
+; bdmg: el jefe recibe un disparo
+bdmg:   ld a,6
+        ld (bflash),a
+        ld hl,bhp
+        dec (hl)
+        jr z,bdie
+        ld c,FX_BOOM
+        ld hl,fxhit
+        jp sfxgo
+bdie:   ld a,4                  ; sin vidas: explota y 1000 puntos
+        ld (bst),a
+        ld a,BEXT
+        ld (btmr),a
+        ld hl,score+1
+        ld a,(hl)
+        add a,10h
+        daa
+        ld (hl),a
+        dec hl
+        ld a,(hl)
+        adc a,0
+        daa
+        ld (hl),a
+        ld c,FX_BOOM
+        ld hl,fxdie
+        jp sfxgo
+
+; lap: el nivel otra vez desde el principio con el mismo marcador y vidas
+lap:    ld hl,score
+        ld de,lapsv
+        ld bc,3
+        ldir
+        ld a,(lives)
+        ld (de),a
+        call restart
+        ld hl,lapsv
+        ld de,score
+        ld bc,3
+        ldir
+        ld a,(hl)
+        ld (lives),a
+        ret
+
 ; pdie: la nave explota
 pdie:   ld a,1
         ld (pstate),a
@@ -1929,9 +2355,12 @@ pdie:   ld a,1
         ld (ptimer),a
         ld hl,deaths
         inc (hl)
+        ld a,(infl)             ; con vidas infinitas no se pierde ninguna
+        or a
+        jr nz,pd1
         ld hl,lives
         dec (hl)
-        ld c,FX_BOOM
+pd1:    ld c,FX_BOOM
         ld hl,fxdie
         jp sfxgo
 
@@ -2075,6 +2504,22 @@ wv5:    ld de,SPSZ
         djnz wv3
         ret
 
+; wsboss: la oleada del jefe HL: se apunta (sale cuando los huecos 5-7
+; esten libres)
+wsboss: push hl
+        ld de,WAVE_X
+        add hl,de
+        ld a,(hl)
+        ld (bwx),a
+        pop hl
+        ld de,WAVE_PATH
+        add hl,de
+        ld a,(hl)
+        ld (bpath),a
+        ld a,1
+        ld (bpend),a
+        ret
+
 ; wstart: empieza la oleada HL
 wstart: push hl
         ld de,WAVE_TYPE
@@ -2082,7 +2527,8 @@ wstart: push hl
         ld a,(hl)
         pop hl
         cp 6
-        ret nc                  ; jefe y mejoras: fase 7
+        jr z,wsboss             ; el jefe
+        ret nc                  ; mejoras: fase 7c
         push hl
         ld de,WAVE_FLAGS
         add hl,de
@@ -2150,6 +2596,10 @@ ws5:    push hl
 spawn:  push ix
         ld ix,enes
         ld b,NENE
+        ld a,(bpend)            ; con jefe, solo los huecos 0-4
+        or a
+        jr z,sw1
+        ld b,NSLOTJ
 sw1:    ld a,(ix+E_ST)
         or a
         jr z,sw2
@@ -2252,6 +2702,7 @@ pp2:    ld a,3
 
 ; paginas de cada grafico de la hoja y PAL16 (generado por tools/spr2cel.py)
         include "out/HOJA.INC"
+LETRAS  equ SHEET_PAGE0+SHEET_CELLS     ; pagina de la G de las letras del cartel (luego A M E O V R)
 
 ; -------------------------------------------------------------
 ; variables y tablas
@@ -2262,6 +2713,10 @@ nmhoja: defb "HOJA.BIN",0
 nmvgm:  defb "NIVEL1.VGM",0
 sv1:    defb 0                  ; pagina del bloque 1 al empezar (la ROM)
 prevsp: defb 1
+previ:  defb 4
+infl:   defb 0                  ; 1 = vidas infinitas (tecla I; hasta salir)
+bfake:  defs 4                  ; registro de enemigo para los tiros del jefe (E_X, E_Y)
+lapsv:  defs 4                  ; marcador y vidas durante lap
 nmgov:  defb "GAMEOVER.VGM",0
 vgmok:  defb 0                  ; 1 = el MCU toca (o ha tocado) una musica: STOP_VGM al cambiar o salir
 musno:  defb 0                  ; la que suena: 0 la del nivel, 1 la del fin de partida
@@ -2305,6 +2760,19 @@ cd:     defb 0                  ; imagenes hasta poder disparar otra vez
 tick:   defb 0                  ; contador de ticks (llama, animaciones)
 pstate: defb 0                  ; nave: 0 viva, 1 explotando, 2 invulnerable, 3 fin de partida
 lives:  defb 0                  ; vidas (con la nave en juego)
+bpend:  defb 0                  ; jefe: 1 = su oleada ha salido (huecos 0-4 para los demas)
+bst:    defb 0                  ;   0 nada o esperando, 1 aviso, 2 entra, 3 pelea, 4 explota, 5 WELL DONE
+btmr:   defb 0
+bx:     defb 0                  ;   X, Y de hardware (esquina de arriba a la izquierda)
+by:     defb 0
+bptr:   defw 0                  ;   trayectoria: paso actual y los que quedan
+bleft:  defb 0
+bhp:    defb 0
+bdir:   defb 0
+bft:    defb 0
+bflash: defb 0
+bwx:    defb 0                  ;   WAVE_X y WAVE_PATH de su oleada
+bpath:  defb 0
 ptimer: defb 0                  ; ticks que le quedan a la explosion o a la invulnerabilidad
 deaths: defb 0                  ; veces que han dado a la nave
 drope:  defb 0                  ; enemigos que no cupieron (sin hueco)

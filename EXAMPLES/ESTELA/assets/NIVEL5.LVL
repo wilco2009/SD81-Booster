@@ -1,0 +1,488 @@
+; NIVEL5.LVL -- NAVE ALIENIGENA: hongos, rio toxico, cuevas, plasma, colmena y nucleo (lo lee map2bin.py; formatos en claude/planning/juego160.md, seccion 8).
+; Generado por genniveles.py; despues se puede editar a mano (genniveles.py lo sobrescribe si se vuelve a ejecutar).
+;
+; El mapa (al final) tiene 8 tiles de ancho; la linea de ARRIBA es el final del nivel y la de ABAJO el principio.
+; 400 filas de 16 pixeles = 6400 pixeles de scroll; el jefe sale en la posicion 6070.
+; Regla de diseno (la comprueba map2bin --check): como mucho 3 enemigos de 16x16 cortan una misma linea de la zona.
+
+include tiles5.def
+include paths.def
+
+name NIVEL5
+scroll 1
+
+wave pos=70    type=E3 x=32 path=ZIGZAG count=3 spacing=24    ; cangrejos en zigzag
+wave pos=r14    type=E6 x=80 path=STILL count=1 flags=ground    ; enemigo de suelo sobre STINGER (fila 14)
+wave pos=202    type=E4 x=20 path=SWEEP count=4 spacing=22    ; giratorios cruzando
+wave pos=311    type=E2 x=120 path=DIVE count=3 spacing=18 flags=mirror    ; dardos en picado (espejo)
+wave pos=r30    type=E6 x=80 path=STILL count=1 flags=ground    ; enemigo de suelo sobre STINGER (fila 30)
+wave pos=415    type=E2 x=24 path=DIVE count=3 spacing=18    ; dardos en picado
+wave pos=467    type=E2 x=120 path=DIVE count=3 spacing=18 flags=mirror    ; dardos en picado (espejo), a la vez por el otro lado
+wave pos=548    type=E4 x=20 path=SWEEP count=4 spacing=22    ; giratorios cruzando
+wave pos=663    type=E4 x=20 path=SWEEP count=3 spacing=22    ; giratorios cruzando
+wave pos=804    type=E5 x=48 path=HOVER count=2 spacing=40 flags=mirror,row    ; bombarderos que se quedan disparando (espejo)
+wave pos=900    type=ITEM1 x=48 path=SLOW count=1    ; mejora de arma
+wave pos=960    type=E2 x=24 path=DIVE count=4 spacing=18    ; dardos en picado
+wave pos=1089    type=E2 x=24 path=DIVE count=4 spacing=18    ; dardos en picado
+wave pos=1231    type=E5 x=64 path=HOVER count=2 spacing=40 flags=row    ; bombarderos que se quedan disparando
+wave pos=1295    type=E2 x=120 path=DIVE count=3 spacing=18 flags=mirror    ; dardos en picado (espejo), a la vez por el otro lado
+wave pos=1370    type=E3 x=96 path=ZIGZAG count=3 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo)
+wave pos=1479    type=E2 x=24 path=DIVE count=3 spacing=18    ; dardos en picado
+wave pos=1605    type=E4 x=20 path=SWEEP count=4 spacing=22    ; giratorios cruzando
+wave pos=r112    type=E6 x=48 path=STILL count=1 flags=ground    ; enemigo de suelo sobre STINGER (fila 112)
+wave pos=1696    type=E4 x=130 path=SWEEP count=3 spacing=22 flags=mirror    ; giratorios cruzando (espejo), a la vez por el otro lado
+wave pos=1741    type=E2 x=24 path=DIVE count=4 spacing=18    ; dardos en picado
+wave pos=1859    type=ITEM2 x=80 path=SLOW count=1    ; escudo
+wave pos=1919    type=E1 x=96 path=SINE count=6 spacing=14 flags=mirror    ; platillos serpenteando (espejo)
+wave pos=r130    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre STINGER (fila 130)
+wave pos=2059    type=E5 x=48 path=HOVER count=2 spacing=40 flags=row    ; bombarderos que se quedan disparando
+wave pos=2188    type=E2 x=24 path=DIVE count=4 spacing=18    ; dardos en picado
+wave pos=r148    type=E6 x=64 path=STILL count=1 flags=ground    ; enemigo de suelo sobre STINGER (fila 148)
+wave pos=2313    type=E2 x=120 path=DIVE count=3 spacing=18 flags=mirror    ; dardos en picado (espejo)
+wave pos=2347    type=E4 x=20 path=SWEEP count=3 spacing=22    ; giratorios cruzando, a la vez por el otro lado
+wave pos=2501    type=E2 x=40 path=DOWN count=3 spacing=32 flags=mirror,row    ; fila de dardos (espejo)
+wave pos=2630    type=E3 x=32 path=ZIGZAG count=4 spacing=24    ; cangrejos en zigzag
+wave pos=2760    type=ITEM1 x=80 path=SLOW count=1    ; mejora de arma
+wave pos=2820    type=E4 x=20 path=SWEEP count=4 spacing=22    ; giratorios cruzando
+wave pos=2992    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=3125    type=E4 x=20 path=SWEEP count=4 spacing=22    ; giratorios cruzando
+wave pos=3275    type=E5 x=64 path=HOVER count=2 spacing=40 flags=row    ; bombarderos que se quedan disparando
+wave pos=3381    type=E1 x=48 path=SINE count=6 spacing=14    ; platillos serpenteando
+wave pos=3468    type=E4 x=130 path=SWEEP count=3 spacing=22 flags=mirror    ; giratorios cruzando (espejo), a la vez por el otro lado
+wave pos=r228    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre NEST (fila 228)
+wave pos=3616    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=r238    type=E6 x=48 path=STILL count=1 flags=ground    ; enemigo de suelo sobre NEST (fila 238)
+wave pos=3750    type=ITEM3 x=80 path=SLOW count=1    ; bomba
+wave pos=3810    type=E5 x=32 path=HOVER count=2 spacing=40 flags=row    ; bombarderos que se quedan disparando
+wave pos=r248    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre NEST (fila 248)
+wave pos=4015    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=r258    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre NEST (fila 258)
+wave pos=4139    type=E3 x=96 path=ZIGZAG count=4 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo)
+wave pos=4163    type=E3 x=32 path=ZIGZAG count=3 spacing=24    ; cangrejos en zigzag, a la vez por el otro lado
+wave pos=r268    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre NEST (fila 268)
+wave pos=4280    type=E5 x=32 path=HOVER count=3 spacing=40 flags=mirror,row    ; bombarderos que se quedan disparando (espejo)
+wave pos=4488    type=E2 x=24 path=DIVE count=4 spacing=18    ; dardos en picado
+wave pos=r288    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre NEST (fila 288)
+wave pos=4635    type=ITEM2 x=48 path=SLOW count=1    ; escudo
+wave pos=r298    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre NEST (fila 298)
+wave pos=4695    type=E1 x=48 path=SINE count=6 spacing=14    ; platillos serpenteando
+wave pos=4760    type=E2 x=120 path=DIVE count=3 spacing=18 flags=mirror    ; dardos en picado (espejo), a la vez por el otro lado
+wave pos=4852    type=E4 x=130 path=SWEEP count=4 spacing=22 flags=mirror    ; giratorios cruzando (espejo)
+wave pos=4890    type=E3 x=32 path=ZIGZAG count=3 spacing=24    ; cangrejos en zigzag, a la vez por el otro lado
+wave pos=4977    type=E2 x=120 path=DIVE count=3 spacing=18 flags=mirror    ; dardos en picado (espejo)
+wave pos=5002    type=E3 x=32 path=ZIGZAG count=3 spacing=24    ; cangrejos en zigzag, a la vez por el otro lado
+wave pos=5087    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=5125    type=E3 x=96 path=ZIGZAG count=3 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo), a la vez por el otro lado
+wave pos=5195    type=E3 x=96 path=ZIGZAG count=4 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo)
+wave pos=5315    type=E3 x=32 path=ZIGZAG count=3 spacing=24    ; cangrejos en zigzag
+wave pos=5384    type=E1 x=96 path=SINE count=4 spacing=14 flags=mirror    ; platillos serpenteando (espejo), a la vez por el otro lado
+wave pos=5426    type=ITEM3 x=96 path=SLOW count=1    ; bomba
+wave pos=5486    type=E4 x=20 path=SWEEP count=4 spacing=22    ; giratorios cruzando
+wave pos=5610    type=E4 x=130 path=SWEEP count=4 spacing=22 flags=mirror    ; giratorios cruzando (espejo)
+wave pos=5760    type=E5 x=32 path=HOVER count=2 spacing=40 flags=mirror,row    ; bombarderos que se quedan disparando (espejo)
+wave pos=5910    type=E4 x=130 path=SWEEP count=3 spacing=22 flags=mirror    ; giratorios cruzando (espejo)
+wave pos=5974    type=E1 x=48 path=SINE count=4 spacing=14    ; platillos serpenteando, a la vez por el otro lado
+wave pos=6070    type=BOSS x=64 path=ENTER count=1    ; el jefe de 32x24 baja y se queda
+
+map
+  SPACE     SPACE     SPACE     STARS     STARS     STARS     STARS     SPACE    ; fila 399
+  STARS     SPACE     STARS     SPACE     STARS     STARS     SPACE     STARS    ; fila 398
+  STARS     STARS     STARS     STARS     STARS     STARS     STARS     STARS    ; fila 397
+  STARS     SPACE     SPACE     STARS     STARS     STARS     STARS     STARS    ; fila 396
+  SPACE     STARS     SPACE     SPACE     SPACE     STARS     SPACE     STARS    ; fila 395
+  SPACE     STARS     STARS     SPACE     STARS     STARS     STARS     SPACE    ; fila 394
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 393
+  RIBS      RIBS      DARK      HEX       HEX       DARK      RIBS      DARK    ; fila 392
+  HEX       EYE       DARK      HEX       HEX       DARK      BIOLIGHT2 EYE    ; fila 391
+  HEX       HEX       HEX       EYE       HEX       HEX       HEX       RIBS    ; fila 390
+  RIBS      HEX       RIBS      HEX       RIBS      HEX       DARK      HEX    ; fila 389
+  HEX       HEX       DARK      HEX       DARK      HEX       DARK      HEX    ; fila 388
+  DARK      DARK      EYE       HEX       HEX       HEX       HEX       RIBS    ; fila 387
+  HEX       HEX       HEX       RIBS      RIBS      HEX       RIBS      HEX    ; fila 386
+  HEX       DARK      DARK      HEX       HEX       HEX       HEX       DARK    ; fila 385
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 384
+  HEX       HEX       RIBS      HEX       HEX       BIOLIGHT2 HEX       HEX    ; fila 383
+  BIOLIGHT2 HEX       HEX       RIBS      HEX       RIBS      RIBS      HEX    ; fila 382
+  HEX       DARK      HEX       HEX       DARK      DARK      DARK      HEX    ; fila 381
+  HEX       RIBS      HEX       DARK      HEX       BIOLIGHT2 HEX       HEX    ; fila 380
+  RIBS      HEX       RIBS      DARK      HEX       HEX       HEX       HEX    ; fila 379
+  HEX       BIOLIGHT2 HEX       RIBS      DARK      HEX       DARK      HEX    ; fila 378
+  DARK      EYE       HEX       DARK      DARK      RIBS      HEX       DARK    ; fila 377
+  HEX       DARK      HEX       HEX       HEX       DARK      HEX       RIBS    ; fila 376
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 375
+  HEX       DARK      DARK      DARK      RIBS      HEX       HEX       BIOLIGHT2    ; fila 374
+  BIOLIGHT2 HEX       HEX       BIOLIGHT2 HEX       DARK      DARK      DARK    ; fila 373
+  DARK      EYE       RIBS      HEX       DARK      DARK      DARK      DARK    ; fila 372
+  HEX       DARK      HEX       HEX       DARK      HEX       HEX       DARK    ; fila 371
+  RIBS      HEX       EYE       BIOLIGHT2 HEX       HEX       DARK      RIBS    ; fila 370
+  HEX       HEX       HEX       HEX       BIOLIGHT2 HEX       DARK      HEX    ; fila 369
+  HEX       HEX       HEX       DARK      HEX       HEX       RIBS      RIBS    ; fila 368
+  DARK      HEX       DARK      RIBS      DARK      HEX       HEX       DARK    ; fila 367
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 366
+  HEX       RIBS      HEX       HEX       DARK      BIOLIGHT2 HEX       HEX    ; fila 365
+  HEX       RIBS      DARK      HEX       DARK      HEX       HEX       HEX    ; fila 364
+  HEX       DARK      HEX       DARK      DARK      DARK      HEX       BIOLIGHT2    ; fila 363
+  BIOLIGHT2 RIBS      HEX       RIBS      DARK      DARK      RIBS      HEX    ; fila 362
+  HEX       RIBS      HEX       HEX       BIOLIGHT2 HEX       HEX       HEX    ; fila 361
+  HEX       RIBS      RIBS      HEX       HEX       HEX       HEX       HEX    ; fila 360
+  HEX       DARK      HEX       HEX       RIBS      HEX       DARK      BIOLIGHT2    ; fila 359
+  RIBS      DARK      HEX       DARK      RIBS      BIOLIGHT2 HEX       HEX    ; fila 358
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 357
+  RIBS      HEX       BIOLIGHT2 HEX       HEX       BIOLIGHT2 HEX       DARK    ; fila 356
+  HEX       RIBS      HEX       HEX       DARK      HEX       RIBS      HEX    ; fila 355
+  HEX       HEX       HEX       HEX       HEX       HEX       RIBS      HEX    ; fila 354
+  HEX       HEX       HEX       HEX       HEX       HEX       HEX       HEX    ; fila 353
+  DARK      RIBS      BIOLIGHT2 HEX       DARK      RIBS      HEX       DARK    ; fila 352
+  DARK      RIBS      RIBS      HEX       HEX       DARK      EYE       BIOLIGHT2    ; fila 351
+  BIOLIGHT2 HEX       HEX       DARK      HEX       RIBS      BIOLIGHT2 DARK    ; fila 350
+  HEX       HEX       HEX       HEX       DARK      HEX       HEX       HEX    ; fila 349
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 348
+  HEX       HEX       RIBS      HEX       HEX       HEX       RIBS      DARK    ; fila 347
+  RIBS      EYE       DARK      HEX       HEX       HEX       HEX       HEX    ; fila 346
+  HEX       EYE       BIOLIGHT2 HEX       DARK      DARK      DARK      HEX    ; fila 345
+  EYE       HEX       RIBS      RIBS      RIBS      BIOLIGHT2 BIOLIGHT2 HEX    ; fila 344
+  EYE       HEX       HEX       RIBS      RIBS      HEX       EYE       RIBS    ; fila 343
+  HEX       HEX       HEX       HEX       HEX       HEX       HEX       HEX    ; fila 342
+  RIBS      DARK      DARK      DARK      HEX       HEX       RIBS      HEX    ; fila 341
+  DARK      HEX       HEX       HEX       EYE       HEX       HEX       HEX    ; fila 340
+  EYE       BIOMECH   DARK      BIOMECH   RIBS      HEX       BIOMECH   RIBS    ; fila 339
+  BIOMECH   DARK      BIOMECH   BIOMECH   HEX       BIOMECH   DARK      HEX    ; fila 338
+  BIOMECH   RIBS      DARK      RIBS      HEX       HEX       BIOMECH   BIOMECH    ; fila 337
+  RIBS      BIOMECH   RIBS      DARK      HEX       BIOMECH   HEX       HEX    ; fila 336
+  HEX       HEX       RIBS      RIBS      HEX       RIBS      HEX       HEX    ; fila 335
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 334
+  RIBS      HEX       HEX       RIBS      BIOMECH   BIOMECH   HEX       RIBS    ; fila 333
+  HEX       HEX       RIBS      HEX       HEX       HEX       DARK      HEX    ; fila 332
+  HEX       BIOMECH   HEX       RIBS      EYE       HEX       BIOMECH   BIOMECH    ; fila 331
+  BIOMECH   HEX       BIOMECH   HEX       DARK      BIOMECH   BIOMECH   RIBS    ; fila 330
+  HEX       BIOMECH   HEX       BIOMECH   HEX       HEX       HEX       HEX    ; fila 329
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 328
+  HEX       HEX       HEX       BIOMECH   RIBS      RIBS      RIBS      BIOMECH    ; fila 327
+  RIBS      BIOMECH   BIOMECH   HEX       RIBS      HEX       HEX       HEX    ; fila 326
+  HEX       HEX       HEX       BIOMECH   BIOMECH   DARK      EYE       RIBS    ; fila 325
+  HEX       HEX       EYE       DARK      BIOMECH   HEX       RIBS      BIOMECH    ; fila 324
+  HEX       RIBS      HEX       HEX       RIBS      BIOMECH   EYE       RIBS    ; fila 323
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 322
+  HEX       RIBS      HEX       HEX       HEX       BIOMECH   DARK      HEX    ; fila 321
+  RIBS      HEX       DARK      DARK      HEX       HEX       HEX       RIBS    ; fila 320
+  DARK      RIBS      RIBS      RIBS      RIBS      RIBS      BIOMECH   HEX    ; fila 319
+  RIBS      HEX       BIOMECH   BIOMECH   RIBS      HEX       EYE       BIOMECH    ; fila 318
+  RIBS      BIOMECH   HEX       EYE       HEX       HEX       BIOMECH   BIOMECH    ; fila 317
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 316
+  HEX       DARK      EYE       RIBS      RIBS      HEX       HEX       DARK    ; fila 315
+  HEX       BIOMECH   BIOMECH   RIBS      HEX       HEX       RIBS      HEX    ; fila 314
+  BIOMECH   RIBS      HEX       EYE       BIOMECH   HEX       HEX       DARK    ; fila 313
+  BIOMECH   HEX       HEX       HEX       HEX       RIBS      HEX       HEX    ; fila 312
+  DARK      EYE       DARK      HEX       EYE       HEX       HEX       BIOMECH    ; fila 311
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 310
+  DARK      BIOMECH   HEX       HEX       DARK      RIBS      RIBS      HEX    ; fila 309
+  HEX       RIBS      DARK      RIBS      RIBS      HEX       EYE       BIOMECH    ; fila 308
+  BIOMECH   DARK      HEX       HEX       HEX       RIBS      BIOMECH   HEX    ; fila 307
+  BIOMECH   HEX       BIOMECH   DARK      DARK      BIOMECH   BIOMECH   HEX    ; fila 306
+  BIOMECH   EYE       DARK      DARK      BIOMECH   HEX       HEX       HEX    ; fila 305
+  HEX       RIBS      RIBS      BIOMECH   HEX       RIBS      BIOMECH   DARK    ; fila 304
+  HEX       BIOMECH   RIBS      RIBS      HEX       HEX       RIBS      HEX    ; fila 303
+  HEX       RIBS      DARK      DARK      BIOMECH   HEX       RIBS      DARK    ; fila 302
+  HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    ; fila 301
+  HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    ; fila 300
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECH   BIOMECH   BIOMECH   DARK      BIOLIGHTV    ; fila 299
+  BIOLIGHTV BIOMECH   BIOMECHR  RIBS      BIOLIGHT  NEST      BIOMECH   BIOLIGHTV    ; fila 298
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECH   RIBS      BIOMECH   BIOMECH   BIOLIGHTV    ; fila 297
+  BIOLIGHTV BIOLIGHT  BIOMECH   RIBS      DARK      BIOMECH   BIOMECH   BIOLIGHTV    ; fila 296
+  BIOLIGHTV RIBS      BIOMECH   BIOMECH   BIOMECH   RIBS      BIOMECH   BIOLIGHTV    ; fila 295
+  BIOLIGHTV RIBS      BIOMECH   MAW       BIOMECHR  BIOMECH   BIOMECH   BIOLIGHTV    ; fila 294
+  BIOLIGHTV BIOMECH   BIOMECHR  BIOMECHR  MAW       BIOMECH   BIOMECH   BIOLIGHTV    ; fila 293
+  BIOLIGHTV ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   BIOLIGHTV    ; fila 292
+  BIOLIGHTV BIOMECHR  BIOMECHR  BIOMECH   BIOMECH   BIOMECHR  BIOMECH   BIOLIGHTV    ; fila 291
+  BIOLIGHTV MAW       BIOMECH   RIBS      MAW       RIBS      BIOMECH   BIOLIGHTV    ; fila 290
+  BIOLIGHTV RIBS      BIOMECH   BIOMECH   BIOMECH   BIOMECH   BIOMECH   BIOLIGHTV    ; fila 289
+  BIOLIGHTV BIOMECH   BIOMECHR  BIOMECH   BIOMECHR  NEST      RIBS      BIOLIGHTV    ; fila 288
+  BIOLIGHTV BIOMECH   BIOLIGHT  RIBS      BIOMECHR  BIOMECHR  BIOMECH   BIOLIGHTV    ; fila 287
+  BIOLIGHTV BIOMECHR  BIOMECH   BIOMECH   BIOMECHR  BIOMECH   BIOMECH   BIOLIGHTV    ; fila 286
+  BIOLIGHTV DARK      BIOMECH   BIOMECH   BIOMECHR  RIBS      BIOLIGHT  BIOLIGHTV    ; fila 285
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECHR  BIOMECH   BIOMECH   BIOMECH   BIOLIGHTV    ; fila 284
+  BIOLIGHTV DARK      BIOMECH   DARK      BIOMECH   BIOLIGHT  BIOMECH   BIOLIGHTV    ; fila 283
+  BIOLIGHTV ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   BIOLIGHTV    ; fila 282
+  BIOLIGHTV BIOMECH   DARK      DARK      BIOMECH   BIOMECH   BIOMECH   BIOLIGHTV    ; fila 281
+  BIOLIGHTV RIBS      BIOLIGHT  BIOMECH   RIBS      BIOMECH   BIOMECH   BIOLIGHTV    ; fila 280
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECH   BIOMECH   BIOMECH   BIOLIGHT  BIOLIGHTV    ; fila 279
+  BIOLIGHTV MAW       NEST      BIOMECHR  BIOMECH   DARK      BIOMECH   BIOLIGHTV    ; fila 278
+  BIOLIGHTV BIOMECH   RIBS      BIOMECH   DARK      RIBS      BIOMECHR  BIOLIGHTV    ; fila 277
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECH   MAW       BIOMECH   RIBS      BIOLIGHTV    ; fila 276
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECH   MAW       BIOMECH   RIBS      BIOLIGHTV    ; fila 275
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECHR  BIOMECHR  BIOMECHR  BIOMECHR  BIOLIGHTV    ; fila 274
+  BIOLIGHTV BIOMECH   RIBS      BIOMECH   BIOMECH   BIOMECH   BIOMECHR  BIOLIGHTV    ; fila 273
+  BIOLIGHTV ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   BIOLIGHTV    ; fila 272
+  BIOLIGHTV DARK      BIOMECH   BIOMECH   BIOMECH   BIOMECH   BIOLIGHT  BIOLIGHTV    ; fila 271
+  BIOLIGHTV BIOMECHR  BIOMECHR  BIOMECH   RIBS      BIOMECHR  BIOMECH   BIOLIGHTV    ; fila 270
+  BIOLIGHTV BIOMECH   BIOLIGHT  BIOMECH   MAW       BIOMECH   DARK      BIOLIGHTV    ; fila 269
+  BIOLIGHTV BIOMECH   DARK      BIOMECH   BIOMECH   NEST      MAW       BIOLIGHTV    ; fila 268
+  BIOLIGHTV BIOMECHR  BIOMECH   BIOMECHR  BIOMECH   BIOMECHR  DARK      BIOLIGHTV    ; fila 267
+  BIOLIGHTV BIOMECH   BIOMECH   RIBS      BIOMECH   BIOMECH   BIOMECH   BIOLIGHTV    ; fila 266
+  BIOLIGHTV MAW       BIOMECH   BIOMECH   BIOMECH   BIOMECHR  DARK      BIOLIGHTV    ; fila 265
+  BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2 BIOLIGHT2    ; fila 264
+  BIOLIGHTV BIOMECHR  BIOMECH   BIOMECH   RIBS      BIOMECH   RIBS      BIOLIGHTV    ; fila 263
+  BIOLIGHTV ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   BIOLIGHTV    ; fila 262
+  BIOLIGHTV BIOMECH   BIOLIGHT  BIOMECH   BIOMECHR  BIOMECHR  RIBS      BIOLIGHTV    ; fila 261
+  BIOLIGHTV BIOMECH   MAW       BIOLIGHT  BIOMECHR  BIOMECH   BIOLIGHT  BIOLIGHTV    ; fila 260
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECH   BIOMECH   BIOMECH   RIBS      BIOLIGHTV    ; fila 259
+  BIOLIGHTV BIOLIGHT  RIBS      BIOMECH   BIOMECH   NEST      BIOMECH   BIOLIGHTV    ; fila 258
+  BIOLIGHTV BIOMECH   BIOMECH   RIBS      DARK      BIOMECH   BIOMECH   BIOLIGHTV    ; fila 257
+  BIOLIGHTV BIOMECH   RIBS      BIOMECH   DARK      BIOMECH   DARK      BIOLIGHTV    ; fila 256
+  BIOLIGHTV DARK      BIOMECH   BIOMECH   BIOLIGHT  BIOMECH   BIOMECH   BIOLIGHTV    ; fila 255
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECHR  BIOMECH   BIOLIGHT  RIBS      BIOLIGHTV    ; fila 254
+  BIOLIGHTV BIOMECH   BIOLIGHT  MAW       RIBS      MAW       BIOMECH   BIOLIGHTV    ; fila 253
+  BIOLIGHTV ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   BIOLIGHTV    ; fila 252
+  BIOLIGHTV RIBS      BIOMECH   BIOMECH   DARK      BIOMECH   BIOLIGHT  BIOLIGHTV    ; fila 251
+  BIOLIGHTV BIOMECHR  BIOMECH   BIOMECH   BIOMECH   BIOMECH   RIBS      BIOLIGHTV    ; fila 250
+  BIOLIGHTV BIOMECH   MAW       BIOLIGHT  BIOMECH   BIOLIGHT  BIOMECH   BIOLIGHTV    ; fila 249
+  BIOLIGHTV BIOMECH   BIOMECHR  BIOMECH   DARK      NEST      BIOMECH   BIOLIGHTV    ; fila 248
+  BIOLIGHTV DARK      BIOMECH   DARK      BIOMECHR  BIOMECH   BIOMECH   BIOLIGHTV    ; fila 247
+  BIOLIGHTV DARK      BIOMECH   BIOMECH   BIOMECH   BIOMECHR  BIOMECH   BIOLIGHTV    ; fila 246
+  BIOLIGHTV BIOMECHR  BIOMECHR  BIOMECH   BIOMECHR  BIOMECHR  BIOMECHR  BIOLIGHTV    ; fila 245
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECH   MAW       RIBS      BIOMECH   BIOLIGHTV    ; fila 244
+  BIOLIGHTV RIBS      BIOMECH   BIOMECH   DARK      BIOMECH   BIOMECHR  BIOLIGHTV    ; fila 243
+  BIOLIGHTV ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   BIOLIGHTV    ; fila 242
+  BIOLIGHTV BIOMECH   BIOMECHR  BIOLIGHT  BIOMECH   DARK      DARK      BIOLIGHTV    ; fila 241
+  BIOLIGHTV RIBS      BIOMECH   DARK      MAW       BIOMECH   BIOMECHR  BIOLIGHTV    ; fila 240
+  BIOLIGHTV BIOMECH   MAW       BIOMECHR  DARK      BIOMECH   BIOMECH   BIOLIGHTV    ; fila 239
+  BIOLIGHTV BIOMECHR  NEST      RIBS      BIOMECH   RIBS      BIOMECH   BIOLIGHTV    ; fila 238
+  BIOLIGHTV RIBS      BIOMECH   BIOMECHR  RIBS      BIOMECHR  BIOMECH   BIOLIGHTV    ; fila 237
+  BIOLIGHTV BIOMECH   BIOMECH   BIOMECH   BIOMECH   RIBS      RIBS      BIOLIGHTV    ; fila 236
+  BIOLIGHTV BIOLIGHT  BIOMECHR  BIOMECH   BIOMECH   RIBS      BIOMECHR  BIOLIGHTV    ; fila 235
+  BIOLIGHTV BIOLIGHT  DARK      RIBS      BIOMECH   DARK      RIBS      BIOLIGHTV    ; fila 234
+  BIOLIGHTV RIBS      BIOMECHR  BIOLIGHT  BIOMECH   BIOMECH   BIOMECH   BIOLIGHTV    ; fila 233
+  BIOLIGHTV ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   BIOLIGHTV    ; fila 232
+  BIOLIGHTV RIBS      BIOLIGHT  RIBS      BIOMECH   BIOMECH   BIOMECH   BIOLIGHTV    ; fila 231
+  BIOLIGHTV MAW       BIOMECHR  BIOMECH   BIOMECHR  BIOMECH   BIOMECH   BIOLIGHTV    ; fila 230
+  BIOLIGHTV BIOMECH   BIOMECHR  BIOMECH   BIOMECH   RIBS      BIOMECH   BIOLIGHTV    ; fila 229
+  BIOLIGHTV RIBS      BIOMECH   BIOMECHR  RIBS      NEST      MAW       BIOLIGHTV    ; fila 228
+  BIOLIGHTV BIOMECH   BIOLIGHT  RIBS      DARK      BIOMECHR  BIOMECHR  BIOLIGHTV    ; fila 227
+  BIOLIGHTV BIOMECHR  DARK      MAW       MAW       BIOMECHR  BIOMECH   BIOLIGHTV    ; fila 226
+  BIOLIGHTV BIOMECHR  BIOMECH   BIOMECH   BIOMECH   BIOMECH   BIOMECH   BIOLIGHTV    ; fila 225
+  BIOLIGHTV BIOMECH   BIOMECHR  BIOMECH   BIOMECH   DARK      BIOMECHR  BIOLIGHTV    ; fila 224
+  BIOLIGHTV BIOMECH   BIOMECHR  BIOMECH   BIOMECH   BIOMECH   BIOMECHR  BIOLIGHTV    ; fila 223
+  BIOLIGHTV ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   ARTERYH   BIOLIGHTV    ; fila 222
+  HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    ; fila 221
+  HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    ; fila 220
+  SPORE     SPORE     PLASMAB   PLASMAB   PLASMAB   PLASMAB   SPORE     DARKCHITIN    ; fila 219
+  SPORE     SPORE     PLASMAL   PLASMA    PLASMACR  PLASMAR   SPORE     DARKCHITIN    ; fila 218
+  CHITINCR  SPORE     PLASMAL   PLASMACR  PLASMACR  PLASMAR   CARAPACE  CARAPACE    ; fila 217
+  CHITIN    DARKCHITIN PLASMAL   PLASMA    PLASMA    PLASMAR   CHITIN    CHITIN    ; fila 216
+  SPORE     DARKCHITIN PLASMAL   PLASMACR  PLASMA    PLASMAR   CHITINCR  SPORE    ; fila 215
+  CHITIN    DARKCHITIN PLASMAL   PLASMA    PLASMABU  PLASMAR   CHITINCR  CHITINCR    ; fila 214
+  VEINS     DARKCHITIN PLASMAL   PLASMA    PLASMA    PLASMAR   DARKCHITIN VEINS    ; fila 213
+  DARKCHITIN SPORE     PLASMAL   PLASMA    PLASMACR  PLASMAR   DARKCHITIN VEINS    ; fila 212
+  DARKCHITIN VEINS     PLASMAL   PLASMA    PLASMABU  PLASMAR   DARKCHITIN CHITIN    ; fila 211
+  DARKCHITIN DARKCHITIN PLASMAL   PLASMACR  PLASMACR  PLASMAR   DARKCHITIN SPORE    ; fila 210
+  DARKCHITIN CARAPACE  PLASMAL   PLASMA    PLASMA    PLASMAR   VEINS     DARKCHITIN    ; fila 209
+  CHITIN    VEINS     PLASMAL   PLASMACR  PLASMA    PLASMAR   VEINS     DARKCHITIN    ; fila 208
+  SPORE     DARKCHITIN PLASMAL   PLASMACR  PLASMABU  PLASMAR   VEINS     DARKCHITIN    ; fila 207
+  VEINS     DARKCHITIN PLASMAL   PLASMABU  PLASMA    PLASMAR   CHITINCR  CARAPACE    ; fila 206
+  DARKCHITIN CHITIN    PLASMAL   PLASMACR  PLASMABU  PLASMAR   CHITIN    DARKCHITIN    ; fila 205
+  DARKCHITIN DARKCHITIN PLASMAL   PLASMA    PLASMABU  PLASMAR   DARKCHITIN DARKCHITIN    ; fila 204
+  DARKCHITIN DARKCHITIN PLASMAL   PLASMACR  PLASMA    PLASMAR   DARKCHITIN VEINS    ; fila 203
+  DARKCHITIN SPORE     PLASMAL   PLASMACR  PLASMABU  PLASMAR   CHITINCR  VEINS    ; fila 202
+  DARKCHITIN CARAPACE  PLASMAL   PLASMA    PLASMA    PLASMAR   CARAPACE  CARAPACE    ; fila 201
+  CARAPACE  CHITIN    PLASMAL   PLASMA    PLASMA    PLASMAR   DARKCHITIN DARKCHITIN    ; fila 200
+  DARKCHITIN CHITINCR  PLASMAL   PLASMA    PLASMA    PLASMAR   DARKCHITIN DARKCHITIN    ; fila 199
+  DARKCHITIN CARAPACE  PLASMAL   PLASMA    PLASMA    PLASMAR   CHITIN    CARAPACE    ; fila 198
+  DARKCHITIN VEINS     PLASMAL   PLASMA    PLASMA    PLASMAR   DARKCHITIN DARKCHITIN    ; fila 197
+  SPORE     SPORE     PLASMAL   PLASMA    PLASMABU  PLASMAR   DARKCHITIN CHITINCR    ; fila 196
+  VEINS     VEINS     PLASMAL   PLASMACR  PLASMA    PLASMAR   DARKCHITIN DARKCHITIN    ; fila 195
+  VEINS     VEINS     PLASMAL   PLASMABU  PLASMACR  PLASMAR   DARKCHITIN CARAPACE    ; fila 194
+  DARKCHITIN CARAPACE  PLASMAL   PLASMABU  PLASMA    PLASMAR   DARKCHITIN DARKCHITIN    ; fila 193
+  SPORE     VEINS     PLASMAL   PLASMA    PLASMA    PLASMAR   DARKCHITIN VEINS    ; fila 192
+  CARAPACE  SPORE     HAZARD    HAZARD    HAZARD    HAZARD    CHITIN    DARKCHITIN    ; fila 191
+  DARKCHITIN DARKCHITIN BIOMECHR  BIOMECH   BIOMECH   BIOMECHR  DARKCHITIN DARKCHITIN    ; fila 190
+  CHITIN    DARKCHITIN HAZARD    HAZARD    HAZARD    HAZARD    CHITIN    DARKCHITIN    ; fila 189
+  VEINS     DARKCHITIN PLASMAL   PLASMABU  PLASMA    PLASMAR   CARAPACE  SPORE    ; fila 188
+  DARKCHITIN CHITIN    PLASMAL   PLASMACR  PLASMA    PLASMAR   DARKCHITIN DARKCHITIN    ; fila 187
+  CHITINCR  DARKCHITIN PLASMAL   PLASMA    PLASMABU  PLASMAR   CARAPACE  DARKCHITIN    ; fila 186
+  CARAPACE  DARKCHITIN PLASMAL   PLASMA    PLASMABU  PLASMAR   CHITIN    VEINS    ; fila 185
+  DARKCHITIN CHITINCR  PLASMAL   PLASMACR  PLASMA    PLASMAR   CHITIN    DARKCHITIN    ; fila 184
+  DARKCHITIN DARKCHITIN PLASMAL   PLASMABU  PLASMA    PLASMAR   DARKCHITIN SPORE    ; fila 183
+  DARKCHITIN DARKCHITIN PLASMAL   PLASMACR  PLASMACR  PLASMAR   DARKCHITIN DARKCHITIN    ; fila 182
+  DARKCHITIN DARKCHITIN PLASMAL   PLASMA    PLASMA    PLASMAR   DARKCHITIN CHITINCR    ; fila 181
+  CHITIN    DARKCHITIN PLASMAL   PLASMABU  PLASMACR  PLASMAR   VEINS     DARKCHITIN    ; fila 180
+  SPORE     SPORE     PLASMAL   PLASMABU  PLASMA    PLASMAR   DARKCHITIN DARKCHITIN    ; fila 179
+  CARAPACE  CHITINCR  PLASMAL   PLASMA    PLASMACR  PLASMAR   SPORE     SPORE    ; fila 178
+  VEINS     CHITINCR  PLASMAL   PLASMA    PLASMA    PLASMAR   CARAPACE  SPORE    ; fila 177
+  DARKCHITIN VEINS     PLASMAL   PLASMABU  PLASMABU  PLASMAR   DARKCHITIN DARKCHITIN    ; fila 176
+  DARKCHITIN CHITINCR  PLASMAL   PLASMABU  PLASMABU  PLASMAR   SPORE     DARKCHITIN    ; fila 175
+  SPORE     DARKCHITIN PLASMAL   PLASMA    PLASMACR  PLASMAR   CHITIN    CHITINCR    ; fila 174
+  CHITIN    CARAPACE  PLASMAL   PLASMA    PLASMA    PLASMAR   DARKCHITIN VEINS    ; fila 173
+  SPORE     DARKCHITIN PLASMAL   PLASMABU  PLASMABU  PLASMAR   SPORE     CARAPACE    ; fila 172
+  DARKCHITIN CHITIN    PLASMAL   PLASMACR  PLASMA    PLASMAR   CHITIN    VEINS    ; fila 171
+  DARKCHITIN DARKCHITIN PLASMAL   PLASMABU  PLASMACR  PLASMAR   DARKCHITIN CHITIN    ; fila 170
+  SPORE     SPORE     PLASMAL   PLASMA    PLASMACR  PLASMAR   VEINS     VEINS    ; fila 169
+  DARKCHITIN CARAPACE  PLASMAL   PLASMA    PLASMA    PLASMAR   VEINS     DARKCHITIN    ; fila 168
+  SPORE     VEINS     PLASMAL   PLASMABU  PLASMA    PLASMAR   DARKCHITIN SPORE    ; fila 167
+  VEINS     SPORE     PLASMAL   PLASMA    PLASMA    PLASMAR   CHITINCR  SPORE    ; fila 166
+  CHITIN    CHITINCR  PLASMAL   PLASMABU  PLASMACR  PLASMAR   DARKCHITIN DARKCHITIN    ; fila 165
+  DARKCHITIN VEINS     PLASMAL   PLASMA    PLASMA    PLASMAR   DARKCHITIN SPORE    ; fila 164
+  SPORE     VEINS     PLASMAL   PLASMA    PLASMABU  PLASMAR   DARKCHITIN DARKCHITIN    ; fila 163
+  DARKCHITIN CHITIN    PLASMAL   PLASMABU  PLASMABU  PLASMAR   SPORE     SPORE    ; fila 162
+  CARAPACE  DARKCHITIN PLASMAL   PLASMACR  PLASMA    PLASMAR   SPORE     DARKCHITIN    ; fila 161
+  FLESH     FLESH     PLASMAT   PLASMAT   PLASMAT   PLASMAT   BONE      BONE    ; fila 160
+  FLESHST   CHITIN    EGGS      EGGS      CHITIN    EGGS      FLESH     BONE    ; fila 159
+  FLESH     CHITINCR  CARAPACE  FLESH     CARAPACE  EYE       EGGS      FLESHST    ; fila 158
+  CHITIN    FLESHST   FLESH     FLESHST   FLESH     FLESH     FLESH     FLESH    ; fila 157
+  FLESHST   FLESH     FLESHST   FLESH     FLESH     CARAPACE  BONE      BONE    ; fila 156
+  CHITIN    BONE      FLESH     CHITINCR  CHITIN    FLESH     BONE      EGGS    ; fila 155
+  FLESH     CHITINCR  CHITIN    FLESH     RIDGES    EGGS      CARAPACE  BONE    ; fila 154
+  FLESHST   FLESHST   CARAPACE  FLESH     CHITINCR  FLESHST   EYE       BONE    ; fila 153
+  RIDGES    CHITINCR  FLESH     RIDGES    FLESHST   BONE      FLESH     FLESH    ; fila 152
+  CARAPACE  CARAPACE  CARAPACE  CARAPACE  FLESH     FLESH     CHITIN    RIDGES    ; fila 151
+  BONE      BONE      BONE      FLESH     CARAPACE  EGGS      CHITIN    EGGS    ; fila 150
+  FLESHST   RIDGES    RIDGES    FLESHST   EGGS      FLESH     EGGS      FLESH    ; fila 149
+  FLESHST   BONE      FLESH     STINGER   FLESH     EGGS      FLESH     FLESHST    ; fila 148
+  CARAPACE  FLESHST   FLESHST   BONE      CARAPACE  CHITIN    FLESH     FLESH    ; fila 147
+  BONE      EGGS      RIDGES    FLESH     CARAPACE  FLESH     EGGS      FLESH    ; fila 146
+  CARAPACE  FLESH     FLESH     FLESHST   FLESH     FLESH     CHITIN    RIDGES    ; fila 145
+  EGGS      CHITIN    BONE      FLESHST   CHITINCR  FLESHST   FLESH     RIDGES    ; fila 144
+  CHITIN    FLESH     BONE      FLESH     FLESHST   EGGS      RIDGES    CHITIN    ; fila 143
+  FLESHST   RIDGES    EGGS      FLESH     CHITIN    FLESH     FLESHST   FLESH    ; fila 142
+  CHITINCR  FLESH     RIDGES    FLESHST   CHITINCR  FLESH     CARAPACE  BONE    ; fila 141
+  CARAPACE  EGGS      EYE       CHITIN    EGGS      FLESH     FLESH     FLESH    ; fila 140
+  FLESH     CHITINCR  EYE       CHITIN    FLESHST   FLESH     BONE      BONE    ; fila 139
+  CHITIN    CARAPACE  RIDGES    CARAPACE  BONE      EGGS      CARAPACE  FLESH    ; fila 138
+  CARAPACE  CHITINCR  BONE      FLESH     FLESHST   FLESHST   RIDGES    RIDGES    ; fila 137
+  BONE      FLESH     FLESH     CHITIN    EGGS      BONE      FLESHST   BONE    ; fila 136
+  FLESHST   CARAPACE  BONE      BONE      BONE      CHITINCR  CHITINCR  BONE    ; fila 135
+  EYE       FLESH     CHITINCR  EGGS      FLESH     CHITINCR  FLESH     RIDGES    ; fila 134
+  FLESH     FLESH     FLESH     CHITIN    FLESH     FLESH     BONE      FLESH    ; fila 133
+  FLESH     CARAPACE  CARAPACE  BONE      CHITIN    FLESHST   CARAPACE  CHITINCR    ; fila 132
+  RIDGES    FLESH     BONE      EGGS      RIDGES    CHITIN    BONE      CARAPACE    ; fila 131
+  CHITIN    CHITIN    CHITIN    CHITIN    FLESH     STINGER   BONE      BONE    ; fila 130
+  FLESH     FLESH     FLESH     EGGS      FLESHST   BONE      RIDGES    FLESH    ; fila 129
+  FLESH     CHITINCR  FLESHST   EYE       BONE      CHITIN    FLESH     EGGS    ; fila 128
+  CARAPACE  FLESH     BONE      FLESH     FLESHST   FLESH     CARAPACE  BONE    ; fila 127
+  FLESH     FLESH     FLESH     CARAPACE  FLESHST   CHITINCR  BONE      EGGS    ; fila 126
+  CHITIN    FLESH     FLESHST   CARAPACE  EGGS      FLESHST   CHITIN    CARAPACE    ; fila 125
+  FLESH     FLESH     CHITINCR  CARAPACE  EYE       FLESH     BONE      FLESH    ; fila 124
+  EYE       FLESH     EGGS      CHITIN    CARAPACE  BONE      BONE      CHITINCR    ; fila 123
+  FLESHST   CHITIN    EGGS      CHITIN    FLESH     EGGS      CHITIN    FLESHST    ; fila 122
+  CHITINCR  FLESH     EGGS      FLESHST   CHITIN    FLESHST   FLESH     BONE    ; fila 121
+  FLESH     CARAPACE  FLESHST   CARAPACE  EYE       CHITIN    FLESH     FLESH    ; fila 120
+  BONE      FLESHST   FLESH     CARAPACE  CARAPACE  FLESHST   CARAPACE  CARAPACE    ; fila 119
+  FLESH     FLESH     CARAPACE  CARAPACE  FLESHST   FLESHST   BONE      BONE    ; fila 118
+  CHITIN    FLESH     FLESH     FLESH     FLESH     FLESH     FLESH     CARAPACE    ; fila 117
+  FLESH     EGGS      FLESHST   EGGS      FLESH     EGGS      BONE      FLESH    ; fila 116
+  FLESH     CHITIN    FLESH     CHITIN    CHITIN    FLESHST   EGGS      CHITINCR    ; fila 115
+  FLESH     BONE      EYE       RIDGES    CHITIN    RIDGES    BONE      BONE    ; fila 114
+  EYE       FLESH     EGGS      EGGS      EYE       EGGS      FLESHST   EGGS    ; fila 113
+  FLESH     FLESHST   STINGER   FLESH     FLESHST   BONE      EYE       BONE    ; fila 112
+  BONE      BONE      FLESH     FLESH     CARAPACE  CARAPACE  EGGS      FLESH    ; fila 111
+  FLESH     CHITINCR  BONE      EGGS      EGGS      BONE      CARAPACE  FLESH    ; fila 110
+  FLESH     EYE       FLESHST   CARAPACE  EGGS      FLESH     CHITIN    CHITIN    ; fila 109
+  FLESH     BONE      EYE       FLESH     FLESH     FLESH     EGGS      FLESHST    ; fila 108
+  FLESHST   RIDGES    EYE       BONE      RIDGES    FLESH     FLESH     CARAPACE    ; fila 107
+  EGGS      FLESH     FLESHST   EYE       CHITINCR  FLESHST   CHITIN    RIDGES    ; fila 106
+  FLESH     FLESH     CHITIN    FLESHST   EGGS      BONE      CHITIN    CARAPACE    ; fila 105
+  CHITINCR  RIDGES    FLESH     FLESHST   CHITIN    BONE      BONE      FLESH    ; fila 104
+  CHITIN    CHITIN    BONE      FLESH     FLESH     CHITIN    CHITIN    FLESH    ; fila 103
+  EGGS      CHITIN    FLESHST   FLESH     EGGS      FLESHST   FLESH     FLESH    ; fila 102
+  FLESH     FLESH     BONE      FLESH     CARAPACE  FLESHST   FLESHST   FLESH    ; fila 101
+  EGGS      FLESH     RIDGES    EGGS      FLESH     CHITIN    FLESHST   CHITINCR    ; fila 100
+  FLESH     FLESH     FLESH     FLESHST   EGGS      FLESHST   BONE      RIDGES    ; fila 99
+  FLESHST   FLESH     FLESH     EGGS      FLESHST   CHITINCR  FLESHST   CHITINCR    ; fila 98
+  CARAPACE  CHITIN    CHITIN    BONE      RIDGES    FLESH     FLESH     FLESH    ; fila 97
+  FLESHFUNGUS FLESHFUNGUS FLESHFUNGUS FLESHFUNGUS FLESHFUNGUS FLESHFUNGUS FLESHFUNGUS FLESHFUNGUS    ; fila 96
+  EGGS      SPORES    FUNGUS1   FUNGUS1   TOXSHOREB TOXSHOREB FUNGUS1   FUNGUS2    ; fila 95
+  FUNGUS1   FUNGUS1   MOSS      TOXBANKL  LILY      TOXICW    TOXBANKR  SPORES    ; fila 94
+  FUNGUS1   SPORES    FUNGUSTREE TOXBANKL  LILY      TOXIC     TOXBANKR  FUNGUS2    ; fila 93
+  FUNGUS1   MOSS      FUNGUS1   TOXBANKL  TOXIC     TOXICW    TOXBANKR  EGGS    ; fila 92
+  SPORETREES SPORES    FLESH     TOXBANKL  TOXICW    TOXIC     TOXBANKR  FLESH    ; fila 91
+  FUNGUS1   MOSS      MOSS      TOXBANKL  TOXIC     TOXIC     TOXBANKR  SPORETREES    ; fila 90
+  SPORES    FUNGUS2   FUNGUS2   TOXBANKL  TOXICW    TOXIC     TOXBANKR  SPORES    ; fila 89
+  EGGS      FUNGUS1   FUNGUS1   TOXBANKL  TOXIC     TOXICW    TOXBANKR  FUNGUSTREE    ; fila 88
+  FUNGUS2   FUNGUSTREE MOSS      TOXBANKL  TOXIC     TOXIC     TOXBANKR  FUNGUS1    ; fila 87
+  FUNGUS1   FUNGUSTREE FUNGUS1   TOXBANKL  TOXIC     TOXIC     TOXBANKR  FUNGUS1    ; fila 86
+  FUNGUS1   FUNGUSTREE FUNGUS1   TOXBANKL  TOXIC     TOXIC     TOXBANKR  MOSS    ; fila 85
+  FUNGUS1   MOSS      FUNGUS1   TOXBANKL  TOXISLAND TOXICW    TOXBANKR  FUNGUS1    ; fila 84
+  FUNGUS1   SPORES    FUNGUS1   TOXBANKL  TOXICW    TOXICW    TOXBANKR  FLESH    ; fila 83
+  FUNGUS1   FUNGUS2   EGGS      TOXBANKL  TOXICW    TOXIC     TOXBANKR  FUNGUSTREE    ; fila 82
+  MOSS      FUNGUS1   FUNGUS2   TOXBANKL  TOXIC     TOXICW    TOXBANKR  FUNGUS1    ; fila 81
+  FUNGUS1   FUNGUS1   SPORES    TOXBANKL  TOXIC     TOXICW    TOXBANKR  FUNGUS2    ; fila 80
+  FUNGUS1   EGGS      FUNGUS1   TOXBANKL  LILY      TOXICW    TOXBANKR  FUNGUS1    ; fila 79
+  FUNGUS2   FUNGUS2   SPORES    TOXBANKL  TOXIC     TOXIC     TOXBANKR  SPORETREES    ; fila 78
+  EGGS      FUNGUSTREE SPORES    TOXBANKL  TOXIC     TOXIC     TOXBANKR  FUNGUS2    ; fila 77
+  MOSS      FUNGUS1   FUNGUS1   TOXBANKL  TOXICW    TOXIC     TOXBANKR  FUNGUS1    ; fila 76
+  FUNGUS2   MOSS      SPORES    TOXBANKL  TOXICW    TOXIC     TOXBANKR  FUNGUS1    ; fila 75
+  FUNGUS1   FUNGUS1   EGGS      TOXBANKL  TOXIC     TOXICW    TOXBANKR  FUNGUS1    ; fila 74
+  SPORES    FUNGUS2   FUNGUS1   TOXBANKL  TOXIC     TOXIC     TOXBANKR  SPORETREES    ; fila 73
+  FUNGUS1   FUNGUSTREE RIBBRIDGEE RIBBRIDGE RIBBRIDGE RIBBRIDGE RIBBRIDGE RIBBRIDGEE    ; fila 72
+  FUNGUS1   SPORETREES FUNGUS2   TOXBANKL  TOXICW    TOXIC     TOXBANKR  EGGS    ; fila 71
+  FUNGUS1   SPORES    MOSS      TOXBANKL  TOXIC     TOXIC     TOXBANKR  FUNGUS1    ; fila 70
+  FUNGUS1   MOSS      FUNGUS1   TOXBANKL  LILY      TOXICW    TOXBANKR  FUNGUS1    ; fila 69
+  FUNGUS1   FUNGUS1   FUNGUSTREE TOXBANKL  TOXIC     TOXIC     TOXBANKR  SPORES    ; fila 68
+  EGGS      FUNGUS1   FUNGUS2   TOXBANKL  TOXICW    TOXICW    TOXBANKR  EGGS    ; fila 67
+  MOSS      FUNGUS1   SPORES    TOXBANKL  TOXICW    TOXIC     TOXBANKR  FUNGUS1    ; fila 66
+  FUNGUS2   MOSS      FUNGUS1   TOXBANKL  TOXIC     TOXIC     TOXBANKR  FUNGUS1    ; fila 65
+  FUNGUS1   FUNGUS1   SPORES    TOXBANKL  LILY      TOXIC     TOXBANKR  FUNGUS1    ; fila 64
+  FUNGUSTREE FUNGUS2   FUNGUS1   TOXBANKL  TOXIC     TOXIC     TOXBANKR  EGGS    ; fila 63
+  FUNGUS1   FUNGUS2   FUNGUS2   TOXBANKL  TOXIC     TOXICW    TOXBANKR  FUNGUS1    ; fila 62
+  FUNGUS2   FUNGUSTREE FUNGUS2   TOXBANKL  TOXICW    TOXIC     TOXBANKR  FUNGUS2    ; fila 61
+  FUNGUSTREE FUNGUS1   MOSS      TOXBANKL  TOXICW    TOXIC     TOXBANKR  FUNGUSTREE    ; fila 60
+  FUNGUS2   FUNGUS2   FUNGUS1   TOXBANKL  TOXICW    TOXICW    TOXBANKR  EGGS    ; fila 59
+  MOSS      FUNGUSTREE FUNGUS2   TOXBANKL  LILY      TOXICW    TOXBANKR  EGGS    ; fila 58
+  SPORES    FLESH     MOSS      TOXBANKL  TOXICW    TOXIC     TOXBANKR  FUNGUS1    ; fila 57
+  FUNGUS1   MOSS      FUNGUSTREE TOXBANKL  TOXIC     TOXICW    TOXBANKR  FUNGUS1    ; fila 56
+  FUNGUS1   FUNGUS2   FUNGUS1   TOXBANKL  LILY      TOXICW    TOXBANKR  FUNGUSTREE    ; fila 55
+  FUNGUS1   FUNGUS1   FUNGUS1   TOXBANKL  LILY      TOXICW    TOXBANKR  MOSS    ; fila 54
+  FUNGUS1   FUNGUS1   FUNGUS1   TOXBANKL  TOXICW    TOXIC     TOXBANKR  FUNGUS1    ; fila 53
+  FUNGUS2   FUNGUS1   TOXBANKL  TOXIC     TOXICW    TOXBANKR  EGGS      FUNGUS1    ; fila 52
+  MOSS      FLESH     TOXBANKL  TOXIC     TOXIC     TOXBANKR  FUNGUS1   FUNGUSTREE    ; fila 51
+  FUNGUS1   FUNGUS1   TOXBANKL  TOXIC     TOXIC     TOXBANKR  EGGS      FUNGUS1    ; fila 50
+  FUNGUS1   MOSS      TOXBANKL  TOXIC     TOXICW    TOXBANKR  FUNGUS1   FUNGUS2    ; fila 49
+  MOSS      FUNGUSTREE TOXBANKL  LILY      TOXICW    TOXBANKR  FUNGUS1   FUNGUS1    ; fila 48
+  FUNGUS1   FUNGUS2   TOXBANKL  TOXIC     TOXICW    TOXBANKR  FUNGUS1   FUNGUSTREE    ; fila 47
+  FUNGUS1   FUNGUS1   FUNGUS1   TOXSHORET TOXSHORET MOSS      FUNGUS1   FUNGUSTREE    ; fila 46
+  FUNGUSTREE FUNGUS1   FUNGUS1   FUNGUS1   FUNGUSTREE FUNGUS2   FUNGUS1   FUNGUS1    ; fila 45
+  FUNGUS2   FUNGUS2   FUNGUS1   MOSS      FUNGUS1   FUNGUS1   EGGS      FUNGUS2    ; fila 44
+  FUNGUS1   FUNGUS1   EGGS      MOSS      FUNGUS2   FUNGUS1   FUNGUS1   FUNGUS2    ; fila 43
+  FUNGUS1   FUNGUS1   FLESH     FUNGUS1   FUNGUS1   FUNGUS2   FUNGUS2   EGGS    ; fila 42
+  FUNGUS2   FUNGUS1   FUNGUS2   SPORES    FUNGUS1   FUNGUS1   EGGS      FUNGUS1    ; fila 41
+  FUNGUS2   FUNGUS2   FUNGUS1   SPORES    FUNGUS2   SPINEV    EGGS      FUNGUS1    ; fila 40
+  SPORES    FUNGUS1   FUNGUS1   FUNGUS1   EGGS      SPINEV    FUNGUS1   FUNGUS2    ; fila 39
+  EGGS      FUNGUS1   MOSS      FUNGUS2   FUNGUS2   SPINEV    FUNGUS1   MOSS    ; fila 38
+  MOSS      FUNGUS1   FUNGUS1   SPORES    FUNGUS1   SPINEV    FUNGUS2   SPORES    ; fila 37
+  FUNGUS2   FUNGUS1   FUNGUSTREE FUNGUS2   FUNGUS1   SPINEV    FUNGUS1   MOSS    ; fila 36
+  FUNGUS1   FUNGUS1   EGGS      FUNGUS1   FUNGUS2   SPINEV    MOSS      FUNGUS1    ; fila 35
+  SPORES    FUNGUS1   SPORETREES FUNGUS1   FUNGUS2   SPINEV    FUNGUS1   FUNGUS1    ; fila 34
+  FUNGUS2   SPORETREES FUNGUS1   SPORETREES SPORES    SPINEV    FUNGUS1   FUNGUS1    ; fila 33
+  FUNGUS1   FUNGUS1   FUNGUS1   EGGS      FUNGUS1   SPINEV    FUNGUS1   EGGS    ; fila 32
+  FUNGUS1   FLESH     SPORES    MOSS      FUNGUS1   SPINEV    MOSS      FUNGUSTREE    ; fila 31
+  FUNGUS1   SPORES    EGGS      EGGS      STINGER   SPINEV    FUNGUS1   FUNGUS1    ; fila 30
+  FUNGUS1   FUNGUS2   SPORES    FUNGUS2   FUNGUS1   SPINEV    FUNGUS1   FUNGUS1    ; fila 29
+  EGGS      MOSS      FUNGUS1   FUNGUS2   FUNGUS1   SPINEV    FUNGUS1   FUNGUS1    ; fila 28
+  FUNGUSTREE FUNGUSTREE FUNGUS1   EGGS      FUNGUS1   SPINEV    SPORETREES FUNGUS1    ; fila 27
+  FUNGUS1   FUNGUS1   FUNGUS1   SPORES    FUNGUS1   SPINEV    FUNGUS2   FUNGUS1    ; fila 26
+  SPORES    FUNGUS1   MOSS      FLESH     FUNGUS1   SPINEV    FUNGUS2   FUNGUS1    ; fila 25
+  FUNGUS1   FUNGUS1   FUNGUS1   MOSS      FUNGUS1   SPINEV    FUNGUS1   SPORETREES    ; fila 24
+  FUNGUS1   MOSS      EGGS      FUNGUS1   FUNGUS1   SPINEV    SPORETREES MOSS    ; fila 23
+  SPINEH    SPINEH    SPINEH    SPINEH    SPINEH    SPINEX    SPINEH    SPINEH    ; fila 22
+  FUNGUS1   FUNGUS1   FUNGUS1   SPORES    FUNGUS1   SPINEV    MOSS      FUNGUS1    ; fila 21
+  FUNGUS2   EGGS      FUNGUS2   FUNGUSTREE MOSS      SPINEV    FLESH     FUNGUS1    ; fila 20
+  FUNGUS1   FUNGUS1   FUNGUS1   FUNGUS2   FUNGUS2   SPINEV    MOSS      FUNGUS1    ; fila 19
+  SPORES    SPORES    SPORES    FUNGUSTREE FUNGUS2   SPINEV    FUNGUS1   FUNGUS2    ; fila 18
+  FUNGUS1   FUNGUS2   FUNGUS1   FUNGUS2   FUNGUS1   SPINEV    EGGS      FUNGUS1    ; fila 17
+  FUNGUS1   MOSS      FUNGUS1   SPORES    FUNGUS1   SPINEV    SPORETREES SPORETREES    ; fila 16
+  SPORETREES FUNGUS1   FUNGUS1   EGGS      EGGS      SPINEV    FUNGUS1   FUNGUS1    ; fila 15
+  FUNGUS1   FUNGUS1   EGGS      FUNGUS2   STINGER   SPINEV    FUNGUS1   FLESH    ; fila 14
+  FUNGUS1   FUNGUS1   EGGS      SPORES    MOSS      SPINEV    FUNGUS1   FUNGUS1    ; fila 13
+  MOSS      FUNGUS2   FUNGUS1   FUNGUS2   FUNGUS1   SPINEV    FUNGUS1   FUNGUS1    ; fila 12
+  FUNGUS1   MOSS      FUNGUS1   FUNGUS1   MOSS      SPINEV    FUNGUS2   FUNGUS1    ; fila 11
+  FUNGUS1   FUNGUSTREE FUNGUS1   FUNGUS1   FUNGUS1   SPINEV    FUNGUS1   SPORES    ; fila 10
+  FUNGUS1   FUNGUSTREE FUNGUS2   FUNGUS2   FUNGUS2   SPINEV    FLESH     MOSS    ; fila 9
+  FUNGUS1   FLESH     FUNGUS1   FUNGUS1   FUNGUS2   SPINEV    FUNGUSTREE FUNGUSTREE    ; fila 8
+  FLESH     SPORES    SPORETREES FUNGUS1   EGGS      SPORES    FUNGUS1   FLESH    ; fila 7
+  FUNGUSTREE SPORES    SPORES    FUNGUS1   FUNGUS2   FUNGUS1   FUNGUSTREE FUNGUS1    ; fila 6
+  FUNGUS1   FUNGUS1   SPORETREES FUNGUS1   FUNGUS2   FUNGUS1   FUNGUS1   FUNGUS1    ; fila 5
+  SPORES    MOSS      FUNGUS1   EGGS      FUNGUS2   FUNGUS1   SPORETREES FUNGUS1    ; fila 4
+  MOSS      FUNGUS1   FUNGUS1   EGGS      FUNGUS1   FUNGUS1   FUNGUS1   FUNGUS1    ; fila 3
+  FUNGUS1   FUNGUS1   FUNGUS2   FUNGUS1   MOSS      FUNGUS2   EGGS      MOSS    ; fila 2
+  FUNGUS2   MOSS      FUNGUS2   SPORES    FUNGUS1   MOSS      MOSS      FUNGUS2    ; fila 1
+  FUNGUS1   MOSS      FUNGUS1   EGGS      FUNGUS1   FUNGUS2   SPORES    EGGS    ; fila 0
+end

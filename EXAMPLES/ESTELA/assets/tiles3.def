@@ -1,0 +1,82 @@
+# tiles3.def -- generado por gentemas.py (tema desierto). Lo lee map2bin.py (nombres de los tiles para escribir los mapas).
+# tile NOMBRE INDICE        indice 0-59 = fila*10 + columna en el tileset
+# range NOMBRE PRIMERO ULTIMO   rangos de la paleta de 256 (los mismos que el nivel 1: el codigo cicla agua, lava y luces)
+# panelrow N               fila del PNG que lleva el dibujo de los paneles (x 0-15 izquierdo, x 144-159 derecho)
+tile STEPPE1 0
+tile STEPPE2 1
+tile SCRUB 2
+tile CLAY 3
+tile CLAYST 4
+tile SAND 5
+tile SANDSTONE 6
+tile REDROCK 7
+tile ROCKCRACK 8
+tile SPACE 9
+tile OASIS 10
+tile OASISW 11
+tile OASISBANKL 12
+tile OASISBANKR 13
+tile PLANKS 14
+tile PLANKSE 15
+tile OASISSHORET 16
+tile OASISSHOREB 17
+tile OASISISLE 18
+tile PALM 19
+tile TAR 20
+tile TARCR 21
+tile TARL 22
+tile TARR 23
+tile TART 24
+tile TARB 25
+tile BASALT 26
+tile BASALTV 27
+tile TARBU 28
+tile EMBERS 29
+tile STONE 30
+tile STONER 31
+tile GRATE 32
+tile HAZARD 33
+tile LIGHTS 34
+tile BLOCKS 35
+tile COLUMN 36
+tile OBELISK 37
+tile PYRAMID 38
+tile PAD 39
+tile DUNETURRET 40
+tile CRATER 41
+tile ROADH 42
+tile ROADV 43
+tile ROADX 44
+tile DUNES 45
+tile ACACIA 46
+tile CACTUS 47
+tile CACTUS2 48
+tile BOULDER 49
+tile STEPPECLAY 50
+tile CLAYSTEPPE 51
+tile STEPPEROCKL 52
+tile STEPPEROCKR 53
+tile LIGHTS2 54
+tile MLIGHT 55
+tile STARS 56
+tile DARK 57
+tile CHECK 58
+tile SANDST 59
+range PAL_PANEL 0 15
+range PAL_GRASS 16 31
+range PAL_FOREST 32 47
+range PAL_DIRT 48 63
+range PAL_SAND 64 79
+range PAL_ROCK 80 95
+range PAL_ROCKW 96 111
+range PAL_METAL 112 127
+range PAL_OBSID 128 143
+range PAL_ROAD 144 159
+range PAL_ACCENT 160 175
+range PAL_FOAM 176 191
+range PAL_HAZARD 192 207
+range PAL_SPACE 208 223
+range PAL_WATER 224 239
+range PAL_LAVA 240 247
+range PAL_LIGHTS 248 255
+panelrow 96

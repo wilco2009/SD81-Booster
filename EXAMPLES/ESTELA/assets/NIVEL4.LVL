@@ -1,0 +1,453 @@
+; NIVEL4.LVL -- CIUDAD: calles y tejados, parque, rio con puente, zona industrial y azotea del jefe (lo lee map2bin.py; formatos en claude/planning/juego160.md, seccion 8).
+; Generado por genniveles.py; despues se puede editar a mano (genniveles.py lo sobrescribe si se vuelve a ejecutar).
+;
+; El mapa (al final) tiene 8 tiles de ancho; la linea de ARRIBA es el final del nivel y la de ABAJO el principio.
+; 384 filas de 16 pixeles = 6144 pixeles de scroll; el jefe sale en la posicion 5814.
+; Regla de diseno (la comprueba map2bin --check): como mucho 3 enemigos de 16x16 cortan una misma linea de la zona.
+
+include tiles4.def
+include paths.def
+
+name NIVEL4
+scroll 1
+
+wave pos=70    type=E4 x=130 path=SWEEP count=4 spacing=22 flags=mirror    ; giratorios cruzando (espejo)
+wave pos=119    type=E3 x=32 path=ZIGZAG count=3 spacing=24    ; cangrejos en zigzag, a la vez por el otro lado
+wave pos=221    type=E2 x=120 path=DIVE count=4 spacing=18 flags=mirror    ; dardos en picado (espejo)
+wave pos=358    type=E5 x=32 path=HOVER count=2 spacing=40 flags=mirror,row    ; bombarderos que se quedan disparando (espejo)
+wave pos=r29    type=E6 x=112 path=STILL count=1 flags=ground    ; enemigo de suelo sobre ROOFAC (fila 29)
+wave pos=562    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=698    type=E3 x=96 path=ZIGZAG count=3 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo)
+wave pos=846    type=E5 x=64 path=HOVER count=3 spacing=40 flags=mirror,row    ; bombarderos que se quedan disparando (espejo)
+wave pos=r77    type=E6 x=112 path=STILL count=1 flags=ground    ; enemigo de suelo sobre ROOFAC (fila 77)
+wave pos=1192    type=E5 x=48 path=HOVER count=3 spacing=40 flags=row    ; bombarderos que se quedan disparando
+wave pos=1393    type=E3 x=96 path=ZIGZAG count=3 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo), a la vez por el otro lado
+wave pos=1397    type=ITEM1 x=80 path=SLOW count=1    ; mejora de arma
+wave pos=1477    type=E2 x=40 path=DOWN count=3 spacing=32 flags=mirror,row    ; fila de dardos (espejo)
+wave pos=1636    type=E1 x=48 path=SINE count=4 spacing=14    ; platillos serpenteando
+wave pos=1779    type=E2 x=24 path=DIVE count=3 spacing=18    ; dardos en picado
+wave pos=1932    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=2055    type=ITEM2 x=48 path=SLOW count=1    ; escudo
+wave pos=2115    type=E4 x=20 path=SWEEP count=4 spacing=22    ; giratorios cruzando
+wave pos=2280    type=E3 x=96 path=ZIGZAG count=4 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo)
+wave pos=r149    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre ROOFAC (fila 149)
+wave pos=2304    type=E1 x=48 path=SINE count=4 spacing=14    ; platillos serpenteando, a la vez por el otro lado
+wave pos=2442    type=E4 x=130 path=SWEEP count=4 spacing=22 flags=mirror    ; giratorios cruzando (espejo)
+wave pos=2621    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=r173    type=E6 x=112 path=STILL count=1 flags=ground    ; enemigo de suelo sobre ROOFAC (fila 173)
+wave pos=2748    type=E5 x=48 path=HOVER count=2 spacing=40 flags=row    ; bombarderos que se quedan disparando
+wave pos=2905    type=E3 x=96 path=ZIGZAG count=3 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo)
+wave pos=3026    type=ITEM1 x=48 path=SLOW count=1    ; mejora de arma
+wave pos=3086    type=E5 x=64 path=HOVER count=2 spacing=40 flags=row    ; bombarderos que se quedan disparando
+wave pos=3155    type=E3 x=96 path=ZIGZAG count=3 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo), a la vez por el otro lado
+wave pos=3218    type=E3 x=96 path=ZIGZAG count=4 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo)
+wave pos=3377    type=E2 x=120 path=DIVE count=3 spacing=18 flags=mirror    ; dardos en picado (espejo)
+wave pos=3501    type=E2 x=24 path=DIVE count=3 spacing=18    ; dardos en picado
+wave pos=3633    type=E4 x=20 path=SWEEP count=3 spacing=22    ; giratorios cruzando
+wave pos=3690    type=E2 x=120 path=DIVE count=3 spacing=18 flags=mirror    ; dardos en picado (espejo), a la vez por el otro lado
+wave pos=3790    type=E4 x=20 path=SWEEP count=3 spacing=22    ; giratorios cruzando
+wave pos=3959    type=E2 x=24 path=DIVE count=3 spacing=18    ; dardos en picado
+wave pos=r262    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 262)
+wave pos=4109    type=ITEM3 x=80 path=SLOW count=1    ; bomba
+wave pos=4169    type=E1 x=96 path=SINE count=5 spacing=14 flags=mirror    ; platillos serpenteando (espejo)
+wave pos=r272    type=E6 x=48 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 272)
+wave pos=4332    type=E5 x=32 path=HOVER count=2 spacing=40 flags=row    ; bombarderos que se quedan disparando
+wave pos=r282    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 282)
+wave pos=r292    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 292)
+wave pos=r302    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 302)
+wave pos=r312    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 312)
+wave pos=4957    type=E5 x=32 path=HOVER count=3 spacing=40 flags=mirror,row    ; bombarderos que se quedan disparando (espejo)
+wave pos=5161    type=E1 x=48 path=SINE count=4 spacing=14    ; platillos serpenteando, a la vez por el otro lado
+wave pos=5164    type=ITEM2 x=80 path=SLOW count=1    ; escudo
+wave pos=5234    type=E2 x=40 path=DOWN count=3 spacing=32 flags=mirror,row    ; fila de dardos (espejo)
+wave pos=5390    type=E5 x=32 path=HOVER count=2 spacing=40 flags=mirror,row    ; bombarderos que se quedan disparando (espejo)
+wave pos=5436    type=E1 x=48 path=SINE count=4 spacing=14    ; platillos serpenteando, a la vez por el otro lado
+wave pos=5595    type=E5 x=64 path=HOVER count=2 spacing=40 flags=mirror,row    ; bombarderos que se quedan disparando (espejo)
+wave pos=5814    type=BOSS x=64 path=ENTER count=1    ; el jefe de 32x24 baja y se queda
+
+map
+  STARS     SPACE     STARS     STARS     STARS     SPACE     STARS     STARS    ; fila 383
+  STARS     SPACE     STARS     STARS     STARS     SPACE     STARS     STARS    ; fila 382
+  STARS     STARS     STARS     STARS     STARS     STARS     STARS     STARS    ; fila 381
+  STARS     STARS     SPACE     SPACE     STARS     STARS     STARS     SPACE    ; fila 380
+  STARS     STARS     SPACE     SPACE     STARS     STARS     STARS     STARS    ; fila 379
+  SPACE     STARS     STARS     STARS     SPACE     STARS     STARS     SPACE    ; fila 378
+  MLIGHT    ROOF      ROOF      ROOF      STEELROOF ROOF      ROOFAC    MLIGHT    ; fila 377
+  MLIGHT    ROOF      ROOFAC    STEELROOF NEON      NEON      ROOF      MLIGHT    ; fila 376
+  MLIGHT    ROOFAC    ROOFAC    NEON      ROOF      STEELROOF ROOF      MLIGHT    ; fila 375
+  MLIGHT    STEELROOF STEELROOF NEON      ROOF      NEON      ROOF      MLIGHT    ; fila 374
+  MLIGHT    ROOF      NEON      STEELROOF ROOFAC    ROOF      ROOFAC    MLIGHT    ; fila 373
+  MLIGHT    STEELROOF NEON      ROOF      ROOF      ROOFAC    ROOF      MLIGHT    ; fila 372
+  MLIGHT    ROOF      ROOF      ROOF      ROOF      ROOF      STEELROOF MLIGHT    ; fila 371
+  MLIGHT    STEELROOF ROOF      ROOF      ROOFAC    ROOF      ROOFAC    MLIGHT    ; fila 370
+  MLIGHT    ROOFAC    NEON      STEELROOF STEELROOF ROOF      ROOFAC    MLIGHT    ; fila 369
+  MLIGHT    STEELROOF STEELROOF ROOFAC    NEON      STEELROOF NEON      MLIGHT    ; fila 368
+  MLIGHT    ROOF      STEELROOF STEELROOF NEON      NEON      ROOF      MLIGHT    ; fila 367
+  MLIGHT    ROOFAC    ROOF      STEELROOF ROOF      ROOF      NEON      MLIGHT    ; fila 366
+  MLIGHT    NEON      STEELROOF STEELROOF NEON      STEELROOF ROOF      MLIGHT    ; fila 365
+  MLIGHT    ROOF      NEON      ROOF      ROOFAC    STEELROOF ROOF      MLIGHT    ; fila 364
+  MLIGHT    ROOF      ROOF      ROOFAC    ROOF      STEELROOF ROOFAC    MLIGHT    ; fila 363
+  MLIGHT    ROOF      NEON      STEELROOF NEON      ROOF      ROOFAC    MLIGHT    ; fila 362
+  MLIGHT    ROOF      ROOFAC    NEON      NEON      STEELROOF NEON      MLIGHT    ; fila 361
+  MLIGHT    ROOF      ROOFAC    ROOFAC    ROOFAC    NEON      STEELROOF MLIGHT    ; fila 360
+  MLIGHT    STEELROOF ROOF      ROOFAC    STEELROOF ROOF      STEELROOF MLIGHT    ; fila 359
+  MLIGHT    ROOF      ROOF      ROOF      NEON      NEON      ROOF      MLIGHT    ; fila 358
+  MLIGHT    ROOF      NEON      ROOFAC    STEELROOF NEON      ROOF      MLIGHT    ; fila 357
+  MLIGHT    STEELROOF ROOFAC    ROOF      NEON      STEELROOF ROOF      MLIGHT    ; fila 356
+  MLIGHT    STEELROOF STEELROOF ROOFAC    STEELROOF ROOFAC    STEELROOF MLIGHT    ; fila 355
+  MLIGHT    STEELROOF ROOF      NEON      STEELROOF ROOF      STEELROOF MLIGHT    ; fila 354
+  MLIGHT    ROOF      ROOF      ROOF      ROOF      NEON      ROOF      MLIGHT    ; fila 353
+  MLIGHT    ROOF      STEELROOF ROOF      ROOF      NEON      STEELROOF MLIGHT    ; fila 352
+  MLIGHT    ROOF      ROOF      NEON      ROOFAC    ROOF      ROOF      MLIGHT    ; fila 351
+  MLIGHT    STEELROOF STEELROOF STEELROOF ROOF      ROOF      ROOF      MLIGHT    ; fila 350
+  MLIGHT    ROOF      STEELROOF ROOF      NEON      STEELROOF ROOF      MLIGHT    ; fila 349
+  MLIGHT    ROOFAC    STEELROOF ROOF      ROOF      ROOF      ROOF      MLIGHT    ; fila 348
+  MLIGHT    STEELROOF ROOF      ROOFAC    STEELROOF NEON      STEELROOF MLIGHT    ; fila 347
+  MLIGHT    STEELROOF STEELROOF NEON      ROOF      NEON      ROOFAC    MLIGHT    ; fila 346
+  MLIGHT    STEELROOF NEON      ROOF      ROOF      ROOF      NEON      MLIGHT    ; fila 345
+  MLIGHT    ROOF      STEELROOF ROOF      ROOF      ROOF      NEON      MLIGHT    ; fila 344
+  MLIGHT    STEELROOF STEELROOF ROOF      ROOF      ROOFAC    ROOF      MLIGHT    ; fila 343
+  MLIGHT    NEON      ROOF      ROOF      ROOF      ROOF      STEELROOF MLIGHT    ; fila 342
+  MLIGHT    ROOF      NEON      STEELROOF NEON      ROOF      STEELROOF MLIGHT    ; fila 341
+  MLIGHT    STEELROOF STEELROOF ROOF      ROOFAC    NEON      ROOF      MLIGHT    ; fila 340
+  MLIGHT    ROOF      ROOFAC    NEON      ROOF      STEELROOF STEELROOF MLIGHT    ; fila 339
+  MLIGHT    NEON      STEELROOF ROOFAC    STEELROOF ROOF      ROOFAC    MLIGHT    ; fila 338
+  MLIGHT    ROOF      ROOFAC    ROOF      STEELROOF ROOF      ROOF      MLIGHT    ; fila 337
+  MLIGHT    ROOFAC    ROOF      STEELROOF STEELROOF ROOF      STEELROOF MLIGHT    ; fila 336
+  MLIGHT    ROOF      ROOF      ROOF      NEON      ROOFAC    STEELROOF MLIGHT    ; fila 335
+  MLIGHT    ROOF      ROOF      ROOFAC    ROOFAC    ROOF      ROOF      MLIGHT    ; fila 334
+  HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    ; fila 333
+  HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    ; fila 332
+  ROADH     ROADH     ROADH     ROADH     ROADH     ROADH     ROADH     ROADH    ; fila 331
+  SIDEWALK  SIDEWALK  CONCRETE  SIDEWALK  SIDEWALK  CONCRETE  CONCRETEST CONCRETE    ; fila 330
+  CONCRETEST SIDEWALK  SIDEWALK  CONCRETE  SIDEWALK  SIDEWALK  CONCRETEST SIDEWALK    ; fila 329
+  SIDEWALK  CONCRETE  SIDEWALK  SIDEWALK  CONCRETE  CONCRETEST SIDEWALK  SIDEWALK    ; fila 328
+  SIDEWALK  CONCRETE  SIDEWALK  SIDEWALK  CONCRETE  SIDEWALK  SIDEWALK  SIDEWALK    ; fila 327
+  CONCRETEST SIDEWALK  SIDEWALK  CONCRETE  SIDEWALK  CONCRETE  SIDEWALK  CONCRETE    ; fila 326
+  CONCRETE  SIDEWALK  SIDEWALK  CONCRETE  SIDEWALK  SIDEWALK  SIDEWALK  CONCRETEST    ; fila 325
+  ROADH     ROADH     ROADH     ROADH     ROADH     ROADH     ROADH     ROADH    ; fila 324
+  MLIGHT    STEELROOF STEELROOFR STEELROOF NEON      STEELROOF STEELROOF MLIGHT    ; fila 323
+  MLIGHT    NEON      NEON      STEELROOF STEELROOF PAD       STEELROOFR MLIGHT    ; fila 322
+  MLIGHT    STEELROOF STEELROOFR DARK      STEELROOFR HATCH     STEELROOF MLIGHT    ; fila 321
+  MLIGHT    STEELROOF STEELROOFR STEELROOF STEELROOF STEELROOF STEELROOF MLIGHT    ; fila 320
+  MLIGHT    STEELROOF LIGHTS    NEON      NEON      LIGHTS    STEELROOF MLIGHT    ; fila 319
+  MLIGHT    STEELROOF STEELROOF STEELROOF STEELROOFR STEELROOFR STEELROOF MLIGHT    ; fila 318
+  MLIGHT    LIGHTS    HATCH     NEON      STEELROOF STEELROOFR NEON      MLIGHT    ; fila 317
+  MLIGHT    PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     MLIGHT    ; fila 316
+  MLIGHT    STEELROOFR STEELROOF DARK      LIGHTS    LIGHTS    NEON      MLIGHT    ; fila 315
+  MLIGHT    LIGHTS    STEELROOF HATCH     STEELROOF NEON      STEELROOF MLIGHT    ; fila 314
+  MLIGHT    STEELROOF STEELROOF STEELROOF STEELROOF DARK      STEELROOF MLIGHT    ; fila 313
+  MLIGHT    STEELROOFR STEELROOFR STEELROOF STEELROOFR PAD       STEELROOF MLIGHT    ; fila 312
+  MLIGHT    NEON      STEELROOF NEON      NEON      STEELROOF DARK      MLIGHT    ; fila 311
+  MLIGHT    HATCH     STEELROOFR STEELROOF LIGHTS    NEON      STEELROOF MLIGHT    ; fila 310
+  MLIGHT    STEELROOF DARK      STEELROOFR STEELROOFR STEELROOF STEELROOF MLIGHT    ; fila 309
+  MLIGHT    STEELROOF LIGHTS    STEELROOFR NEON      STEELROOFR NEON      MLIGHT    ; fila 308
+  MLIGHT    STEELROOF LIGHTS    DARK      STEELROOF LIGHTS    STEELROOF MLIGHT    ; fila 307
+  MLIGHT    PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     MLIGHT    ; fila 306
+  MLIGHT    STEELROOF STEELROOF NEON      STEELROOFR STEELROOF STEELROOF MLIGHT    ; fila 305
+  MLIGHT    STEELROOF STEELROOF HATCH     STEELROOF STEELROOF STEELROOF MLIGHT    ; fila 304
+  MLIGHT    STEELROOF STEELROOF STEELROOFR NEON      STEELROOF STEELROOF MLIGHT    ; fila 303
+  MLIGHT    STEELROOF STEELROOF STEELROOF STEELROOF PAD       STEELROOF MLIGHT    ; fila 302
+  MLIGHT    STEELROOFR STEELROOF NEON      STEELROOF STEELROOF STEELROOF MLIGHT    ; fila 301
+  MLIGHT    STEELROOF STEELROOF STEELROOFR STEELROOF STEELROOF STEELROOF MLIGHT    ; fila 300
+  MLIGHT    STEELROOFR STEELROOF DARK      DARK      STEELROOF STEELROOF MLIGHT    ; fila 299
+  MLIGHT    STEELROOF STEELROOF STEELROOF STEELROOF DARK      STEELROOFR MLIGHT    ; fila 298
+  MLIGHT    STEELROOF STEELROOFR STEELROOFR LIGHTS    DARK      STEELROOF MLIGHT    ; fila 297
+  MLIGHT    PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     MLIGHT    ; fila 296
+  MLIGHT    STEELROOF STEELROOFR DARK      STEELROOFR HATCH     NEON      MLIGHT    ; fila 295
+  MLIGHT    HATCH     STEELROOF DARK      STEELROOFR STEELROOFR HATCH     MLIGHT    ; fila 294
+  MLIGHT    HATCH     STEELROOF LIGHTS    HATCH     STEELROOF STEELROOF MLIGHT    ; fila 293
+  MLIGHT    STEELROOF HATCH     STEELROOF HATCH     PAD       STEELROOF MLIGHT    ; fila 292
+  MLIGHT    STEELROOF STEELROOF LIGHTS    STEELROOF STEELROOF STEELROOF MLIGHT    ; fila 291
+  LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2    ; fila 290
+  MLIGHT    STEELROOF STEELROOF STEELROOF NEON      HATCH     LIGHTS    MLIGHT    ; fila 289
+  MLIGHT    DARK      LIGHTS    HATCH     LIGHTS    STEELROOF STEELROOF MLIGHT    ; fila 288
+  MLIGHT    STEELROOF HATCH     STEELROOF DARK      STEELROOF STEELROOF MLIGHT    ; fila 287
+  MLIGHT    PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     MLIGHT    ; fila 286
+  MLIGHT    STEELROOFR STEELROOFR HATCH     STEELROOFR STEELROOF STEELROOF MLIGHT    ; fila 285
+  MLIGHT    LIGHTS    LIGHTS    STEELROOFR STEELROOF STEELROOF STEELROOF MLIGHT    ; fila 284
+  MLIGHT    STEELROOFR NEON      STEELROOF STEELROOFR STEELROOF STEELROOF MLIGHT    ; fila 283
+  MLIGHT    STEELROOF LIGHTS    STEELROOF STEELROOF PAD       NEON      MLIGHT    ; fila 282
+  MLIGHT    NEON      STEELROOFR HATCH     STEELROOF STEELROOFR LIGHTS    MLIGHT    ; fila 281
+  MLIGHT    DARK      STEELROOFR NEON      STEELROOF STEELROOFR STEELROOF MLIGHT    ; fila 280
+  MLIGHT    STEELROOF STEELROOF STEELROOF STEELROOF STEELROOFR NEON      MLIGHT    ; fila 279
+  MLIGHT    STEELROOFR STEELROOF DARK      STEELROOF STEELROOF LIGHTS    MLIGHT    ; fila 278
+  MLIGHT    STEELROOF STEELROOF STEELROOF STEELROOF STEELROOF STEELROOF MLIGHT    ; fila 277
+  MLIGHT    PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     MLIGHT    ; fila 276
+  MLIGHT    STEELROOF STEELROOF STEELROOF STEELROOF NEON      HATCH     MLIGHT    ; fila 275
+  MLIGHT    STEELROOF DARK      STEELROOF STEELROOFR DARK      NEON      MLIGHT    ; fila 274
+  MLIGHT    STEELROOF STEELROOF LIGHTS    STEELROOF NEON      STEELROOF MLIGHT    ; fila 273
+  MLIGHT    STEELROOF PAD       HATCH     STEELROOF STEELROOF STEELROOF MLIGHT    ; fila 272
+  MLIGHT    STEELROOFR STEELROOF STEELROOF STEELROOF STEELROOF STEELROOF MLIGHT    ; fila 271
+  MLIGHT    STEELROOFR STEELROOFR STEELROOF STEELROOF STEELROOFR STEELROOF MLIGHT    ; fila 270
+  MLIGHT    NEON      STEELROOFR STEELROOF STEELROOF STEELROOF STEELROOF MLIGHT    ; fila 269
+  MLIGHT    STEELROOFR STEELROOF DARK      HATCH     STEELROOF HATCH     MLIGHT    ; fila 268
+  MLIGHT    NEON      STEELROOF STEELROOF STEELROOFR STEELROOF HATCH     MLIGHT    ; fila 267
+  MLIGHT    PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     MLIGHT    ; fila 266
+  MLIGHT    STEELROOF STEELROOF STEELROOF DARK      STEELROOFR DARK      MLIGHT    ; fila 265
+  MLIGHT    HATCH     NEON      LIGHTS    NEON      STEELROOFR DARK      MLIGHT    ; fila 264
+  MLIGHT    STEELROOF STEELROOFR STEELROOF STEELROOFR STEELROOF NEON      MLIGHT    ; fila 263
+  MLIGHT    STEELROOF STEELROOF STEELROOF NEON      PAD       STEELROOF MLIGHT    ; fila 262
+  MLIGHT    STEELROOF STEELROOFR NEON      STEELROOF LIGHTS    STEELROOFR MLIGHT    ; fila 261
+  MLIGHT    STEELROOF DARK      STEELROOF STEELROOF STEELROOFR STEELROOF MLIGHT    ; fila 260
+  MLIGHT    STEELROOF STEELROOFR STEELROOF STEELROOF STEELROOF STEELROOFR MLIGHT    ; fila 259
+  MLIGHT    STEELROOF STEELROOF STEELROOF LIGHTS    NEON      STEELROOF MLIGHT    ; fila 258
+  MLIGHT    STEELROOFR STEELROOFR STEELROOF DARK      STEELROOF HATCH     MLIGHT    ; fila 257
+  MLIGHT    PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     PIPEH     MLIGHT    ; fila 256
+  HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    ; fila 255
+  HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    ; fila 254
+  PARK1     PARK2     QUAYB     QUAYB     HEDGE     BIGTREE   PARK1     PARK1    ; fila 253
+  CONCRETE  QUAYL     CANAL     CANAL     QUAYR     PARK2     CONCRETE  PARK1    ; fila 252
+  PARK1     QUAYL     CANAL     CANALW    QUAYR     HEDGE     PARK1     CONCRETE    ; fila 251
+  HEDGE     QUAYL     CANALW    CANAL     QUAYR     PARK1     HEDGE     PARK2    ; fila 250
+  PARK1     QUAYL     CANAL     CANAL     QUAYR     BIGTREE   PARKTREES PARK1    ; fila 249
+  PARK2     QUAYL     CANALW    CANAL     QUAYR     CONCRETE  PARK2     PARK2    ; fila 248
+  HEDGE     QUAYL     CANAL     CANALW    QUAYR     PARKTREES PARKTREES2 PARK2    ; fila 247
+  PARK1     PARK1     QUAYL     CANAL     CANAL     QUAYR     PARK1     PARK1    ; fila 246
+  HEDGE     HEDGE     QUAYL     CANALW    CANALW    QUAYR     PARKTREES PARK1    ; fila 245
+  HEDGE     PARK2     QUAYL     CANAL     CANAL     QUAYR     PARK1     PARK1    ; fila 244
+  PARKTREES2 PARKTREES QUAYL     CANAL     CANAL     QUAYR     PARK1     PARK1    ; fila 243
+  PARK2     PARK1     QUAYL     PIER      CANALW    QUAYR     PARK1     PARK1    ; fila 242
+  PARK1     PARK1     QUAYL     CANAL     CANAL     QUAYR     PARK2     PARK2    ; fila 241
+  CONCRETE  CONCRETE  QUAYL     CANAL     CANAL     QUAYR     PARK2     HEDGE    ; fila 240
+  PARK1     QUAYL     CANAL     CANAL     QUAYR     PARK1     HEDGE     PARK1    ; fila 239
+  BIGTREE   QUAYL     CANAL     CANALW    QUAYR     PARK1     HEDGE     PARK2    ; fila 238
+  PARK1     QUAYL     CANAL     CANAL     QUAYR     HEDGE     PARK1     PARKTREES2    ; fila 237
+  PARK1     QUAYL     CANAL     CANAL     QUAYR     HEDGE     PARK1     PARK1    ; fila 236
+  PARK2     QUAYL     CANAL     CANAL     QUAYR     PARK1     PARK2     PARK2    ; fila 235
+  BIGTREE   QUAYL     CANAL     CANAL     QUAYR     PARK1     PARK1     PARK1    ; fila 234
+  PARK1     QUAYL     CANALW    CANAL     QUAYR     HEDGE     PARK2     HEDGE    ; fila 233
+  PARK2     PARK1     QUAYL     CANAL     CANAL     QUAYR     PARKTREES PARK2    ; fila 232
+  PARK1     PARK1     QUAYL     CANALW    CANAL     QUAYR     PARK1     PARK1    ; fila 231
+  CONCRETE  HEDGE     QUAYL     CANALW    CANAL     QUAYR     PARK1     PARK1    ; fila 230
+  PARK1     PARK1     QUAYL     CANAL     CANAL     QUAYR     PARK1     BIGTREE    ; fila 229
+  HEDGE     PARKTREES QUAYL     CANAL     CANALW    QUAYR     PARK1     PARK2    ; fila 228
+  PARK1     HEDGE     QUAYL     CANALW    CANAL     QUAYR     PARK1     PARKTREES    ; fila 227
+  PARKTREES2 BRIDGEEND BRIDGE    BRIDGE    BRIDGE    BRIDGE    BRIDGEEND PARK1    ; fila 226
+  PARK2     BIGTREE   QUAYL     CANALW    CANAL     QUAYR     PARK1     BIGTREE    ; fila 225
+  PARK1     PARKTREES2 QUAYL     CANAL     CANAL     QUAYR     PARKTREES CONCRETE    ; fila 224
+  PARKTREES PARK1     QUAYL     CANAL     CANAL     QUAYR     HEDGE     PARKTREES    ; fila 223
+  PARK1     PARK1     QUAYL     CANAL     CANAL     QUAYR     PARK2     PARK1    ; fila 222
+  PARK1     BIGTREE   QUAYL     CANAL     CANAL     QUAYR     PARK1     PARKTREES    ; fila 221
+  PARK1     PARK2     QUAYL     CANAL     CANAL     QUAYR     PARK2     BIGTREE    ; fila 220
+  PARKTREES PARKTREES QUAYL     CANAL     CANAL     QUAYR     PARK1     PARK1    ; fila 219
+  PARKTREES2 PARK2     PARK2     QUAYL     CANAL     CANAL     QUAYR     HEDGE    ; fila 218
+  PARK1     PARKTREES PARK1     QUAYL     CANALW    CANAL     QUAYR     PARK2    ; fila 217
+  PARK1     BIGTREE   PARK2     QUAYL     CANAL     CANAL     QUAYR     PARK1    ; fila 216
+  HEDGE     PARK1     PARKTREES QUAYL     CANAL     CANAL     QUAYR     PARK2    ; fila 215
+  PARK1     BIGTREE   PARK1     QUAYL     CANALW    CANAL     QUAYR     CONCRETE    ; fila 214
+  CONCRETE  PARK1     BIGTREE   QUAYL     CANAL     CANALW    QUAYR     PARK1    ; fila 213
+  PARK1     PARK2     PARKTREES2 QUAYL     CANALW    CANALW    QUAYR     PARK1    ; fila 212
+  PARK1     PARKTREES PARK2     QUAYL     CANAL     CANALW    QUAYR     BIGTREE    ; fila 211
+  PARK2     PARK2     PARKTREES QUAYL     CANAL     CANAL     QUAYR     PARK1    ; fila 210
+  PARK1     BIGTREE   PARKTREES QUAYL     CANAL     CANAL     QUAYR     PARK2    ; fila 209
+  PARK1     PARK1     PARK1     QUAYL     CANAL     CANAL     QUAYR     PARK1    ; fila 208
+  PARK1     PARKTREES2 BIGTREE   QUAYL     CANAL     CANAL     QUAYR     PARK1    ; fila 207
+  PARK2     PARK1     PARKTREES QUAYL     CANAL     CANALW    QUAYR     PARK1    ; fila 206
+  PARK1     PARK1     PARK1     QUAYL     CANAL     CANALW    QUAYR     PARK2    ; fila 205
+  PARK1     PARK1     QUAYL     CANAL     CANALW    QUAYR     PARK2     PARK1    ; fila 204
+  BIGTREE   PARKTREES2 QUAYL     CANALW    CANAL     QUAYR     PARK2     PARK1    ; fila 203
+  PARKTREES PARK1     QUAYL     CANAL     CANAL     QUAYR     PARK1     PARK1    ; fila 202
+  CONCRETE  PARKTREES2 QUAYL     CANALW    CANALW    QUAYR     BIGTREE   PARKTREES    ; fila 201
+  PARK1     PARK1     QUAYL     CANAL     CANAL     QUAYR     HEDGE     PARK1    ; fila 200
+  PARK1     CONCRETE  QUAYL     CANALW    CANAL     QUAYR     PARK1     PARK1    ; fila 199
+  PARK1     HEDGE     HEDGE     QUAYT     QUAYT     PARK2     PARKTREES PARKTREES2    ; fila 198
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 197
+  ROOFL     NEON      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 196
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 195
+  ROOFL     NEON      ROOFR     ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 194
+  ROOFL     NEON      ROOFR     ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 193
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 192
+  ROADH     ROADH     ROADH     ROADX     ROADH     ROADH     ROADH     ROADH    ; fila 191
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 190
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 189
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 188
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 187
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 186
+  CONCRETE  SIDEWALK  PARK1     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 185
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 184
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 183
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 182
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 181
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 180
+  ROADH     ROADH     ROADH     ROADX     ROADH     CROSSH    ROADH     ROADH    ; fila 179
+  HEDGE     HEDGE     BIGTREE   ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 178
+  PARK1     PARK1     PARK1     ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 177
+  PARK2     PARK1     PARK1     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 176
+  BIGTREE   PARK1     PARKTREES ROADV     ROOFL     ROOFAC    ROOFAC    ROOFR    ; fila 175
+  PARKTREES2 BIGTREE   PARK1     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 174
+  PARK2     HEDGE     BIGTREE   ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 173
+  CONCRETE  PARK1     PARKTREES ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 172
+  PARK1     PARK1     BIGTREE   ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 171
+  PARK1     PARK2     PARK1     ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 170
+  PARK1     PARKTREES2 PARK1     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 169
+  PARK1     PARKTREES2 PARK1     ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 168
+  ROADH     ROADH     ROADH     ROADX     ROADH     ROADH     ROADH     ROADH    ; fila 167
+  ROOFTL    ROOFT     ROOFTR    ROADV     PARKTREES2 PARK1     PARKTREES2 PARK1    ; fila 166
+  ROOFL     ROOF      ROOFR     ROADV     BIGTREE   BIGTREE   PARK1     PARK1    ; fila 165
+  ROOFL     ROOF      ROOFR     ROADV     BIGTREE   PARK1     PARK1     PARK1    ; fila 164
+  ROOFL     ROOFAC    ROOFR     ROADV     PARK1     PARK1     CONCRETE  PARK1    ; fila 163
+  ROOFBL    ROOFB     ROOFBR    ROADV     BIGTREE   PARK1     PARK1     BIGTREE    ; fila 162
+  SIDEWALK  CONCRETE  CONCRETE  ROADV     PARK2     PARK1     PARK1     PARK1    ; fila 161
+  ROOFTL    ROOFT     ROOFTR    ROADV     PARK1     PARK1     PARKTREES2 PARKTREES2    ; fila 160
+  ROOFL     ROOF      ROOFR     ROADV     PARK1     PARK1     PARKTREES2 BIGTREE    ; fila 159
+  ROOFL     ROOF      ROOFR     ROADV     PARK1     PARK1     PARK1     PARKTREES    ; fila 158
+  ROOFL     NEON      ROOFR     ROADV     PARK1     HEDGE     PARK1     BIGTREE    ; fila 157
+  ROOFBL    ROOFB     ROOFBR    ROADV     PARK1     PARK1     PARKTREES2 PARKTREES    ; fila 156
+  ROADH     ROADH     ROADH     ROADX     ROADH     CROSSH    ROADH     ROADH    ; fila 155
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 154
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOFAC    ROOFAC    ROOFR    ; fila 153
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 152
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 151
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 150
+  SIDEWALK  SIDEWALK  SIDEWALK  ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 149
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 148
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 147
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 146
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 145
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 144
+  ROADH     ROADH     ROADH     ROADX     ROADH     ROADH     ROADH     ROADH    ; fila 143
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 142
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 141
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 140
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 139
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 138
+  SIDEWALK  SIDEWALK  SIDEWALK  ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 137
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 136
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOFAC    ROOFAC    ROOFR    ; fila 135
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 134
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 133
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 132
+  ROADH     ROADH     ROADH     ROADX     ROADH     CROSSH    ROADH     ROADH    ; fila 131
+  HEDGE     HEDGE     BIGTREE   ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 130
+  PARK1     BIGTREE   PARK1     ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 129
+  PARKTREES PARK1     PARK1     ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 128
+  PARK1     PARK1     PARK1     ROADV     ROOFL     NEON      NEON      ROOFR    ; fila 127
+  PARKTREES2 PARK2     PARK1     ROADV     ROOFL     NEON      NEON      ROOFR    ; fila 126
+  PARK1     PARK1     PARK2     ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 125
+  PARK1     PARK1     CONCRETE  ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 124
+  PARK1     PARKTREES CONCRETE  ROADV     ROOFL     NEON      NEON      ROOFR    ; fila 123
+  PARK1     PARK1     PARK2     ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 122
+  CONCRETE  HEDGE     PARK1     ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 121
+  PARK2     PARK1     PARK1     ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 120
+  ROADH     ROADH     ROADH     ROADX     ROADH     ROADH     ROADH     ROADH    ; fila 119
+  ROOFTL    ROOFT     ROOFTR    ROADV     PARK2     PARK1     PARK1     BIGTREE    ; fila 118
+  ROOFL     ROOF      ROOFR     ROADV     HEDGE     PARK1     PARK2     PARK1    ; fila 117
+  ROOFL     ROOF      ROOFR     ROADV     PARK1     BIGTREE   PARK2     PARK2    ; fila 116
+  ROOFL     ROOFAC    ROOFR     ROADV     PARK2     PARK1     PARKTREES HEDGE    ; fila 115
+  ROOFBL    ROOFB     ROOFBR    ROADV     PARK1     PARK1     PARK1     PARK1    ; fila 114
+  CONCRETEST CONCRETE  PARK1     ROADV     PARK1     PARK1     PARKTREES PARK1    ; fila 113
+  ROOFTL    ROOFT     ROOFTR    ROADV     PARK1     PARK1     PARK1     PARK1    ; fila 112
+  ROOFL     ROOF      ROOFR     ROADV     PARK2     PARK1     PARK1     PARK2    ; fila 111
+  ROOFL     ROOFAC    ROOFR     ROADV     PARK1     PARK1     PARKTREES HEDGE    ; fila 110
+  ROOFL     ROOF      ROOFR     ROADV     PARK1     CONCRETE  PARK1     PARK1    ; fila 109
+  ROOFBL    ROOFB     ROOFBR    ROADV     PARK1     PARKTREES PARK1     PARK2    ; fila 108
+  ROADH     ROADH     ROADH     ROADX     ROADH     CROSSH    ROADH     ROADH    ; fila 107
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 106
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOFAC    ROOFAC    ROOFR    ; fila 105
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 104
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 103
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 102
+  CONCRETE  SIDEWALK  SIDEWALK  ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 101
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 100
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 99
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 98
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOFAC    ROOFAC    ROOFR    ; fila 97
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 96
+  ROADH     ROADH     ROADH     ROADX     ROADH     ROADH     ROADH     ROADH    ; fila 95
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 94
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 93
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 92
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 91
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 90
+  CONCRETE  SIDEWALK  CONCRETEST ROADV     ROOFL     NEON      NEON      ROOFR    ; fila 89
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 88
+  ROOFL     NEON      ROOFR     ROADV     ROOFL     NEON      NEON      ROOFR    ; fila 87
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 86
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 85
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 84
+  ROADH     ROADH     ROADH     ROADX     ROADH     CROSSH    ROADH     ROADH    ; fila 83
+  PARKTREES2 PARK1     PARK1     ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 82
+  PARKTREES2 PARK1     PARK1     ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 81
+  PARK2     PARK1     PARKTREES ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 80
+  PARK1     PARK2     PARK2     ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 79
+  PARK1     CONCRETE  CONCRETE  ROADV     ROOFL     ROOFAC    ROOFAC    ROOFR    ; fila 78
+  PARK1     PARKTREES2 PARK1     ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 77
+  PARK1     PARK1     PARK1     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 76
+  PARK1     PARK1     PARK1     ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 75
+  PARK1     PARK1     PARK1     ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 74
+  PARK1     PARK1     BIGTREE   ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 73
+  HEDGE     PARK1     PARKTREES ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 72
+  ROADH     ROADH     ROADH     ROADX     ROADH     ROADH     ROADH     ROADH    ; fila 71
+  ROOFTL    ROOFT     ROOFTR    ROADV     BIGTREE   PARK1     PARKTREES PARK1    ; fila 70
+  ROOFL     ROOF      ROOFR     ROADV     PARK1     PARK2     PARK1     PARK1    ; fila 69
+  ROOFL     ROOFAC    ROOFR     ROADV     PARK1     PARK1     PARK2     HEDGE    ; fila 68
+  ROOFL     ROOFAC    ROOFR     ROADV     PARKTREES2 PARK2     PARK1     PARKTREES2    ; fila 67
+  ROOFBL    ROOFB     ROOFBR    ROADV     PARK1     PARKTREES PARKTREES2 BIGTREE    ; fila 66
+  CONCRETE  SIDEWALK  SIDEWALK  ROADV     HEDGE     PARK2     PARKTREES2 PARK2    ; fila 65
+  ROOFTL    ROOFT     ROOFTR    ROADV     PARKTREES PARKTREES PARKTREES2 PARK1    ; fila 64
+  ROOFL     ROOFAC    ROOFR     ROADV     HEDGE     PARKTREES PARK1     PARK1    ; fila 63
+  ROOFL     ROOF      ROOFR     ROADV     PARK1     PARKTREES PARKTREES HEDGE    ; fila 62
+  ROOFL     ROOFAC    ROOFR     ROADV     PARKTREES PARK1     PARKTREES2 PARK1    ; fila 61
+  ROOFBL    ROOFB     ROOFBR    ROADV     PARK1     PARK1     PARK1     PARK2    ; fila 60
+  ROADH     ROADH     ROADH     ROADX     ROADH     CROSSH    ROADH     ROADH    ; fila 59
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 58
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 57
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 56
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 55
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFL     NEON      NEON      ROOFR    ; fila 54
+  CONCRETE  SIDEWALK  CONCRETE  ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 53
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFL     ROOF      NEON      ROOFR    ; fila 52
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 51
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 50
+  ROOFL     NEON      ROOFR     ROADV     ROOFL     NEON      ROOF      ROOFR    ; fila 49
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 48
+  ROADH     ROADH     ROADH     ROADX     ROADH     ROADH     ROADH     ROADH    ; fila 47
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 46
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 45
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 44
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 43
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 42
+  SIDEWALK  SIDEWALK  CONCRETEST ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 41
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 40
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 39
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 38
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 37
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 36
+  ROADH     ROADH     ROADH     ROADX     ROADH     CROSSH    ROADH     ROADH    ; fila 35
+  PARK1     PARK1     PARK1     ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 34
+  PARK2     PARK1     PARK1     ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 33
+  PARK1     PARKTREES2 PARKTREES ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 32
+  PARKTREES2 PARK2     PARK2     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 31
+  PARK1     PARK1     PARK1     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 30
+  PARK1     PARK1     PARKTREES2 ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 29
+  PARKTREES2 PARK1     PARK1     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 28
+  CONCRETE  PARKTREES BIGTREE   ROADV     ROOFL     ROOFAC    ROOFAC    ROOFR    ; fila 27
+  PARK1     BIGTREE   HEDGE     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 26
+  PARK1     PARK1     PARK1     ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 25
+  HEDGE     BIGTREE   PARK1     ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 24
+  ROADH     ROADH     ROADH     ROADX     ROADH     ROADH     ROADH     ROADH    ; fila 23
+  ROOFTL    ROOFT     ROOFTR    ROADV     HEDGE     PARK2     PARK1     BIGTREE    ; fila 22
+  ROOFL     ROOF      ROOFR     ROADV     PARK1     PARK1     PARK1     PARK1    ; fila 21
+  ROOFL     ROOF      ROOFR     ROADV     BIGTREE   PARK1     PARK2     PARKTREES2    ; fila 20
+  ROOFL     ROOFAC    ROOFR     ROADV     PARK1     PARK1     PARK2     PARK1    ; fila 19
+  ROOFBL    ROOFB     ROOFBR    ROADV     CONCRETE  PARKTREES PARKTREES CONCRETE    ; fila 18
+  SIDEWALK  SIDEWALK  SIDEWALK  ROADV     PARKTREES PARK1     PARK1     HEDGE    ; fila 17
+  ROOFTL    ROOFT     ROOFTR    ROADV     PARK2     PARKTREES CONCRETE  PARKTREES    ; fila 16
+  ROOFL     NEON      ROOFR     ROADV     PARKTREES BIGTREE   PARK2     PARK1    ; fila 15
+  ROOFL     NEON      ROOFR     ROADV     PARKTREES2 PARK1     PARK1     PARK2    ; fila 14
+  ROOFL     NEON      ROOFR     ROADV     PARKTREES PARK2     PARK1     PARK1    ; fila 13
+  ROOFBL    ROOFB     ROOFBR    ROADV     PARK1     PARKTREES CONCRETE  PARK1    ; fila 12
+  ROADH     ROADH     ROADH     ROADX     ROADH     CROSSH    ROADH     ROADH    ; fila 11
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFTL    ROOFT     ROOFT     ROOFTR    ; fila 10
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 9
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 8
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 7
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 6
+  CONCRETE  CONCRETE  SIDEWALK  ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 5
+  ROOFTL    ROOFT     ROOFTR    ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 4
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOF      ROOFAC    ROOFR    ; fila 3
+  ROOFL     ROOF      ROOFR     ROADV     ROOFL     ROOFAC    ROOF      ROOFR    ; fila 2
+  ROOFL     ROOFAC    ROOFR     ROADV     ROOFL     ROOF      ROOF      ROOFR    ; fila 1
+  ROOFBL    ROOFB     ROOFBR    ROADV     ROOFBL    ROOFB     ROOFB     ROOFBR    ; fila 0
+end

@@ -1,0 +1,407 @@
+; NIVEL3.LVL -- DESIERTO: estepa, dunas, oasis, pozos de alquitran, ruinas y templo (lo lee map2bin.py; formatos en claude/planning/juego160.md, seccion 8).
+; Generado por genniveles.py; despues se puede editar a mano (genniveles.py lo sobrescribe si se vuelve a ejecutar).
+;
+; El mapa (al final) tiene 8 tiles de ancho; la linea de ARRIBA es el final del nivel y la de ABAJO el principio.
+; 350 filas de 16 pixeles = 5600 pixeles de scroll; el jefe sale en la posicion 5270.
+; Regla de diseno (la comprueba map2bin --check): como mucho 3 enemigos de 16x16 cortan una misma linea de la zona.
+
+include tiles3.def
+include paths.def
+
+name NIVEL3
+scroll 1
+
+wave pos=70    type=E4 x=130 path=SWEEP count=3 spacing=22 flags=mirror    ; giratorios cruzando (espejo)
+wave pos=r12    type=E6 x=80 path=STILL count=1 flags=ground    ; enemigo de suelo sobre DUNETURRET (fila 12)
+wave pos=213    type=E2 x=120 path=DIVE count=4 spacing=18 flags=mirror    ; dardos en picado (espejo)
+wave pos=r28    type=E6 x=80 path=STILL count=1 flags=ground    ; enemigo de suelo sobre DUNETURRET (fila 28)
+wave pos=400    type=E1 x=48 path=SINE count=5 spacing=14    ; platillos serpenteando
+wave pos=570    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=726    type=E4 x=130 path=SWEEP count=4 spacing=22 flags=mirror    ; giratorios cruzando (espejo)
+wave pos=r62    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 62)
+wave pos=963    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=1164    type=ITEM1 x=80 path=SLOW count=1    ; mejora de arma
+wave pos=r84    type=E6 x=48 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 84)
+wave pos=1304    type=E5 x=64 path=HOVER count=3 spacing=40 flags=row    ; bombarderos que se quedan disparando
+wave pos=1511    type=E3 x=96 path=ZIGZAG count=3 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo)
+wave pos=1709    type=E4 x=130 path=SWEEP count=4 spacing=22 flags=mirror    ; giratorios cruzando (espejo)
+wave pos=1897    type=ITEM2 x=96 path=SLOW count=1    ; escudo
+wave pos=1957    type=E1 x=48 path=SINE count=4 spacing=14    ; platillos serpenteando
+wave pos=2103    type=E2 x=120 path=DIVE count=3 spacing=18 flags=mirror    ; dardos en picado (espejo)
+wave pos=2283    type=E4 x=20 path=SWEEP count=3 spacing=22    ; giratorios cruzando
+wave pos=2486    type=E3 x=32 path=ZIGZAG count=4 spacing=24    ; cangrejos en zigzag
+wave pos=2658    type=E3 x=32 path=ZIGZAG count=4 spacing=24    ; cangrejos en zigzag
+wave pos=2865    type=ITEM1 x=96 path=SLOW count=1    ; mejora de arma
+wave pos=2925    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=3114    type=E1 x=48 path=SINE count=4 spacing=14    ; platillos serpenteando
+wave pos=3300    type=E1 x=96 path=SINE count=4 spacing=14 flags=mirror    ; platillos serpenteando (espejo)
+wave pos=3452    type=E3 x=96 path=ZIGZAG count=3 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo)
+wave pos=3599    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=3781    type=ITEM3 x=48 path=SLOW count=1    ; bomba
+wave pos=3841    type=E4 x=130 path=SWEEP count=4 spacing=22 flags=mirror    ; giratorios cruzando (espejo)
+wave pos=r248    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 248)
+wave pos=4004    type=E4 x=130 path=SWEEP count=4 spacing=22 flags=mirror    ; giratorios cruzando (espejo)
+wave pos=r258    type=E6 x=48 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 258)
+wave pos=4179    type=E2 x=40 path=DOWN count=3 spacing=32 flags=mirror,row    ; fila de dardos (espejo)
+wave pos=r268    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 268)
+wave pos=4338    type=E2 x=24 path=DIVE count=4 spacing=18    ; dardos en picado
+wave pos=r278    type=E6 x=96 path=STILL count=1 flags=ground    ; enemigo de suelo sobre PAD (fila 278)
+wave pos=4523    type=E2 x=40 path=DOWN count=3 spacing=32 flags=row    ; fila de dardos
+wave pos=4662    type=ITEM2 x=80 path=SLOW count=1    ; escudo
+wave pos=4722    type=E3 x=96 path=ZIGZAG count=3 spacing=24 flags=mirror    ; cangrejos en zigzag (espejo)
+wave pos=4912    type=E1 x=96 path=SINE count=4 spacing=14 flags=mirror    ; platillos serpenteando (espejo)
+wave pos=5092    type=E1 x=96 path=SINE count=5 spacing=14 flags=mirror    ; platillos serpenteando (espejo)
+wave pos=5270    type=BOSS x=64 path=ENTER count=1    ; el jefe de 32x24 baja y se queda
+
+map
+  STARS     STARS     SPACE     SPACE     STARS     STARS     SPACE     STARS    ; fila 349
+  STARS     STARS     SPACE     STARS     SPACE     SPACE     SPACE     STARS    ; fila 348
+  STARS     SPACE     SPACE     STARS     STARS     SPACE     SPACE     STARS    ; fila 347
+  SPACE     STARS     STARS     SPACE     STARS     STARS     STARS     STARS    ; fila 346
+  STARS     STARS     SPACE     STARS     SPACE     STARS     STARS     STARS    ; fila 345
+  SPACE     STARS     STARS     STARS     STARS     STARS     STARS     STARS    ; fila 344
+  STARS     STARS     SPACE     SPACE     STARS     SPACE     STARS     STARS    ; fila 343
+  SPACE     STARS     SPACE     STARS     SPACE     STARS     STARS     STARS    ; fila 342
+  STARS     STARS     STARS     STARS     STARS     SPACE     STARS     SPACE    ; fila 341
+  SPACE     STARS     SPACE     STARS     SPACE     STARS     SPACE     SPACE    ; fila 340
+  STONE     CHECK     CHECK     STONER    CHECK     BLOCKS    BLOCKS    DARK    ; fila 339
+  DARK      STONE     DARK      STONER    STONE     STONE     STONE     STONE    ; fila 338
+  DARK      CHECK     CHECK     DARK      STONE     CHECK     BLOCKS    STONE    ; fila 337
+  STONER    CHECK     BLOCKS    STONE     STONE     STONE     CHECK     STONE    ; fila 336
+  BLOCKS    STONE     BLOCKS    PYRAMID   PYRAMID   CHECK     BLOCKS    CHECK    ; fila 335
+  STONE     CHECK     BLOCKS    CHECK     STONE     STONER    CHECK     BLOCKS    ; fila 334
+  LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2    ; fila 333
+  STONE     STONE     DARK      BLOCKS    DARK      STONER    STONE     BLOCKS    ; fila 332
+  CHECK     DARK      STONE     DARK      DARK      BLOCKS    STONE     BLOCKS    ; fila 331
+  STONE     STONE     STONE     BLOCKS    CHECK     CHECK     DARK      BLOCKS    ; fila 330
+  BLOCKS    CHECK     STONE     STONE     STONER    STONE     DARK      STONER    ; fila 329
+  BLOCKS    STONE     CHECK     STONE     BLOCKS    STONE     STONE     BLOCKS    ; fila 328
+  STONE     BLOCKS    STONER    PYRAMID   PYRAMID   STONE     BLOCKS    STONE    ; fila 327
+  LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2    ; fila 326
+  CHECK     STONE     DARK      BLOCKS    STONE     STONE     STONER    BLOCKS    ; fila 325
+  STONE     STONER    STONE     STONE     STONER    CHECK     BLOCKS    CHECK    ; fila 324
+  CHECK     BLOCKS    STONE     STONE     CHECK     BLOCKS    BLOCKS    BLOCKS    ; fila 323
+  BLOCKS    STONE     BLOCKS    STONE     BLOCKS    BLOCKS    CHECK     BLOCKS    ; fila 322
+  STONE     BLOCKS    DARK      STONE     CHECK     BLOCKS    CHECK     DARK    ; fila 321
+  STONE     STONE     STONE     BLOCKS    STONER    CHECK     STONER    DARK    ; fila 320
+  LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2    ; fila 319
+  STONE     CHECK     DARK      STONE     CHECK     DARK      STONER    DARK    ; fila 318
+  BLOCKS    CHECK     CHECK     CHECK     DARK      BLOCKS    DARK      BLOCKS    ; fila 317
+  CHECK     BLOCKS    STONE     STONER    STONE     DARK      BLOCKS    STONE    ; fila 316
+  CHECK     STONER    STONER    BLOCKS    STONE     STONE     STONE     DARK    ; fila 315
+  STONE     CHECK     BLOCKS    BLOCKS    STONE     STONE     STONE     STONE    ; fila 314
+  DARK      STONE     BLOCKS    BLOCKS    DARK      BLOCKS    STONE     CHECK    ; fila 313
+  LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2   LIGHTS2    ; fila 312
+  STONE     CHECK     DARK      PYRAMID   PYRAMID   BLOCKS    BLOCKS    STONER    ; fila 311
+  STONE     CHECK     STONE     CHECK     DARK      DARK      DARK      CHECK    ; fila 310
+  BLOCKS    STONER    BLOCKS    DARK      CHECK     STONE     STONE     STONER    ; fila 309
+  BLOCKS    STONE     CHECK     CHECK     STONE     STONE     STONER    DARK    ; fila 308
+  CHECK     STONE     STONE     STONE     CHECK     CHECK     STONE     CHECK    ; fila 307
+  STONE     STONE     BLOCKS    DARK      BLOCKS    STONE     BLOCKS    BLOCKS    ; fila 306
+  CHECK     CHECK     DARK      BLOCKS    CHECK     STONE     DARK      CHECK    ; fila 305
+  CHECK     STONE     STONE     STONE     STONE     STONE     CHECK     STONE    ; fila 304
+  STONER    CHECK     BLOCKS    PYRAMID   PYRAMID   STONE     CHECK     STONE    ; fila 303
+  STONE     STONE     STONE     DARK      STONER    CHECK     BLOCKS    BLOCKS    ; fila 302
+  HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    ; fila 301
+  HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    HAZARD    ; fila 300
+  STONE     STONER    STONER    SAND      STONER    CLAYST    CLAYST    STONER    ; fila 299
+  SAND      STONE     PAD       BOULDER   SAND      STONE     STONE     STONE    ; fila 298
+  STONER    SAND      SAND      STONE     STONER    CLAYST    STONER    SANDST    ; fila 297
+  STONE     COLUMN    STONE     STONE     STONE     STONE     COLUMN    STONE    ; fila 296
+  STONE     STONE     STONE     STONE     SANDST    SANDST    STONE     STONER    ; fila 295
+  BLOCKS    BLOCKS    BLOCKS    STONE     STONE     BLOCKS    BLOCKS    BLOCKS    ; fila 294
+  STONE     STONE     CLAYST    STONE     STONE     STONER    STONE     STONER    ; fila 293
+  STONER    STONER    STONE     SAND      STONER    STONE     CLAYST    STONE    ; fila 292
+  STONE     SANDST    STONE     SAND      STONER    SAND      STONE     STONE    ; fila 291
+  STONER    STONE     STONE     SANDST    SAND      STONE     STONER    BOULDER    ; fila 290
+  STONE     STONE     STONER    CLAYST    SANDST    STONE     SAND      STONE    ; fila 289
+  STONER    SAND      STONER    STONE     SANDST    PAD       CLAYST    STONE    ; fila 288
+  STONE     SAND      STONE     STONE     BOULDER   CLAYST    BOULDER   CLAYST    ; fila 287
+  STONE     COLUMN    BOULDER   OBELISK   OBELISK   SANDST    COLUMN    SANDST    ; fila 286
+  STONE     SAND      STONE     SAND      STONER    STONE     STONE     BOULDER    ; fila 285
+  BLOCKS    BLOCKS    BLOCKS    STONE     STONE     BLOCKS    BLOCKS    BLOCKS    ; fila 284
+  SAND      STONE     STONE     SANDST    STONE     STONER    STONER    SAND    ; fila 283
+  STONE     STONE     STONE     STONE     STONER    CLAYST    STONE     STONE    ; fila 282
+  STONER    SANDST    SAND      STONE     SANDST    STONE     STONE     STONE    ; fila 281
+  SANDST    SAND      STONE     STONE     STONE     BOULDER   STONE     CLAYST    ; fila 280
+  SAND      STONE     STONER    SAND      STONER    STONE     STONE     STONER    ; fila 279
+  CLAYST    STONE     STONE     STONE     STONE     PAD       STONE     STONE    ; fila 278
+  STONE     STONER    SANDST    STONER    CLAYST    STONE     STONE     STONER    ; fila 277
+  STONER    COLUMN    STONE     STONE     STONE     SANDST    COLUMN    STONER    ; fila 276
+  SANDST    STONE     CLAYST    CLAYST    STONE     STONE     STONE     STONER    ; fila 275
+  BLOCKS    BLOCKS    BLOCKS    STONE     STONE     BLOCKS    BLOCKS    BLOCKS    ; fila 274
+  SAND      STONER    CLAYST    STONE     STONE     SANDST    STONE     SAND    ; fila 273
+  STONE     STONER    STONER    CLAYST    SANDST    STONE     SAND      STONE    ; fila 272
+  STONER    STONE     SAND      STONER    STONER    STONE     STONE     CLAYST    ; fila 271
+  STONE     SAND      STONER    STONE     SAND      STONE     SAND      STONER    ; fila 270
+  STONE     STONE     CLAYST    SANDST    STONE     STONE     CLAYST    STONER    ; fila 269
+  STONE     STONE     CLAYST    STONE     STONE     PAD       BOULDER   STONER    ; fila 268
+  STONE     STONER    STONE     BOULDER   SAND      STONE     STONER    SAND    ; fila 267
+  BOULDER   COLUMN    SANDST    OBELISK   OBELISK   STONER    COLUMN    SANDST    ; fila 266
+  STONE     STONE     STONE     STONE     SAND      CLAYST    STONE     STONE    ; fila 265
+  BLOCKS    BLOCKS    BLOCKS    STONE     STONE     BLOCKS    BLOCKS    BLOCKS    ; fila 264
+  BOULDER   STONE     SANDST    STONE     STONER    STONE     SAND      BOULDER    ; fila 263
+  STONE     STONER    SANDST    CLAYST    BOULDER   STONER    CLAYST    CLAYST    ; fila 262
+  STONER    SAND      SAND      STONE     STONE     STONE     BOULDER   STONE    ; fila 261
+  SANDST    STONER    STONE     STONER    SANDST    BOULDER   STONE     STONE    ; fila 260
+  BOULDER   STONER    SANDST    SAND      STONER    SANDST    STONE     STONE    ; fila 259
+  STONE     STONER    PAD       SAND      SAND      STONE     SAND      SAND    ; fila 258
+  SANDST    STONE     STONER    STONER    SAND      SAND      STONE     SANDST    ; fila 257
+  STONE     COLUMN    STONE     STONE     STONE     SAND      COLUMN    SANDST    ; fila 256
+  SAND      BOULDER   SAND      CLAYST    STONER    STONE     STONE     CLAYST    ; fila 255
+  BLOCKS    BLOCKS    BLOCKS    STONE     STONE     BLOCKS    BLOCKS    BLOCKS    ; fila 254
+  SAND      STONE     SAND      STONE     STONE     CLAYST    STONER    STONE    ; fila 253
+  STONER    STONE     SAND      STONER    SAND      SANDST    SAND      CLAYST    ; fila 252
+  STONER    STONE     CLAYST    STONE     STONER    SAND      STONER    BOULDER    ; fila 251
+  STONE     SAND      CLAYST    STONER    STONE     BOULDER   SAND      STONE    ; fila 250
+  STONER    BOULDER   STONE     CLAYST    STONER    STONER    CLAYST    STONE    ; fila 249
+  CLAYST    SANDST    CLAYST    SANDST    CLAYST    PAD       CLAYST    STONE    ; fila 248
+  STONE     BOULDER   STONE     STONE     STONE     STONE     STONE     CLAYST    ; fila 247
+  STONE     COLUMN    STONER    OBELISK   OBELISK   CLAYST    COLUMN    STONER    ; fila 246
+  SAND      SAND      STONE     SANDST    STONE     STONE     SAND      STONE    ; fila 245
+  BLOCKS    BLOCKS    BLOCKS    STONE     STONE     BLOCKS    BLOCKS    BLOCKS    ; fila 244
+  STONE     CLAYST    STONE     STONE     STONER    CLAYST    SANDST    CLAYST    ; fila 243
+  STONER    STONE     CLAYST    BOULDER   SANDST    STONE     CLAYST    STONE    ; fila 242
+  STONE     STONE     STONE     STONE     STONE     STONE     STONE     STONE    ; fila 241
+  STONE     STONE     STONE     STONE     CLAY      STONE     CLAY      STONE    ; fila 240
+  SANDSTONE EMBERS    TARB      TARB      TARB      TARB      BASALT    EMBERS    ; fila 239
+  BASALT    BASALT    TARL      TAR       TAR       TARR      BASALT    BASALT    ; fila 238
+  ROCKCRACK BASALTV   TARL      TAR       TARBU     TARR      BASALT    SANDSTONE    ; fila 237
+  BASALT    BASALT    TARL      TAR       TAR       TARR      REDROCK   BASALTV    ; fila 236
+  SANDSTONE SANDSTONE TARL      TAR       TARCR     TARR      EMBERS    BASALT    ; fila 235
+  BASALT    EMBERS    TARL      TAR       TAR       TARR      BASALTV   BASALT    ; fila 234
+  BASALT    SANDSTONE TARL      TARCR     TAR       TARR      ROCKCRACK EMBERS    ; fila 233
+  BASALT    BASALTV   TARL      TARCR     TAR       TARR      EMBERS    BASALT    ; fila 232
+  BASALT    EMBERS    TARL      TARCR     TARBU     TARR      REDROCK   REDROCK    ; fila 231
+  EMBERS    BASALT    TARL      TARCR     TARBU     TARR      EMBERS    ROCKCRACK    ; fila 230
+  REDROCK   BASALT    TARL      TARCR     TAR       TARR      BASALT    BASALT    ; fila 229
+  BASALT    EMBERS    TARL      TARCR     TAR       TARR      BASALTV   REDROCK    ; fila 228
+  REDROCK   SANDSTONE TARL      TAR       TAR       TARR      BASALT    EMBERS    ; fila 227
+  BASALTV   REDROCK   TARL      TARCR     TAR       TARR      SANDSTONE EMBERS    ; fila 226
+  BASALT    BASALTV   TARL      TARBU     TARBU     TARR      REDROCK   BASALT    ; fila 225
+  BASALTV   EMBERS    TARL      TARBU     TAR       TARR      BASALT    BASALT    ; fila 224
+  BASALT    BASALT    TARL      TARBU     TARBU     TARR      BASALT    ROCKCRACK    ; fila 223
+  SANDSTONE SANDSTONE TARL      TAR       TARBU     TARR      BASALT    BASALT    ; fila 222
+  BASALT    EMBERS    TARL      TARCR     TAR       TARR      BASALT    ROCKCRACK    ; fila 221
+  BASALTV   BASALTV   TARL      TAR       TARCR     TARR      BASALT    EMBERS    ; fila 220
+  BASALTV   EMBERS    TARL      TAR       TAR       TARR      BASALTV   BASALT    ; fila 219
+  BASALT    REDROCK   TARL      TARBU     TAR       TARR      EMBERS    REDROCK    ; fila 218
+  BASALT    BASALT    TARL      TARCR     TAR       TARR      BASALT    BASALTV    ; fila 217
+  EMBERS    BASALT    TARL      TAR       TARBU     TARR      EMBERS    ROCKCRACK    ; fila 216
+  BASALT    SANDSTONE TARL      TARCR     TAR       TARR      EMBERS    BASALT    ; fila 215
+  BASALT    REDROCK   TARL      TARBU     TAR       TARR      ROCKCRACK EMBERS    ; fila 214
+  EMBERS    BASALTV   TARL      TARCR     TAR       TARR      BASALT    BASALT    ; fila 213
+  SANDSTONE EMBERS    TARL      TARBU     TAR       TARR      BASALT    SANDSTONE    ; fila 212
+  ROCKCRACK BASALT    TARL      TARCR     TARBU     TARR      SANDSTONE BASALT    ; fila 211
+  EMBERS    BASALTV   TARL      TAR       TARBU     TARR      BASALT    SANDSTONE    ; fila 210
+  ROCKCRACK BASALT    TARL      TAR       TARCR     TARR      REDROCK   BASALT    ; fila 209
+  SANDSTONE EMBERS    TARL      TAR       TARCR     TARR      BASALT    BASALT    ; fila 208
+  BASALTV   BASALT    TARL      TAR       TARCR     TARR      REDROCK   BASALT    ; fila 207
+  ROCKCRACK BASALT    HAZARD    HAZARD    HAZARD    HAZARD    BASALTV   BASALT    ; fila 206
+  SANDSTONE BASALT    STONER    STONE     STONE     STONER    EMBERS    BASALT    ; fila 205
+  EMBERS    BASALT    HAZARD    HAZARD    HAZARD    HAZARD    EMBERS    BASALTV    ; fila 204
+  BASALT    ROCKCRACK TARL      TAR       TARBU     TARR      BASALT    BASALTV    ; fila 203
+  EMBERS    EMBERS    TARL      TARBU     TARBU     TARR      BASALT    BASALTV    ; fila 202
+  BASALT    BASALT    TARL      TARBU     TAR       TARR      BASALT    SANDSTONE    ; fila 201
+  SANDSTONE ROCKCRACK TARL      TAR       TARBU     TARR      ROCKCRACK REDROCK    ; fila 200
+  BASALT    BASALT    TARL      TARBU     TARCR     TARR      ROCKCRACK BASALT    ; fila 199
+  EMBERS    ROCKCRACK TARL      TARBU     TAR       TARR      BASALT    SANDSTONE    ; fila 198
+  EMBERS    BASALT    TARL      TARCR     TARBU     TARR      BASALT    BASALT    ; fila 197
+  BASALTV   EMBERS    TARL      TARCR     TARBU     TARR      REDROCK   BASALTV    ; fila 196
+  ROCKCRACK EMBERS    TARL      TAR       TARBU     TARR      ROCKCRACK REDROCK    ; fila 195
+  BASALT    BASALT    TARL      TARCR     TARCR     TARR      BASALT    BASALTV    ; fila 194
+  BASALT    ROCKCRACK TARL      TARBU     TARBU     TARR      BASALTV   BASALTV    ; fila 193
+  ROCKCRACK SANDSTONE TARL      TARBU     TARCR     TARR      BASALT    BASALTV    ; fila 192
+  BASALT    BASALT    TARL      TAR       TARCR     TARR      REDROCK   BASALT    ; fila 191
+  BASALTV   EMBERS    TARL      TAR       TARBU     TARR      SANDSTONE BASALT    ; fila 190
+  BASALTV   BASALT    TARL      TARCR     TARCR     TARR      EMBERS    BASALT    ; fila 189
+  BASALT    BASALT    TARL      TAR       TAR       TARR      SANDSTONE REDROCK    ; fila 188
+  BASALTV   BASALT    TARL      TARCR     TAR       TARR      BASALT    BASALT    ; fila 187
+  BASALT    EMBERS    TARL      TAR       TARCR     TARR      REDROCK   EMBERS    ; fila 186
+  EMBERS    EMBERS    TARL      TAR       TARCR     TARR      BASALT    BASALTV    ; fila 185
+  BASALTV   SANDSTONE TARL      TAR       TAR       TARR      BASALT    ROCKCRACK    ; fila 184
+  EMBERS    EMBERS    TARL      TAR       TAR       TARR      ROCKCRACK SANDSTONE    ; fila 183
+  EMBERS    BASALT    TARL      TAR       TAR       TARR      BASALT    BASALT    ; fila 182
+  EMBERS    BASALT    TARL      TAR       TAR       TARR      REDROCK   BASALTV    ; fila 181
+  BASALTV   BASALT    TARL      TAR       TARBU     TARR      BASALT    BASALT    ; fila 180
+  REDROCK   BASALTV   TARL      TAR       TAR       TARR      BASALT    BASALTV    ; fila 179
+  BASALT    REDROCK   TARL      TAR       TARCR     TARR      SANDSTONE BASALT    ; fila 178
+  EMBERS    BASALT    TARL      TAR       TAR       TARR      BASALT    BASALT    ; fila 177
+  BASALTV   BASALT    TARL      TARBU     TAR       TARR      BASALT    BASALT    ; fila 176
+  BASALT    BASALT    TARL      TAR       TARBU     TARR      ROCKCRACK BASALT    ; fila 175
+  SANDSTONE BASALT    TARL      TAR       TAR       TARR      BASALTV   BASALT    ; fila 174
+  BASALT    ROCKCRACK TARL      TARCR     TARBU     TARR      BASALT    BASALT    ; fila 173
+  BASALT    EMBERS    TARL      TARCR     TARCR     TARR      BASALT    EMBERS    ; fila 172
+  SANDSTONE BASALTV   TARL      TARCR     TAR       TARR      BASALT    BASALTV    ; fila 171
+  SANDST    SAND      TART      TART      TART      TART      DUNES     ROCKCRACK    ; fila 170
+  STEPPE1   SCRUB     STEPPE1   OASISSHOREB OASISSHOREB CLAY      ACACIA    STEPPE1    ; fila 169
+  STEPPE1   STEPPE1   OASISBANKL OASISW    OASIS     OASISBANKR STEPPE1   STEPPE1    ; fila 168
+  BOULDER   PALM      OASISBANKL OASIS     OASISW    OASISBANKR SCRUB     CACTUS    ; fila 167
+  STEPPE1   CACTUS2   OASISBANKL OASIS     OASISW    OASISBANKR STEPPE1   STEPPE1    ; fila 166
+  STEPPE1   STEPPE1   BOULDER   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1    ; fila 165
+  STEPPE1   STEPPE2   STEPPE1   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1    ; fila 164
+  STEPPE1   STEPPE1   SCRUB     OASISBANKL OASIS     OASISW    OASISBANKR CLAY    ; fila 163
+  CACTUS    STEPPE2   STEPPE1   OASISBANKL OASISW    OASIS     OASISBANKR PALM    ; fila 162
+  PALM      STEPPE1   STEPPE1   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1    ; fila 161
+  STEPPE1   ACACIA    SCRUB     OASISBANKL OASISW    OASIS     OASISBANKR CACTUS    ; fila 160
+  STEPPE1   CACTUS    STEPPE2   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1    ; fila 159
+  CACTUS    STEPPE1   OASISBANKL OASISW    OASISW    OASISBANKR CLAY      SCRUB    ; fila 158
+  STEPPE2   CACTUS    OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1   STEPPE2    ; fila 157
+  STEPPE1   SCRUB     OASISBANKL OASISW    OASIS     OASISBANKR STEPPE1   STEPPE1    ; fila 156
+  STEPPE1   ACACIA    OASISBANKL OASIS     OASIS     OASISBANKR PALM      BOULDER    ; fila 155
+  STEPPE1   STEPPE2   OASISBANKL OASISW    OASISW    OASISBANKR STEPPE1   STEPPE1    ; fila 154
+  CLAY      ACACIA    OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1   STEPPE1    ; fila 153
+  STEPPE1   CLAY      OASISBANKL OASISW    OASISW    OASISBANKR ACACIA    STEPPE1    ; fila 152
+  STEPPE1   OASISBANKL OASIS     OASISW    OASISBANKR PALM      STEPPE1   PALM    ; fila 151
+  CLAY      OASISBANKL OASIS     OASIS     OASISBANKR SCRUB     CACTUS    STEPPE1    ; fila 150
+  STEPPE1   OASISBANKL OASISW    OASIS     OASISBANKR CACTUS    CACTUS    STEPPE2    ; fila 149
+  SCRUB     OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1   PALM      CACTUS    ; fila 148
+  STEPPE1   OASISBANKL OASISW    OASIS     OASISBANKR STEPPE1   STEPPE1   SCRUB    ; fila 147
+  STEPPE1   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1   STEPPE1   STEPPE2    ; fila 146
+  STEPPE1   OASISBANKL OASIS     OASISW    OASISBANKR ACACIA    STEPPE1   STEPPE1    ; fila 145
+  CLAY      OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1   STEPPE2   STEPPE1    ; fila 144
+  STEPPE1   OASISBANKL OASISW    OASISW    OASISBANKR STEPPE1   CLAY      STEPPE1    ; fila 143
+  PLANKSE   PLANKS    PLANKS    PLANKS    PLANKS    PLANKSE   STEPPE1   STEPPE1    ; fila 142
+  SCRUB     OASISBANKL OASIS     OASIS     OASISBANKR SCRUB     STEPPE1   STEPPE1    ; fila 141
+  ACACIA    OASISBANKL OASIS     OASISW    OASISBANKR SCRUB     STEPPE1   STEPPE1    ; fila 140
+  STEPPE2   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE2   CRATER    CACTUS    ; fila 139
+  STEPPE1   OASISBANKL OASISW    OASISW    OASISBANKR STEPPE1   SCRUB     STEPPE1    ; fila 138
+  STEPPE1   OASISBANKL OASISW    OASIS     OASISBANKR STEPPE2   STEPPE2   SCRUB    ; fila 137
+  CRATER    OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1   STEPPE1   CACTUS    ; fila 136
+  STEPPE1   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1   STEPPE1   STEPPE1    ; fila 135
+  STEPPE1   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE2   STEPPE1   STEPPE1    ; fila 134
+  ACACIA    OASISBANKL OASIS     OASIS     OASISBANKR STEPPE2   STEPPE2   SCRUB    ; fila 133
+  PALM      OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1   STEPPE1   CACTUS    ; fila 132
+  STEPPE1   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE2   STEPPE1   STEPPE1    ; fila 131
+  STEPPE1   STEPPE1   OASISBANKL OASIS     OASIS     OASISBANKR CACTUS    CACTUS    ; fila 130
+  ACACIA    ACACIA    OASISBANKL OASIS     OASIS     OASISBANKR CLAY      CACTUS    ; fila 129
+  STEPPE1   BOULDER   OASISBANKL OASISISLE OASIS     OASISBANKR STEPPE1   BOULDER    ; fila 128
+  BOULDER   CACTUS    OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1   STEPPE1    ; fila 127
+  CLAY      STEPPE1   OASISBANKL OASIS     OASISW    OASISBANKR STEPPE2   STEPPE1    ; fila 126
+  STEPPE1   STEPPE1   OASISBANKL OASISW    OASISW    OASISBANKR STEPPE1   ACACIA    ; fila 125
+  STEPPE1   PALM      OASISBANKL OASISW    OASIS     OASISBANKR STEPPE1   CACTUS    ; fila 124
+  CACTUS    STEPPE1   STEPPE1   OASISBANKL OASIS     OASISW    OASISBANKR PALM    ; fila 123
+  STEPPE2   ACACIA    CACTUS    OASISBANKL OASISW    OASIS     OASISBANKR STEPPE2    ; fila 122
+  STEPPE1   STEPPE2   CLAY      OASISBANKL OASIS     OASIS     OASISBANKR SCRUB    ; fila 121
+  SCRUB     STEPPE2   STEPPE2   OASISBANKL OASIS     OASIS     OASISBANKR PALM    ; fila 120
+  STEPPE2   STEPPE1   PALM      OASISBANKL OASIS     OASISW    OASISBANKR CACTUS    ; fila 119
+  STEPPE1   STEPPE1   STEPPE1   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE1    ; fila 118
+  STEPPE1   STEPPE1   STEPPE1   OASISBANKL OASISW    OASIS     OASISBANKR CACTUS    ; fila 117
+  SCRUB     STEPPE2   OASISBANKL OASIS     OASIS     OASISBANKR STEPPE2   STEPPE1    ; fila 116
+  STEPPE1   STEPPE2   OASISBANKL OASIS     OASIS     OASISBANKR CACTUS2   STEPPE1    ; fila 115
+  STEPPE1   STEPPE1   OASISBANKL OASIS     OASISW    OASISBANKR CLAY      ACACIA    ; fila 114
+  SCRUB     PALM      OASISBANKL OASIS     OASISW    OASISBANKR CACTUS    STEPPE1    ; fila 113
+  CLAY      STEPPE1   OASISBANKL OASISW    OASIS     OASISBANKR STEPPE1   STEPPE1    ; fila 112
+  CACTUS    STEPPE1   OASISBANKL OASIS     OASIS     OASISBANKR CRATER    STEPPE1    ; fila 111
+  STEPPE1   STEPPE1   STEPPE1   OASISSHORET OASISSHORET CACTUS2   STEPPE1   STEPPE1    ; fila 110
+  SAND      DUNES     SANDST    CLAY      SANDSTONE DUNES     SANDST    CLAY    ; fila 109
+  SAND      DUNES     SAND      SAND      ROCKCRACK CLAY      DUNES     DUNES    ; fila 108
+  SAND      SAND      SANDST    DUNES     DUNES     SANDST    SANDST    DUNES    ; fila 107
+  DUNES     DUNES     CLAY      SAND      SAND      SAND      DUNES     SAND    ; fila 106
+  SAND      SAND      SAND      DUNES     SAND      SANDST    DUNES     DUNES    ; fila 105
+  SANDSTONE DUNES     CLAYST    SAND      SAND      DUNES     SAND      DUNES    ; fila 104
+  SANDST    SAND      DUNES     SAND      SAND      SANDSTONE SAND      DUNES    ; fila 103
+  SANDSTONE SAND      SANDST    DUNES     PALM      DUNES     PALM      SANDSTONE    ; fila 102
+  CLAY      CLAY      SAND      SAND      SANDST    DUNES     CLAY      SAND    ; fila 101
+  SAND      DUNES     DUNES     SAND      SAND      SANDST    DUNES     DUNES    ; fila 100
+  SANDSTONE DUNES     SAND      SAND      DUNES     DUNES     DUNES     SAND    ; fila 99
+  SAND      SAND      DUNES     SAND      DUNES     SAND      SANDSTONE ROCKCRACK    ; fila 98
+  SANDST    SAND      SAND      DUNES     SAND      CLAYST    SAND      DUNES    ; fila 97
+  SAND      DUNES     SAND      SAND      SANDST    CLAY      SANDSTONE SAND    ; fila 96
+  DUNES     SAND      SAND      SAND      DUNES     SAND      SANDSTONE SAND    ; fila 95
+  CLAY      DUNES     DUNES     SAND      SAND      DUNES     SANDSTONE DUNES    ; fila 94
+  SAND      DUNES     SAND      SAND      SANDST    SAND      CLAY      SANDST    ; fila 93
+  SANDSTONE PALM      SAND      DUNES     DUNES     SAND      DUNES     SANDST    ; fila 92
+  ROCKCRACK SAND      SANDSTONE DUNES     SANDST    DUNES     DUNES     CLAY    ; fila 91
+  SANDST    DUNES     SAND      SAND      SAND      SAND      SAND      DUNES    ; fila 90
+  SAND      DUNES     SAND      ROCKCRACK DUNES     SAND      DUNES     DUNES    ; fila 89
+  SAND      SAND      DUNES     SAND      CLAYST    SAND      SANDST    SAND    ; fila 88
+  SAND      CLAYST    SANDST    DUNES     SANDSTONE DUNES     SAND      DUNES    ; fila 87
+  SAND      SANDST    SAND      SAND      DUNES     CLAY      CLAYST    SANDST    ; fila 86
+  DUNES     SANDSTONE DUNES     DUNES     SAND      DUNES     DUNES     SANDST    ; fila 85
+  DUNES     SANDST    PAD       DUNES     SAND      SAND      SANDST    SAND    ; fila 84
+  SAND      SAND      DUNES     SAND      DUNES     DUNES     DUNES     DUNES    ; fila 83
+  SAND      SANDSTONE DUNES     SAND      SAND      DUNES     SAND      DUNES    ; fila 82
+  SANDST    SANDST    ROCKCRACK DUNES     SANDSTONE DUNES     DUNES     SAND    ; fila 81
+  ROCKCRACK SAND      SANDST    SAND      DUNES     ROCKCRACK SAND      SAND    ; fila 80
+  SAND      DUNES     PALM      SAND      DUNES     DUNES     SANDSTONE DUNES    ; fila 79
+  SANDST    SAND      SANDST    DUNES     DUNES     SAND      SAND      SANDST    ; fila 78
+  DUNES     SANDSTONE ROCKCRACK SAND      SAND      SAND      SAND      ROCKCRACK    ; fila 77
+  CLAYST    CLAYST    SAND      DUNES     SAND      SANDSTONE SANDST    DUNES    ; fila 76
+  SAND      DUNES     DUNES     DUNES     SAND      DUNES     SAND      SANDST    ; fila 75
+  SANDSTONE CLAYST    SANDST    DUNES     DUNES     SAND      DUNES     SANDSTONE    ; fila 74
+  DUNES     CLAY      DUNES     SAND      SAND      SAND      SAND      DUNES    ; fila 73
+  CLAY      DUNES     DUNES     SAND      SANDST    SANDSTONE SANDST    CLAYST    ; fila 72
+  SANDST    DUNES     SAND      SAND      SAND      SANDSTONE CLAY      CLAY    ; fila 71
+  SAND      SAND      SANDSTONE SAND      SANDSTONE DUNES     PALM      SAND    ; fila 70
+  SAND      DUNES     SAND      DUNES     DUNES     SANDSTONE PALM      DUNES    ; fila 69
+  DUNES     SAND      SANDST    DUNES     SANDST    SAND      DUNES     SANDST    ; fila 68
+  SAND      SANDST    SAND      SANDSTONE SAND      SAND      DUNES     DUNES    ; fila 67
+  DUNES     SAND      DUNES     SAND      SAND      SANDST    SANDSTONE SANDST    ; fila 66
+  DUNES     PALM      SAND      ROCKCRACK SANDST    SAND      DUNES     SANDST    ; fila 65
+  SAND      DUNES     SANDSTONE DUNES     SAND      SAND      DUNES     SAND    ; fila 64
+  SAND      DUNES     ROCKCRACK SANDSTONE SANDST    CLAY      DUNES     DUNES    ; fila 63
+  CLAY      ROCKCRACK SAND      SAND      SAND      PAD       DUNES     DUNES    ; fila 62
+  SANDST    SAND      SANDSTONE SAND      SAND      SAND      SANDSTONE SAND    ; fila 61
+  CLAYST    SANDSTONE SAND      DUNES     SAND      DUNES     DUNES     SAND    ; fila 60
+  SAND      CLAYST    CLAYST    DUNES     SAND      SAND      DUNES     SAND    ; fila 59
+  DUNES     SAND      DUNES     SAND      SANDST    SANDST    SAND      ROCKCRACK    ; fila 58
+  SAND      CLAYST    CLAY      SANDSTONE SAND      SAND      DUNES     SAND    ; fila 57
+  SANDST    DUNES     DUNES     SANDST    DUNES     SAND      DUNES     DUNES    ; fila 56
+  DUNES     DUNES     SANDSTONE SANDSTONE SAND      DUNES     SAND      CLAY    ; fila 55
+  DUNES     DUNES     CLAYST    DUNES     SAND      SANDST    SANDST    SANDSTONE    ; fila 54
+  CLAYST    SAND      SAND      SAND      DUNES     ROCKCRACK SANDST    SANDSTONE    ; fila 53
+  SAND      PALM      DUNES     DUNES     SAND      SAND      SAND      DUNES    ; fila 52
+  SAND      DUNES     SANDST    DUNES     DUNES     ROCKCRACK SANDST    SANDST    ; fila 51
+  DUNES     DUNES     CLAY      CLAYST    PALM      SANDST    SAND      DUNES    ; fila 50
+  SANDST    DUNES     CLAYST    SAND      SAND      DUNES     SANDST    PALM    ; fila 49
+  DUNES     DUNES     DUNES     DUNES     PALM      SAND      DUNES     DUNES    ; fila 48
+  SANDST    SANDST    SAND      SANDSTONE SAND      SANDSTONE CLAYST    SANDSTONE    ; fila 47
+  SAND      DUNES     ROCKCRACK SANDST    DUNES     DUNES     DUNES     SAND    ; fila 46
+  DUNES     SANDST    ROCKCRACK DUNES     DUNES     DUNES     SAND      SAND    ; fila 45
+  DUNES     SAND      SAND      DUNES     SAND      DUNES     CLAY      DUNES    ; fila 44
+  DUNES     DUNES     SANDST    SANDST    SAND      DUNES     DUNES     DUNES    ; fila 43
+  CLAY      CLAY      SAND      CLAYST    CLAYST    CLAY      CLAY      CLAYST    ; fila 42
+  SAND      CLAY      CLAYST    CLAY      CLAY      CLAY      SAND      SAND    ; fila 41
+  STEPPECLAY STEPPECLAY STEPPECLAY STEPPECLAY STEPPECLAY STEPPECLAY STEPPECLAY STEPPECLAY    ; fila 40
+  STEPPE1   CACTUS    STEPPE1   STEPPE1   STEPPE2   CACTUS    CACTUS    STEPPE1    ; fila 39
+  STEPPE2   SCRUB     CACTUS    STEPPE2   STEPPE1   STEPPE1   CACTUS    STEPPE1    ; fila 38
+  STEPPE1   STEPPE1   SCRUB     STEPPE1   STEPPE2   STEPPE1   ACACIA    STEPPE2    ; fila 37
+  STEPPE1   STEPPE1   STEPPE1   STEPPE2   STEPPE1   ROADV     SCRUB     SCRUB    ; fila 36
+  STEPPE1   STEPPE1   STEPPE1   CACTUS    STEPPE1   ROADV     STEPPE2   STEPPE1    ; fila 35
+  STEPPE1   CACTUS2   STEPPE2   CACTUS2   CACTUS    ROADV     ACACIA    STEPPE1    ; fila 34
+  STEPPE1   STEPPE2   STEPPE1   SCRUB     CACTUS    ROADV     STEPPE1   STEPPE1    ; fila 33
+  STEPPE1   SCRUB     SCRUB     STEPPE1   SCRUB     ROADV     ACACIA    STEPPE1    ; fila 32
+  SCRUB     STEPPE1   STEPPE1   SCRUB     STEPPE1   ROADV     ACACIA    STEPPE1    ; fila 31
+  STEPPE1   STEPPE2   STEPPE1   SCRUB     STEPPE1   ROADV     CACTUS    STEPPE2    ; fila 30
+  STEPPE1   CACTUS    STEPPE1   CLAY      STEPPE1   ROADV     STEPPE1   STEPPE2    ; fila 29
+  CLAY      CACTUS    CRATER    STEPPE1   DUNETURRET ROADV     STEPPE1   STEPPE1    ; fila 28
+  STEPPE1   SCRUB     STEPPE1   ACACIA    STEPPE2   ROADV     SCRUB     SCRUB    ; fila 27
+  STEPPE1   ACACIA    STEPPE1   STEPPE1   CLAY      ROADV     CACTUS    STEPPE1    ; fila 26
+  STEPPE1   STEPPE1   SCRUB     STEPPE1   STEPPE1   ROADV     ACACIA    STEPPE1    ; fila 25
+  ACACIA    STEPPE1   CACTUS    STEPPE1   ACACIA    ROADV     SCRUB     STEPPE1    ; fila 24
+  CACTUS    CACTUS2   STEPPE2   SCRUB     SCRUB     ROADV     SCRUB     STEPPE1    ; fila 23
+  STEPPE2   CACTUS    STEPPE1   STEPPE1   CLAY      ROADV     CACTUS2   STEPPE2    ; fila 22
+  STEPPE1   STEPPE1   CACTUS    STEPPE1   SCRUB     ROADV     CACTUS    STEPPE1    ; fila 21
+  ROADH     ROADH     ROADH     ROADH     ROADH     ROADX     ROADH     ROADH    ; fila 20
+  CRATER    STEPPE2   ACACIA    STEPPE1   STEPPE1   ROADV     STEPPE1   STEPPE1    ; fila 19
+  STEPPE1   STEPPE1   SCRUB     SCRUB     CACTUS2   ROADV     STEPPE1   STEPPE1    ; fila 18
+  STEPPE1   CLAY      STEPPE1   STEPPE1   CLAY      ROADV     STEPPE1   STEPPE1    ; fila 17
+  CRATER    SCRUB     CACTUS2   CRATER    SCRUB     ROADV     STEPPE1   CLAY    ; fila 16
+  STEPPE1   SCRUB     STEPPE1   CLAY      STEPPE1   ROADV     SCRUB     STEPPE2    ; fila 15
+  STEPPE1   STEPPE1   SCRUB     CACTUS    STEPPE2   ROADV     STEPPE1   STEPPE1    ; fila 14
+  CACTUS    STEPPE2   CACTUS2   ACACIA    STEPPE2   ROADV     CACTUS2   STEPPE1    ; fila 13
+  STEPPE1   STEPPE1   STEPPE1   STEPPE1   DUNETURRET ROADV     STEPPE1   STEPPE2    ; fila 12
+  CACTUS    STEPPE1   STEPPE1   CACTUS2   BOULDER   ROADV     STEPPE1   SCRUB    ; fila 11
+  STEPPE1   STEPPE2   STEPPE2   STEPPE1   STEPPE1   ROADV     STEPPE1   STEPPE1    ; fila 10
+  STEPPE1   STEPPE2   STEPPE1   STEPPE1   STEPPE1   ROADV     STEPPE2   CLAY    ; fila 9
+  STEPPE1   ACACIA    STEPPE1   STEPPE1   STEPPE2   ROADV     STEPPE1   STEPPE1    ; fila 8
+  STEPPE1   SCRUB     STEPPE1   STEPPE1   BOULDER   STEPPE2   STEPPE1   STEPPE2    ; fila 7
+  STEPPE1   STEPPE1   STEPPE1   STEPPE2   STEPPE2   STEPPE1   STEPPE1   CACTUS2    ; fila 6
+  SCRUB     STEPPE2   SCRUB     STEPPE1   STEPPE2   STEPPE1   CLAY      STEPPE1    ; fila 5
+  CLAY      SCRUB     STEPPE2   STEPPE2   CLAY      STEPPE1   STEPPE1   CACTUS    ; fila 4
+  STEPPE1   CLAY      STEPPE1   STEPPE1   CLAY      STEPPE2   STEPPE1   STEPPE1    ; fila 3
+  STEPPE1   STEPPE1   STEPPE1   ACACIA    STEPPE1   ACACIA    STEPPE1   STEPPE2    ; fila 2
+  CACTUS    STEPPE1   STEPPE1   STEPPE1   CACTUS    STEPPE1   STEPPE2   CACTUS2    ; fila 1
+  STEPPE1   CACTUS    STEPPE1   STEPPE1   STEPPE1   STEPPE2   STEPPE1   STEPPE1    ; fila 0
+end

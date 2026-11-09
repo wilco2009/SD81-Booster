@@ -12,7 +12,32 @@ El plan entero (fases, mapa de memoria, sprites) está en
 | `PRUEBAS/` | pruebas de la fase 0 en la placa (carga, VSYNC, sonido, paginación) |
 | `tools/`, `assets/`, `out/` | herramientas del PC y gráficos del nivel (las lleva otra sesión; §8 del plan) |
 
-## Estado: fase 8a (varios niveles y dificultad: hecha en el PC, sin probar en la placa)
+## Estado: fase 8d (músicas del título, el jefe y el final, y tecla M: hecha en el PC, sin probar en la placa)
+
+**Músicas (8d).** Todos los ficheros son opcionales y están en la misma carpeta:
+- `TITULO.VGM`: en bucle mientras sale el título (sin título no suena).
+- `NIVELn.VGM`: la del nivel, en bucle (si falta, la del 1); `GAMEOVER.VGM`: una vez, en el fin de partida.
+- `JEFE.VGM`: en bucle desde el aviso WARNING hasta que el jefe explota. Entonces el juego se queda
+  **en silencio** (WELL DONE) hasta que carga el nivel siguiente y empieza la suya. Si falta, sigue sonando
+  la del nivel (se reinicia al empezar el aviso).
+- `FINAL.VGM`: una vez, en el WELL DONE del **último nivel**, que dura entonces unos 48 s
+  (`CLEART` + `FINALX` x `FINALR` ticks: ni se sabe cuándo acaba la música ni hay orden del MCU para preguntarlo) antes de
+  volver al nivel 1. Si falta, suena la del nivel.
+- Tecla **M** (también en el título): música sí / no hasta salir. Con no, `STOP_VGM` y ninguna `PLAY_VGM`; al
+  volver a sí suena la que toque en ese momento, desde el principio.
+- `compila.bat` copia `out\TITULO.VGM`, `out\JEFE.VGM` y `out\FINAL.VGM` si existen; si no, de momento `ledstorm-3`
+  (título), `ledstorm-1` (jefe) y `ledstorm-2` (final) de `EXAMPLES\VGM`.
+- Todo va por `music(n)` en `estela.asm` (0 nivel, 1 fin de partida, 2 título, 3 jefe, 4 final, 5 silencio).
+- **Memoria:** las tablas y variables (`rowtab`, `lytab`, `gvars`: 482 bytes que ya no ocupan sitio en el binario)
+  pasan a `$3800-$3BFF`, en la página del nivel (bloque 1); por eso **los niveles pueden ocupar 6 KB** (antes 7;
+  el error 5 es ahora "pasa de 6 KB"; los de ahora tienen como mucho 3,8 KB). Además `drawspr` ya no reescribe las cifras
+  del marcador (ni las apaga) cuando no cambian: el tiempo de escritura de los sprites en el borrado baja.
+- **Arnés (8d):** la secuencia de órdenes 38 / 34 / 35 del MCU contra el modelo en todas las ejecuciones (título, nivel
+  1 al empezar, jefe, final, fin de partida, R, cambio de nivel, M en cada estado); la cadena de cinco niveles lleva `JEFE.VGM`,
+  `FINAL.VGM` y M cada 777 imágenes (y el nivel 3 sin música: la del 1); título con y sin `TITULO.VGM`, con M, y con X.
+  **Dos pruebas en negativo:** `TITULO.VGM` sin bucle y M que no cambia `musoff`: el arnés ve las dos.
+
+## Estado anterior: fase 8a (varios niveles y dificultad: probada en la placa)
 
 **Varios niveles (8a).** El juego carga `NIVEL1..NIVEL5` (`.I16`, `.MAP` y `.VGM` opcional,
 de la carpeta actual; `HOJA.BIN` es común a todos):
@@ -184,6 +209,7 @@ La fase 5 no cambió el juego: es la comprobación en el arnés de que, con el l
 | S | Velocidad del scroll: la del nivel al empezar (1 píxel por imagen, borde **verde**) → 1 cada 2 imágenes (**cyan**) → 2 por imagen (**amarillo**) → parado (**rojo**) → 1 por imagen |
 | R | Volver al principio del nivel **actual**, con la nave en su sitio, 3 vidas y el marcador a 0 (la pantalla se queda en negro unas 4 imágenes mientras se repinta; misma dificultad) |
 | I | Vidas infinitas sí / no, para probar (el borde se pone del mismo color, pero brillante); dura hasta salir |
+| M | Música sí / no (hasta salir; también en el título): con no se para y no suena ninguna; al volver a sí, la que toque desde el principio |
 | X | Salir a BASIC (modo normal, color apagado, páginas de antes) |
 
 Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`:
@@ -194,7 +220,7 @@ Si falta algo, el programa vuelve a BASIC enseguida y escribe `ERROR DE CARGA n`
 | 2 | `NIVEL1.I16` no es un `.I16` (no empieza por `I160`) |
 | 3 | no hay `NIVEL1.MAP` |
 | 4 | `NIVEL1.MAP` no es un nivel (no empieza por `ELV1`) |
-| 5 | el nivel pasa de 7 KB (el de ejemplo tiene 2.488 bytes) |
+| 5 | el nivel pasa de 6 KB (el de ejemplo tiene 2.488 bytes) |
 | 6 | la cabecera del nivel no cuadra (menos de 7 filas, o el mapa se sale del fichero) |
 | 7 | no hay `HOJA.BIN` |
 

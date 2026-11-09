@@ -2,6 +2,13 @@
 ; ESTELA.ASM -- matamarcianos vertical para el modo 160x100 a 256 colores
 ; del SD81 Booster. Plan: claude/planning/juego160.md
 ;
+; FASE 8d: musicas y tecla M. music(n): 0 el nivel (NIVELn.VGM, o NIVEL1.VGM), 1 fin de partida (GAMEOVER.VGM, una vez),
+; 2 titulo (TITULO.VGM, bucle, mientras sale el titulo), 3 jefe (JEFE.VGM, bucle, desde el aviso WARNING), 4 final (FINAL.VGM,
+; una vez, en el WELL DONE del ultimo nivel, que dura CLEART + FINALX * FINALR ticks) y 5 silencio (el jefe explota). Si falta
+; la del jefe o la del final suena la del nivel; si falta otra, nada. Tecla M (keym, tambien en el titulo): musica si / no hasta
+; salir (musoff): con no, STOP_VGM y ninguna PLAY_VGM; al volver a si, la que toque (musno) desde el principio.
+; MEMORIA: rowtab, lytab y todas las variables de gvars (no ocupan sitio en el binario) van en BSSBUF = $3800-$3BFF, en la pagina
+; del nivel (bloque 1), que por eso admite niveles de 6 KB (error 5 si pasa).
 ; FASE 8a: varios niveles y dificultad. NIVEL1..NIVEL5 (.I16, .MAP y .VGM opcional) de la carpeta actual;
 ; HOJA.BIN es comun. El nivel que se juega es lvlno (1-5); los nombres NIVELn.* llevan la cifra en el sexto
 ; caracter (lvlnames). Al vencer al jefe (WELL DONE) lap carga el siguiente (loadnum: ficheros y velocidad del
@@ -26,7 +33,7 @@
 ;   - NIVEL1.MAP (de la SD): cabecera, oleadas y mapa de 8 tiles de ancho
 ;     (formato en juego160.md 8.3), en LVLBUF = $2000: la pagina LVLPG de la
 ;     SRAM, mapeada en el bloque 1 mientras corre el juego (sin ROM: todo con
-;     DI; hasta 7 KB de nivel; al final de la pagina, TPALBUF y PALBUF). Al salir el bloque 1 vuelve a tener su pagina y
+;     DI; hasta 6 KB de nivel; luego BSSBUF y, al final de la pagina, TPALBUF y PALBUF). Al salir el bloque 1 vuelve a tener su pagina y
 ;     se reescribe sobre si mismo, para que la sombra de la FPGA de
 ;     $2000-$3FFF vuelva a tener lo de la ROM.
 ;   - Lineas del nivel: la fila r del mapa ocupa las lineas 16r..16r+15
@@ -160,10 +167,11 @@
 ;         LIVES0 vidas y el marcador a 0); en el fin de partida, ESPACIO
 ;         B = bomba (si hay alguna)
 ;         I = vidas infinitas si / no (para probar; el borde, brillante)
+;         M = musica si / no (hasta salir)
 ;         X = salir a BASIC
 ; Devuelve en BC 0, o un error de carga (del nivel 1 al empezar, o del 1 en mitad de la partida): 1 no hay
 ; NIVEL1.I16, 2 no es un .I16, 3 no hay NIVEL1.MAP, 4 no es un nivel (ELV1), 5 pasa de
-; 7 KB, 6 cabecera del nivel incoherente, 7 no hay HOJA.BIN.
+; 6 KB, 6 cabecera del nivel incoherente, 7 no hay HOJA.BIN.
 ;
 ; Ensamblar: pasmo estela.asm estela.bin estela.sym   (o compila.bat)
 ; Cargar: ESTELA.B81 (CLEAR 18431, LOAD FAST "ESTELA.BIN" CODE 18432);
@@ -247,8 +255,9 @@ FX_EBR  equ 2                   ;   por la derecha
 FX_BOOM equ 3                   ;   explosiones
 LVLPG   equ 20                  ; pagina del nivel (en el bloque 1); la de la prueba PAGINA
 LVLBUF  equ 2000h               ; NIVEL1.MAP
-MAXLVL  equ 1C00h               ; hasta 7 KB; detras, en la misma pagina, TPALBUF y PALBUF
-TPALBUF equ LVLBUF+MAXLVL       ; paleta del titulo (512 bytes), solo mientras sale el titulo
+MAXLVL  equ 1800h               ; hasta 6 KB ($2000-$37FF); detras, en la misma pagina, las variables (BSSBUF), TPALBUF y PALBUF
+BSSBUF  equ LVLBUF+MAXLVL       ; $3800-$3BFF: tablas y variables del juego (ver mas abajo)
+TPALBUF equ LVLBUF+1C00h        ; paleta del titulo (512 bytes), solo mientras sale el titulo: $3C00-$3DFF
 PALBUF  equ TPALBUF+512         ; la paleta del .I16 del nivel (512 bytes): $3E00-$3FFF, fuera del binario
 PALEND  equ PALBUF+512          ; (= $4000)
 CMD_FWRITE equ 56               ; ordenes del MCU para guardar el record
@@ -286,7 +295,15 @@ NLEV    equ 5                   ; niveles: NIVEL1..NIVEL5 (el digito esta en el 
 LVLT0   equ 100                 ; ticks que se ve la cifra del nivel al empezarlo (sprite 54)
 LVLX    equ 76                  ; x de pantalla de la cifra (8 px, centrada en 16-143)
 LVLY    equ 46                  ; y de pantalla
-LAPMAX  equ 2                   ; vueltas con mas dificultad (con 5 niveles: dificultad 0-14)
+MUS_LEV equ 0                   ; numeros de musica (music): NIVELn.VGM en bucle (o NIVEL1.VGM)
+MUS_GO  equ 1                   ;   GAMEOVER.VGM una vez
+MUS_TIT equ 2                   ;   TITULO.VGM en bucle
+MUS_BOSS equ 3                  ;   JEFE.VGM en bucle (si falta, la del nivel)
+MUS_FIN equ 4                   ;   FINAL.VGM una vez (si falta, la del nivel)
+MUS_OFF equ 5                   ;   silencio (STOP_VGM y nada mas)
+FINALX  equ 9                   ; tras el jefe del ultimo nivel, WELL DONE dura CLEART + FINALX * FINALR ticks
+FINALR  equ 250                 ;   (unos 48 s: lo que dura FINAL.VGM, sin pasarse)
+LAPMAX  equ 2                  ; vueltas con mas dificultad (con 5 niveles: dificultad 0-14)
 
         jp start
 
@@ -372,6 +389,9 @@ start:  di
         ld (previ),a
         xor a
         ld (infl),a
+        ld (musoff),a           ; con musica; M sin pulsar
+        ld a,4
+        ld (prevm),a
         call showspd
 
 ; -------------------------------------------------------------
@@ -1003,7 +1023,8 @@ ky3:    ld a,0dfh               ; I (fila Y U I O P, bit 2): vidas infinitas
         xor 1
         ld (infl),a
         call showspd
-ky4:    ld a,0feh               ; X: salir
+ky4:    call keym               ; M: musica si / no
+        ld a,0feh               ; X: salir
         in a,(0feh)
         and 4
         ret
@@ -1191,7 +1212,10 @@ tt2:    ld a,c
         call waitvs
         ld hl,TPALBUF
         call setpal1
+        ld a,MUS_TIT            ; TITULO.VGM, si esta
+        call music
 tl1:    call waitvs
+        call keym               ; M: musica si / no
 tlkey:  ld a,0feh               ; X: salir
         in a,(0feh)
         and 4
@@ -1234,26 +1258,43 @@ spdcol: defb 4,5,6,2            ; verde, cyan, amarillo, rojo
 ; -------------------------------------------------------------
 ; Sonido
 ; -------------------------------------------------------------
-; music: A = 0 la del nivel (NIVEL1.VGM, en bucle), 1 la del fin de partida
-; (GAMEOVER.VGM, una vez). Para antes la que sonaba; si el MCU no puede abrir
-; la nueva, sin musica
+; music: A = numero de musica (MUS_*): 0 la del nivel (NIVELn.VGM en bucle; si falta y n no es 1, NIVEL1.VGM), 1 la del fin
+; de partida (GAMEOVER.VGM, una vez), 2 el titulo (TITULO.VGM, bucle), 3 el jefe (JEFE.VGM, bucle), 4 el final (FINAL.VGM, una
+; vez) y 5 silencio. Para antes la que sonaba (STOP_VGM). Con musoff (tecla M) o en el 5 no empieza ninguna. Si el MCU no puede
+; abrir la del titulo o la del fin de partida, sin musica; si no puede la del jefe o la del final, suena la del nivel
 music:  ld (musno),a
         ld a,(vgmok)
         or a
         jr z,mu0
         ld a,CMD_STOPVGM
         call mcu_send
-mu0:    ld a,(lvlno)            ; NIVELn.VGM
+        xor a
+        ld (vgmok),a
+mu0:    ld a,(musno)
+        cp MUS_OFF
+        ret nc
+        ld a,(musoff)
+        or a
+        ret nz
+        ld a,(lvlno)            ; NIVELn.VGM
         add a,'0'
         ld (nmvgm+5),a
-        ld hl,nmvgm
-        ld e,1                  ; en bucle
-        ld a,(musno)
-        or a
-        jr z,mu1
-        ld hl,nmgov
-        ld e,0                  ; una vez
-mu1:    ld a,CMD_LOOPVGM
+        ld a,(musno)            ; HL = nombre, E = bucle (1 / 0): tabla mutab de 3 bytes por musica
+        ld e,a
+        add a,a
+        add a,e
+        ld e,a
+        ld d,0
+        ld hl,mutab
+        add hl,de
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        inc hl
+        ld a,(hl)
+        ex de,hl
+        ld e,a
+        ld a,CMD_LOOPVGM
         call mcu_send
         ld a,e
         call mcu_send
@@ -1261,10 +1302,14 @@ mu1:    ld a,CMD_LOOPVGM
         call mcu_name           ; A = 0 si suena
         or a
         jr z,mu3
-        ld a,(musno)            ; no suena: la del nivel (no la del fin de partida)
-        or a                    ; y distinto del 1 prueba con la del 1
-        jr nz,mu4
-        ld a,(lvlno)
+        ld a,(musno)            ; no suena
+        or a
+        jr z,mu6                ; la del nivel: prueba con la del 1
+        cp MUS_BOSS
+        jr c,mu4                ; titulo o fin de partida: sin musica
+        xor a                   ; jefe o final: la del nivel
+        jr music
+mu6:    ld a,(lvlno)
         cp 1
         jr z,mu4
         ld a,'1'
@@ -1279,6 +1324,39 @@ mu3:    ld a,1
 mu4:    xor a
 mu2:    ld (vgmok),a
         ret
+
+; keym: tecla M (fila B N M . ESPACIO, bit 2), pulsacion nueva: musica si / no hasta salir. Con no, STOP_VGM y ninguna PLAY_VGM;
+; al volver a si, la que toque ahora (musno) desde el principio
+keym:   ld a,07fh
+        in a,(0feh)
+        and 4
+        ld c,a
+        ld a,(prevm)
+        ld b,a
+        ld a,c
+        ld (prevm),a
+        or a
+        ret nz                  ; no pulsada
+        ld a,b
+        or a
+        ret z                   ; ya lo estaba
+        ld a,(musoff)
+        xor 1
+        ld (musoff),a
+        ld a,(musno)
+        jp music
+
+; mutab: por numero de musica, el nombre (acabado en 0) y 1 = en bucle, 0 = una vez
+mutab:  defw nmvgm
+        defb 1
+        defw nmgov
+        defb 0
+        defw nmtvgm
+        defb 1
+        defw nmjvgm
+        defb 1
+        defw nmfvgm
+        defb 0
 
 ; sfxgo: C = voz, HL = efecto (prioridad y pares (valor, volumen); volumen
 ; $FF = fin). Empieza si la voz esta libre o lo que suena no tiene mas
@@ -1946,7 +2024,11 @@ db3:    inc ix
         or a
         sbc hl,de
         jr nc,dd0
-        ld b,6                  ; si no, apagado: las cifras
+        ld a,(dshow)            ; si no, apagado (si ya lo estaba, nada que escribir)
+        cp 2
+        ret z
+        ld c,SP_DIG
+        ld b,6                  ; las cifras
 dd2:    call off1
         inc c
         djnz dd2
@@ -1955,8 +2037,30 @@ dd2:    call off1
 dd3:    call off1
         inc c
         djnz dd3
+        ld a,2
+        ld (dshow),a
         ret
-dd0:    ld hl,score
+dd0:    ld a,(dshow)            ; las cifras: si ya estan puestas con este marcador, no se vuelven a escribir
+        cp 1
+        jr nz,dd0w
+        ld hl,score
+        ld de,dscore
+        ld b,3
+dc1:    ld a,(de)
+        cp (hl)
+        jr nz,dd0w
+        inc hl
+        inc de
+        djnz dc1
+        jr dd0v
+dd0w:   ld hl,score
+        ld de,dscore
+        ld bc,3
+        ldir
+        ld a,1
+        ld (dshow),a
+        ld c,SP_DIG
+        ld hl,score
         ld b,3
 dd1:    ld a,(hl)
         rrca
@@ -1970,7 +2074,7 @@ dd1:    ld a,(hl)
         call digit
         inc hl
         djnz dd1
-        ld a,(lives)           ; las vidas: VIDA en SP_VIDA+i si i < vidas
+dd0v:   ld a,(lives)           ; las vidas: VIDA en SP_VIDA+i si i < vidas
         ld b,a
         ld c,SP_VIDA
         ld e,SOFS+VIDAX
@@ -2684,7 +2788,8 @@ bo0:    ld a,(bst)
         ld (bst),a
         ld a,WARNT
         ld (btmr),a
-        ret
+        ld a,MUS_BOSS           ; JEFE.VGM desde el aviso
+        jp music
 bo1:    dec a
         jr nz,bo2
         ld hl,btmr              ; 1: aviso
@@ -2736,7 +2841,7 @@ bo2a:   ld a,3                  ; acabada: a pelear
         ld (bdir),a
         ld a,(bftv)
         ld (bft),a
-        jr bhit
+        jp bhit
 bo3:    dec a
         jr nz,bo4
         ld a,(bdir)             ; 3: de lado a lado
@@ -2782,11 +2887,24 @@ bo4:    dec a
         ld (bst),a
         ld a,CLEART
         ld (btmr),a
-        ret
-bo5:    ld hl,btmr              ; 5: WELL DONE; luego otra vuelta
+        ld a,(lvlno)            ; el ultimo nivel: FINAL.VGM y un WELL DONE largo
+        cp NLEV
+        ret nz
+        ld a,FINALX
+        ld (bext),a
+        ld a,MUS_FIN
+        jp music
+bo5:    ld hl,btmr              ; 5: WELL DONE; luego el nivel siguiente
         dec (hl)
         ret nz
-        jp lap
+        ld a,(bext)
+        or a
+        jp z,lap
+        dec a                   ; (tras el ultimo nivel, FINALX tandas mas de FINALR ticks)
+        ld (bext),a
+        ld a,FINALR
+        ld (btmr),a
+        ret
 
 ; bhit: los disparos de la nave contra el jefe (cada uno le quita una vida)
 ; y la nave viva contra el jefe
@@ -2868,7 +2986,9 @@ bdmg:   ld a,6
         ld c,FX_BOOM
         ld hl,fxhit
         jp sfxgo
-bdie:   ld a,4                  ; sin vidas: explota y 1000 puntos
+bdie:   ld a,MUS_OFF            ; la musica se calla
+        call music
+        ld a,4                  ; sin vidas: explota y 1000 puntos
         ld (bst),a
         ld a,BEXT
         ld (btmr),a
@@ -3419,6 +3539,11 @@ infl:   defb 0                  ; 1 = vidas infinitas (tecla I; hasta salir)
 bfake:  defs 4                  ; registro de enemigo para los tiros del jefe (E_X, E_Y)
 lapsv:  defs 4                  ; marcador y vidas durante lap
 nmgov:  defb "GAMEOVER.VGM",0
+nmtvgm: defb "TITULO.VGM",0
+nmjvgm: defb "JEFE.VGM",0
+nmfvgm: defb "FINAL.VGM",0
+musoff: defb 0                  ; 1 = sin musica (tecla M; hasta salir)
+prevm:  defb 4                  ; M en la imagen anterior (bit 2; 0 = pulsada)
 nmtit:  defb "TITULO.I16",0
 nmrec:  defb "ESTELA.REC",0
 magrec: defb "EREC"
@@ -3468,49 +3593,54 @@ cby:    defb 0
 cpx:    defb 0
 cpy:    defb 0
 ; lo que gminit pone a 0
-gvars:
-cd:     defb 0                  ; imagenes hasta poder disparar otra vez
-tick:   defb 0                  ; contador de ticks (llama, animaciones)
-pstate: defb 0                  ; nave: 0 viva, 1 explotando, 2 invulnerable, 3 fin de partida
-lives:  defb 0                  ; vidas (con la nave en juego)
-bpend:  defb 0                  ; jefe: 1 = su oleada ha salido (huecos 0-4 para los demas)
-bst:    defb 0                  ;   0 nada o esperando, 1 aviso, 2 entra, 3 pelea, 4 explota, 5 WELL DONE
-btmr:   defb 0
-bx:     defb 0                  ;   X, Y de hardware (esquina de arriba a la izquierda)
-by:     defb 0
-bptr:   defw 0                  ;   trayectoria: paso actual y los que quedan
-bleft:  defb 0
-bhp:    defb 0
-bdir:   defb 0
-bft:    defb 0
-bflash: defb 0
-bwx:    defb 0                  ;   WAVE_X y WAVE_PATH de su oleada
-bpath:  defb 0
-ityp:   defb 0                  ; mejora: 0 ninguna, 1 arma, 2 escudo, 3 bomba
-itx:    defb 0                  ;   X, Y de hardware
-ity:    defb 0
-iptr:   defw 0                  ;   trayectoria: paso actual y los que quedan
-ileft:  defb 0
-weap:   defb 0                  ; 1 = disparo doble (hasta perder la nave)
-bombs:  defb 0                  ; bombas (0-BOMBMAX)
-prevb:  defb 0                  ; B en la imagen anterior (bit 4; 0 = pulsada)
-shk:    defb 0                  ; imagenes de temblor que quedan
-hofv:   defb 0                  ; hofs (POKE 2074) de la imagen siguiente
-stimer: defb 0                  ; ticks que quedan de marcador por una mejora recogida
-lvlt:   defb 0                  ; ticks que quedan de la cifra del nivel (sprite 54)
-ptimer: defb 0                  ; ticks que le quedan a la explosion o a la invulnerabilidad
-deaths: defb 0                  ; veces que han dado a la nave
-drope:  defb 0                  ; enemigos que no cupieron (sin hueco)
-dropw:  defb 0                  ; oleadas que no cupieron (NSPN ocupadas)
-score:  defs 3                  ; marcador en BCD, la cifra mas alta primero
-balas:  defs 3*NBALAS           ; disparos: activo, x, y (con signo)
-enes:   defs ESZ*NENE           ; enemigos
-ebs:    defs 4*NEB              ; disparos enemigos: activo, X, Y, dx
-spns:   defs SPSZ*NSPN          ; oleadas soltando enemigos
-fxv:    defs 3*NFX              ; voces de los efectos: puntero (0 = libre), prioridad
-gvend:
-rowtab: defs 2*RING
-lytab:  defs 2*16
+; Variables y tablas que gminit/mktabs ponen a punto: no ocupan sitio en el binario, van en la pagina del nivel
+; (bloque 1) detras del nivel, en BSSBUF = $3800-$3BFF (MAXLVL = 6 KB; detras, las paletas TPALBUF y PALBUF)
+rowtab  equ BSSBUF               ; principio de cada fila del anillo (2 * RING bytes)
+lytab   equ rowtab+2*RING        ; y * 160 (2 * 16 bytes)
+gvars   equ lytab+2*16           ; lo que gminit pone a 0
+cd      equ gvars+0  ; imagenes hasta poder disparar otra vez
+tick    equ gvars+1  ; contador de ticks (llama, animaciones)
+pstate  equ gvars+2  ; nave: 0 viva, 1 explotando, 2 invulnerable, 3 fin de partida
+lives   equ gvars+3  ; vidas (con la nave en juego)
+bpend   equ gvars+4  ; jefe: 1 = su oleada ha salido (huecos 0-4 para los demas)
+bst     equ gvars+5  ;   0 nada o esperando, 1 aviso, 2 entra, 3 pelea, 4 explota, 5 WELL DONE
+btmr    equ gvars+6
+bx      equ gvars+7  ;   X, Y de hardware (esquina de arriba a la izquierda)
+by      equ gvars+8
+bptr    equ gvars+9  ;   trayectoria: paso actual y los que quedan
+bleft   equ gvars+11
+bhp     equ gvars+12
+bdir    equ gvars+13
+bft     equ gvars+14
+bflash  equ gvars+15
+bwx     equ gvars+16  ;   WAVE_X y WAVE_PATH de su oleada
+bpath   equ gvars+17
+ityp    equ gvars+18  ; mejora: 0 ninguna, 1 arma, 2 escudo, 3 bomba
+itx     equ gvars+19  ;   X, Y de hardware
+ity     equ gvars+20
+iptr    equ gvars+21  ;   trayectoria: paso actual y los que quedan
+ileft   equ gvars+23
+weap    equ gvars+24  ; 1 = disparo doble (hasta perder la nave)
+bombs   equ gvars+25  ; bombas (0-BOMBMAX)
+prevb   equ gvars+26  ; B en la imagen anterior (bit 4; 0 = pulsada)
+shk     equ gvars+27  ; imagenes de temblor que quedan
+hofv    equ gvars+28  ; hofs (POKE 2074) de la imagen siguiente
+stimer  equ gvars+29  ; ticks que quedan de marcador por una mejora recogida
+lvlt    equ gvars+30  ; ticks que quedan de la cifra del nivel (sprite 54)
+ptimer  equ gvars+31  ; ticks que le quedan a la explosion o a la invulnerabilidad
+deaths  equ gvars+32  ; veces que han dado a la nave
+drope   equ gvars+33  ; enemigos que no cupieron (sin hueco)
+dropw   equ gvars+34  ; oleadas que no cupieron (NSPN ocupadas)
+score   equ gvars+35  ; marcador en BCD, la cifra mas alta primero
+balas   equ gvars+38  ; disparos: activo, x, y (con signo)
+enes    equ gvars+62  ; enemigos
+ebs     equ gvars+190  ; disparos enemigos: activo, X, Y, dx
+spns    equ gvars+218  ; oleadas soltando enemigos
+fxv     equ gvars+234  ; voces de los efectos: puntero (0 = libre), prioridad
+bext    equ gvars+246  ; tandas de FINALR ticks que le quedan al WELL DONE del ultimo nivel
+dshow   equ gvars+247  ; cifras del marcador: 0 no se sabe, 1 puestas (con dscore), 2 apagadas (drawspr no las reescribe si no cambian)
+dscore  equ gvars+248  ; (3 bytes) el marcador de las cifras puestas
+gvend   equ gvars+251
 codeend:
 
 GVLEN   equ gvend-gvars

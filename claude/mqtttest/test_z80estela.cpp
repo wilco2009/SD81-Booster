@@ -142,14 +142,23 @@ static std::vector<int> playcmd(const char* nm, bool ok) {
   for (const char* c = nm; *c; c++) v.push_back(*c >= 'A' && *c <= 'Z' ? 38 + *c - 'A' : *c >= '0' && *c <= '9' ? 28 + *c - '0' : 27);
   v.push_back(ok ? 0 : 1); return v;
 }
-// which 0: la del nivel lvl (NIVELn.VGM; si falta y lvl no es el 1, se prueba la del 1); 1: la del fin de partida
+// Musica (fase 8d). which: 0 la del nivel lvl (NIVELn.VGM, bucle; si falta y lvl no es el 1, se prueba NIVEL1.VGM), 1 fin de partida
+// (GAMEOVER.VGM, una vez), 2 titulo (TITULO.VGM, bucle), 3 jefe (JEFE.VGM, bucle), 4 final (FINAL.VGM, una vez), 5 silencio. Siempre se para
+// antes la que sonaba (STOP_VGM); con g_musoff (tecla M) o en el 5 no empieza ninguna. Si falta la del titulo o la del fin de partida, sin
+// musica; si falta la del jefe o la del final, la del nivel.
+static bool g_musoff = false;
 static void mus_go(int which, int lvl = 1) {
-  std::string nm = which ? "GAMEOVER.VGM" : "NIVEL" + std::to_string(lvl) + ".VGM";
-  if (g_mok) mexp.push_back({35});
-  mexp.push_back({38, which ? 0 : 1});
+  g_musno = which;
+  if (g_mok) { mexp.push_back({35}); g_mok = false; }
+  if (which >= 5 || g_musoff) return;
+  static const char* NM[5] = {nullptr, "GAMEOVER.VGM", "TITULO.VGM", "JEFE.VGM", "FINAL.VGM"};
+  std::string nm = which ? NM[which] : "NIVEL" + std::to_string(lvl) + ".VGM";
+  mexp.push_back({38, (which == 0 || which == 2 || which == 3) ? 1 : 0});
   bool ok = sdfiles.count(nm) > 0;
-  mexp.push_back(playcmd(nm.c_str(), ok)); g_mok = ok; g_musno = which;
-  if (!ok && !which && lvl != 1) { ok = sdfiles.count("NIVEL1.VGM") > 0; mexp.push_back(playcmd("NIVEL1.VGM", ok)); g_mok = ok; }
+  mexp.push_back(playcmd(nm.c_str(), ok)); g_mok = ok;
+  if (ok) return;
+  if (which == 0 && lvl != 1) { ok = sdfiles.count("NIVEL1.VGM") > 0; mexp.push_back(playcmd("NIVEL1.VGM", ok)); g_mok = ok; }
+  else if (which >= 3) mus_go(0, lvl);
 }       // says: ordenes 23 (voz): longitud y texto en ZX81
 static void mcu_byte(uint8_t b) {
   mcu_in.push_back(b);
@@ -219,7 +228,7 @@ static uint8_t keyrows[8];
 static int map_bad = 0;
 static int aysel[2], ayreg[2][16];                       // los dos AY de la FPGA: A ($CF/$0F) y B ($C7/$07)
 static uint16_t pal[256]; static int palptr = 0, pallo = 0;
-static int cyc_lo = 0, cyc_hi = 0; static long cyc_maxlat = 0, cyc_writes = 0;
+static int cyc_lo = 0, cyc_hi = 0; static long cyc_maxlat = 0, cyc_writes = 0, cyc_maxfr = 0;
 // sprites: los registros de la ventana de POKEs
 struct Spr { int en, xl, xh, y, page; uint8_t mask[8]; };
 static Spr spr[64]; static int spr_sel = 0, spr_blk = 2, spr_xtr = 0, pal16_on = 0;
@@ -247,7 +256,7 @@ void z80_writebyte_wrapper(int a, int d) {
     else if (a == 2064) pallo = d;
     else if (a == 2065) {
       pal[palptr] = (uint16_t)(pallo | (d << 8)); palptr = (palptr + 1) & 255;
-      if (z80.pc.w >= cyc_lo && z80.pc.w < cyc_hi) { long lat = (long)(total_t % FRAME); if (lat > cyc_maxlat) cyc_maxlat = lat; cyc_writes++; }
+      if (z80.pc.w >= cyc_lo && z80.pc.w < cyc_hi) { long lat = (long)(total_t % FRAME); if (lat > cyc_maxlat) { cyc_maxlat = lat; cyc_maxfr = frame(); } cyc_writes++; }
     }
     else if (a == 2066) { pal16[palptr & 15] = (uint16_t)(pallo | (d << 8)); palptr = (palptr + 1) & 255; }
     else if (a == 2067) pal16_on = d;
@@ -346,7 +355,7 @@ struct Game { int x, y, tilt, cd, tick; int ba[8], bx[8], by[8]; int pstate, pti
              int fxp[4], fxpr[4]; int lives;
              int bpend, bst, btmr, jx, jy, bk, bhp, bdir, bft, bflash, bwx, bpath;
              int ityp, itx, ity, ik, ipath, weap, bombs, prevb, stimer, shk, hofv;
-             int lvl, laps, lvt, bhp0, bft0, eft[6]; };   // fase 8a: nivel (1-5), vueltas, ticks de la cifra del nivel, dificultad (vidas del jefe, ticks entre salvas, cadencias)   // mejoras (7c): ityp 0 ninguna, 1 arma, 2 escudo, 3 bomba; prevb = B en bruto (0 = pulsada)   // el jefe (cabecera de estela.asm)      // efectos: siguiente par de cada voz (0 = libre) y su prioridad
+             int lvl, laps, lvt, bhp0, bft0, eft[6], bext; };   // fase 8a: nivel (1-5), vueltas, ticks de la cifra del nivel, dificultad (vidas del jefe, ticks entre salvas, cadencias)   // mejoras (7c): ityp 0 ninguna, 1 arma, 2 escudo, 3 bomba; prevb = B en bruto (0 = pulsada)   // el jefe (cabecera de estela.asm)      // efectos: siguiente par de cada voz (0 = libre) y su prioridad
 // Efectos (cabecera de estela.asm): 4 voces; cada una escribe en cada imagen un par (valor, volumen) de su tabla en sus
 // registros: 0 disparo (AY A, R4 y R10), 1 disparo enemigo por la izquierda (AY A, R0 y R8), 2 por la derecha (AY A, R2 y
 // R9), 3 explosiones (AY B, ruido R6 y R10). Volumen $FF = fin: volumen 0 y libre. Un efecto entra si la voz esta libre o el
@@ -388,7 +397,7 @@ static void ginit(Game& g) {
   g.ityp = g.itx = g.ity = g.ik = g.ipath = g.weap = g.bombs = g.prevb = g.stimer = g.shk = g.hofv = 0;
   // el principio de un nivel (lvl y laps ya puestos): la cifra del nivel 100 ticks y la dificultad d = (nivel - 1) + 5 * vueltas:
   // jefe con 40 + 10 d vidas y una salva cada max(15, 30 - 3 d) ticks; cadencia de los enemigos: la base con v = v - v / 8, d veces, y como poco la mitad
-  g.lvt = S("LVLT0");
+  g.lvt = S("LVLT0"); g.bext = 0;
   int d = (g.lvl - 1) + 5 * g.laps;
   g.bhp0 = S("BHP0") + 10 * d; g.bft0 = std::max(15, S("BFT0") - 3 * d);
   for (int i = 0; i < 6; i++) { int v = EFT0[i]; for (int k = 0; k < d; k++) v = std::max(v - v / 8, EFT0[i] / 2); g.eft[i] = v; }
@@ -436,7 +445,7 @@ static void ebfire_m(Game& g, int ex, int ey, Result& R) {
 // el jefe recibe un disparo
 static void bdmg(Game& g, Result& R) {
   g.bflash = 6; R.bhits++;
-  if (--g.bhp == 0) { g.bst = 4; g.btmr = S("BEXT"); g.score = (g.score + 1000) % 1000000; R.bkills++; fxgo(g, 3, "fxdie", 4); }
+  if (--g.bhp == 0) { mus_go(5); g.bst = 4; g.btmr = S("BEXT"); g.score = (g.score + 1000) % 1000000; R.bkills++; fxgo(g, 3, "fxdie", 4); }
   else fxgo(g, 3, "fxhit", 5);
 }
 // los disparos de la nave y la nave contra el jefe ([X+2,X+29] x [Y+2,Y+21])
@@ -567,7 +576,7 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
   if (!g_immortal) {
     if (g.bflash) g.bflash--;
     switch (g.bst) {
-      case 0: if (g.bpend && !g.e[5].st && !g.e[6].st && !g.e[7].st) { g.bst = 1; g.btmr = S("WARNT"); R.bwarn++; } break;
+      case 0: if (g.bpend && !g.e[5].st && !g.e[6].st && !g.e[7].st) { g.bst = 1; g.btmr = S("WARNT"); R.bwarn++; mus_go(3, g.lvl); } break;
       case 1: if (--g.btmr == 0) { g.bst = 2; g.jx = (g.bwx + 32) & 255; g.jy = 8; g.bhp = g.bhp0; g.bk = 0; R.benter++; } break;
       case 2: {
         const std::vector<int>& p = g_paths[g.bpath]; int n = (int)p.size() / 2;
@@ -583,9 +592,10 @@ static void gupdate(Game& g, const std::vector<Key>& sc, long f, int scr, int ns
           if (g.pstate != 1 && g.pstate != 3) { ebfire_m(g, g.jx, g.jy + 8, R); ebfire_m(g, g.jx + 16, g.jy + 8, R); R.bshots++; }
         }
         bosshit(g, R); break;
-      case 4: if (--g.btmr == 0) { g.bst = 5; g.btmr = S("CLEART"); } break;
+      case 4: if (--g.btmr == 0) { g.bst = 5; g.btmr = S("CLEART"); if (g.lvl == 5) { g.bext = S("FINALX"); mus_go(4, g.lvl); } } break;   // el ultimo nivel: FINAL.VGM y WELL DONE largo
       case 5:
-        if (--g.btmr == 0) {                            // lap: restart con el mismo marcador y las mismas vidas
+        if (--g.btmr == 0 && g.bext) { g.bext--; g.btmr = S("FINALR"); }
+        else if (g.btmr == 0) {                         // lap: restart con el mismo marcador y las mismas vidas
           // tras el jefe: el nivel siguiente (si existe y vale); tras el 5, o si no, el 1 con una vuelta mas (hasta LAPMAX); si ni el 1 se carga, el Z80 sale
           int sc = g.score, lv = g.lives, n = g.lvl + 1; bool ok = false;
           if (n <= 5) ok = model_load(n);
@@ -754,9 +764,9 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
   map_bad = 0; memset(pal, 0, sizeof pal); palptr = pallo = 0; cyc_maxlat = 0; cyc_writes = 0;
   memset(spr, 0, sizeof spr); spr_sel = 0; spr_blk = 2; spr_xtr = 0; pal16_on = 0; memset(pal16, 0, sizeof pal16); spr_maxlat = 0;
   rec_init(); title_seen = false; title_bad = -1; rec_start_bad = 0;
-  Game g{}; g.lvl = 1; g.laps = 0; g_difs.clear(); g_exp_open.clear(); g_fatal = false; g_curlv = &lv; ginit(g); size_t nspr = 0; bool prev_r = false, prev_sp = false, prev_i = false; g_inf = false;
+  Game g{}; g.lvl = 1; g.laps = 0; g_difs.clear(); g_exp_open.clear(); g_fatal = false; g_curlv = &lv; ginit(g); size_t nspr = 0; bool prev_r = false, prev_sp = false, prev_i = false, prev_m = false; g_inf = false;
   R.minx = R.miny = 999; R.maxx = R.maxy = -999;
-  mcu_in.clear(); mcu_out.clear(); mcu_outpos = 0; mcu_clk = 0; openf = nullptr; opened.clear(); created.clear(); written_n = 0; fopen_open = 0; mlog.clear(); says.clear(); mexp.clear(); g_musno = 0; g_mok = sdfiles.count("NIVEL1.VGM") > 0;
+  mcu_in.clear(); mcu_out.clear(); mcu_outpos = 0; mcu_clk = 0; openf = nullptr; opened.clear(); created.clear(); written_n = 0; fopen_open = 0; mlog.clear(); says.clear(); mexp.clear(); g_musno = 0; g_mok = false; g_musoff = false;
   for (auto& c : ayreg) for (int& r : c) r = 0xAA; memset(ayexp, 0, sizeof ayexp); ay_model_setup(); memset(fx_started, 0, sizeof fx_started);
   for (int c = 0; c < 2; c++) for (int r = 0; r < 16; r++) if (r == 0 || r == 2 || r == 4 || r == 6) ayexp[c][r] = 0xAA;   // periodos: los de antes
   z80_init(); z80_reset();
@@ -780,9 +790,14 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
     long fr = frame();
     memset(keyrows, 0, sizeof keyrows);
     for (const Key& k : script) if (fr >= k.from && fr < k.to) keyrows[k.row] |= (uint8_t)(1 << k.bit);
-    if (z80.pc.w == TLKEY && !title_seen) { title_seen = true; title_bad = title_check(); }
+    if (z80.pc.w == TLKEY && !title_seen) { title_seen = true; title_bad = title_check(); mus_go(2); }   // (music(MUS_TIT) va antes de la espera de teclas)
+    if (z80.pc.w == TLKEY) {                          // M en el titulo (keym va justo antes de tlkey)
+      bool mk = keydown(script, fr, 7, 2);
+      if (mk && !prev_m) { g_musoff = !g_musoff; mus_go(g_musno, g.lvl); }
+      prev_m = mk;
+    }
     if (z80.pc.w == MAIN && !in_main) {
-      in_main = true; checking_vis = true; shown_valid = false; calls = 0;
+      in_main = true; checking_vis = true; shown_valid = false; calls = 0; mus_go(0, 1);   // start: la musica del nivel 1
       std::vector<uint8_t> rb = rec_bytes(g_rec); for (int i = 0; i < 3; i++) if (rd(S("rec") + i) != rb[4 + i]) rec_start_bad++;   // el record leido de ESTELA.REC
     }
     if (z80.pc.w == RESTART) { in_restart = true; restart_seen = true; calls = -1; }
@@ -816,6 +831,9 @@ static Result run(const Level& lv, const std::vector<Key>& script, long maxf, in
         if (!g_fatal) { if (g_musno) mus_go(0, g.lvl); ginit(g); ay_model_setup(); R.goresets++; R.newgames++; }
       }
       prev_sp = sp;
+      bool mk = keydown(script, f, 7, 2);               // M: musica si / no (justo antes de X; en el titulo ya se ha mirado)
+      if (mk && !prev_m) { g_musoff = !g_musoff; mus_go(g_musno, g.lvl); }
+      prev_m = mk;
       if (g.bst == 2 || g.bst == 3) {                    // vidas del jefe: las de la memoria del Z80 (ya con esta vuelta hecha) son las del modelo, y nunca menos de 1
         int h = rd(S("bhp")); if (h != g.bhp) R.bhp_bad++;
         R.bhp_min = std::min(R.bhp_min, h);
@@ -933,10 +951,9 @@ static Worst worst_case() {
   return W;
 }
 
-// las ordenes de musica que tiene que haber hecho el Z80: NIVEL1.VGM en bucle al empezar, las del modelo (mexp) y STOP_VGM al salir si sonaba
+// las ordenes de musica que tiene que haber hecho el Z80: las del modelo (mexp: titulo, nivel 1 al empezar, jefe, final, M...) y STOP_VGM al salir si sonaba
 static bool mlog_matches() {
-  std::vector<std::vector<int>> want = { {38, 1}, playcmd("NIVEL1.VGM", sdfiles.count("NIVEL1.VGM") > 0) };
-  for (auto& v : mexp) want.push_back(v);
+  std::vector<std::vector<int>> want = mexp;
   if (g_mok) want.push_back({35});
   return mlog == want;
 }
@@ -963,16 +980,13 @@ static void exit_checks(const char* what, int want_bc, int played = -1) {
     bool quiet = true;
     for (int c = 0; c < 2; c++) { if (ayreg[c][7] != 0x3F) quiet = false; for (int r = 8; r <= 10; r++) if (ayreg[c][r] != 0) quiet = false; }
     snprintf(m, sizeof m, "%s: los dos AY de la FPGA callados (mezclador $3F, volumenes 0)", what); CHECK(quiet, m);
-    bool ok;
-    if (!pl) { ok = mlog.empty(); snprintf(m, sizeof m, "%s: ninguna orden de musica (no se ha llegado a jugar)", what); }
-    else {
-      ok = mlog_matches();
-      int ngo = 0; for (auto& v : mexp) if (v.size() > 1 && v[0] == 38 && v[1] == 0) ngo++;
-      snprintf(m, sizeof m, "%s: musica: NIVEL1.VGM en bucle al empezar; %d veces GAMEOVER.VGM sin bucle y de vuelta la del nivel; STOP_VGM antes de cambiar y al salir%s",
-               what, ngo, sdfiles.count("NIVEL1.VGM") ? "" : " (sin NIVEL1.VGM)");
-    }
+    bool ok = mlog_matches();
+    int ngo = 0, ncmd = 0; for (auto& v : mexp) { if (v.size() > 1 && v[0] == 38 && v[1] == 0) ngo++; if (v[0] == 34) ncmd++; }
+    if (!pl) snprintf(m, sizeof m, "%s: musica: solo las del titulo (si hay) y STOP_VGM al salir (no se ha llegado a jugar)", what);
+    else snprintf(m, sizeof m, "%s: musica: las ordenes del modelo (%d PLAY_VGM, %d de una vez; titulo, nivel, jefe, final, fin de partida, tecla M); STOP_VGM antes de cambiar y al salir", what, ncmd, ngo);
     CHECK(ok, m);
-    if (!ok) { printf("        mlog:"); for (auto& v : mlog) { printf(" ["); for (int x : v) printf(" %d", x); printf(" ]"); } printf("\n"); }
+    if (!ok) { printf("        mlog:"); for (auto& v : mlog) { printf(" ["); for (int x : v) printf(" %d", x); printf(" ]"); } printf("\n"); }
+    if (!ok) { printf("        modelo:"); for (auto& v : mexp) { printf(" ["); for (int x : v) printf(" %d", x); printf(" ]"); } if (g_mok) printf(" [ 35 ]"); printf("\n"); }
   }
   {
     int rb = 0; for (int i = 0; i < 8192; i++) if (sram[1][i] != (uint8_t)(i * 13 + 5 + (i >> 9))) rb++;
@@ -1040,8 +1054,9 @@ int main(int argc, char** argv) {
          bin.size(), code_hi - 1, 0x6F60 - CODEEND, LVLBUF, lvlpg, S("TPALBUF"), PALBUF, PALEND - 1);
   printf("NIVEL1.MAP: %zu bytes, %d filas, mapa en +%d, LVL_END %d, LVL_SCROLL %d\n", lv.map.size(), lv.rows, lv.mapoff, lv.end, lv.map[4]);
   CHECK(CODEEND == code_hi && CODEEND <= 0x6F60 && S("LET2ADR") == 0x6F60 && S("LETRAS2") == 123 && LVLBUF == 0x2000 &&
-        S("TPALBUF") == LVLBUF + S("MAXLVL") && PALBUF == S("TPALBUF") + 512 && PALEND == 0x4000 && (int)lv.map.size() <= S("MAXLVL"),
-        "el codigo acaba antes de $6F60 (letras W N I L D y la hoja de sprites); el nivel (hasta MAXLVL) y las paletas TPALBUF y PALBUF caben en los 8 KB del bloque 1");
+        S("TPALBUF") == LVLBUF + 0x1C00 && S("MAXLVL") == 0x1800 && S("BSSBUF") == LVLBUF + S("MAXLVL") && S("rowtab") == S("BSSBUF") && S("gvend") <= S("TPALBUF") &&
+        PALBUF == S("TPALBUF") + 512 && PALEND == 0x4000 && (int)lv.map.size() <= S("MAXLVL"),
+        "el codigo acaba antes de $6F60 (letras W N I L D y la hoja de sprites); el nivel (hasta MAXLVL = 6 KB), las tablas y variables (BSSBUF, $3800) y las paletas TPALBUF y PALBUF caben en los 8 KB del bloque 1");
 
   // ===== 1. el nivel 1, con las cuatro velocidades y R
   printf("-- nivel 1 --\n");
@@ -1084,7 +1099,7 @@ int main(int argc, char** argv) {
           "las letras de los carteles: G A M E O V R detras de HOJA.BIN (paginas LETRAS..+6) y W N I L D en las paginas 123-127 ($6F60)");
   }
   CHECK(ring_vis_writes == 0, "nunca escribe en una fila del anillo que se esta viendo (fuera de R)");
-  printf("        POKE 2072 como mucho %ld T despues del flanco; los giros de la paleta, hasta %ld T (%ld entradas)\n", R.maxlat, cyc_maxlat, cyc_writes);
+  printf("        POKE 2072 como mucho %ld T despues del flanco; los giros de la paleta, hasta %ld T (%ld entradas; el maximo en la imagen %ld)\n", R.maxlat, cyc_maxlat, cyc_writes, cyc_maxfr);
   CHECK(R.maxlat < 2000, "POKE 2072 en los primeros 2.000 T tras el flanco");
   CHECK(cyc_writes > 0 && cyc_maxlat < 12000, "el ciclo de la paleta se escribe en el borrado (antes de los ~12.600 T de la primera linea)");
   if (!R.pal_bad.empty()) printf("        paleta mal en %zu imagenes, la primera %d\n", R.pal_bad.size(), R.pal_bad[0]);
@@ -1526,6 +1541,7 @@ int main(int argc, char** argv) {
       std::vector<Key> sc;
       auto add = [&](long a, long b, int row, int bit) { if (a < upto) sc.push_back({a, std::min(b, upto), row, bit}); };
       add(30, 1000000, 7, 0); add(60, 64, 5, 2);
+      for (long f = 777; f < 30000; f += 777) add(f, f + 3, 7, 2);      // M cada 777 imagenes: musica no / si en cada estado (nivel, aviso, jefe, WELL DONE, final)
       for (long f = 100; f < 30000; f += 100) { add(f, f + 40, 5, 1); add(f + 50, f + 90, 5, 0); }
       return sc;
     };
@@ -1579,7 +1595,8 @@ int main(int argc, char** argv) {
     };
     // --- todos los niveles, con musica salvo la del 3: 1 2 3 4 5 y vuelta al 1 (+1 de dificultad), 2
     build({1, 2, 3, 4, 5}, {3});
-    Result L = chain("niveles 1 a 5 y vuelta", 9500, {2, 3, 4, 5, 1, 2}, false);
+    sdfiles["JEFE.VGM"] = {'V', 'g', 'm', ' '}; sdfiles["FINAL.VGM"] = {'V', 'g', 'm', ' '};     // musica del jefe y del final (8d); el nivel 3 sigue sin la suya
+    Result L = chain("niveles 1 a 5 y vuelta", 11600, {2, 3, 4, 5, 1, 2}, false);
     chk_difs("niveles 1 a 5 y vuelta", 7);
     CHECK(L.laps >= 6 && L.bkills >= 6, "seis jefes derribados y seis cambios de nivel");
     exit_checks("niveles 1 a 5 y vuelta", 0);
@@ -1669,6 +1686,69 @@ int main(int argc, char** argv) {
         CHECK(seen, m);
       }
       bin = good;
+    }
+    sdfiles.clear();
+  }
+
+
+  // ===== 1i. musicas del titulo, el jefe y el final y tecla M (fase 8d): la secuencia de ordenes 38 / 34 / 35 del MCU contra el modelo
+  // (el jefe y el final, con M cada 777 imagenes, ya van en la cadena de niveles de 1h)
+  {
+    auto mk_title = [&](int seed) {
+      std::vector<uint8_t> t = {'I', '1', '6', '0'};
+      for (int i = 0; i < 256; i++) { t.push_back((uint8_t)(i * 5 + seed)); t.push_back((uint8_t)(i * 3 + seed * 7 + 1)); }
+      for (int y = 0; y < 100; y++) for (int x = 0; x < 160; x++) t.push_back((uint8_t)(x * 3 + y * 5 + seed));
+      return t;
+    };
+    auto tfiles = [&](bool tvgm, bool jvgm) {
+      sdfiles.clear(); sdfiles["NIVEL1.I16"] = lv.i16; sdfiles["NIVEL1.MAP"] = lv.map; sdfiles["HOJA.BIN"] = hoja; sdfiles["NIVEL1.VGM"] = {'V', 'g', 'm', ' '};
+      sdfiles["GAMEOVER.VGM"] = {'V', 'g', 'm', ' '}; sdfiles["TITULO.I16"] = mk_title(4);
+      if (tvgm) sdfiles["TITULO.VGM"] = {'V', 'g', 'm', ' '};
+      if (jvgm) sdfiles["JEFE.VGM"] = {'V', 'g', 'm', ' '};
+    };
+    // M cuatro veces en el titulo (no, si, no, si), ESPACIO a las 260, M dos veces en el juego, X
+    std::vector<Key> msc = { {150, 153, 7, 2}, {190, 193, 7, 2}, {230, 233, 7, 2}, {270, 273, 7, 2}, {330, 334, 7, 0}, {400, 403, 7, 2}, {440, 443, 7, 2}, {500, 504, 0, 2} };
+    printf("-- musicas: TITULO.VGM en el titulo, M (no / si) en el titulo y en el juego --\n");
+    tfiles(true, false);
+    Result T = run(lv, msc, 560, 100, true);
+    printf("        ordenes de musica: %zu; ", mlog.size()); for (auto& v : mlog) { printf("["); for (int x : v) printf(" %d", x); printf(" ]"); } printf("\n");
+    CHECK(title_seen && title_bad == 0 && T.spr_checked > 150 && T.spr_bad.empty() && T.vis_bad == 0 && T.pal_bad.empty() && T.ay_bad == 0,
+          "con TITULO.VGM y M, el titulo y el juego van como siempre (sprites, lo visible, la paleta y los AY iguales al modelo)");
+    CHECK(mlog.size() >= 14 && mlog_matches(), "TITULO.VGM en bucle en el titulo; con M, STOP_VGM y ninguna PLAY_VGM; al volver a si, otra vez desde el principio; ESPACIO la para y empieza la del nivel 1");
+    exit_checks("musica del titulo", 0);
+
+    printf("-- musicas: X en el titulo con TITULO.VGM (STOP_VGM al salir), sin TITULO.VGM (ninguna orden) --\n");
+    tfiles(true, false);
+    T = run(lv, { {260, 264, 0, 2} }, 400, 0, false);
+    CHECK(title_seen && T.spr_checked == 0 && mlog.size() == 3 && mlog_matches(), "X en el titulo: LOOP_VGM 1, PLAY_VGM TITULO.VGM y STOP_VGM al salir");
+    exit_checks("titulo con musica, X", 0, 0);
+    tfiles(false, false);
+    T = run(lv, { {260, 264, 0, 2} }, 400, 0, false);
+    CHECK(title_seen && T.spr_checked == 0 && mlog_matches(), "sin TITULO.VGM el titulo se queda sin musica: LOOP_VGM y una PLAY_VGM que falla, y nada mas");
+    exit_checks("titulo sin musica, X", 0, 0);
+
+    // pruebas en negativo: dos cambios a proposito en el codigo de la musica
+    {
+      std::vector<uint8_t> good = bin;
+      int mt = S("mutab") - 0x4800;
+      int kx = -1, nk = 0;
+      { std::vector<uint8_t> pat = {0x3A, (uint8_t)(S("musoff") & 255), (uint8_t)(S("musoff") >> 8), 0xEE, 0x01};
+        for (int i = S("keym") - 0x4800; i + 5 <= (int)good.size() && i < S("keym") - 0x4800 + 60; i++) if (!memcmp(&good[i], pat.data(), 5)) { kx = i; nk++; } }
+      CHECK(nk == 1 && good[mt + 8] == 1, "(prueba en negativo) los trozos de codigo a cambiar (bucle del titulo en mutab, xor 1 de keym) estan una sola vez");
+      if (nk == 1) {
+        struct Neg { const char* what; int at; uint8_t val; } negs[] = { { "TITULO.VGM sin bucle", mt + 8, 0 }, { "M que no cambia musoff (xor 1 -> xor 0)", kx + 4, 0 } };
+        for (auto& n : negs) {
+          bin = good; bin[n.at] = n.val;
+          tfiles(true, false);
+          int e0 = errors;
+          run(lv, msc, 560, 0, false);
+          bool seen = !mlog_matches();
+          errors = e0;
+          char m[200]; snprintf(m, sizeof m, "(prueba en negativo) con %s, el arnes lo ve", n.what);
+          CHECK(seen, m);
+        }
+        bin = good;
+      }
     }
     sdfiles.clear();
   }

@@ -1,0 +1,82 @@
+# tiles5.def -- generado por gentemas.py (tema nave alienigena). Lo lee map2bin.py (nombres de los tiles para escribir los mapas).
+# tile NOMBRE INDICE        indice 0-59 = fila*10 + columna en el tileset
+# range NOMBRE PRIMERO ULTIMO   rangos de la paleta de 256 (los mismos que el nivel 1: el codigo cicla agua, lava y luces)
+# panelrow N               fila del PNG que lleva el dibujo de los paneles (x 0-15 izquierdo, x 144-159 derecho)
+tile FUNGUS1 0
+tile FUNGUS2 1
+tile MOSS 2
+tile FLESH 3
+tile FLESHST 4
+tile BONE 5
+tile CHITIN 6
+tile CARAPACE 7
+tile CHITINCR 8
+tile SPACE 9
+tile TOXIC 10
+tile TOXICW 11
+tile TOXBANKL 12
+tile TOXBANKR 13
+tile RIBBRIDGE 14
+tile RIBBRIDGEE 15
+tile TOXSHORET 16
+tile TOXSHOREB 17
+tile TOXISLAND 18
+tile LILY 19
+tile PLASMA 20
+tile PLASMACR 21
+tile PLASMAL 22
+tile PLASMAR 23
+tile PLASMAT 24
+tile PLASMAB 25
+tile DARKCHITIN 26
+tile VEINS 27
+tile PLASMABU 28
+tile SPORE 29
+tile BIOMECH 30
+tile BIOMECHR 31
+tile RIBS 32
+tile HAZARD 33
+tile BIOLIGHT 34
+tile ARTERYH 35
+tile ARTERYV 36
+tile ARTERYC 37
+tile MAW 38
+tile NEST 39
+tile STINGER 40
+tile SPAWNPIT 41
+tile SPINEH 42
+tile SPINEV 43
+tile SPINEX 44
+tile RIDGES 45
+tile FUNGUSTREE 46
+tile SPORES 47
+tile SPORETREES 48
+tile EGGS 49
+tile FUNGUSFLESH 50
+tile FLESHFUNGUS 51
+tile FUNGUSCHITINL 52
+tile FUNGUSCHITINR 53
+tile BIOLIGHT2 54
+tile BIOLIGHTV 55
+tile STARS 56
+tile DARK 57
+tile HEX 58
+tile EYE 59
+range PAL_PANEL 0 15
+range PAL_GRASS 16 31
+range PAL_FOREST 32 47
+range PAL_DIRT 48 63
+range PAL_SAND 64 79
+range PAL_ROCK 80 95
+range PAL_ROCKW 96 111
+range PAL_METAL 112 127
+range PAL_OBSID 128 143
+range PAL_ROAD 144 159
+range PAL_ACCENT 160 175
+range PAL_FOAM 176 191
+range PAL_HAZARD 192 207
+range PAL_SPACE 208 223
+range PAL_WATER 224 239
+range PAL_LAVA 240 247
+range PAL_LIGHTS 248 255
+panelrow 96

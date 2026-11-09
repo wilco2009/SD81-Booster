@@ -56,6 +56,8 @@ versión (todavía sin publicar)»: **quitarla al publicar la FPGA**. El `PONG` 
 - Para las **notas de la release** (no van al manual): el tempo del VGM (la música iba lenta por retrasos acumulados, arreglado), el sondeo del ESP32 cada 3 ms con datos y 15 ms en reposo, y los comandos 66 y 67 sin log por USB.
 - Si cambia el aspecto del 4 en raya tras probarlo en el emulador, rehacer la captura (`DOC/img/connect4_win.png`).
 
+- **ESTELA (matamarcianos del modo de 256 colores), para la próxima release:** el texto de la sección 13.7 y las líneas de los Apéndices F y H están listos en `claude/planning/manual_estela.md`, con lo que hay que comprobar al empaquetar (carpeta en Software.zip, versión mínima de la FPGA) y las capturas que faltan.
+
 - **Sprites y scroll de los modos 160 (lo que queda tras el 7/11/2026):** los snapshots no guardan `POKE 2072-2075` (cuando se haga, nombrarlo en el apartado de snapshots); el emulador (`claude/planning/sprites_scroll160_emulador.md`).
 
 ## Para cada release

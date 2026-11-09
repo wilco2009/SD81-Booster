@@ -31,6 +31,12 @@ rem la de la prueba SONIDO de la fase 0 (..\VGM\music0002.vgm)
 if exist out\NIVEL1.VGM (copy /y out\NIVEL1.VGM "%DEST%\NIVEL1.VGM" >nul || goto error) else (copy /y ..\VGM\music0002.vgm "%DEST%\NIVEL1.VGM" >nul || goto error)
 rem la del fin de partida (suena una vez): out\GAMEOVER.VGM si existe; si no, de momento ..\VGM\ledstorm-2.vgm (la mas corta)
 if exist out\GAMEOVER.VGM (copy /y out\GAMEOVER.VGM "%DEST%\GAMEOVER.VGM" >nul || goto error) else (copy /y ..\VGM\ledstorm-2.vgm "%DEST%\GAMEOVER.VGM" >nul || goto error)
+rem las de la fase 8d (todas opcionales; si falta una, se sigue con la del nivel o sin musica): TITULO.VGM en bucle en el titulo, JEFE.VGM en
+rem bucle desde el aviso WARNING hasta que el jefe explota y FINAL.VGM una vez en el WELL DONE del ultimo nivel. out\NAME.VGM si existe; si no,
+rem de momento ledstorm-3 (titulo), ledstorm-1 (jefe) y ledstorm-2 (final) de ..\VGM
+if exist out\TITULO.VGM (copy /y out\TITULO.VGM "%DEST%\TITULO.VGM" >nul || goto error) else (copy /y ..\VGM\ledstorm-3.vgm "%DEST%\TITULO.VGM" >nul || goto error)
+if exist out\JEFE.VGM (copy /y out\JEFE.VGM "%DEST%\JEFE.VGM" >nul || goto error) else (copy /y ..\VGM\ledstorm-1.vgm "%DEST%\JEFE.VGM" >nul || goto error)
+if exist out\FINAL.VGM (copy /y out\FINAL.VGM "%DEST%\FINAL.VGM" >nul || goto error) else (copy /y ..\VGM\ledstorm-2.vgm "%DEST%\FINAL.VGM" >nul || goto error)
 echo OK: copiado en %DEST%
 exit /b 0
 

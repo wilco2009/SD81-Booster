@@ -9,12 +9,15 @@ assets/                       lo que se edita (fuentes)
     sprites.png, sprites.def      hoja de sprites (PNG indexado de 16 colores, rejilla de 8x8) y lista de gráficos
     tileset.png, tiles.def        tileset del nivel (PNG indexado 160x100, 10x6 tiles de 16x16) y nombres de los tiles
     titulo.png                    pantalla de título (PNG indexado 160x100, paleta de 256)
+    tileset2..5.png, tiles2..5.def    tilesets de los niveles 2-5 (hielo, desierto, ciudad, nave alienígena)
+    NIVEL2..5.LVL                 los niveles 2-5
     paths.def                     trayectorias de los enemigos
     NIVEL1.LVL                    el nivel: mapa legible + oleadas
 out/                          lo que se genera (se copia a la SD o se incluye en el ensamblado)
     HOJA.BIN  HOJA.PAL  HOJA.INC      celdas del formato B, pal16 y etiquetas (pasmo)
     NIVEL1.I16                        tileset + paleta de 256 (formato .I16)
     TITULO.I16                        pantalla de título (formato .I16; ESTELA la enseña si existe)
+    NIVEL2..5.I16  NIVEL2..5.MAP      tileset+paleta y mapa+oleadas de los niveles 2-5
     NIVEL1.MAP  LEVEL.INC             mapa y oleadas; formatos, trayectorias y tabla de tiles (pasmo)
 tools/
 ```
@@ -23,7 +26,8 @@ tools/
 
 ```bash
 python make.py            # genera todo lo de out/ desde assets/ y lo comprueba (o tools\make.bat)
-python make.py --regen    # además regenera los gráficos PROVISIONALES (sobreescribe sprites.png, tileset.png y titulo.png)
+python make.py --regen    # además regenera los gráficos PROVISIONALES (sobreescribe sprites.png, tileset*.png y titulo.png)
+python make.py --regen-niveles   # regenera NIVEL2..5.LVL con genniveles.py (sobreescribe lo editado a mano)
 python selftest.py        # pruebas de las herramientas en una carpeta temporal (también prueba con pasmo si está en el PATH)
 ```
 
@@ -108,6 +112,21 @@ end
 `--check` (1) decodifica `NIVEL1.MAP` y `LEVEL.INC` y los compara con el texto y (2) simula tick a tick todas las oleadas con
 las trayectorias decodificadas y **falla si en alguna línea de la zona coinciden más de 3 enemigos de 16x16** (regla de §4.1 del
 plan: jefe = 2, mejora = 0,5) o si algún enemigo aéreo no sale nunca de la pantalla.
+
+### `gentemas.py` + `genniveles.py`: niveles 2-5
+
+```bash
+python gentemas.py [-o ../assets] [--preview CARPETA] [--check]      # tileset2..5.png + tiles2..5.def
+python genniveles.py [-o ../assets] [--only 2 3]                      # NIVEL2..5.LVL
+python vernivel.py ../assets/NIVEL2.LVL tileset2.png mapa2.png --filas 56   # dibuja el mapa para revisarlo
+```
+
+Cuatro temas (2 hielo, 3 desierto, 4 ciudad, 5 nave alienígena). Cada uno tiene su paleta de 256 y sus 60 tiles con nombres
+propios (`tiles2.def`...), pero **los rangos de la paleta que cicla el código (agua 224-239, lava 240-247, luces 248-255) y la
+fila 96 de los paneles están donde en el nivel 1**; solo cambian sus colores. `make.py` comprueba que el `LEVEL.INC` de cada nivel
+es igual al del 1 salvo los nombres de los tiles, que cada `.MAP` ocupa como mucho 7 KB y la regla de 3 enemigos por línea.
+Los niveles solo pueden usar las 9 trayectorias de `paths.def` (el código las lleva compiladas). `genniveles.py` reparte las oleadas
+con una semilla fija y las retrasa hasta que cumplen la regla; luego se editan a mano.
 
 ### `gennivel.py`: nivel de ejemplo
 

@@ -19,6 +19,8 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gensprites  # noqa: E402
+import gentemas    # noqa: E402
+import genniveles  # noqa: E402
 import gentiles    # noqa: E402
 import gentitulo   # noqa: E402
 import make        # noqa: E402
@@ -89,6 +91,21 @@ def test_sprites_and_tiles(tmp):
     raw[600] ^= 1
     open(i16, 'wb').write(bytes(raw))
     ok(len(gentiles.check_i16(i16, os.path.join(d, 'tileset.png'))) > 0, 'un .I16 alterado hace fallar la comprobacion')
+    print('gentemas + genniveles (niveles 2-5)')
+    sys.argv = ['gentemas', '-o', d, '--check']
+    ok(gentemas.main() == 0, 'gentemas: 4 tilesets y su ida y vuelta')
+    shutil.copyfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets', 'paths.def'), os.path.join(d, 'paths.def'))
+    sys.argv = ['genniveles', '-o', d]
+    ok(genniveles.main() == 0, 'genniveles: NIVEL2..5.LVL')
+    ref = None
+    for n in range(2, 6):
+        o = os.path.join(d, 'o%d' % n)
+        sys.argv = ['map2bin', os.path.join(d, 'NIVEL%d.LVL' % n), '-o', o, '--check']
+        ok(map2bin.main() == 0, 'NIVEL%d.LVL: ida y vuelta y regla de los 3 por linea' % n)
+        ok(os.path.getsize(os.path.join(o, 'NIVEL%d.MAP' % n)) <= 7168, 'NIVEL%d.MAP cabe en 7 KB' % n)
+        cur = make.inc_common(open(os.path.join(o, 'LEVEL.INC'), encoding='utf-8').read())
+        ref = ref or cur
+        ok(cur == ref, 'NIVEL%d: LEVEL.INC igual salvo los nombres de los tiles' % n)
     print('gentitulo')
     sys.argv = ['gentitulo', '-o', d, '--check']
     ok(gentitulo.main() == 0, 'gentitulo: 160x100, franja de las cifras negra y lisa')

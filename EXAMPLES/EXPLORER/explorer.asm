@@ -116,6 +116,7 @@ TI_W            equ DLG_W-4     ; ancho del campo
 DLG_ATTR        equ 017h        ; recuadro: papel azul, tinta blanca
 DLG_TITLE_ATTR  equ 01Fh        ; titulo: tinta blanca brillante
 DLG_HINT_ATTR   equ 015h        ; teclas: tinta cian
+DLG_BTN_ATTR    equ 051h        ; botones ENTER / SPACE: el anterior en video inverso (papel cian, tinta azul)
 namebuf         equ VIDBASE+1B00h
 
 ; -------------------------------------------------------------
@@ -2932,9 +2933,13 @@ show_prompt:
         ; HL=titulo, B=longitud, DE=linea de teclas (terminada en 0, o 0
         ; si no hay). Pinta el recuadro ENCIMA de lo que haya en pantalla
         ; (el que llama repinta despues) y deja (ti_row) en la fila del
-        ; campo.
+        ; campo. En la linea de teclas, el byte 1 abre el boton ENTER, el 2
+        ; el boton SPACE y el 3 los cierra: se pintan en video inverso y
+        ; sus columnas quedan en bt_cols (0 = no hay) para el raton.
         xor a
         ld (clock_screen_active),a
+        ld (bt_cols),a
+        ld (bt_cols+1),a
         push de
         push hl
         push bc
@@ -2971,7 +2976,24 @@ sp3:    ld a,(hl)
         inc hl
         or a
         jr z,sp2
-        call p42_putchar
+        cp 4
+        jr nc,sp4
+        cp 3
+        jr z,sp5                  ; 3: fin del boton
+        ld e,a                    ; 1 / 2: abre ENTER / SPACE
+        ld d,0
+        ld a,(xycoords)           ; columna actual
+        push hl
+        ld hl,bt_cols-1
+        add hl,de
+        ld (hl),a
+        pop hl
+        ld a,DLG_BTN_ATTR
+        jr sp6
+sp5:    ld a,DLG_HINT_ATTR
+sp6:    ld (cur_attr),a
+        jr sp3
+sp4:    call p42_putchar
         jr sp3
 sp2:    ld a,DLG_TOP+3
         ld (ti_row),a
@@ -2992,10 +3014,6 @@ dlg_field:
         ld e,TI_COL
         jp p42_setxy
 
-hint_edit:      defb "ENTER ok  SPACE cancel  SHIFT+0 del  SHIFT+1 undo",0
-hint_joy:       defb "ENTER ok  SHIFT+0 del  SHIFT+1 undo  (5 keys)",0
-hint_delete:    defb "ENTER delete  SPACE cancel",0
-hint_anykey:    defb "Press a key",0
 
 confirm_yesno:
         call read_key
@@ -3006,9 +3024,18 @@ confirm_yesno:
         jr confirm_yesno
 cy_yes:
         ld a,1
-        ret
+        jp bt_clear
 cy_no:
         xor a
+        jp bt_clear
+
+; bt_clear: el dialogo se cierra: ya no hay botones para el raton (conserva A)
+bt_clear:
+        push af
+        xor a
+        ld (bt_cols),a
+        ld (bt_cols+1),a
+        pop af
         ret
 
 ; text_input: parte de lo que YA haya en namebuf/(namelen) (para precargar
@@ -3093,11 +3120,11 @@ ti_restore:
         ldir
         jp ti_loop
 ti_done:
-        ret
+        jp bt_clear
 ti_cancel:
         xor a
         ld (namelen),a
-        ret
+        jp bt_clear
 
 ti_insert:
         ld a,c
@@ -3184,6 +3211,19 @@ prompt_newfolder_len equ $-prompt_newfolder
 ; =============================================================
 read_char:
 rc_wait:
+        call mouse_poll           ; raton: cursor y clic en los botones ENTER / SPACE
+        ld a,(ms_cnt)
+        or a
+        jr z,rc_nomouse
+        dec a
+        ld (ms_cnt),a
+        ld a,(ms_code)            ; los codigos de read_key: 6 = ENTER, 1 = SPACE
+        cp 6
+        ld a,13
+        ret z
+        ld a,32
+        ret
+rc_nomouse:
         ld b,8
         ld hl,rc_rows
 rc_scan:
@@ -4843,7 +4883,7 @@ mp_nofr:
         ld e,a
         ld a,(clock_screen_active)
         or a
-        jp z,mp_end               ; solo en el listado principal
+        jp z,mp_dlg               ; fuera del listado: los botones de un dialogo, si lo hay
         bit 0,c
         jp nz,mp_left             ; el clic izquierdo se atiende aunque queden codigos por entregar
         ld a,(ms_cnt)
@@ -4942,6 +4982,43 @@ mp_b2:  inc hl
         jp z,mp_end
         ld a,1
         jp mp_set
+
+mp_dlg: bit 0,c                   ; clic izquierdo sobre ENTER o SPACE de la linea de teclas del dialogo
+        jp z,mp_end
+        ld a,(ms_cnt)
+        or a
+        jp nz,mp_end
+        ld a,(ms_buf+1)
+        rrca
+        rrca
+        rrca
+        and 1Fh
+        cp DLG_BOT-1
+        jp nz,mp_end
+        ld hl,bt_cols
+        ld d,6                    ; ENTER
+        call mp_btn5
+        jr c,mp_dl1
+        inc hl
+        ld d,1                    ; SPACE
+        call mp_btn5
+        jp nc,mp_end
+mp_dl1: ld a,1
+        jp mp_set
+
+; mp_btn5: HL -> columna donde empieza un boton (0 = no hay). Carry si el puntero esta sobre sus 5 columnas.
+mp_btn5:
+        ld a,(hl)
+        or a
+        ret z
+        ld b,a
+        ld a,(ms_col)
+        sub b
+        jr c,mp_b5n
+        cp 5
+        ret
+mp_b5n: and a
+        ret
 mp_end: pop hl
         pop de
         pop bc
@@ -4995,6 +5072,10 @@ clock_screen_active: defb 0     ; 1 = el listado principal esta activo (row0
 clock_counter:       defw 0     ; contador de pasadas de rk_wait (ver read_key)
 
 ; -- textos de la ayuda (datos: movidos de entre el codigo para dejar sitio al raton) --
+hint_edit:      defb 1,"ENTER",3," ok  ",2,"SPACE",3," cancel  SHIFT+0 del  SHIFT+1 undo",0
+hint_joy:       defb 1,"ENTER",3," ok  SHIFT+0 del  SHIFT+1 undo  (5 keys)",0
+hint_delete:    defb 1,"ENTER",3," delete  ",2,"SPACE",3," cancel",0
+hint_anykey:    defb "Press a key",0
 help_main:      defb " |8open |5up |Nnew |Ddel |Rren |Ccopy |Xcut |Vpaste |Eedit |Ssetup |Kkeys |S|P|Cexit",0
 help_back:      defb " any key: back to the list",0
 help_viewer:    defb " |6|7 line   |1|2 page   |S|P|A|C|E exit",0
@@ -5009,6 +5090,7 @@ ms_code:  defb 0                ; el codigo
 ms_t:     defb 0                ; ms_fr del ultimo clic izquierdo
 ms_tgt:   defw 0                ; indice de la entrada que ha pulsado el raton (codigo 34)
 ms_col:   defb 0                ; columna de texto del puntero (0..69)
+bt_cols:  defb 0,0              ; columna de los botones ENTER y SPACE del dialogo abierto (0 = no hay)
 ; zonas de la barra de ayuda (help_main, fila 23): columna donde empieza y codigo de tecla (los de read_key). La primera es el centinela
 ms_bar:   defb 0,0,  1,5,   7,2,   11,7,  16,8,  21,9,  26,10    ; 8open 5up Nnew Ddel Rren Ccopy
           defb 32,11, 37,12, 44,30, 50,15, 57,31, 63,1            ; Xcut Vpaste Eedit Ssetup Kkeys SPC exit

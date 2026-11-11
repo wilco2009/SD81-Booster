@@ -83,6 +83,27 @@ Al abrir un archivo con 8/ENTER:
 - `.VGM` y `.PEB` se cargan en el reproductor (T/Y/U en el panel);
 - cualquier otro se devuelve al BASIC.
 
+## Ratón
+
+Con un ratón Bluetooth conectado (`LOAD *MOUSE`, `EXAMPLES/MOUSE`; necesita la FPGA con `sim_int 0.21`) el explorador enseña un cursor (el sprite 63) y reconoce, en el listado principal:
+
+| Gesto | Equivale a |
+|---|---|
+| Girar la rueda | 6 / 7: una fila por unidad de giro (hacia delante, arriba) |
+| Clic izquierdo en una fila | mover la selección hasta ella |
+| Segundo clic izquierdo en la misma fila (menos de 25 fotogramas, contados con el VSYNC) | 8 / ENTER: abrir. Se atiende aunque la selección aún se esté moviendo: la apertura espera a que termine |
+| Clic derecho | 5: carpeta padre |
+
+Cada gesto se convierte en los mismos códigos de tecla que da `read_key`, así que todo lo demás (desplazamiento, abrir, filtros, el panel) no cambia. En los visores y los diálogos el ratón solo mueve el cursor. Sin ratón conectado el sprite queda apagado y no cambia nada. Con el panel abierto, los clics sobre él se ignoran.
+
+Implementación: `mouse_init` y `mouse_poll` (justo antes de los datos), con el gancho al principio de `read_key` y el apagado del cursor en `video_off`. Añade unos 480 bytes de código (termina en `$7F3A`, a 198 bytes del límite de `$8000`). Para hacer sitio, los textos de la ayuda (`help_main`, `help_back`, `help_viewer`, `help_hex`, 320 bytes de datos) se movieron de entre el código a la zona de datos.
+
+**Clic y doble clic.** Un clic en otra fila no mueve la selección fila a fila con `vt_down` / `vt_up` (tres consultas al MCU por fila): `vt_msel` salta directamente a ella, con una sola consulta y cambiando solo el color de la fila vieja y de la nueva. Mientras el MCU atiende al Z80, la FPGA no recibe el estado del ratón, y con la ráfaga de consultas el segundo clic de un doble clic se perdía (el tercero, ya en reposo, sí llegaba). El reloj de la cabecera se refresca ahora cada 700 pasadas de `rk_wait` en vez de 2000, porque cada pasada tarda más con la lectura del ratón.
+
+**Coordenadas.** Con los sprites en 70 columnas (columna 0 = X 32, 4 píxeles de sprite por columna, 280 de ancho), el ratón (X de 0 a 255; la FPGA solo guarda 8 bits) no llegaría a las columnas 64-69. Por eso el cursor se coloca en `xs = x·35/32` (255 → 277): `x + x/16 + x/32`. Y no se escala (24 filas de 8 líneas = 192). El umbral del panel (`MS_PANELX`) está en X = 168 del ratón, que es la columna 46.
+
+Sin probar en la placa. A comprobar: que el cursor cae sobre la fila y la columna que se pulsan, que la rueda gira en el sentido esperado (si va al revés, se cambian el 4 y el 3 en `mp_w1`) y el refresco del reloj.
+
 ## Diálogos
 
 Carpeta nueva, renombrar, borrar, filtro, joystick e ir a una dirección

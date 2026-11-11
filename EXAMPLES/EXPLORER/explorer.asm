@@ -92,7 +92,7 @@ CLIP_ATTR       equ 02Fh        ; C o X con algo marcado: papel rojo
 CURSOR_ATTR     equ 007h        ; cursor de la entrada de texto (invertido)
 CHROMA_TEXT     equ 031h        ; color + modo 1 (atributos), borde azul
 MAXVIS          equ 21
-CLOCK_TICK_THRESHOLD equ 2000   ; pasadas de rk_wait por refresco del reloj
+CLOCK_TICK_THRESHOLD equ 700    ; pasadas de rk_wait por refresco del reloj (con la lectura del raton cada pasada tarda mas)
                                  ; en vivo -- sin calibrar en hardware real
 PANEL_COL0      equ 46          ; 1ª columna del panel de configuracion
 LIST_ATTRCOLS   equ PANEL_COL0  ; columnas de la lista con el panel activo
@@ -189,6 +189,8 @@ start:
         ld b,5
         ld a,21                   ; CMD_joy
         call cmd_str_zx
+
+        call mouse_init           ; cursor del raton (sprite 63)
 
         ; --- abrir directorio raiz ---
         call do_opendir_root
@@ -770,6 +772,8 @@ vt_loop:
         jp z,vt_view_any
         cp 33
         jp z,vt_newfile
+        cp 34
+        jp z,vt_msel
         jp vt_loop
 
 ; -------------------------------------------------------------
@@ -3586,10 +3590,6 @@ dh2:    push hl
         pop hl
         jr dh1
 
-help_main:      defb " |8open |5up |Nnew |Ddel |Rren |Ccopy |Xcut |Vpaste |Eedit |Ssetup |Kkeys |S|P|Cexit",0
-help_back:      defb " any key: back to the list",0
-help_viewer:    defb " |6|7 line   |1|2 page   |S|P|A|C|E exit",0
-help_hex:       defb " |6|7 line   |1|2 page   |G goto   |Z ZX81/ASCII   |S|P|A|C|E exit",0
 
 ; -------------------------------------------------------------
 ; draw_cursor: la celda (ti_row, ti_cursor) en video inverso, por
@@ -3719,6 +3719,10 @@ video_spectrum_on:
 ; video_off: video nativo, I de la ROM, el modo CHR elegido en el panel y
 ; el bloque VIDBLOCK a su pagina. Antes de volver al BASIC.
 video_off:
+        ld a,MS_SPR
+        ld (2100),a
+        xor a
+        ld (2101),a               ; sin cursor del raton
         ld a,85
         ld (2045),a               ; Superfast OFF (apaga tambien la pantalla
                                   ; y los atributos alternativos)
@@ -3794,6 +3798,22 @@ spec_attr_addr:
 ; =============================================================
 read_key:
 rk_wait:
+        call mouse_poll           ; raton: cursor y, en el listado, codigos de tecla
+        ld a,(ms_cnt)
+        or a
+        jr z,rk_ms0
+        dec a
+        ld (ms_cnt),a
+        ld a,(ms_code)
+        ret
+rk_ms0: ld a,(ms_act)             ; doble clic pendiente: abrir cuando ya no quedan movimientos
+        or a
+        jr z,rk_nomouse
+        xor a
+        ld (ms_act),a
+        ld a,5
+        ret
+rk_nomouse:
         ; -- reloj en vivo: si estamos en el listado principal (no en un
         ; visor/dialogo), cuenta pasadas de este bucle y cada
         ; CLOCK_TICK_THRESHOLD lo repinta -- valor a calibrar en hardware
@@ -4686,6 +4706,251 @@ ycoord:
         ret
 
 ; =============================================================
+; RATON BLE (EXAMPLES/MOUSE/mouselib.inc, en pequeno). Se lee el puerto
+; $3FEF, indice 20 (x, y, botones, rueda, rawx, rawy, seq, estado) y se
+; traduce a los mismos codigos que da el teclado en read_key:
+;   rueda            -> 4 (arriba) o 3 (abajo), una fila por unidad de giro
+;   clic izquierdo   -> salta a la fila pulsada (codigo 34, vt_msel);
+;                       un segundo clic en la misma fila antes de 25
+;                       fotogramas (flancos del VSYNC) -> 5 (abrir), que
+;                       se entrega cuando ya no quedan movimientos
+;   clic derecho     -> 2 (carpeta padre)
+; Los codigos se entregan de uno en uno (ms_code, ms_cnt) y solo en el
+; listado principal (clock_screen_active = 1); en los visores y los
+; dialogos el raton solo mueve el cursor (el sprite 63). Necesita la FPGA
+; con sim_int 0.21 o posterior y los sprites en 70 columnas (X de sprite:
+; columna 0 = 32, 4 pixeles de sprite por columna, 280 de ancho). No toca
+; BC, DE ni HL.
+; =============================================================
+MS_PORT         equ 3FEFh
+MS_SPR          equ 63
+MS_FRAMES       equ 4034h        ; FRAMES (en FAST lo simula la FPGA)
+MS_PANELX       equ 168          ; X del raton donde empieza la columna 46 (con el panel abierto el listado acaba ahi): 184 pixeles de sprite = 168*35/32
+
+mouse_init:
+        ld a,MS_SPR
+        ld (2100),a
+        xor a
+        ld (2101),a               ; apagado hasta que el raton este conectado
+        ld (2130),a               ; formato A
+        ld hl,ms_arrow
+        ld de,2105
+        ld bc,24
+        ldir                      ; color, pixeles y mascara (2105-2128)
+        ld bc,MS_PORT
+        ld a,24h
+        out (c),a
+        in a,(c)                  ; x
+        in a,(c)                  ; y
+        in a,(c)                  ; botones
+        and 3
+        ld (ms_prev),a
+        in a,(c)                  ; rueda
+        ld (ms_pwh),a
+        xor a
+        ld (ms_cnt),a
+        ret
+
+mouse_poll:
+        push bc
+        push de
+        push hl
+        ld bc,MS_PORT
+        ld a,24h
+        out (c),a
+        ld hl,ms_buf
+        ld d,8
+mp_rd:  in a,(c)
+        ld (hl),a
+        inc hl
+        dec d
+        jr nz,mp_rd
+        ld a,MS_SPR
+        ld (2100),a
+        ld a,(ms_buf+7)
+        and 1                     ; conectado
+        ld (2101),a
+        jp z,mp_end
+        ld a,(ms_buf)             ; cursor: sprite en (xs+31, y+31), con xs = x*35/32: el listado
+        ld l,a                    ; mide 280 pixeles de sprite (70 columnas) y el raton solo llega a 255
+        ld h,0
+        rrca
+        rrca
+        rrca
+        rrca
+        and 0Fh                   ; x/16
+        ld e,a
+        ld a,l
+        rrca
+        rrca
+        rrca
+        rrca
+        rrca
+        and 07h                   ; x/32
+        add a,e
+        ld e,a
+        ld d,0
+        add hl,de                 ; xs = x + x/16 + x/32 (255 -> 277)
+        ld de,31                  ; +32 del origen de los sprites, -1 del punto caliente
+        add hl,de
+        ld a,l
+        ld (2102),a
+        ld a,h
+        ld (2103),a
+        ld a,(ms_buf+1)
+        add a,31
+        ld (2104),a
+
+        in a,(0AFh)               ; fotogramas: flancos de subida del VSYNC (bit 0 del puerto $AF)
+        and 1
+        ld b,a
+        ld a,(ms_vs)
+        cp b
+        ld a,b
+        ld (ms_vs),a
+        jr z,mp_nofr
+        or a
+        jr z,mp_nofr
+        ld hl,ms_fr
+        inc (hl)
+mp_nofr:
+        ld a,(ms_buf+2)           ; botones recien pulsados
+        and 3
+        ld b,a
+        ld a,(ms_prev)
+        cpl
+        and b
+        ld c,a
+        ld a,b
+        ld (ms_prev),a
+        ld a,(ms_buf+3)           ; giro de la rueda desde la pasada anterior
+        ld b,a
+        ld a,(ms_pwh)
+        ld e,a
+        ld a,b
+        ld (ms_pwh),a
+        sub e
+        ld e,a
+        ld a,(clock_screen_active)
+        or a
+        jp z,mp_end               ; solo en el listado principal
+        bit 0,c
+        jp nz,mp_left             ; el clic izquierdo se atiende aunque queden codigos por entregar
+        ld a,(ms_cnt)
+        or a
+        jp nz,mp_end
+        ld a,e
+        or a
+        jr z,mp_btn
+        ld d,4                    ; giro positivo: hacia arriba
+        jp p,mp_w1
+        neg
+        ld d,3
+mp_w1:  cp 22                     ; una fila por unidad de giro
+        jr c,mp_set
+        ld a,21
+mp_set: ld (ms_cnt),a
+        ld a,d
+        ld (ms_code),a
+        jp mp_end
+
+mp_btn: bit 1,c
+        jp z,mp_end
+        ld d,2                    ; boton derecho: carpeta padre
+        ld a,1
+        jr mp_set
+
+mp_left:
+        ld a,(ms_buf+1)
+        rrca
+        rrca
+        rrca
+        and 1Fh                   ; fila de texto
+        jp z,mp_end               ; la cabecera no es del listado
+        cp MAXVIS+1
+        jp nc,mp_end              ; ni lo que hay debajo
+        ld b,a                    ; B = fila de pantalla (1..MAXVIS)
+        ld a,(cfg_panel)
+        or a
+        jr z,mp_c1
+        ld a,(ms_buf)
+        cp MS_PANELX
+        jp nc,mp_end              ; clic sobre el panel
+mp_c1:  ld a,(ms_fr)              ; fotogramas desde el ultimo clic izquierdo
+        ld hl,ms_t
+        ld c,(hl)
+        ld (hl),a
+        sub c
+        ld c,a                    ; C = fotogramas
+        ld a,(ms_lrow)
+        ld d,a
+        ld a,b
+        ld (ms_lrow),a
+        cp d
+        jr nz,mp_new              ; otra fila que la del clic anterior
+        ld a,c
+        cp 25
+        jr nc,mp_new              ; ya hace rato
+        ld a,1
+        ld (ms_act),a             ; doble clic: abrir en cuanto se vacie la cola
+        jp mp_end
+mp_new: ld a,(ms_cnt)
+        or a
+        jp nz,mp_end              ; aun se mueve la seleccion del clic anterior
+        ld a,b
+        dec a
+        ld e,a
+        ld d,0                    ; DE = fila del listado (0..MAXVIS-1)
+        ld hl,(win_start)
+        add hl,de                 ; HL = entrada pulsada
+        ld de,(cur_index)
+        or a
+        sbc hl,de
+        jp z,mp_end               ; ya era la elegida
+        add hl,de                 ; HL = entrada pulsada otra vez
+        ld (ms_tgt),hl
+        ld d,34                   ; codigo 34: saltar a ella (una sola orden al MCU, no una por fila)
+        ld a,1
+        jr mp_set
+mp_end: pop hl
+        pop de
+        pop bc
+        ret
+
+; -------------------------------------------------------------
+; vt_msel: el raton eligio una fila del listado (indice en ms_tgt). Solo
+; cambia el color de la fila vieja y de la nueva, y consulta al MCU por la
+; entrada nueva una sola vez (comprueba que existe): mover la seleccion de
+; fila en fila con vt_down / vt_up eran tres consultas por fila, y mientras
+; el MCU atiende al Z80 la FPGA no recibe el estado del raton: se perdia el
+; segundo clic de un doble clic.
+; -------------------------------------------------------------
+vt_msel:
+        ld de,(ms_tgt)
+        call get_row
+        ld a,(namelen)
+        or a
+        jp z,vt_loop              ; ahi no hay ninguna entrada
+        ld hl,(cur_index)
+        call calc_screen_row
+        ld c,NORM_ATTR
+        call ms_attr
+        ld hl,(ms_tgt)
+        ld (cur_index),hl
+        call calc_screen_row
+        ld c,SEL_ATTR
+        call ms_attr
+        jp vt_loop
+
+; ms_attr: A = fila, C = atributo -> la fila del listado entera (con el ancho vigente)
+ms_attr:
+        ld d,a
+        ld a,(list_attrw)
+        ld b,a
+        ld a,d
+        jp fill_row_attr_n
+
+; =============================================================
 ; DATOS / VARIABLES DE TRABAJO
 ; =============================================================
 cur_index:      defw 1
@@ -4698,6 +4963,28 @@ list_attrw:     defb 32         ; ancho de atributo vigente del listado (idem)
 clock_screen_active: defb 0     ; 1 = el listado principal esta activo (row0
                                  ; muestra el reloj); 0 en visores/dialogos
 clock_counter:       defw 0     ; contador de pasadas de rk_wait (ver read_key)
+
+; -- textos de la ayuda (datos: movidos de entre el codigo para dejar sitio al raton) --
+help_main:      defb " |8open |5up |Nnew |Ddel |Rren |Ccopy |Xcut |Vpaste |Eedit |Ssetup |Kkeys |S|P|Cexit",0
+help_back:      defb " any key: back to the list",0
+help_viewer:    defb " |6|7 line   |1|2 page   |S|P|A|C|E exit",0
+help_hex:       defb " |6|7 line   |1|2 page   |G goto   |Z ZX81/ASCII   |S|P|A|C|E exit",0
+
+; -- raton (ver mouse_poll) --
+ms_buf:   defs 8                ; x, y, botones, rueda, rawx, rawy, seq, estado (puerto $3FEF)
+ms_prev:  defb 0                ; botones de la pasada anterior
+ms_pwh:   defb 0                ; rueda de la pasada anterior
+ms_cnt:   defb 0                ; codigos de tecla que quedan por entregar
+ms_code:  defb 0                ; el codigo
+ms_t:     defb 0                ; ms_fr del ultimo clic izquierdo
+ms_tgt:   defw 0                ; indice de la entrada que ha pulsado el raton (codigo 34)
+ms_fr:    defb 0                ; fotogramas (flancos de subida del VSYNC)
+ms_vs:    defb 0                ; nivel del VSYNC en la pasada anterior
+ms_lrow:  defb 0                ; fila de pantalla del ultimo clic izquierdo
+ms_act:   defb 0                ; 1 = abrir en cuanto se vacie la cola (doble clic)
+ms_arrow: defb 0F0h,0F0h,0F0h,0F0h,0F0h,0F0h,0F0h,0F0h   ; flecha blanca con borde negro (la de mouselib.inc)
+          defb 000h,040h,060h,070h,078h,07Ch,058h,018h
+          defb 0E0h,0F0h,0F8h,0FCh,0FEh,0FEh,0FEh,0FCh
 
 ; -- filtro de listado (tecla W, solo con el panel oculto): wildcards que
 ; se añaden a la carpeta actual al pedir OPENDIR2 (ver do_opendir_root).

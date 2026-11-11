@@ -52,14 +52,26 @@ start:          call SET_FAST
                 call key_up             ; suelta la tecla con la que se abrio
                 call debounce
                 call key_up
+                call mouse_btn          ; los botones como estan al empezar: el clic con el que se abrio desde el explorador
+                ld (ms_prev),a          ; no cuenta hasta que se suelte y se vuelva a pulsar
 
 view:           ld a,$FD                ; F: fila A-G, bit 3
                 in a,(254)
                 bit 3,a
                 jr z,vw_fit
                 call key_other
-                jr z,view               ; ninguna tecla
+                jr z,vw_mouse           ; ninguna tecla: mira el raton
                 jr exit
+vw_mouse:       call mouse_btn
+                ld hl,ms_prev
+                ld b,(hl)
+                ld (hl),a
+                or a
+                jr z,view               ; ningun boton
+                ld a,b
+                or a
+                jr nz,view              ; ya estaba pulsado: espera a que lo suelte
+                jr exit                 ; un clic nuevo: volver
 vw_fit:         ld a,(kind)
                 cp 2
                 jr nz,vw_rel            ; la F no hace nada con un .I16
@@ -108,6 +120,27 @@ ko_n:           cpl
                 rlc b                   ; FE, FD, FB, F7, EF, DF, BF, 7F y de nuevo FE (acarreo 0)
                 jr c,ko_l
                 xor a
+                ret
+
+; mouse_btn: A = botones pulsados (bits 0-2) si el raton esta conectado (puerto $3FEF, indice 20: x, y, botones, rueda, rawx, rawy, seq,
+; estado), y 0 si no (sin raton, o la FPGA no lo tiene). Destruye BC y D.
+mouse_btn:      ld bc,$3FEF
+                ld a,$24
+                out (c),a
+                in a,(c)                ; x
+                in a,(c)                ; y
+                in a,(c)                ; botones
+                ld d,a
+                in a,(c)                ; rueda
+                in a,(c)                ; rawx
+                in a,(c)                ; rawy
+                in a,(c)                ; seq
+                in a,(c)                ; estado: bit 0 = conectado
+                and 1
+                ld a,0
+                ret z
+                ld a,d
+                and 7
                 ret
 
 key_up:         xor a
@@ -343,6 +376,7 @@ fitmode:        defb 1                  ; 0 estira, 1 conserva la proporcion, 2 
 kind:           defb 0                  ; 1 = .I16, 2 = .BMP / .JPG
 fh:             defb 0
 name_len:       defb 0
+ms_prev:        defb 0                  ; botones del raton en la pasada anterior
 hdr:            defb 0,0,0,0
 name_buf:       defs 64
 palbuf:         defs 512

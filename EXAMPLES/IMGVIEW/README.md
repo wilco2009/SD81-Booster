@@ -17,7 +17,9 @@ BMP admitidos: sin compresión, de 1, 4, 8, 24 y 32 bits, de abajo arriba o de a
 | Tecla | Acción |
 |---|---|
 | **F** | solo en un BMP o JPG: cambia la colocación y vuelve a cargarlo: **con su proporción** (bandas negras; la de salida), **recortado** (llena la pantalla sin distorsionar) o **estirado** (llena la pantalla). Con un `.I16` no hace nada |
-| cualquier otra | volver al explorador |
+| cualquier otra, o **un clic del ratón** | volver al explorador |
+
+El clic cuenta cuando un botón pasa de suelto a pulsado (puerto `$3FEF`, índice 20, ver `EXAMPLES/MOUSE`), y solo si el ratón está conectado. Los botones se miran al empezar, así que el clic con el que se abrió la imagen desde el explorador (el segundo de un doble clic) no la cierra hasta que se suelte y se vuelva a pulsar. Sin ratón, o con una FPGA que no tenga el puerto, no cambia nada.
 
 ## Si no se puede
 

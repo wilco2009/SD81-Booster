@@ -4715,6 +4715,8 @@ ycoord:
 ;                       fotogramas (flancos del VSYNC) -> 5 (abrir), que
 ;                       se entrega cuando ya no quedan movimientos
 ;   clic derecho     -> 2 (carpeta padre)
+;   clic en la barra de ayuda de abajo (fila 23) -> el codigo de la tecla de la
+;                       zona pulsada (ms_bar): 8, 5, N, D, R, C, X, V, E, S, K y SPC
 ; Los codigos se entregan de uno en uno (ms_code, ms_cnt) y solo en el
 ; listado principal (clock_screen_active = 1); en los visores y los
 ; dialogos el raton solo mueve el cursor (el sprite 63). Necesita la FPGA
@@ -4725,7 +4727,7 @@ ycoord:
 MS_PORT         equ 3FEFh
 MS_SPR          equ 63
 MS_FRAMES       equ 4034h        ; FRAMES (en FAST lo simula la FPGA)
-MS_PANELX       equ 168          ; X del raton donde empieza la columna 46 (con el panel abierto el listado acaba ahi): 184 pixeles de sprite = 168*35/32
+MS_PANELCOL     equ 46           ; con el panel abierto, el listado acaba en la columna 45
 
 mouse_init:
         ld a,MS_SPR
@@ -4791,6 +4793,14 @@ mp_rd:  in a,(c)
         ld e,a
         ld d,0
         add hl,de                 ; xs = x + x/16 + x/32 (255 -> 277)
+        push hl
+        srl h
+        rr l
+        srl h
+        rr l
+        ld a,l
+        ld (ms_col),a             ; columna de texto = xs/4 (0..69)
+        pop hl
         ld de,31                  ; +32 del origen de los sprites, -1 del punto caliente
         add hl,de
         ld a,l
@@ -4867,14 +4877,16 @@ mp_left:
         rrca
         and 1Fh                   ; fila de texto
         jp z,mp_end               ; la cabecera no es del listado
+        cp 23
+        jp z,mp_bar               ; la barra de ayuda de abajo
         cp MAXVIS+1
         jp nc,mp_end              ; ni lo que hay debajo
         ld b,a                    ; B = fila de pantalla (1..MAXVIS)
         ld a,(cfg_panel)
         or a
         jr z,mp_c1
-        ld a,(ms_buf)
-        cp MS_PANELX
+        ld a,(ms_col)
+        cp MS_PANELCOL
         jp nc,mp_end              ; clic sobre el panel
 mp_c1:  ld a,(ms_fr)              ; fotogramas desde el ultimo clic izquierdo
         ld hl,ms_t
@@ -4912,6 +4924,24 @@ mp_new: ld a,(ms_cnt)
         ld d,34                   ; codigo 34: saltar a ella (una sola orden al MCU, no una por fila)
         ld a,1
         jr mp_set
+
+mp_bar: ld a,(ms_cnt)
+        or a
+        jp nz,mp_end
+        ld a,(ms_col)
+        ld hl,ms_bar+24           ; ultima zona; se busca hacia atras la primera que empiece en la columna o antes
+mp_b1:  cp (hl)
+        jr nc,mp_b2
+        dec hl
+        dec hl
+        jr mp_b1
+mp_b2:  inc hl
+        ld d,(hl)                 ; codigo de tecla (0 = nada)
+        ld a,d
+        or a
+        jp z,mp_end
+        ld a,1
+        jp mp_set
 mp_end: pop hl
         pop de
         pop bc
@@ -4978,6 +5008,10 @@ ms_cnt:   defb 0                ; codigos de tecla que quedan por entregar
 ms_code:  defb 0                ; el codigo
 ms_t:     defb 0                ; ms_fr del ultimo clic izquierdo
 ms_tgt:   defw 0                ; indice de la entrada que ha pulsado el raton (codigo 34)
+ms_col:   defb 0                ; columna de texto del puntero (0..69)
+; zonas de la barra de ayuda (help_main, fila 23): columna donde empieza y codigo de tecla (los de read_key). La primera es el centinela
+ms_bar:   defb 0,0,  1,5,   7,2,   11,7,  16,8,  21,9,  26,10    ; 8open 5up Nnew Ddel Rren Ccopy
+          defb 32,11, 37,12, 44,30, 50,15, 57,31, 63,1            ; Xcut Vpaste Eedit Ssetup Kkeys SPC exit
 ms_fr:    defb 0                ; fotogramas (flancos de subida del VSYNC)
 ms_vs:    defb 0                ; nivel del VSYNC en la pasada anterior
 ms_lrow:  defb 0                ; fila de pantalla del ultimo clic izquierdo

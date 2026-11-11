@@ -563,28 +563,31 @@ vdp_chrval:
         ld c,PANEL_ATTR
         call panel_print
 
-        ; -- version MCU/ROM/FPGA, ultima linea: "Mx.y,Rx.y,Fx.y" --
+        ; -- version MCU/ROM/FPGA, ultima linea: "MCU x.y,ROM x.y,FPGA x.y" --
         ld d,21
-        ld e,PANEL_TXTCOL
+        ld e,PANEL_TXTCOL-2       ; "MCU x.y,ROM x.y,FPGA x.y" son 24 columnas: desde la 46, que ya es del panel
         call p42_setxy
         ld a,PANEL_ATTR
         ld (cur_attr),a
-        ld a,'M'
-        call p42_putchar
+        ld hl,ver_mcu
+        ld b,4
+        call p42_string
         ld a,1                    ; CMD_ver (version MCU)
         call mcu_send
         call mcu_recv
         call panel_print_ver
         ld a,','
         call p42_putchar
-        ld a,'R'
-        call p42_putchar
+        ld hl,ver_rom
+        ld b,4
+        call p42_string
         ld a,(2004h)              ; version ROM (mismo empaquetado, ver VER.txt)
         call panel_print_ver
         ld a,','
         call p42_putchar
-        ld a,'F'
-        call p42_putchar
+        ld hl,ver_fpga
+        ld b,5
+        call p42_string
         ld a,31                   ; CMD_getFPGAVer
         call mcu_send
         call mcu_recv
@@ -673,36 +676,6 @@ panel_onoff:
         ld hl,str_on
         ret
 
-panel_title:    defb "SETTINGS"
-panel_title_len equ $-panel_title
-; centrado en el hueco de texto del panel (PANEL_TXTW columnas)
-PANEL_TITLE_COL equ PANEL_TXTCOL+(PANEL_TXTW-panel_title_len)/2
-
-panel_lbl_wrx:         defb "W WRX"
-panel_lbl_wrx_len      equ $-panel_lbl_wrx
-panel_lbl_fullpag:     defb "F FULLP"
-panel_lbl_fullpag_len  equ $-panel_lbl_fullpag
-panel_lbl_mc45:        defb "M MC45"
-panel_lbl_mc45_len     equ $-panel_lbl_mc45
-panel_lbl_chr:         defb "A CHR"
-panel_lbl_chr_len      equ $-panel_lbl_chr
-panel_lbl_joy:         defb "J JOY"
-panel_lbl_joy_len      equ $-panel_lbl_joy
-panel_lbl_tyu:         defb "T Y U"
-panel_lbl_tyu_len      equ $-panel_lbl_tyu
-panel_lbl_ip:          defb "I IP"
-panel_lbl_ip_len       equ $-panel_lbl_ip
-panel_lbl_filter1:     defb ". FILTER"
-panel_lbl_filter1_len  equ $-panel_lbl_filter1
-panel_lbl_filter2:     defb "(SHIFT+1)=RESET"
-panel_lbl_filter2_len  equ $-panel_lbl_filter2
-; centrado igual que el titulo (PANEL_TXTW columnas)
-PANEL_TYU_COL equ PANEL_TXTCOL+(PANEL_TXTW-panel_lbl_tyu_len)/2
-
-str_off:        defb "OFF"
-str_on:         defb "ON "
-str_chr128:     defb "128"
-str_chr64:      defb "64 "
 
 ; -------------------------------------------------------------
 ; vt_loop: bucle interactivo real -- read_key + 6/7 (movimiento con
@@ -785,6 +758,8 @@ vt_loop:
 vt_help:
         xor a
         ld (clock_screen_active),a
+        ld a,3
+        ld (ms_view),a            ; la ayuda de teclas: un clic la cierra
         call video_clear
         call draw_header
         ld hl,help_back
@@ -817,6 +792,8 @@ vh3:    ld a,c
         jr vh2
 vh_done:
         call read_key
+        xor a
+        ld (ms_view),a
         jp vt_refresh_and_loop
 
 HELPTXT_KEY_ATTR equ 071h        ; las teclas: papel blanco, tinta azul
@@ -915,9 +892,6 @@ vef_nocopy:
         call vt_refresh
         jp vt_loop
 
-prompt_filter:
-        defb "FILTER (WILDCARDS, EMPTY = SHOW ALL)"
-prompt_filter_len equ $-prompt_filter
 
 ; vt_reset_filter: SHIFT+1 -- quita el filtro de listado (si habia) y
 ; recarga la carpeta actual sin el.
@@ -1033,9 +1007,6 @@ vt_edit_joy:
         call cmd_str_zx
         jp vt_refresh_and_loop
 
-prompt_joy:
-        defb "JOYSTICK KEYS: UP, DOWN, LEFT, RIGHT, FIRE"
-prompt_joy_len equ $-prompt_joy
 
 ; -------------------------------------------------------------
 ; vt_vgm_stop/pause/cont: teclas T/Y/U -- control del VGM cargado con
@@ -1430,9 +1401,6 @@ vt_newfile:
         jr nz,vte_go
         jp vt_refresh_and_loop    ; cancelado
 
-prompt_newfile:
-        defb "NEW TEXT FILE"
-prompt_newfile_len equ $-prompt_newfile
 
 VGM_NAME_MAXLEN equ 15   ; ancho de texto util del panel (PANEL_TXTCOL..41)
 
@@ -1791,6 +1759,8 @@ vt_view_txt_opened:              ; entrada compartida con vt_view_ip (con
                                   ; fichero (ignoramos fecha/hora y status:
                                   ; el tamaño ya es valido con solo tener
                                   ; el handle abierto)
+        ld a,1
+        ld (ms_view),a            ; visor de texto: el raton actua sobre su barra y la rueda
         ld hl,0
         ld (viewer_topline),hl
         call vwr_render
@@ -1867,6 +1837,8 @@ vwr_pgdn_ok:
         jr vwr_loop
 
 vwr_exit:
+        xor a
+        ld (ms_view),a
         ld a,(viewer_handle)
         call f_close
         jp vt_refresh_and_loop
@@ -1892,10 +1864,6 @@ vt_view_ip:
         call read_key
         jp vt_refresh_and_loop
 
-ip_path:        defb "/MAN/IP.TXT"
-ip_path_len     equ $-ip_path
-noconn_msg:     defb "NO CONNECTION (/MAN/IP.TXT NOT FOUND)"
-noconn_msg_len  equ $-noconn_msg
 
 ; vwr_render: repinta la pantalla completa del visor. Vuelve siempre al
 ; principio del fichero y relee desde ahi, saltando (viewer_topline)
@@ -2131,6 +2099,8 @@ vt_view_hex:
 
         ld (viewer_handle),a
         call f_stat
+        ld a,2
+        ld (ms_view),a            ; visor hexadecimal
         ld a,SCRW
         ld (list_attrw),a         ; hexr_down/up reutilizan copy_row/clear_row
                                   ; (respetan este ancho); el visor es
@@ -2292,9 +2262,6 @@ hexr_goto_redraw:
         call hexr_render
         jp hexr_loop
 
-prompt_goto:
-        defb "GO TO ADDRESS (HEX)"
-prompt_goto_len equ $-prompt_goto
 
 ; vwr_pgup/vwr_pgdn (VWR_ROWS) valen igual aqui: misma pantalla, mismo
 ; nº de filas visibles.
@@ -2703,9 +2670,6 @@ vtd_done:
         call do_opendir_root
         jp vt_refresh_and_loop
 
-prompt_delete:
-        defb "DELETE"
-prompt_delete_len equ $-prompt_delete
 
 ; -------------------------------------------------------------
 ; vt_rename: tecla R -- copia literal de do_rename en explorer.asm.
@@ -2751,9 +2715,6 @@ vtr_skipcopy:
         call do_opendir_root
         jp vt_refresh_and_loop
 
-prompt_rename:
-        defb "RENAME"
-prompt_rename_len equ $-prompt_rename
 
 ; -------------------------------------------------------------
 ; vt_mark_copy (C) / vt_mark_move (X): copia literal de do_mark_copy/
@@ -3202,9 +3163,6 @@ ti_delete_before:
         ldir
         ret
 
-prompt_newfolder:
-        defb "NEW FOLDER"
-prompt_newfolder_len equ $-prompt_newfolder
 
 ; =============================================================
 ; TECLADO COMPLETO (para entrada de texto) -- copia literal de
@@ -4906,7 +4864,7 @@ mp_nofr:
         ld a,(ms_cnt)
         or a
         jp nz,mp_end
-        ld a,e
+mp_wh:  ld a,e
         or a
         jr z,mp_btn
         ld d,4                    ; giro positivo: hacia arriba
@@ -4933,18 +4891,32 @@ mp_left:
         rrca
         rrca
         and 1Fh                   ; fila de texto
-        jp z,mp_end               ; la cabecera no es del listado
         cp 23
         jp z,mp_bar               ; la barra de ayuda de abajo
-        cp MAXVIS+1
-        jp nc,mp_end              ; ni lo que hay debajo
-        ld b,a                    ; B = fila de pantalla (1..MAXVIS)
+        ld b,a                    ; B = fila de pantalla
         ld a,(cfg_panel)
         or a
-        jr z,mp_c1
+        jr z,mp_c0
+        ld a,b                    ; panel abierto: dentro de su ventana (filas 1..MAXVIS, columna >= 46), sus opciones; fuera, el clic cierra el setup
+        or a
+        jr z,mp_close
+        cp MAXVIS+1
+        jr nc,mp_close
         ld a,(ms_col)
         cp MS_PANELCOL
-        jp nc,mp_panel            ; clic sobre el panel: sus opciones
+        jp nc,mp_panel
+mp_close:
+        ld a,(ms_cnt)
+        or a
+        jp nz,mp_end
+        ld d,15                   ; codigo 15: S (abre o cierra el setup)
+        ld a,1
+        jp mp_set
+mp_c0:  ld a,b
+        or a
+        jp z,mp_end               ; la cabecera no es del listado
+        cp MAXVIS+1
+        jp nc,mp_end              ; ni lo que hay debajo
 mp_c1:  ld a,(ms_fr)              ; fotogramas desde el ultimo clic izquierdo
         ld hl,ms_t
         ld c,(hl)
@@ -4980,7 +4952,7 @@ mp_new: ld a,(ms_cnt)
         ld (ms_tgt),hl
         ld d,34                   ; codigo 34: saltar a ella (una sola orden al MCU, no una por fila)
         ld a,1
-        jr mp_set
+        jp mp_set
 
 mp_bar: ld a,(ms_cnt)
         or a
@@ -5000,7 +4972,23 @@ mp_b2:  inc hl
         ld a,1
         jp mp_set
 
-mp_dlg: bit 0,c                   ; clic izquierdo sobre ENTER o SPACE de la linea de teclas del dialogo
+mp_dlg: ld a,(ms_view)
+        or a
+        jr z,mp_dl0
+        ld a,(bt_cols)
+        ld hl,bt_cols+1
+        or (hl)
+        jr nz,mp_dl0              ; hay un dialogo abierto dentro del visor: se atiende como los demas
+        bit 0,c
+        jp nz,mp_vbar             ; clic: la barra de abajo del visor (o, en la ayuda de teclas, cualquier sitio)
+        ld a,(ms_cnt)
+        or a
+        jp nz,mp_end
+        ld a,(ms_view)
+        cp 3
+        jp z,mp_end               ; la ayuda de teclas: la rueda no hace nada
+        jp mp_wh                  ; rueda: lineas
+mp_dl0: bit 0,c                   ; clic izquierdo sobre ENTER o SPACE de la linea de teclas del dialogo
         jp z,mp_end
         ld a,(ms_cnt)
         or a
@@ -5044,6 +5032,30 @@ mp_panel:
         or a
         jp nz,mp_end
         ld hl,ms_pan
+        jr mp_p1
+
+; mp_vbar: clic en un visor. Zonas de su barra de abajo (fila 23): la tabla de ms_view (1 = texto, 2 = hex)
+mp_vbar:
+        ld a,(ms_cnt)
+        or a
+        jp nz,mp_end
+        ld a,(ms_view)
+        cp 3
+        jr nz,mp_vb0
+        ld d,1                    ; ayuda de teclas: cualquier clic vuelve (read_key devuelve el codigo 1)
+        ld a,1
+        jp mp_set
+mp_vb0: ld a,(ms_buf+1)
+        rrca
+        rrca
+        rrca
+        and 1Fh
+        ld b,a
+        ld hl,ms_vb1
+        ld a,(ms_view)
+        cp 2
+        jr nz,mp_p1
+        ld hl,ms_vb2
 mp_p1:  ld a,(hl)                 ; fila (0 = fin de la tabla)
         or a
         jp z,mp_end
@@ -5122,11 +5134,68 @@ hint_edit:      defb 1,"ENTER",3," ok  ",2,"SPACE",3," cancel  SHIFT+0 del  SHIF
 hint_joy:       defb 1,"ENTER",3," ok  SHIFT+0 del  SHIFT+1 undo  (5 keys)",0
 hint_delete:    defb 1,"ENTER",3," delete  ",2,"SPACE",3," cancel",0
 hint_anykey:    defb "Press a key",0
+
+; -- textos y etiquetas (datos: movidos de entre el codigo) --
+panel_title:    defb "SETTINGS"
+panel_title_len equ $-panel_title
+; centrado en el hueco de texto del panel (PANEL_TXTW columnas)
+PANEL_TITLE_COL equ PANEL_TXTCOL+(PANEL_TXTW-panel_title_len)/2
+
+panel_lbl_wrx:         defb "W WRX"
+panel_lbl_wrx_len      equ $-panel_lbl_wrx
+panel_lbl_fullpag:     defb "F FULLP"
+panel_lbl_fullpag_len  equ $-panel_lbl_fullpag
+panel_lbl_mc45:        defb "M MC45"
+panel_lbl_mc45_len     equ $-panel_lbl_mc45
+panel_lbl_chr:         defb "A CHR"
+panel_lbl_chr_len      equ $-panel_lbl_chr
+panel_lbl_joy:         defb "J JOY"
+panel_lbl_joy_len      equ $-panel_lbl_joy
+panel_lbl_tyu:         defb "T Y U"
+panel_lbl_tyu_len      equ $-panel_lbl_tyu
+panel_lbl_ip:          defb "I IP"
+panel_lbl_ip_len       equ $-panel_lbl_ip
+panel_lbl_filter1:     defb ". FILTER"
+panel_lbl_filter1_len  equ $-panel_lbl_filter1
+panel_lbl_filter2:     defb "(SHIFT+1)=RESET"
+panel_lbl_filter2_len  equ $-panel_lbl_filter2
+; centrado igual que el titulo (PANEL_TXTW columnas)
+PANEL_TYU_COL equ PANEL_TXTCOL+(PANEL_TXTW-panel_lbl_tyu_len)/2
+
+str_off:        defb "OFF"
+str_on:         defb "ON "
+str_chr128:     defb "128"
+str_chr64:      defb "64 "
+prompt_filter:
+        defb "FILTER (WILDCARDS, EMPTY = SHOW ALL)"
+prompt_filter_len equ $-prompt_filter
+prompt_joy:
+        defb "JOYSTICK KEYS: UP, DOWN, LEFT, RIGHT, FIRE"
+prompt_joy_len equ $-prompt_joy
+prompt_newfile:
+        defb "NEW TEXT FILE"
+prompt_newfile_len equ $-prompt_newfile
+prompt_goto:
+        defb "GO TO ADDRESS (HEX)"
+prompt_goto_len equ $-prompt_goto
+prompt_delete:
+        defb "DELETE"
+prompt_delete_len equ $-prompt_delete
+prompt_rename:
+        defb "RENAME"
+prompt_rename_len equ $-prompt_rename
+prompt_newfolder:
+        defb "NEW FOLDER"
+prompt_newfolder_len equ $-prompt_newfolder
+ip_path:        defb "/MAN/IP.TXT"
+ip_path_len     equ $-ip_path
+noconn_msg:     defb "NO CONNECTION (/MAN/IP.TXT NOT FOUND)"
+noconn_msg_len  equ $-noconn_msg
 help_main:      defb " ",1,"|8open",2," ",1,"|5up",2," ",1,"|Nnew",2," ",1,"|Ddel",2," ",1,"|Rren",2," ",1,"|Ccopy",2," "
                 defb 1,"|Xcut",2," ",1,"|Vpaste",2," ",1,"|Eedit",2," ",1,"|Ssetup",2," ",1,"|Kkeys",2," ",1,"|S|P|Cexit",2,0
 help_back:      defb " any key: back to the list",0
-help_viewer:    defb " |6|7 line   |1|2 page   |S|P|A|C|E exit",0
-help_hex:       defb " |6|7 line   |1|2 page   |G goto   |Z ZX81/ASCII   |S|P|A|C|E exit",0
+help_viewer:    defb " line ",1,"Dn |6",2," ",1,"Up |7",2,"   page ",1,"Up |1",2," ",1,"Dn |2",2,"   ",1,"|S|P|A|C|E exit",2,0
+help_hex:       defb " line ",1,"Dn |6",2," ",1,"Up |7",2,"   page ",1,"Up |1",2," ",1,"Dn |2",2,"   ",1,"|G goto",2,"   ",1,"|Z ZX81/ASCII",2,"   ",1,"|S|P|A|C|E exit",2,0
 
 ; -- raton (ver mouse_poll) --
 ms_buf:   defs 8                ; x, y, botones, rueda, rawx, rawy, seq, estado (puerto $3FEF)
@@ -5152,6 +5221,27 @@ ms_pan:   defb 2,48,53,16       ; W WRX
           defb 19,48,63,28      ; (SHIFT+1)=RESET
           defb 0
 dh_btn:   defb 0                ; draw_help: bit 0 = se esta pintando un boton
+ver_mcu:  defb "MCU "           ; nombres de las versiones de la ultima fila del panel
+ver_rom:  defb "ROM "
+ver_fpga: defb "FPGA "
+ms_view:  defb 0                ; 0 = ningun visor; 1 = visor de texto; 2 = visor hexadecimal; 3 = la ayuda de teclas (K)
+; zonas de la barra de abajo de los visores: fila 23, columna inicial, columna final + 1 y codigo de tecla (6, 7, 1, 2, [G], [Z] y SPACE). Acaban en 0
+ms_vb1:
+          defb 23,6,10,3
+          defb 23,11,15,4
+          defb 23,23,27,13
+          defb 23,28,32,14
+          defb 23,35,45,1
+          defb 0
+ms_vb2:
+          defb 23,6,10,3
+          defb 23,11,15,4
+          defb 23,23,27,13
+          defb 23,28,32,14
+          defb 23,35,41,25
+          defb 23,44,56,26
+          defb 23,59,69,1
+          defb 0
 ; zonas de la barra de ayuda (help_main, fila 23): columna donde empieza y codigo de tecla (los de read_key). La primera es el centinela
 ms_bar:   defb 0,0,  1,5,   7,2,   11,7,  16,8,  21,9,  26,10    ; 8open 5up Nnew Ddel Rren Ccopy
           defb 32,11, 37,12, 44,30, 50,15, 57,31, 63,1            ; Xcut Vpaste Eedit Ssetup Kkeys SPC exit

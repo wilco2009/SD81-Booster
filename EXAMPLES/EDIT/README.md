@@ -61,6 +61,23 @@ columna y cómo abrir la ayuda (ENTER+9). Los tabuladores se ven hasta la siguie
 columna múltiplo de 8. Las líneas de más de 80 columnas se desplazan en
 horizontal.
 
+## Ratón
+
+Con un ratón Bluetooth conectado (`LOAD *MOUSE`, `EXAMPLES/MOUSE`; necesita la FPGA con `sim_int 0.21` y los sprites en 80 columnas) el editor enseña un cursor (el sprite 63) y reconoce:
+
+| Gesto | Qué hace |
+|---|---|
+| Clic izquierdo en el texto | pone el cursor ahí (cuenta los tabuladores y el desplazamiento horizontal; más allá del final de la línea o del texto, se queda en el final) |
+| Rueda | mueve el cursor una línea por unidad de giro (hacia delante, arriba) |
+| Clic en `ENTER+9: keys & commands` (la última fila, que ahora se ve como un botón) | abre la pantalla de ayuda |
+| Clic o rueda en la pantalla de ayuda | vuelve al texto |
+
+Los gestos se convierten en códigos de tecla que entrega `kbget`: `KEY_UP` y `KEY_DOWN` para la rueda, `K_HELP` para el botón de la ayuda y `K_MOUSE` (el código 0, que ninguna tecla genera) para el clic en el texto, que atiende `k_mouse`. El ratón se lee en `wait_scan`, junto al parpadeo del cursor. En las preguntas de la última fila (guardar, ¿Y/N?) el ratón solo mueve el cursor.
+
+La posición se escala: el área de texto mide 280 píxeles de sprite de ancho y el ratón solo llega a X = 255, así que el cursor se coloca en `x·35/32` (la columna de texto es `x·5/16`, de 0 a 79). Y es `y/8`.
+
+Sin probar en la placa. A comprobar: que el cursor cae sobre el carácter que se pulsa en las 80 columnas, con tabuladores y con texto desplazado en horizontal, y el sentido de la rueda (si va al revés, se cambian `KEY_UP` y `KEY_DOWN` en `mo_w1`).
+
 ## Ficheros
 
 - Se lee y se escribe con los comandos de ficheros del MCU: 53 (fopen),
@@ -77,7 +94,7 @@ horizontal.
 
 | Dirección | Contenido |
 |---|---|
-| `$6000-` | el programa (con la fuente, que se copia a `$9000`) |
+| `$6000-$7F31` | el programa (con la fuente, que se copia a `$9000`, y el búfer de ficheros). **Todo debe quedar por debajo de `$8000`**, donde empieza la pantalla: quedan 207 bytes |
 | `$8000-$8798` | la pantalla: 1 byte inicial y 24 filas de 81 |
 | `$8800-$8F98` | los atributos, con la misma geometría |
 | `$9000-$97FF` | la fuente (I = `$90`) |

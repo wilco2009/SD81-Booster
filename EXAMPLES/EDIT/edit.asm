@@ -124,6 +124,7 @@ KEY_LEFT    equ 084h
 K_ESC       equ 01Bh
 K_QUIT      equ 01Dh            ; ^]  (ENTER+0)
 K_HELP      equ 01Ch            ; ^\  (ENTER+9)
+K_MOUSE     equ 000h            ; el raton: clic en el texto (ctrl_tab[0] -> k_mouse)
 
             org  24576
 
@@ -150,6 +151,7 @@ start:      ld   (sv_sp),sp         ; para salir desde cualquier sitio
             call tb_clear
 
             call video_on
+            call mouse_init         ; cursor del raton (sprite 63)
             call find_fvar          ; F$ -> nombre
             call load_file
 
@@ -197,7 +199,7 @@ dispatch:   ld   c,a
             ld   l,a
             jp   (hl)
 
-ctrl_tab:   defw k_none,  k_wleft, k_none,  k_pgdn     ; 00 ^A ^B ^C
+ctrl_tab:   defw k_mouse, k_wleft, k_none,  k_pgdn     ; 00 (clic del raton) ^A ^B ^C
             defw k_right, k_up,    k_wright,k_del      ; ^D ^E ^F ^G
             defw k_bs,    k_char,  k_help,  k_kpre     ; ^H TAB ^J ^K
             defw k_none,  k_enter, k_none,  k_none     ; ^L ENTER ^N ^O
@@ -876,6 +878,11 @@ draw_status:
             ld   (hl),' '
             ld   bc,SCRW-1
             ldir
+            ld   hl,STATUS_ROW+ATTR_OFF ; atributos de la fila de estado: normales
+            ld   (hl),STAT_ATTR
+            ld   de,STATUS_ROW+ATTR_OFF+1
+            ld   bc,SCRW-1
+            ldir
             ld   hl,(msg_ptr)
             ld   a,h
             or   l
@@ -915,6 +922,11 @@ ds_pos:     ld   de,STATUS_ROW+32
             inc  hl
             pop  de
             call put_num
+            ld   hl,STATUS_ROW+ATTR_OFF+SCRW-25 ; la ayuda es un boton: el clic abre la pantalla de teclas
+            ld   (hl),KEYCAP_ATTR
+            ld   de,STATUS_ROW+ATTR_OFF+SCRW-24
+            ld   bc,23
+            ldir
             ld   de,STATUS_ROW+SCRW-25
             ld   hl,msg_help
             jp   put_str
@@ -1131,7 +1143,14 @@ kh_w2:      call scan_keys
             jr   nz,kh_w3
             ld   a,e
             and  3
+            jr   nz,kh_w3
+            call mouse_poll         ; un clic (o la rueda) tambien vuelve
+            ld   a,(mo_cnt)
+            or   a
             jr   z,kh_w2
+            xor  a
+            ld   (mo_cnt),a
+            jp   attr_init
 kh_w3:      call scan_keys
             cp   0FFh
             jr   nz,kh_w3
@@ -1192,6 +1211,10 @@ rc_addr:    ld   a,d
 ;  Salida: video y memoria como estaban, y al BASIC
 ; =====================================================================
 quit:       ld   sp,(sv_sp)
+            ld   a,MO_SPR
+            ld   (2100),a
+            xor  a
+            ld   (2101),a           ; sin cursor del raton
 qt_rel:     call scan_keys          ; esperar a que se suelte todo: con
             cp   0FFh               ; ENTER+0 el 0 se suelta antes que el
             jr   nz,qt_rel          ; ENTER, y el explorador tomaria ese
@@ -1708,7 +1731,10 @@ ck_top:     ld   a,(ctrl_prefix)
             jr   nz,ck_pwait        ; modo CTRL armado -> esperar la tecla
             xor  a
             ld   (mods_seen),a      ; modo normal: reiniciar mods vistos
-ck_nwait:   call wait_scan          ; A=idx/FF ; E: bit0=SHIFT bit1=ENTER
+ck_nwait:   ld   a,(mo_cnt)         ; el raton tiene codigos que entregar?
+            or   a
+            jr   nz,ck_mo
+            call wait_scan          ; A=idx/FF ; E: bit0=SHIFT bit1=ENTER
             cp   0FFh
             jr   nz,ck_key          ; hay tecla -> procesar
             xor  a                  ; nada pulsado: se acabo la repeticion
@@ -1736,6 +1762,11 @@ ck_nwait:   call wait_scan          ; A=idx/FF ; E: bit0=SHIFT bit1=ENTER
 ck_clr:     xor  a
             ld   (enter_used),a
             jr   ck_top
+ck_mo:      call cursor_clear
+            ld   hl,mo_cnt
+            dec  (hl)
+            ld   a,(mo_code)
+            ret
 ck_arm:     call cursor_clear
             ld   a,1
             ld   (ctrl_prefix),a    ; modo CTRL (cursor pasa a subrayado)
@@ -1887,6 +1918,7 @@ wait_scan:  call scan_keys          ; hace avanzar el parpadeo si no hay tecla
             ret  nz
             push de
             call cursor_blink_poll
+            call mouse_poll         ; el raton: cursor y gestos (ver mo_cnt)
             pop  de
             ld   a,0FFh
             ret
@@ -2077,6 +2109,232 @@ kh_lines:
             defb 23,1,00Fh,"CTRL: SHIFT+ENTER, then the key      ESC (SHIFT+1): cancels ^K, ^Q, questions",0
             defb 0FFh
 
+; =====================================================================
+;  Raton BLE (el mismo esquema que EXAMPLES/EXPLORER, con la geometria
+;  del modo de 80 columnas). Se lee el puerto $3FEF, indice 20 (x, y,
+;  botones, rueda, rawx, rawy, seq, estado) dentro de wait_scan, y los
+;  gestos se entregan por kbget como codigos de tecla (mo_cnt veces mo_code):
+;     rueda                 -> KEY_UP / KEY_DOWN, una linea por unidad
+;     clic en el texto      -> K_MOUSE (0): k_mouse pone el cursor ahi
+;     clic en "ENTER+9..."  -> K_HELP (la pantalla de teclas)
+;  El cursor es el sprite 63: X de sprite = x*35/32 + 31 (280 pixeles de
+;  sprite de ancho, columna 0 = 32; el raton llega a 255), Y = y + 31.
+;  La columna de texto es x*5/16 (0..79). Necesita la FPGA con sim_int 0.21
+;  y los sprites en 80 columnas.
+; =====================================================================
+MO_PORT     equ 3FEFh
+MO_SPR      equ 63
+
+mouse_init: ld   a,MO_SPR
+            ld   (2100),a
+            xor  a
+            ld   (2101),a           ; apagado hasta que el raton este conectado
+            ld   (2130),a           ; formato A
+            ld   hl,mo_arrow
+            ld   de,2105
+            ld   bc,24
+            ldir                    ; color, pixeles y mascara (2105-2128)
+            ld   bc,MO_PORT
+            ld   a,24h
+            out  (c),a
+            in   a,(c)              ; x
+            in   a,(c)              ; y
+            in   a,(c)              ; botones
+            and  3
+            ld   (mo_prev),a
+            in   a,(c)              ; rueda
+            ld   (mo_pwh),a
+            ret
+
+mouse_poll: push bc
+            push de
+            push hl
+            ld   bc,MO_PORT
+            ld   a,24h
+            out  (c),a
+            ld   hl,mo_buf
+            ld   d,8
+mo_rd:      in   a,(c)
+            ld   (hl),a
+            inc  hl
+            dec  d
+            jr   nz,mo_rd
+            ld   a,MO_SPR
+            ld   (2100),a
+            ld   a,(mo_buf+7)
+            and  1                  ; conectado
+            ld   (2101),a
+            jp   z,mo_end
+            ld   a,(mo_buf)         ; cursor: sprite en (xs+31, y+31), xs = x + x/16 + x/32
+            ld   l,a
+            ld   h,0
+            rrca
+            rrca
+            rrca
+            rrca
+            and  0Fh
+            ld   e,a
+            ld   a,l
+            rrca
+            rrca
+            rrca
+            rrca
+            rrca
+            and  07h
+            add  a,e
+            ld   e,a
+            ld   d,0
+            add  hl,de
+            ld   de,31
+            add  hl,de
+            ld   a,l
+            ld   (2102),a
+            ld   a,h
+            ld   (2103),a
+            ld   a,(mo_buf+1)
+            add  a,31
+            ld   (2104),a
+
+            ld   a,(mo_buf+2)       ; botones recien pulsados
+            and  3
+            ld   b,a
+            ld   a,(mo_prev)
+            cpl
+            and  b
+            ld   c,a
+            ld   a,b
+            ld   (mo_prev),a
+            ld   a,(mo_buf+3)       ; giro de la rueda desde la pasada anterior
+            ld   b,a
+            ld   a,(mo_pwh)
+            ld   e,a
+            ld   a,b
+            ld   (mo_pwh),a
+            sub  e
+            ld   e,a
+            ld   a,(mo_cnt)
+            or   a
+            jp   nz,mo_end          ; aun quedan codigos por entregar
+            ld   a,e
+            or   a
+            jr   z,mo_btn
+            ld   d,KEY_UP           ; giro positivo: hacia arriba
+            jp   p,mo_w1
+            neg
+            ld   d,KEY_DOWN
+mo_w1:      cp   22
+            jr   c,mo_set
+            ld   a,21
+mo_set:     ld   (mo_cnt),a
+            ld   a,d
+            ld   (mo_code),a
+            jp   mo_end
+
+mo_btn:     bit  0,c                ; clic izquierdo
+            jp   z,mo_end
+            ld   a,(mo_buf)         ; columna = x*5/16
+            ld   l,a
+            ld   h,0
+            ld   d,h
+            ld   e,l
+            add  hl,hl
+            add  hl,hl
+            add  hl,de              ; x*5 (maximo 1275)
+            ld   a,l
+            rrca
+            rrca
+            rrca
+            rrca
+            and  0Fh
+            ld   l,a
+            ld   a,h
+            rlca
+            rlca
+            rlca
+            rlca
+            and  0F0h
+            or   l
+            ld   (mo_col),a
+            ld   a,(mo_buf+1)       ; fila = y/8
+            rrca
+            rrca
+            rrca
+            and  1Fh
+            cp   TEXTH
+            jr   c,mo_place
+            ld   a,(mo_col)         ; la fila de estado: solo "ENTER+9: keys & commands"
+            cp   SCRW-25
+            jp   c,mo_end
+            ld   d,K_HELP
+            ld   a,1
+            jr   mo_set
+mo_place:   ld   (mo_row),a
+            ld   d,K_MOUSE
+            ld   a,1
+            jr   mo_set
+mo_end:     pop  hl
+            pop  de
+            pop  bc
+            ret
+
+; k_mouse: clic en el texto. El cursor va a la fila (mo_row) y la columna (mo_col) de pantalla; los TAB cuentan como lo que
+; ocupan, y mas alla del final de la linea o del texto, se queda en el final.
+k_mouse:    ld   hl,(top_off)       ; principio de la linea de la fila de arriba
+            ld   (km_pos),hl
+            ld   a,(mo_row)
+            or   a
+            jr   z,km_col
+            ld   (km_cnt),a
+km_nl:      ld   hl,(km_pos)        ; baja una linea
+            call it_set
+km_nl1:     call it_next
+            jr   c,km_eof           ; el texto acaba antes: el cursor, al final
+            ld   hl,(km_pos)
+            inc  hl
+            ld   (km_pos),hl
+            cp   0Ah
+            jr   nz,km_nl1
+            ld   hl,km_cnt
+            dec  (hl)
+            jr   nz,km_nl
+km_col:     ld   hl,(left_col)      ; columna visual de destino = la de pantalla + el desplazamiento
+            ld   a,(mo_col)
+            ld   e,a
+            ld   d,0
+            add  hl,de
+            ld   (km_tgt),hl
+            ld   hl,0
+            ld   (km_vcol),hl
+            ld   hl,(km_pos)
+            call it_set
+km_c1:      ld   hl,(km_vcol)
+            ld   de,(km_tgt)
+            or   a
+            sbc  hl,de
+            jr   nc,km_done         ; ya se ha llegado a la columna
+            call it_next
+            jr   c,km_done          ; fin del texto
+            cp   0Ah
+            jr   z,km_done          ; fin de la linea: antes del LF
+            ld   de,(km_vcol)
+            call vc_adv
+            ld   (km_vcol),de
+            ld   hl,(km_pos)
+            inc  hl
+            ld   (km_pos),hl
+            jr   km_c1
+km_done:    ld   hl,(km_pos)
+            call tb_goto
+            jp   set_want
+km_eof:     call tb_len
+            call tb_goto
+            jp   set_want
+
+; flecha blanca con borde negro (la de mouselib.inc): color, pixeles y mascara de las 8 filas
+mo_arrow:   defb 0F0h,0F0h,0F0h,0F0h,0F0h,0F0h,0F0h,0F0h
+            defb 000h,040h,060h,070h,078h,07Ch,058h,018h
+            defb 0E0h,0F0h,0F8h,0FCh,0FEh,0FEh,0FEh,0FCh
+
 ; ---------------------------------------------------------------------
 ;  Variables (se ponen a cero al arrancar)
 ; ---------------------------------------------------------------------
@@ -2118,6 +2376,17 @@ st_cnt:     defs 2
 save_err:   defs 1
 pn_dst:     defs 2
 pn_ptr:     defs 2
+mo_buf:     defs 8              ; raton: x, y, botones, rueda, rawx, rawy, seq, estado
+mo_prev:    defs 1              ; botones de la pasada anterior
+mo_pwh:     defs 1              ; rueda de la pasada anterior
+mo_cnt:     defs 1              ; codigos de tecla que quedan por entregar
+mo_code:    defs 1              ; el codigo
+mo_row:     defs 1              ; clic en el texto: fila y columna de pantalla
+mo_col:     defs 1
+km_pos:     defs 2              ; k_mouse
+km_vcol:    defs 2
+km_tgt:     defs 2
+km_cnt:     defs 1
 VARS_LEN    equ $-vars
 sv_sp:      defs 2              ; fuera de vars: se guardan antes de
 sv_i:       defs 1              ; ponerlas a cero

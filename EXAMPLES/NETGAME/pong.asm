@@ -27,6 +27,7 @@ UI_BASE     equ 9400h
 PG_BASE     equ 9440h
 NQ_BASE     equ 9500h
 DFILE       equ 8800h           ; pantalla de texto del lobby
+NETMOUSE    equ 0               ; sin raton (lobby.inc)
 GFX_SQUARES equ 0
 BOARD_ROW   equ 0               ; (gfx.inc: solo para draw_square)
 BOARD_COL   equ 0

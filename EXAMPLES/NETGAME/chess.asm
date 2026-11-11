@@ -77,6 +77,10 @@ ATTR_CLOCK  equ 046h            ; el reloj del que mueve: amarillo brillante
 ATTR_LOW    equ 042h            ; ... y en rojo brillante con 30 s o menos
 
 GFX_SQUARES equ 1               ; gfx.inc: con draw_square (las casillas del tablero)
+NETMOUSE    equ 1               ; el raton (netmouse.inc)
+NM_BASE     equ 9B00h           ; su RAM (NM_LEN bytes), por encima de las variables del juego
+SEL_SQ      equ UI_BASE+62      ; la casilla de origen elegida (0-63, o 0FFh si ninguna)
+ATTR_BTN    equ 028h            ; un boton de la linea de ayuda: papel cian, tinta negra
 SV_BASE     equ 0BC00h          ; savegame.inc: la partida guardada en la SD (CHESS.SAV)
 SV_ID       equ 2
 SV_NAMELEN  equ 9
@@ -143,11 +147,11 @@ pl_col:     ld   bc,5*256+PANEL_COL
             call game_clock_go      ; los relojes (si los hay) empiezan ahora
 pl_loop:    call kbd_scan
             or   a
-            jp   z,pl_poll
+            jp   z,pl_nokey
             push af
             call key_release        ; una pulsacion = una tecla (kbd_scan destruye BC)
             pop  af
-            cp   '0'
+pl_key:     cp   '0'
             jp   z,pl_quit
             cp   '9'
             jp   z,pl_resend
@@ -157,6 +161,7 @@ pl_loop:    call kbd_scan
             jp   z,pl_enter
             call add_key            ; una tecla de la jugada, si cuadra en esa posicion
             call draw_input
+            call sel_refresh
             jp   pl_poll
 pl_del:     ld   a,(MV_N)
             or   a
@@ -164,6 +169,7 @@ pl_del:     ld   a,(MV_N)
             dec  a
             ld   (MV_N),a
             call draw_input
+            call sel_refresh
             jp   pl_poll
 pl_enter:   ld   a,(MV_N)
             or   a
@@ -428,6 +434,7 @@ da_h2:      ld   bc,ROW_HELP*256+2
             ld   b,ROW_HELP
             ld   a,ATTR_HELP
             call gattr_row
+            call ch_btns            ; los botones de la linea de ayuda
             jp   sv_maybe_save      ; ya pintado: si ha cambiado la partida, a la SD
 
 ; "MOVE: E2E4" en la fila de entrada
@@ -594,7 +601,9 @@ db_f:       ld   (UI_F),a
             ret
 
 ; las casillas que se resaltan: la ultima jugada (de y a) y el rey en jaque (casilla 0-63, o 0FFh)
-mk_marks:   ld   a,0FFh
+mk_marks:   call sel_calc
+            ld   (SEL_SQ),a
+            ld   a,0FFh
             ld   (HL_FROM),a
             ld   (HL_TO),a
             ld   (CHK_SQ),a
@@ -888,9 +897,202 @@ m_11:       defm "MODEM ERROR"
 m_12:       defm "THE RIVAL IS OUT OF TIME"
             defb 0
 
+; ---------------------------------------------------------------------
+;  El raton (netmouse.inc): los clics se convierten en las teclas de siempre (letra y cifra de cada casilla, ENTER, 0, 9, SHIFT+0)
+;  y entran por la cola de nm_push; el bucle las toma en pl_key como si vinieran del teclado
+; ---------------------------------------------------------------------
+; una vuelta sin tecla del teclado: la cola del raton (si esta vacia, se lee el raton y se interpreta el clic)
+pl_nokey:   call nm_pop
+            or   a
+            jp   nz,pl_key
+            call nm_poll
+            ld   a,(NM_EVT)
+            or   a
+            jp   z,pl_poll
+            call ch_click
+            call nm_pop
+            or   a
+            jp   nz,pl_key
+            jp   pl_poll
+
+; un clic. Izquierdo en el tablero: primero el origen (una pieza mia) y luego el destino, que manda la jugada (con la dama si corona;
+; otra corona se teclea); en el origen otra vez, lo deshace; en otra pieza mia, lo cambia. En la linea de ayuda, sus botones.
+; Derecho: deshace lo elegido
+ch_click:   ld   a,(NM_EVT)
+            bit  1,a
+            jp   nz,cc_right
+            bit  0,a
+            ret  z
+            call nm_cell            ; B = fila, C = columna de la celda
+            ld   a,b
+            sub  BOARD_ROW
+            jp   c,cc_btn
+            cp   16
+            jp   nc,cc_btn
+            srl  a
+            ld   d,a                ; D = fila de la casilla en pantalla (0-7)
+            ld   a,c
+            sub  BOARD_COL
+            jp   c,cc_btn
+            cp   16
+            jp   nc,cc_btn
+            srl  a
+            ld   e,a                ; E = columna de la casilla en pantalla (0-7)
+            ld   a,(GM_ME)
+            cp   2
+            jp   z,cc_blk
+            ld   a,7                ; blancas abajo: rank = 7 - fila
+            sub  d
+            ld   d,a
+            jp   cc_sq
+cc_blk:     ld   a,7                ; negras abajo: la columna al reves
+            sub  e
+            ld   e,a
+cc_sq:      ld   a,(MV_N)           ; D = rank (0-7), E = columna (0-7)
+            or   a
+            jp   z,cc_first
+            cp   2
+            ret  nz                 ; a medias con el teclado: el raton no se mete
+            ld   a,e                ; ya hay origen: la misma casilla lo deshace
+            add  a,'A'
+            ld   b,a
+            ld   a,(MV_BUF)
+            cp   b
+            jp   nz,cc_sec
+            ld   a,d
+            add  a,'1'
+            ld   b,a
+            ld   a,(MV_BUF+1)
+            cp   b
+            jp   nz,cc_sec
+            ld   a,8                ; dos borrados
+            call nm_push
+            ld   a,8
+            jp   nm_push
+cc_sec:     call cc_mine            ; Z si la casilla (D, E) tiene una pieza mia
+            jp   nz,cc_dest
+            ld   a,8                ; otra pieza mia: cambia el origen
+            call nm_push
+            ld   a,8
+            call nm_push
+            jp   cc_pushsq
+cc_dest:    call cc_pushsq          ; el destino: la jugada sale (la quinta tecla, la corona, no se pone: dama)
+            ld   a,13
+            jp   nm_push
+cc_first:   call cc_mine
+            ret  nz                 ; el origen tiene que ser una pieza mia
+cc_pushsq:  ld   a,e                ; las dos teclas de la casilla: la letra y la cifra
+            add  a,'A'
+            call nm_push
+            ld   a,d
+            add  a,'1'
+            jp   nm_push
+cc_right:   ld   a,(MV_N)
+            or   a
+            ret  z
+            ld   b,a
+cr_l:       ld   a,8
+            call nm_push
+            djnz cr_l
+            ret
+cc_btn:     ld   hl,ch_z_play       ; la linea de ayuda: ENTER, 0 QUIT y 9 RESEND (o, con la partida acabada, ENTER = AGAIN y 0 = QUIT)
+            ld   a,(GM_OVER)
+            or   a
+            jp   z,cc_bz
+            ld   hl,ch_z_over
+cc_bz:      call nm_zone            ; B = fila, C = columna
+            or   a
+            ret  z
+            jp   nm_push
+
+; Z si en la casilla (rank D, columna E) hay una pieza mia
+cc_mine:    ld   a,d
+            add  a,a
+            add  a,a
+            add  a,a
+            add  a,a
+            add  a,e
+            ld   l,a
+            ld   h,CH_BOARD/256
+            ld   a,(hl)             ; la pieza (0 vacia; el bit 3 = negra)
+            or   a
+            jr   z,cm_no
+            ld   b,a
+            ld   a,(GM_ME)
+            cp   2
+            ld   a,b
+            jr   z,cm_blk
+            and  8                  ; blancas: el bit 3 a 0
+            ret
+cm_blk:     and  8                  ; negras: a 1
+            xor  8
+            ret
+cm_no:      ld   a,1
+            or   a                  ; NZ
+            ret
+
+; la casilla de origen elegida (MV_N >= 2) como numero 0-63, o 0FFh
+sel_calc:   ld   a,(MV_N)
+            cp   2
+            jr   nc,sel_on
+            ld   a,0FFh
+            ret
+sel_on:     ld   a,(MV_BUF+1)
+            sub  '1'
+            add  a,a
+            add  a,a
+            add  a,a
+            ld   b,a
+            ld   a,(MV_BUF)
+            sub  'A'
+            add  a,b
+            ret
+
+; si ha cambiado la casilla de origen elegida, repinta el tablero (draw_board la recalcula en mk_marks)
+sel_refresh: ld  a,(SEL_SQ)
+            ld   c,a
+            call sel_calc
+            cp   c
+            ret  z
+            jp   draw_board
+
+; los botones de la linea de ayuda, en video inverso (tras gattr_row de draw_all)
+ch_btns:    ld   hl,ch_z_play
+            ld   a,(GM_OVER)
+            or   a
+            jr   z,cbt_l
+            ld   hl,ch_z_over
+cbt_l:      ld   a,(hl)             ; fila (0 = fin de la tabla)
+            or   a
+            ret  z
+            ld   b,a
+            inc  hl
+            ld   c,(hl)             ; columna inicial
+            inc  hl
+            ld   a,(hl)             ; columna final + 1
+            sub  c
+            ld   e,a
+            inc  hl
+            inc  hl                 ; salta la tecla
+            push hl
+            ld   a,ATTR_BTN
+            call gattr_span
+            pop  hl
+            jr   cbt_l
+
+; zonas de la linea de ayuda (nm_zone): fila, columna inicial, columna final + 1, tecla
+ch_z_play:  defb ROW_HELP,8,13,13           ; ENTER
+            defb ROW_HELP,15,21,'0'         ; 0 QUIT
+            defb ROW_HELP,23,31,'9'         ; 9 RESEND
+            defb 0
+ch_z_over:  defb ROW_HELP,2,15,13           ; ENTER = AGAIN
+            defb ROW_HELP,18,26,'0'         ; 0 = QUIT
+            defb 0
+
             include "../NETCHAT/net.inc"
             include "game.inc"
             include "savegame.inc"
             include "chess.inc"
             include "gfx.inc"
+            include "netmouse.inc"
             include "pieces.inc"

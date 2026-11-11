@@ -40,6 +40,9 @@ G_MOVE_VAR  equ 1               ; jugadas de longitud variable (game.inc)
 G_BIG       equ 1               ; el estado va por trozos (game.inc)
 DFILE       equ 8800h           ; pantalla de texto del lobby: 1 + 24 filas de 33
 GFX_SQUARES equ 0               ; gfx.inc sin las casillas del ajedrez
+NETMOUSE    equ 1               ; el raton (netmouse.inc)
+NM_BASE     equ 9B00h           ; su RAM (NM_LEN bytes), por encima de las variables del juego
+SC_BTN      equ 028h            ; un boton del panel: papel cian, tinta negra
 SV_BASE     equ 0BC00h          ; savegame.inc: la partida guardada en la SD (SCRABBLE.SAV)
 SV_ID       equ 3
 SV_NAMELEN  equ 12
@@ -102,6 +105,7 @@ pl_code:    push de
             ld   a,e
             cp   10
             jr   nz,pl_code
+            call sc_btns            ; los botones del panel (ENTER, DEL, PASS, SWAP, RESEND)
             ld   a,(SC_DICT)        ; sin diccionario no se puede jugar
             or   a
             jr   z,pl_dok
@@ -110,11 +114,11 @@ pl_code:    push de
 pl_dok:     call draw_all
 pl_loop:    call kbd_scan
             or   a
-            jp   z,pl_poll
+            jp   z,pl_nokey
             push af
             call key_release        ; una pulsacion = una tecla (kbd_scan destruye BC)
             pop  af
-            ld   c,a
+pl_key:     ld   c,a
             ld   a,(SI_KN)
             or   a
             ld   a,c
@@ -401,12 +405,287 @@ m_12:       defm "FINISH THE MOVE FIRST"
 m_13:       defm "NO DICTIONARY FILE IN THE SD"
             defb 0
 
+; ---------------------------------------------------------------------
+;  El raton (netmouse.inc): los clics se convierten en las teclas de siempre y entran por la cola de nm_push; el bucle las toma en pl_key
+;  como si vinieran del teclado:
+;      tablero, sin nada tecleado   elige la casilla de salida (la tecla 0 con el cursor ahi)
+;      tablero, con la salida       una casilla a su derecha en su fila = sentido R (tecla 8); debajo en su columna = D (tecla 6); otra = empezar de nuevo
+;      atril, con la palabra        la ficha (y antes las letras del tablero que ya estan en el camino)
+;      panel                        ENTER, DEL, PASS, SWAP, RESEND y Q = QUIT
+;      boton derecho                borra lo tecleado
+; ---------------------------------------------------------------------
+; una vuelta sin tecla del teclado: la cola del raton (si esta vacia, se lee el raton y se interpreta el clic)
+pl_nokey:   call nm_pop
+            or   a
+            jp   nz,pl_key
+            call nm_poll
+            ld   a,(NM_EVT)
+            or   a
+            jp   z,pl_poll
+            call sc_click
+            call nm_pop
+            or   a
+            jp   nz,pl_key
+            jp   pl_poll
+
+sc_click:   ld   a,(NM_EVT)
+            bit  1,a
+            jr   nz,scc_right
+            bit  0,a
+            ret  z
+            call nm_cell            ; B = fila, C = columna de la celda
+            ld   a,b
+            sub  BOARD_ROW
+            jr   c,scc_oth
+            cp   15
+            jr   nc,scc_oth
+            ld   d,a                ; D = fila del tablero
+            ld   a,c
+            sub  BOARD_COL
+            jr   c,scc_oth
+            cp   15
+            jr   nc,scc_oth
+            ld   e,a                ; E = columna del tablero
+            jr   scc_board
+scc_oth:    ld   a,b                ; el atril: dos filas de celdas
+            sub  RACK_ROW
+            cp   2
+            jr   c,scc_rack
+            ld   hl,sc_zones        ; los botones del panel
+            call nm_zone
+            or   a
+            ret  z
+            cp   14
+            jr   c,scc_push         ; DEL (8) y ENTER (13) valen siempre
+            ld   c,a                ; las letras (P, X, R, Q) son ordenes solo con nada tecleado
+            ld   a,(SI_KN)
+            or   a
+            ret  nz
+            ld   a,c
+scc_push:   jp   nm_push
+scc_right:  ld   a,(SI_KN)
+            or   a
+            ret  z
+            call sbi_clear          ; lo tecleado, fuera; la tecla 8 hace que el bucle repinte la entrada
+            ld   a,8
+            jp   nm_push
+
+scc_board:  ld   a,(SI_KN)
+            or   a
+            jr   z,scb_pick
+            ld   a,(SI_MODE)
+            cp   1
+            ret  nz                 ; pasar y cambiar: sin tablero
+            ld   a,(SI_STAGE)
+            cp   2
+            jr   z,scb_dir
+            cp   3
+            ret  nz                 ; escribiendo la palabra: el tablero no hace nada
+scb_dir:    ld   a,d                ; ya hay casilla de salida (SI_X, SI_Y)
+            ld   hl,SI_Y
+            cp   (hl)
+            jr   nz,scb_d2
+            ld   a,e
+            ld   hl,SI_X
+            cp   (hl)
+            ret  z                  ; la misma casilla
+            jr   c,scb_new          ; a su izquierda: empezar de nuevo
+            ld   a,'8'              ; a su derecha: el sentido R
+            jp   nm_push
+scb_d2:     ld   a,e
+            ld   hl,SI_X
+            cp   (hl)
+            jr   nz,scb_new
+            ld   a,d
+            ld   hl,SI_Y
+            cp   (hl)
+            jr   c,scb_new          ; encima: empezar de nuevo
+            ld   a,'6'              ; debajo: el sentido D
+            jp   nm_push
+scb_new:    call sbi_clear
+scb_pick:   ld   a,e                ; el cursor a la casilla pulsada y la tecla 0 la elige
+            ld   (SI_CX),a
+            ld   a,d
+            ld   (SI_CY),a
+            ld   a,'0'
+            jp   nm_push
+
+; una ficha del atril (solo escribiendo la palabra: etapa 5): la tecla de la ficha, y antes las letras del tablero que ya estan en el camino
+scc_rack:   ld   a,(SI_STAGE)
+            cp   5
+            ret  nz
+            ld   a,(NM_QN)
+            or   a
+            ret  nz                 ; todavia hay teclas por entregar: el estado de SI_N no esta al dia
+            ld   a,c
+            sub  RACK_COL
+            ret  c
+            ld   d,0                ; D = la ficha del atril (3 celdas por ficha: 2 de ficha y 1 de separacion)
+scr_d:      cp   3
+            jr   c,scr_r
+            sub  3
+            inc  d
+            jr   scr_d
+scr_r:      cp   2
+            ret  nc                 ; la celda de separacion
+            ld   a,d
+            cp   7
+            ret  nc
+            ld   e,a
+            ld   a,(SU_ME)          ; SB_RACK + 7 * yo + ficha
+            ld   d,a
+            add  a,a
+            add  a,a
+            add  a,a
+            sub  d
+            add  a,e
+            ld   e,a
+            ld   d,0
+            ld   hl,SB_RACK
+            add  hl,de
+            ld   a,(hl)
+            or   a
+            ret  z                  ; hueco
+            ld   d,a                ; D = la ficha
+            ld   a,(SI_MODE)
+            cp   1
+            jr   nz,scr_tile        ; cambiar: solo las fichas
+            ld   e,0                ; E = letras del tablero ya metidas en la cola
+scr_s:      call scr_cell           ; A = lo que hay en la casilla siguiente del camino (0 vacia, 0FFh fuera)
+            or   a
+            jr   z,scr_tile
+            cp   0FFh
+            jr   z,scr_tile
+            and  7Fh                ; un comodin puesto: su letra
+            call scr_push
+            inc  e
+            jr   scr_s
+scr_tile:   ld   a,d
+            cp   '?'
+            jr   nz,scr_push
+            ld   a,'.'              ; el comodin: el punto (la letra la teclea el jugador)
+            jp   nm_push
+
+; A = una ficha -> las teclas que la escriben (la N con tilde es la 1; CH, LL y RR, dos letras)
+scr_push:   cp   '['
+            jr   nz,sp_c
+            ld   a,'1'
+            jp   nm_push
+sp_c:       cp   '\'
+            jr   nz,sp_l
+            ld   a,'C'
+            call nm_push
+            ld   a,'H'
+            jp   nm_push
+sp_l:       cp   ']'
+            jr   nz,sp_r
+            ld   a,'L'
+            call nm_push
+            ld   a,'L'
+            jp   nm_push
+sp_r:       cp   '^'
+            jr   nz,sp_x
+            ld   a,'R'
+            call nm_push
+            ld   a,'R'
+            jp   nm_push
+sp_x:       jp   nm_push
+
+; A = lo que hay en la casilla del camino que toca (SI_N fichas ya escritas + E): 0 vacia, 0FFh si se sale del tablero. Conserva D y E
+scr_cell:   push de
+            ld   a,(SI_N)
+            add  a,e
+            ld   e,a                ; E = cuantas casillas se han avanzado
+            ld   a,(SI_DIR)
+            or   a
+            jr   nz,sce_d
+            ld   a,(SI_X)           ; hacia la derecha: x = SI_X + E
+            add  a,e
+            ld   b,a
+            ld   a,(SI_Y)
+            ld   c,a
+            jr   sce_g
+sce_d:      ld   a,(SI_X)           ; hacia abajo: y = SI_Y + E
+            ld   b,a
+            ld   a,(SI_Y)
+            add  a,e
+            ld   c,a
+sce_g:      ld   a,b
+            cp   15
+            jr   nc,sce_out
+            ld   a,c
+            cp   15
+            jr   nc,sce_out
+            call sb_addr            ; B = x, C = y -> HL
+            ld   a,(hl)
+            pop  de
+            ret
+sce_out:    ld   a,0FFh
+            pop  de
+            ret
+
+; los botones del panel (se pintan una vez al empezar la partida): fila, columna, longitud y texto (ASCII, acaba en 0)
+sc_btns:    ld   hl,sc_blabel
+scb_l:      ld   a,(hl)
+            or   a
+            ret  z
+            ld   b,a
+            inc  hl
+            ld   c,(hl)
+            inc  hl
+            ld   e,(hl)
+            inc  hl                 ; HL = el texto
+            push bc
+            push de
+            push hl
+            call gprint_at
+            pop  hl
+            pop  de
+            pop  bc
+            ld   a,SC_BTN
+            push hl
+            push de
+            call gattr_span         ; B = fila, C = columna, E = longitud
+            pop  de
+            pop  hl
+            ld   d,0
+            add  hl,de
+            inc  hl                 ; el texto y su 0
+            jr   scb_l
+
+sc_blabel:  defb 12,18,5
+            defm "ENTER"
+            defb 0
+            defb 12,24,3
+            defm "DEL"
+            defb 0
+            defb 12,28,4
+            defm "PASS"
+            defb 0
+            defb 13,18,4
+            defm "SWAP"
+            defb 0
+            defb 13,23,6
+            defm "RESEND"
+            defb 0
+            defb 0
+
+; zonas de los botones (nm_zone): fila, columna inicial, columna final + 1, tecla. Q = QUIT es la fila 16 entera del panel
+sc_zones:   defb 12,18,23,13            ; ENTER
+            defb 12,24,27,8             ; DEL (SHIFT+0)
+            defb 12,28,32,'P'           ; PASS
+            defb 13,18,22,'X'           ; SWAP
+            defb 13,23,29,'R'           ; RESEND
+            defb 16,18,32,'Q'           ; Q = QUIT
+            defb 0
+
             include "../NETCHAT/net.inc"
             include "game.inc"
             include "savegame.inc"
             include "dict.inc"
             include "scrabble.inc"
             include "gfx.inc"
+            include "netmouse.inc"
             include "scrabble_ui.inc"
             include "scrabble_in.inc"
             include "scrabble_game.inc"

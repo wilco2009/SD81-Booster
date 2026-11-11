@@ -37,6 +37,9 @@ start:      call SET_FAST           ; sin NMI: el video lo da la FPGA
             xor  a
             ld   (SV_VAL),a         ; savegame.inc: todavia no se ha guardado nada
             call txt_on
+IF NETMOUSE
+            call nm_init            ; el cursor del raton (netmouse.inc)
+ENDIF
 
             ld   hl,t_title
             ld   bc,ROW_TITLE*256+7
@@ -178,6 +181,10 @@ ng_loop:    call poll_step
             cp   2                  ; el rival ha entrado
             jp   z,play
             call kbd_scan
+IF NETMOUSE
+            or   a
+            call z,nm_menu          ; o un clic en "Q = BACK"
+ENDIF
             cp   'Q'
             jr   nz,ng_next
             call room_leave
@@ -377,7 +384,11 @@ ps_none:    xor  a
 ; ---------------------------------------------------------------------
 ;  Salir al BASIC
 ; ---------------------------------------------------------------------
-exit:       ld   a,85               ; video nativo (apaga tambien la pantalla alternativa)
+exit:
+IF NETMOUSE
+            call nm_off             ; sin el cursor del raton
+ENDIF
+            ld   a,85               ; video nativo (apaga tambien la pantalla alternativa)
             ld   (2045),a
             call SLOW_FAST
             ld   bc,0
@@ -557,6 +568,11 @@ key_wait:   call key_release
 kw_lp:      call kbd_scan
             or   a
             jr   nz,kw_got
+IF NETMOUSE
+            call nm_menu            ; un clic en una linea "X = ..." del menu es la tecla X
+            or   a
+            ret  nz
+ENDIF
             call delay20
             jr   kw_lp
 kw_got:     push af

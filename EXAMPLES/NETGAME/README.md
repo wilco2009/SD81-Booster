@@ -139,6 +139,30 @@ en `GM_TMP` y se cargan cuando están todos; el resumen lo calcula el juego, `g_
 última jugada fue mía se vuelve a mandar al final, para que sea lo último retenido en el broker. La jugada del Scrabble es
 `[L][tipo][datos]`: jugar (1: x, y, sentido, n y las fichas), pasar (2) o cambiar (3: n y las fichas).
 
+## Ratón en el 4 en raya, el ajedrez y el Scrabble (`netmouse.inc`)
+
+Con un ratón Bluetooth conectado (`LOAD *MOUSE`, `EXAMPLES/MOUSE`; necesita la FPGA con `sim_int 0.21`), el 4 en raya, el ajedrez y el Scrabble enseñan un cursor (el sprite 63, que tapa a los demás) y aceptan clics. Los gestos se convierten en **las mismas teclas de siempre**, que entran por una cola (`nm_push` / `nm_pop`) y el bucle de la partida toma en `pl_key` como si vinieran del teclado: el ratón no cambia las reglas ni la entrada, y el teclado sigue valiendo a la vez.
+
+**Menús** (los de `lobby.inc`, comunes a los dos juegos): un clic en una línea `X = ...` (por ejemplo `1 = NEW GAME`, `2 = JOIN A GAME`, `Q = QUIT`, los controles de tiempo del ajedrez o el idioma del Scrabble) es la tecla `X`. La línea se mira en la pantalla (`nm_menu`): el `=` tiene que ir tras un espacio y una sola tecla. Teclear el código de sala sigue siendo con el teclado.
+
+**4 en raya**
+- Un clic en una columna del tablero (en cualquier fila, o en el número que hay sobre ella) **echa la ficha** en esa columna: es la tecla `1`-`7` de esa columna. Si no te toca o la columna está llena, sale el mismo aviso que con el teclado.
+- Los botones de la línea de ayuda de abajo (en vídeo inverso): `R RESEND` y `Q QUIT`; con la partida acabada, `ENTER = AGAIN` y `Q = QUIT`.
+
+**Ajedrez**
+- Un clic en una pieza **propia** la elige (la casilla se ve en amarillo) y un clic en el destino **manda la jugada**. Es como teclear `E2` y `E4 ENTER`. La corona sale siempre en dama; para otra pieza, se teclea la quinta letra como siempre.
+- Otro clic en la casilla elegida la suelta; un clic en otra pieza propia cambia el origen; el botón derecho deshace lo elegido.
+- Los botones de la línea de ayuda de abajo (en vídeo inverso): `ENTER`, `0 QUIT` y `9 RESEND`; con la partida acabada, `ENTER = AGAIN` y `0 = QUIT`.
+
+**Scrabble**
+- Un clic en una casilla del tablero, sin nada tecleado, **elige la casilla de salida** (como la tecla `0` con el cursor ahí). Después, un clic **a su derecha en la misma fila** elige el sentido `R`, y un clic **debajo en la misma columna** el sentido `D`. Un clic en cualquier otra casilla empieza de nuevo.
+- Con la palabra en marcha, un clic en una ficha del **atril** escribe su letra, y antes las letras del tablero que ya están en el camino (hay que escribirlas enteras, como con el teclado). El comodín (`?`) escribe el punto, y la letra que sea se teclea (o se pulsa su tecla). La Ñ, CH, LL y RR del castellano escriben sus teclas. En un cambio (`SWAP`) solo cuentan las fichas.
+- Los botones del panel, a la derecha: `ENTER` (jugar), `DEL` (borrar la última), `PASS`, `SWAP` y `RESEND`, y `Q = QUIT`. `PASS`, `SWAP`, `RESEND` y `Q` solo valen con nada tecleado; `ENTER` y `DEL` siempre. El botón derecho borra todo lo tecleado.
+
+Código: `netmouse.inc` lee el ratón (`nm_poll`), pone el cursor y lleva la cola de teclas y las zonas rectangulares de los botones (`nm_zone`: fila, columna inicial, columna final + 1 y tecla). Cada juego lo incluye tras `gfx.inc` y define `NETMOUSE equ 1` y `NM_BASE` (su RAM; PONG y SPORTS ponen `NETMOUSE equ 0`, y su binario no cambia). El ajedrez añade `ch_click`, `sel_refresh` y `ch_btns` (y `SEL_SQ` en `gfx.inc` para la casilla elegida); el Scrabble, `sc_click`, `scc_rack` y `sc_btns`. El 4 en raya añade `c4_click` y `c4_btns`. Ocupa unos 530 bytes en el 4 en raya, unos 750 en el ajedrez y unos 870 en el Scrabble, bien por debajo de los `$8000` (el 4 en raya acaba en `$7CFE`).
+
+Sin probar en la placa. Hay que comprobar sobre todo: que el cursor (sprite) se ve en el menú de texto de 32 columnas (el Scrabble ya apagaba sus sprites ahí) y que cae sobre la casilla o la ficha que se pulsa, la Ñ, CH, LL y RR del Scrabble y que, tras un clic en el atril, la palabra sale como se espera cuando hay letras del tablero en medio.
+
 ## Deportes en red (SPORTS)
 
 ```

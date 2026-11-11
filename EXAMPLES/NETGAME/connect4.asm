@@ -35,6 +35,9 @@ G_CLOCK     equ 0               ; sin relojes
 G_MOVE_VAR  equ 0               ; (game.inc) jugadas de longitud fija
 G_BIG       equ 0               ; estado que cabe en un mensaje
 DFILE       equ 8800h           ; pantalla de texto del lobby: 1 + 24 filas de 33
+NETMOUSE    equ 1               ; el raton (netmouse.inc)
+NM_BASE     equ 9B00h           ; su RAM (NM_LEN bytes), por encima de las variables del juego
+ATTR_BTN    equ 028h            ; un boton de la linea de ayuda: papel cian, tinta negra
 GFX_SQUARES equ 0               ; gfx.inc sin las casillas del ajedrez
 SV_BASE     equ 0BC00h          ; savegame.inc: la partida guardada en la SD (CONNECT4.SAV)
 SV_ID       equ 1
@@ -153,11 +156,11 @@ pl_nums:    push de
             call draw_all
 pl_loop:    call kbd_scan
             or   a
-            jr   z,pl_poll
+            jp   z,pl_nokey
             push af
             call key_release        ; una pulsacion = una jugada (kbd_scan destruye BC)
             pop  af
-            cp   'Q'
+pl_key:     cp   'Q'
             jp   z,pl_quit
             cp   13
             jr   z,pl_again
@@ -304,6 +307,7 @@ da_h2:      ld   bc,ROW_HELP*256+1
             ld   b,ROW_HELP
             ld   a,ATTR_HELP
             call gattr_row
+            call c4_btns            ; los botones de la linea de ayuda
             jp   sv_maybe_save      ; ya pintado: si ha cambiado la partida, a la SD
 
 ; la ultima ficha (LAST_X/LAST_Y) y su texto del panel (LAST_BUF): "COLUMN n", o "--------" si no hay
@@ -507,8 +511,91 @@ m_10:       defm "RESYNCING WITH THE RIVAL..."
 m_11:       defm "MODEM ERROR"
             defb 0
 
+; ---------------------------------------------------------------------
+;  El raton (netmouse.inc): un clic en una columna del tablero (o en su numero) es la tecla de esa columna, y los botones de la linea de
+;  ayuda son R, Q y ENTER. La tecla entra por la cola de nm_push y el bucle la toma en pl_key como si viniera del teclado
+; ---------------------------------------------------------------------
+; una vuelta sin tecla del teclado: la cola del raton (si esta vacia, se lee el raton y se interpreta el clic)
+pl_nokey:   call nm_pop
+            or   a
+            jp   nz,pl_key
+            call nm_poll
+            ld   a,(NM_EVT)
+            or   a
+            jp   z,pl_poll
+            call c4_click
+            call nm_pop
+            or   a
+            jp   nz,pl_key
+            jp   pl_poll
+
+c4_click:   ld   a,(NM_EVT)
+            bit  0,a
+            ret  z                  ; el boton derecho no hace nada
+            call nm_cell            ; B = fila, C = columna de la celda
+            ld   a,b
+            sub  ROW_NUMS           ; los numeros de las columnas y el tablero: filas 1 a 19
+            jr   c,c4_btn
+            cp   19
+            jr   nc,c4_btn
+            ld   a,c
+            sub  BOARD_COL
+            jr   c,c4_btn
+            cp   21                 ; 7 columnas de 3 celdas
+            jr   nc,c4_btn
+            ld   b,'1'              ; la columna: A / 3
+c4_d:       cp   3
+            jr   c,c4_k
+            sub  3
+            inc  b
+            jr   c4_d
+c4_k:       ld   a,b
+            jp   nm_push
+c4_btn:     ld   hl,c4_z_play       ; la linea de ayuda: R RESEND y Q QUIT (o, con la partida acabada, ENTER = AGAIN y Q = QUIT)
+            ld   a,(GM_OVER)
+            or   a
+            jr   z,c4_bz
+            ld   hl,c4_z_over
+c4_bz:      call nm_zone            ; B = fila, C = columna
+            or   a
+            ret  z
+            jp   nm_push
+
+; los botones de la linea de ayuda, en video inverso (tras gattr_row de draw_all)
+c4_btns:    ld   hl,c4_z_play
+            ld   a,(GM_OVER)
+            or   a
+            jr   z,c4b_l
+            ld   hl,c4_z_over
+c4b_l:      ld   a,(hl)             ; fila (0 = fin de la tabla)
+            or   a
+            ret  z
+            ld   b,a
+            inc  hl
+            ld   c,(hl)             ; columna inicial
+            inc  hl
+            ld   a,(hl)             ; columna final + 1
+            sub  c
+            ld   e,a
+            inc  hl
+            inc  hl                 ; salta la tecla
+            push hl
+            ld   a,ATTR_BTN
+            call gattr_span
+            pop  hl
+            jr   c4b_l
+
+; zonas de la linea de ayuda (nm_zone): fila, columna inicial, columna final + 1, tecla
+c4_z_play:  defb ROW_HELP,11,19,'R'         ; R RESEND
+            defb ROW_HELP,21,27,'Q'         ; Q QUIT
+            defb 0
+c4_z_over:  defb ROW_HELP,1,14,13           ; ENTER = AGAIN
+            defb ROW_HELP,17,25,'Q'         ; Q = QUIT
+            defb 0
+
             include "../NETCHAT/net.inc"
             include "game.inc"
             include "savegame.inc"
             include "connect4.inc"
             include "gfx.inc"
+            include "netmouse.inc"

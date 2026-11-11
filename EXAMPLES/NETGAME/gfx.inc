@@ -38,6 +38,7 @@ ATTR_TEXT   equ 047h            ; tinta blanca brillante sobre negro
 SQ_DARK     equ 050h            ; brillante, papel rojo
 SQ_LIGHT    equ 060h            ; brillante, papel verde
 SQ_LAST     equ 058h            ; brillante, papel magenta: la ultima jugada
+SQ_SEL      equ 070h            ; brillante, papel amarillo: la casilla de origen elegida con el raton
 SQ_CHECK_W  equ 040h            ; el rey BLANCO en jaque: papel negro (su tinta es blanca)
 SQ_CHECK_B  equ 078h            ; el rey NEGRO en jaque: papel blanco (su tinta es negra)
 INK_WHITE   equ 007h            ; tinta de las piezas blancas (las negras, 0)
@@ -301,7 +302,11 @@ ds_nochk:   ld   hl,HL_FROM
             cp   (hl)
             jr   nz,ds_np
 ds_last:    ld   b,SQ_LAST          ; la ultima jugada, en amarillo
-ds_np:      ld   a,c
+ds_np:      ld   hl,SEL_SQ          ; la casilla de origen elegida (A = el numero de la casilla)
+            cp   (hl)
+            jr   nz,ds_ns
+            ld   b,SQ_SEL
+ds_ns:      ld   a,c
             or   a
             ld   hl,pc_none
             jr   z,ds_att

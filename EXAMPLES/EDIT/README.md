@@ -68,11 +68,11 @@ Con un ratón Bluetooth conectado (`LOAD *MOUSE`, `EXAMPLES/MOUSE`; necesita la 
 | Gesto | Qué hace |
 |---|---|
 | Clic izquierdo en el texto | pone el cursor ahí (cuenta los tabuladores y el desplazamiento horizontal; más allá del final de la línea o del texto, se queda en el final) |
-| Rueda | mueve el cursor una línea por unidad de giro (hacia delante, arriba) |
+| Rueda | mueve el cursor 1, 2 o 4 líneas por unidad de giro según la velocidad con que se gire (hacia delante, arriba): menos de 3 fotogramas desde el giro anterior (`MO_WFAST`) son ×4 y menos de 7 (`MO_WMED`) ×2 |
 | Clic en `ENTER+9: keys & commands` (la última fila, que ahora se ve como un botón) | abre la pantalla de ayuda |
 | Clic o rueda en la pantalla de ayuda | vuelve al texto |
 
-Los gestos se convierten en códigos de tecla que entrega `kbget`: `KEY_UP` y `KEY_DOWN` para la rueda, `K_HELP` para el botón de la ayuda y `K_MOUSE` (el código 0, que ninguna tecla genera) para el clic en el texto, que atiende `k_mouse`. El ratón se lee en `wait_scan`, junto al parpadeo del cursor. En las preguntas de la última fila (guardar, ¿Y/N?) el ratón solo mueve el cursor.
+Los gestos se convierten en códigos de tecla que entrega `kbget`: `KEY_UP` y `KEY_DOWN` para la rueda, `K_HELP` para el botón de la ayuda y `K_MOUSE` (el código 0, que ninguna tecla genera) para el clic en el texto, que atiende `k_mouse`. El ratón se lee en `wait_scan`, junto al parpadeo del cursor. En las preguntas de la última fila salen botones a la derecha, con el mismo estilo que el de la ayuda: ` YES `, ` NO ` y ` ESC ` en «¿Guardar los cambios?»; ` OK ` y ` ESC ` en `SAVE AS`; y ` OK ` en los avisos que esperan una tecla. Un clic en cada uno equivale a su tecla (`Y`, `N`, ESC, ENTER). `show_btns` los dibuja desde una tabla (columna, código, longitud y texto) y la deja activa para el ratón (`mo_tab`) hasta `hide_btns`. En esas preguntas, un clic en el texto no hace nada.
 
 La posición se escala: el área de texto mide 280 píxeles de sprite de ancho y el ratón solo llega a X = 255, así que el cursor se coloca en `x·35/32` (la columna de texto es `x·5/16`, de 0 a 79). Y es `y/8`.
 
@@ -94,7 +94,7 @@ Sin probar en la placa. A comprobar: que el cursor cae sobre el carácter que se
 
 | Dirección | Contenido |
 |---|---|
-| `$6000-$7F31` | el programa (con la fuente, que se copia a `$9000`, y el búfer de ficheros). **Todo debe quedar por debajo de `$8000`**, donde empieza la pantalla: quedan 207 bytes |
+| `$6000-$7FEB` | el programa (con la fuente, que se copia a `$9000`, y el búfer de ficheros). **Todo debe quedar por debajo de `$8000`**, donde empieza la pantalla: **quedan 21 bytes** (para más hará falta sacar el búfer `stage`, de 512 bytes, de la imagen) |
 | `$8000-$8798` | la pantalla: 1 byte inicial y 24 filas de 81 |
 | `$8800-$8F98` | los atributos, con la misma geometría |
 | `$9000-$97FF` | la fuente (I = `$90`) |

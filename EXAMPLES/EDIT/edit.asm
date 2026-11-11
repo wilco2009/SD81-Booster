@@ -1626,21 +1626,28 @@ mcu_map:    push bc
 put_msg_wait:
             ld   (msg_ptr),hl
             call draw_status
+            ld   hl,btn_ok
+            call show_btns
             ld   a,TEXTH
             ld   (cur_row),a
             ld   a,SCRW-1
             ld   (cur_col),a
-            jp   kbget
+            call kbget
+            jp   hide_btns
 
 ; HL = pregunta (Y/N). Z = Y, NZ = N, CF = ESC
 ask_yn:     ld   (msg_ptr),hl
             call draw_status
+            ld   hl,btn_yn          ; YES / NO / ESC como botones
+            call show_btns
             ld   hl,0
             ld   (msg_ptr),hl
             ld   a,TEXTH
             ld   (cur_row),a
             ld   a,SCRW-1
             ld   (cur_col),a
+            call ayn1
+            jp   hide_btns          ; conserva Z / NZ / CF
 ayn1:       call kbget
             cp   K_ESC
             scf
@@ -1676,7 +1683,9 @@ an3:        ld   a,(hl)
             inc  hl
             inc  de
             djnz an3
-an2:        ld   a,TEXTH
+an2:        ld   hl,btn_name        ; OK / ESC como botones (antes de colocar el cursor: put_ch mueve cur_row / cur_col)
+            call show_btns
+            ld   a,TEXTH
             ld   (cur_row),a
             ld   a,(name_len)
             add  a,10               ; detras de " SAVE AS: "
@@ -1715,11 +1724,11 @@ an_bs:      ld   a,(name_len)
 an_ok:      ld   a,(name_len)
             or   a
             jr   z,an1              ; sin nombre no se puede
-            ret                     ; NC
+            jp   hide_btns          ; NC
 an_esc:     xor  a
             ld   (name_len),a
             scf
-            ret
+            jp   hide_btns
 
 ; =====================================================================
 ;  Teclado y cursor: los de TELNET (chario.z80 de CPM3_SD81), con
@@ -2114,7 +2123,7 @@ kh_lines:
 ;  del modo de 80 columnas). Se lee el puerto $3FEF, indice 20 (x, y,
 ;  botones, rueda, rawx, rawy, seq, estado) dentro de wait_scan, y los
 ;  gestos se entregan por kbget como codigos de tecla (mo_cnt veces mo_code):
-;     rueda                 -> KEY_UP / KEY_DOWN, una linea por unidad
+;     rueda                 -> KEY_UP / KEY_DOWN: 1, 2 o 4 lineas por unidad segun la velocidad del giro
 ;     clic en el texto      -> K_MOUSE (0): k_mouse pone el cursor ahi
 ;     clic en "ENTER+9..."  -> K_HELP (la pantalla de teclas)
 ;  El cursor es el sprite 63: X de sprite = x*35/32 + 31 (280 pixeles de
@@ -2124,6 +2133,9 @@ kh_lines:
 ; =====================================================================
 MO_PORT     equ 3FEFh
 MO_SPR      equ 63
+MO_FRAMES   equ 4034h           ; FRAMES: la rueda mide el tiempo entre giros
+MO_WFAST    equ 3               ; menos de 3 fotogramas desde el giro anterior: rapido (x4)
+MO_WMED     equ 7               ; menos de 7: medio (x2); mas, lento (x1)
 
 mouse_init: ld   a,MO_SPR
             ld   (2100),a
@@ -2222,7 +2234,27 @@ mo_rd:      in   a,(c)
             jp   p,mo_w1
             neg
             ld   d,KEY_DOWN
-mo_w1:      cp   22
+mo_w1:      ld   c,a                ; C = |giro|
+            ld   a,(MO_FRAMES)      ; FRAMES (en FAST lo simula la FPGA): fotogramas desde el giro anterior
+            ld   hl,mo_wt
+            ld   b,(hl)
+            ld   (hl),a
+            sub  b
+            jr   nc,mo_w2
+            neg                     ; FRAMES puede subir o bajar: vale la distancia
+mo_w2:      ld   b,a
+            cp   MO_WFAST
+            ld   a,c
+            jr   c,mo_w4            ; giro rapido: x4 lineas por unidad
+            ld   a,b
+            cp   MO_WMED
+            ld   a,c
+            jr   nc,mo_w5           ; giro lento: una linea por unidad
+            add  a,a                ; giro medio: x2
+            jr   mo_w5
+mo_w4:      add  a,a
+            add  a,a
+mo_w5:      cp   22
             jr   c,mo_set
             ld   a,21
 mo_set:     ld   (mo_cnt),a
@@ -2262,12 +2294,38 @@ mo_btn:     bit  0,c                ; clic izquierdo
             and  1Fh
             cp   TEXTH
             jr   c,mo_place
-            ld   a,(mo_col)         ; la fila de estado: solo "ENTER+9: keys & commands"
+            ld   hl,(mo_tab)        ; la fila de estado: los botones de la pregunta abierta, si la hay
+            ld   a,h
+            or   l
+            jr   z,mo_help
+mo_b1:      ld   a,(hl)             ; columna inicial (0 = fin de la tabla)
+            or   a
+            jp   z,mo_end
+            ld   b,a
+            inc  hl
+            ld   d,(hl)             ; codigo de tecla
+            inc  hl
+            ld   c,(hl)             ; longitud
+            inc  hl
+            ld   a,(mo_col)
+            sub  b
+            jr   c,mo_b2
+            cp   c
+            jr   c,mo_b3            ; dentro de este boton
+mo_b2:      ld   a,l                ; al siguiente: se salta su texto
+            add  a,c
+            ld   l,a
+            jr   nc,mo_b1
+            inc  h
+            jr   mo_b1
+mo_b3:      ld   a,1
+            jp   mo_set
+mo_help:    ld   a,(mo_col)         ; sin pregunta: solo "ENTER+9: keys & commands"
             cp   SCRW-25
             jp   c,mo_end
             ld   d,K_HELP
             ld   a,1
-            jr   mo_set
+            jp   mo_set
 mo_place:   ld   (mo_row),a
             ld   d,K_MOUSE
             ld   a,1
@@ -2330,6 +2388,41 @@ km_eof:     call tb_len
             call tb_goto
             jp   set_want
 
+; show_btns: HL = tabla de botones (columna, codigo de tecla, longitud, texto; acaba en 0). Los dibuja en la fila de estado, como
+; el boton de la ayuda, y los deja activos para el raton (mo_tab) hasta hide_btns. Conserva los indicadores.
+show_btns:  ld   (mo_tab),hl
+sb_next:    ld   a,(hl)
+            or   a
+            ret  z
+            ld   e,a                ; columna
+            inc  hl
+            inc  hl                 ; salta el codigo
+            ld   b,(hl)             ; longitud
+            inc  hl
+            ld   d,TEXTH            ; la fila de estado
+            ld   c,KEYCAP_ATTR
+sb_ch:      ld   a,(hl)
+            inc  hl
+            call put_ch             ; conserva BC, DE y HL
+            inc  e
+            djnz sb_ch
+            jr   sb_next
+
+hide_btns:  ld   hl,0
+            ld   (mo_tab),hl
+            ret
+
+; botones de las preguntas: columna, codigo de tecla, longitud y texto
+btn_yn:     defb 61,'Y',5," YES "
+            defb 67,'N',4," NO "
+            defb 72,K_ESC,5," ESC "
+            defb 0
+btn_name:   defb 66,0Dh,4," OK "
+            defb 71,K_ESC,5," ESC "
+            defb 0
+btn_ok:     defb 72,0Dh,4," OK "
+            defb 0
+
 ; flecha blanca con borde negro (la de mouselib.inc): color, pixeles y mascara de las 8 filas
 mo_arrow:   defb 0F0h,0F0h,0F0h,0F0h,0F0h,0F0h,0F0h,0F0h
             defb 000h,040h,060h,070h,078h,07Ch,058h,018h
@@ -2382,6 +2475,8 @@ mo_pwh:     defs 1              ; rueda de la pasada anterior
 mo_cnt:     defs 1              ; codigos de tecla que quedan por entregar
 mo_code:    defs 1              ; el codigo
 mo_row:     defs 1              ; clic en el texto: fila y columna de pantalla
+mo_tab:     defs 2              ; tabla de botones de la pregunta abierta (0 = ninguna)
+mo_wt:      defs 1              ; FRAMES del ultimo giro de la rueda
 mo_col:     defs 1
 km_pos:     defs 2              ; k_mouse
 km_vcol:    defs 2

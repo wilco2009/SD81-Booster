@@ -1719,7 +1719,11 @@ vscr_attr_rit_loop:
 
         ld a,(viewer_handle)
         call f_close
+        ld a,3
+        ld (ms_view),a            ; un clic tambien cierra el visor de pantallas (mismo modo que la ayuda de teclas)
         call read_key
+        xor a
+        ld (ms_view),a
         call video_text_on        ; el bitmap ha machacado pantalla y fuente
         jp vt_refresh_and_loop
 
@@ -1861,7 +1865,11 @@ vt_view_ip:
         ld b,noconn_msg_len
         ld de,hint_anykey
         call show_prompt
+        ld a,3
+        ld (ms_view),a            ; un clic tambien vale como tecla (mismo modo que la ayuda de teclas)
         call read_key
+        xor a
+        ld (ms_view),a
         jp vt_refresh_and_loop
 
 
@@ -4724,7 +4732,7 @@ ycoord:
 ; RATON BLE (EXAMPLES/MOUSE/mouselib.inc, en pequeno). Se lee el puerto
 ; $3FEF, indice 20 (x, y, botones, rueda, rawx, rawy, seq, estado) y se
 ; traduce a los mismos codigos que da el teclado en read_key:
-;   rueda            -> 4 (arriba) o 3 (abajo), una fila por unidad de giro
+;   rueda            -> 4 (arriba) o 3 (abajo): 1, 2 o 4 filas por unidad segun la velocidad del giro
 ;   clic izquierdo   -> salta a la fila pulsada (codigo 34, vt_msel);
 ;                       un segundo clic en la misma fila antes de 25
 ;                       fotogramas (flancos del VSYNC) -> 5 (abrir), que
@@ -4743,6 +4751,8 @@ MS_PORT         equ 3FEFh
 MS_SPR          equ 63
 MS_FRAMES       equ 4034h        ; FRAMES (en FAST lo simula la FPGA)
 MS_PANELCOL     equ 46           ; con el panel abierto, el listado acaba en la columna 45
+MS_WFAST        equ 3            ; rueda: menos de 3 fotogramas desde el giro anterior = rapido (x4 filas por unidad)
+MS_WMED         equ 7            ; menos de 7 = medio (x2); mas, lento (x1)
 
 mouse_init:
         ld a,MS_SPR
@@ -4871,7 +4881,26 @@ mp_wh:  ld a,e
         jp p,mp_w1
         neg
         ld d,3
-mp_w1:  cp 22                     ; una fila por unidad de giro
+mp_w1:  ld c,a                    ; C = |giro|
+        ld a,(ms_fr)
+        ld hl,ms_wt
+        ld b,(hl)
+        ld (hl),a
+        sub b
+        ld b,a                    ; B = fotogramas desde el giro anterior
+        ld a,b
+        cp MS_WFAST
+        ld a,c
+        jr c,mp_w4                ; giro rapido: x4
+        ld a,b
+        cp MS_WMED
+        ld a,c
+        jr nc,mp_w5               ; giro lento: una fila por unidad
+        add a,a                   ; giro medio: x2
+        jr mp_w5
+mp_w4:  add a,a
+        add a,a
+mp_w5:  cp 22
         jr c,mp_set
         ld a,21
 mp_set: ld (ms_cnt),a
@@ -5246,6 +5275,7 @@ ms_vb2:
 ms_bar:   defb 0,0,  1,5,   7,2,   11,7,  16,8,  21,9,  26,10    ; 8open 5up Nnew Ddel Rren Ccopy
           defb 32,11, 37,12, 44,30, 50,15, 57,31, 63,1            ; Xcut Vpaste Eedit Ssetup Kkeys SPC exit
 ms_fr:    defb 0                ; fotogramas (flancos de subida del VSYNC)
+ms_wt:    defb 0                ; ms_fr del ultimo giro de la rueda
 ms_vs:    defb 0                ; nivel del VSYNC en la pasada anterior
 ms_lrow:  defb 0                ; fila de pantalla del ultimo clic izquierdo
 ms_act:   defb 0                ; 1 = abrir en cuanto se vacie la cola (doble clic)

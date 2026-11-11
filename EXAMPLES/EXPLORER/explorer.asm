@@ -117,6 +117,7 @@ DLG_ATTR        equ 017h        ; recuadro: papel azul, tinta blanca
 DLG_TITLE_ATTR  equ 01Fh        ; titulo: tinta blanca brillante
 DLG_HINT_ATTR   equ 015h        ; teclas: tinta cian
 DLG_BTN_ATTR    equ 051h        ; botones ENTER / SPACE: el anterior en video inverso (papel cian, tinta azul)
+BTN_KEY_ATTR    equ 05Eh        ; la tecla dentro de un boton de la barra de ayuda: tinta amarilla brillante sobre el cian del boton
 namebuf         equ VIDBASE+1B00h
 
 ; -------------------------------------------------------------
@@ -3604,6 +3605,8 @@ dhd1:   push af
 ; marca el caracter siguiente como tecla (HELPKEY_ATTR).
 draw_help:
         push hl
+        xor a
+        ld (dh_btn),a             ; sin boton abierto
         ld a,23
         ld c,HELP_ATTR
         call blank_row
@@ -3615,13 +3618,27 @@ dh1:    ld a,(hl)
         inc hl
         or a
         ret z
-        ld c,HELP_ATTR
+        cp 3
+        jr nc,dh0
+        ld (dh_btn),a             ; 1 = abre un boton, 2 = lo cierra (no ocupan columna)
+        jr dh1
+dh0:    ld c,HELP_ATTR
         cp '|'
-        jr nz,dh2
+        jr nz,dh3
         ld a,(hl)
         inc hl
         ld c,HELPKEY_ATTR
-dh2:    push hl
+dh3:    push af
+        ld a,(dh_btn)
+        rra                       ; carry = dentro de un boton
+        jr nc,dh2
+        ld a,c                    ; en un boton: el texto en video inverso y la tecla en amarillo
+        cp HELP_ATTR
+        ld c,DLG_BTN_ATTR
+        jr z,dh2
+        ld c,BTN_KEY_ATTR
+dh2:    pop af
+        push hl
         push af
         ld a,c
         ld (cur_attr),a
@@ -4927,7 +4944,7 @@ mp_left:
         jr z,mp_c1
         ld a,(ms_col)
         cp MS_PANELCOL
-        jp nc,mp_end              ; clic sobre el panel
+        jp nc,mp_panel            ; clic sobre el panel: sus opciones
 mp_c1:  ld a,(ms_fr)              ; fotogramas desde el ultimo clic izquierdo
         ld hl,ms_t
         ld c,(hl)
@@ -5019,6 +5036,35 @@ mp_btn5:
         ret
 mp_b5n: and a
         ret
+
+; mp_panel: B = fila de pantalla, (ms_col) = columna (>= 46). Busca en ms_pan la zona (fila, columna inicial, columna final + 1, codigo
+; de tecla) que contiene el puntero.
+mp_panel:
+        ld a,(ms_cnt)
+        or a
+        jp nz,mp_end
+        ld hl,ms_pan
+mp_p1:  ld a,(hl)                 ; fila (0 = fin de la tabla)
+        or a
+        jp z,mp_end
+        cp b
+        jr nz,mp_pn
+        inc hl
+        ld a,(ms_col)
+        cp (hl)
+        jr c,mp_pm1               ; antes de la zona
+        inc hl
+        cp (hl)
+        jr nc,mp_pm2              ; despues de la zona
+        inc hl
+        ld d,(hl)                 ; codigo de tecla
+        ld a,1
+        jp mp_set
+mp_pn:  inc hl                    ; siguiente zona (4 bytes cada una); se entra por aqui, por mp_pm1 o por mp_pm2 segun lo avanzado
+mp_pm1: inc hl
+mp_pm2: inc hl
+        inc hl
+        jr mp_p1
 mp_end: pop hl
         pop de
         pop bc
@@ -5076,7 +5122,8 @@ hint_edit:      defb 1,"ENTER",3," ok  ",2,"SPACE",3," cancel  SHIFT+0 del  SHIF
 hint_joy:       defb 1,"ENTER",3," ok  SHIFT+0 del  SHIFT+1 undo  (5 keys)",0
 hint_delete:    defb 1,"ENTER",3," delete  ",2,"SPACE",3," cancel",0
 hint_anykey:    defb "Press a key",0
-help_main:      defb " |8open |5up |Nnew |Ddel |Rren |Ccopy |Xcut |Vpaste |Eedit |Ssetup |Kkeys |S|P|Cexit",0
+help_main:      defb " ",1,"|8open",2," ",1,"|5up",2," ",1,"|Nnew",2," ",1,"|Ddel",2," ",1,"|Rren",2," ",1,"|Ccopy",2," "
+                defb 1,"|Xcut",2," ",1,"|Vpaste",2," ",1,"|Eedit",2," ",1,"|Ssetup",2," ",1,"|Kkeys",2," ",1,"|S|P|Cexit",2,0
 help_back:      defb " any key: back to the list",0
 help_viewer:    defb " |6|7 line   |1|2 page   |S|P|A|C|E exit",0
 help_hex:       defb " |6|7 line   |1|2 page   |G goto   |Z ZX81/ASCII   |S|P|A|C|E exit",0
@@ -5091,6 +5138,20 @@ ms_t:     defb 0                ; ms_fr del ultimo clic izquierdo
 ms_tgt:   defw 0                ; indice de la entrada que ha pulsado el raton (codigo 34)
 ms_col:   defb 0                ; columna de texto del puntero (0..69)
 bt_cols:  defb 0,0              ; columna de los botones ENTER y SPACE del dialogo abierto (0 = no hay)
+; zonas del panel de configuracion (vt_draw_panel): fila, columna inicial, columna final + 1 y codigo de tecla. Acaba en 0
+ms_pan:   defb 2,48,53,16       ; W WRX
+          defb 2,56,62,18       ; M MC45
+          defb 4,48,55,17       ; F FULLP
+          defb 6,48,61,24       ; A CHR (y su valor)
+          defb 10,56,61,20      ; flechas del joystick
+          defb 11,48,61,20      ; J JOY (y sus teclas)
+          defb 13,56,58,21, 13,58,60,22, 13,60,61,23    ; T Y U
+          defb 14,56,58,21, 14,58,60,22, 14,60,61,23    ; los iconos STOP, PAUSA y PLAY de debajo
+          defb 16,48,52,27      ; I IP
+          defb 18,48,56,29      ; . FILTER
+          defb 19,48,63,28      ; (SHIFT+1)=RESET
+          defb 0
+dh_btn:   defb 0                ; draw_help: bit 0 = se esta pintando un boton
 ; zonas de la barra de ayuda (help_main, fila 23): columna donde empieza y codigo de tecla (los de read_key). La primera es el centinela
 ms_bar:   defb 0,0,  1,5,   7,2,   11,7,  16,8,  21,9,  26,10    ; 8open 5up Nnew Ddel Rren Ccopy
           defb 32,11, 37,12, 44,30, 50,15, 57,31, 63,1            ; Xcut Vpaste Eedit Ssetup Kkeys SPC exit

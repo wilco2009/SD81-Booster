@@ -122,6 +122,7 @@ CMD_chars256	equ	0x41	; LOAD *256C (siguiente slot libre en la tabla MCU)
 CMD_romlock_on	equ	0x44	; LOAD *ROMLOCK
 CMD_romlock_off	equ	0x45	; LOAD *ROMLOCK STOP
 CMD_loadZ81dbg	equ	0x4B	; LOAD *Z81 con el monitor del depurador
+CMD_mouse	equ	0x4D	; LOAD *MOUSE: raton Bluetooth (op 3 = orden de emparejado/conexion)
 
 ; ROM restart routines
 ERROR_1		equ	08H
@@ -1895,6 +1896,83 @@ CmdSUMMER:	ld	bc,CMD_dst_on*256 + CMD_dst_off
 		jp	CMD_ONOFF_BC	; (jp: destino demasiado lejos para jr)
 
 
+; LOAD *MOUSE THEN NEW     emparejar un raton nuevo (ventana de 60 s; sustituye al guardado)
+; LOAD *MOUSE THEN RUN     conectar con el raton guardado
+; LOAD *MOUSE THEN CLEAR   desemparejar (olvidar el guardado y sus claves)
+; LOAD *MOUSE THEN STOP    desconectar (y no volver a conectar hasta THEN RUN)
+; LOAD *MOUSE STOP         lo mismo
+; LOAD *MOUSE [TO A$]      el estado como texto de 16 caracteres (op 5): CONECTADO, EMPAREJANDO 45S, BUSCANDO, PARADO, SIN RATON, SIN MODULO WIFI
+; Es el comando 77 del MCU, op 3 (orden, argumento): el MCU deja la orden pendiente y el ESP32 la recoge en ~0,5 s. No espera al resultado:
+; el estado se lee con el op 4 desde codigo maquina (EXAMPLES/MOUSE/mouse.inc). Orden: 1 emparejar, 2 conectar, 3 olvidar, 5 parar.
+CmdMOUSE:	ld	b,5		; desconectar
+		cp	.STOP
+		jr	z,MouseDo
+		cp	.THEN
+		jr	z,MouseThen
+		; LOAD *MOUSE [TO <string-var>]: el estado como texto de 16 caracteres (op 5), igual que *BAT
+		set	6,(iy+iyFLAGX)	; marca "imprimir, no guardar"
+		cp	.TO
+		jr	nz,MouseShow
+		rst	NEXT_CHAR	; saltar TO
+		call	CLASS_1		; detalles de la variable; borra FLAGX
+		call	MustBeString	; error si es numerica
+		rst	GET_CHAR
+MouseShow:	call	MustBeEOL	; fin de sintaxis
+		ld	bc,16
+		rst	BC_SPACES	; sitio para 16 caracteres (DE = inicio)
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_mouse
+		call	OutWaitDiff
+		ld	a,5
+		call	OutWaitEq	; op 5: estado como texto
+		ld	b,16
+		push	de
+MouseRead:	in	a,(DataPort)
+		ld	(de),a
+		inc	de
+		call	WaitClkDiff
+		xor	c
+		ld	c,a		; bit 7 de C == reloj otra vez
+		djnz	MouseRead
+		call	ReportStatus
+		pop	de
+		bit	6,(iy+iyFLAGX)	; imprimir o guardar?
+		ld	b,16
+		jp	nz,BattPrintNext
+		ld	c,b		; BC = 16
+		ld	b,0
+		jp	BattStore
+
+MouseThen:	rst	NEXT_CHAR	; saltar THEN
+		ld	b,1		; emparejar
+		cp	.NEW
+		jr	z,MouseDo
+		ld	b,3		; desemparejar
+		cp	.CLEAR
+		jr	z,MouseDo
+		ld	b,2		; conectar
+		cp	.RUN
+		jr	z,MouseDo
+		ld	b,5		; desconectar
+		cp	.STOP
+		jp	nz,ReportC4	; (jp: destino demasiado lejos para jr)
+MouseDo:	rst	NEXT_CHAR	; saltar el token
+		call	MustBeEOL	; aqui acaba la sintaxis; la accion, solo al ejecutar
+
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_mouse
+		call	OutWaitDiff	; comando 77
+		ld	a,3
+		call	OutWaitEq	; op 3: orden del BLE
+		ld	a,b
+		call	OutWaitDiff	; la orden
+		xor	a
+		call	OutWaitEq	; argumento (0 = el de por defecto)
+		jp	ReportStatus
+
+
 ; LOAD *NTP [ = <string> | [+|-]<number> ]
 ; No argumento (fin de linea) -> fuerza una sincronizacion NTP inmediata
 ; = <string>                  -> ajusta el servidor NTP
@@ -2313,6 +2391,9 @@ CmdList:
 		db	.S,.U,.M,.M,.E,.R + $80
 		dw	CmdSUMMER
 
+		db	.M,.O,.U,.S,.E + $80
+		dw	CmdMOUSE
+
 		db	.W,.R,.X + $80
 		dw	CmdWRX
 
@@ -2419,6 +2500,7 @@ ErrMsgLen	equ	$ - ErrMsgAdr
 .SLOW		equ	228
 .FAST		equ	229
 .CONT		equ	232
+.NEW		equ	230
 .GOTO		equ	236
 .PAUSE		equ	242
 .POKE		equ	244

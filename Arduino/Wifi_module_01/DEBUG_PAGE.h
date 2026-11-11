@@ -369,7 +369,7 @@ function drawCap(d){
       for(let x=0;x<8;x++)put(xb*8+x,y,((g>>(7-x))&1)?ink:paper);
     }
   }
-  if(hasSpr&&!wide){                                    // los sprites: hasta 12 por linea, gana el de indice mas alto con un pixel visible
+  if(hasSpr){                                    // los sprites: hasta 12 por linea, gana el de indice mas alto con un pixel visible
     const sb=d[19]<<13,sp=[];                           // sb: bloque de 8 KB de las hojas (POKE 2129); lo que no viene en la captura se lee a 0
     for(let i=0;i<64;i++){
       const b=i<32?0x0C00+i*32:0x1800+(i-32)*32;
@@ -383,9 +383,9 @@ function drawCap(d){
       const list=[];
       for(let k=sp.length-1;k>=0&&list.length<12;k--){const dy=(y+32-sp[k].y)&511;if(dy<8)list.push([sp[k],dy]);}
       if(!list.length)continue;
-      for(let x=0;x<256;x++){
+      for(let x=0;x<W;x++){                             // en 70/80 columnas (W=560) cada pixel de sprite vale dos del texto
         for(const [s,dy] of list){
-          const dx=(x+32-s.x)&511;
+          const dx=((wide?x>>1:x)+32-s.x)&511;
           if(dx>=8)continue;
           const bit=7-dx;
           if(!((mem[s.b+20+dy]>>bit)&1))continue;

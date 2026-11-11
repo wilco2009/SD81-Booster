@@ -35,6 +35,8 @@ void jmpfar();
 #define cfgcmd_DBGDIRTY   11  // depurador: borrar las paginas escritas (1 y despues 0)
 #define cfgcmd_DBGTRACE   12  // depurador: la traza de la FPGA (historial, sim_int 0.13)
 #define cfgcmd_KEYS       13  // teclado virtual: una fila de la matriz (vkeys.v), 3 bits de fila y 5 de columnas
+#define cfgcmd_MOUSE_A    14  // raton: x, y, botones, rueda (mouse_regs.v; el Z80 lo lee por el indice 20 de $3FEF)
+#define cfgcmd_MOUSE_B    15  // raton: rawx, rawy, seq, conectado
 
 
 void send_debug_params(uint16_t pixel_cnt, uint16_t line_cnt);
@@ -46,6 +48,8 @@ void send_bit_config(uint8_t command, uint8_t value);
 void vkeys_set(const uint8_t* rows);
 void vkeys_poll(void);
 void vkeys_clear(void);
+// Raton: si ha cambiado algo (MOUSE.cpp), lo manda a la FPGA (como mucho cada 8 ms). Se llama desde idle_tasks()
+void mouse_fpga_poll(void);
 void rst_config(void);
 uint8_t cfg_value(uint8_t command);   // ultimo valor mandado con send_bit_config
 

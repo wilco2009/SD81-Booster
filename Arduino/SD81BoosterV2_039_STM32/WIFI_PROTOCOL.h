@@ -41,6 +41,28 @@
 // Teclado virtual (CMD_DBG_KEYS): las 8 filas de la matriz del teclado del ZX81, 5 bits cada una
 // (bit 0 = D0, 1 = tecla pulsada). Respuesta: ST_OK
 
+// Raton BLE (CMD_MOUSE): el ESP32 (cliente BLE HID) manda, cada vez que el raton se mueve o cambia un boton, lo ACUMULADO desde la ultima trama.
+//   req:  botones(1B: bit0 izq, bit1 der, bit2 centro...), dx(2B LE, con signo), dy(2B LE, con signo), rueda(1B, con signo)   = 6 B
+//   resp: status(1B), x(2B LE), y(2B LE), botones(1B)    (la posicion ABSOLUTA que lleva el STM32, ya recortada a la pantalla)
+// El STM32 integra dx/dy en una posicion (x, y) con un divisor de sensibilidad y la recorta al rango de la pantalla (ver MOUSE.cpp).
+// Los deltas son ACUMULADOS (no el ultimo): si el STM32 tarda en contestar no se pierde movimiento.
+
+// Prueba de latencia del raton (CMD_MOUSE_TEST), solo para medir: el ESP32 manda un informe de raton FALSO a 100 Hz y mide la ida y vuelta.
+//   req:  seq(2B LE), botones(1B), dx(2B LE, con signo), dy(2B LE, con signo), reservado(1B)      = 8 B
+//   resp: status(1B), seq(2B LE, eco), gap_us(4B LE), proc_us(4B LE)                                = 11 B
+//   gap_us  = tiempo entre la vuelta anterior de wifi_handler_poll() y la que ve el SOF: cota superior de lo que la trama esperó
+//             en el bufer del UART (es lo que tarda loop() en volver, ver LATSTATS)
+//   proc_us = desde que se ve el SOF hasta que se manda la respuesta (incluye recibir el resto de la trama, ~0,1 ms a 921600)
+
+// Control del raton BLE desde el Z80 (CMD_BLE). El STM32 no puede iniciar tramas, asi que la orden del Z80 (comando 77, ops 3 y 4) se queda
+// pendiente en el STM32 y el ESP32 la recoge en su siguiente CMD_BLE (cada ~0,5 s, y en cuanto cambia su estado).
+//   req:  estado(1B), segundos(1B)
+//         estado: bit0 conectado, bit1 emparejando (ventana abierta), bit2 activado, bit3 hay un raton guardado
+//         segundos: lo que queda de la ventana de emparejado (0..255)
+//   resp: status(1B), orden(1B), argumento(1B)
+//         orden: 0 ninguna, 1 pair (argumento = segundos, 0 = los de por defecto), 2 connect, 3 forget, 4 on, 5 off
+// La orden se entrega UNA vez (el STM32 la borra al contestar). Pair, connect, forget, on y off son repetibles sin dano.
+
 // Tamano maximo de PAYLOAD de una trama (CMD+LEN no cuentan) - dimensiona los buffers
 // fijos en ambos lados, deben usar la MISMA constante para no desbordar el lado contrario.
 // Margen sobre WIFI_PROTO_CHUNK_SIZE para cabeceras de comando (handle, len, offset, etc.)
@@ -67,6 +89,9 @@ enum WifiProtoCmd : uint8_t {
   CMD_DBG_VIEW     = 0x11,  // depurador: un trozo de la vista estructurada - ver mas abajo
   CMD_DBG_KEYS     = 0x13,  // depurador: teclado virtual, la matriz de teclas pulsadas - ver arriba
   CMD_DBG_CAP      = 0x12,  // depurador: la captura de la pantalla del programa - ver arriba (WIFI_PROTO_CAP_CHUNK)
+  CMD_MOUSE       = 0x15,  // raton BLE: el ESP32 manda los movimientos y botones, el STM32 acumula la posicion - ver mas abajo
+  CMD_MOUSE_TEST  = 0x14,  // prueba sintetica de latencia del raton BLE (planning/raton_bluetooth.md) - ver mas abajo
+  CMD_BLE         = 0x16,  // raton BLE: el ESP32 cuenta su estado y recoge la orden pendiente del BASIC/Z80 (emparejar, conectar, olvidar...)
   // 0x0B (antiguo CMD_GET_WIFI_CFG) retirado - ver nota mas abajo sobre WIFI.CFG
 };
 

@@ -7,7 +7,7 @@
 //#define reversed
  #define LOG0
  #define LOG1
- #define LOG2
+ //#define LOG2
  //#define LOG3
 
 // El buffer de recepcion de los UART lo fija build_opt.h (-D para todo el
@@ -140,30 +140,39 @@ void split_two_params(char* params, char* param1, char* param2);
 void hex_to_str(char* v, char* params);
 void upStr(char* s);
 
+// Registro (log) por el puerto USB. DOS filtros:
+//  - en COMPILACION: los #define LOG0..LOG3 de arriba deciden que niveles existen (lo que no esta definido ni ocupa flash);
+//  - en EJECUCION: log_level (0..4), que se lee de /SYS/LOG.CFG al arrancar (clave STM32LOG, ver LOGCFG.cpp).
+//      0 = nada (POR DEFECTO), 1 = log_0 (errores), 2 = + log_1 (lo que salia hasta ahora), 3 = + log_2, 4 = + log_3.
+//    Los niveles por encima de los compilados (hoy LOG0 y LOG1) no hacen nada aunque el fichero los pida.
+extern uint8_t log_level;
+extern bool    log_lat;            // lineas [LAT] de LATSTATS por USB (STM32LAT en /SYS/LOG.CFG; por defecto no)
+void log_cfg_load();               // lee /SYS/LOG.CFG (la SD ya iniciada); sin fichero deja el nivel por defecto
+
 #if defined(LOG0)||defined(LOG1)||defined(LOG2)||defined(LOG3)
 void log_debug(const char* fmt /*PROGMEM*/, ...);
 #endif
 
 #ifdef LOG0
-#define log_0(x, ...) log_debug(PSTR(x),##__VA_ARGS__)
+#define log_0(x, ...) do { if (log_level >= 1) log_debug(PSTR(x),##__VA_ARGS__); } while (0)
 #else
 #define log_0(...)
 #endif
 
 #ifdef LOG1
-#define log_1(x, ...) log_debug(PSTR(x),##__VA_ARGS__)
+#define log_1(x, ...) do { if (log_level >= 2) log_debug(PSTR(x),##__VA_ARGS__); } while (0)
 #else
 #define log_1(...)
 #endif
 
 #ifdef LOG2
-#define log_2(x, ...) log_debug(PSTR(x),##__VA_ARGS__)
+#define log_2(x, ...) do { if (log_level >= 3) log_debug(PSTR(x),##__VA_ARGS__); } while (0)
 #else
 #define log_2(...)
 #endif
 
 #ifdef LOG3
-#define log_3(x, ...) log_debug(PSTR(x), ##__VA_ARGS__)
+#define log_3(x, ...) do { if (log_level >= 4) log_debug(PSTR(x), ##__VA_ARGS__); } while (0)
 #else
 #define log_3(...)
 #endif

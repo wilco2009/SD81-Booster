@@ -1,4 +1,5 @@
 #include "WIFI_HANDLER.h"
+#include "MOUSE.h"
 #include "WIFI_PROTOCOL.h"
 #include "SD_handle.h"
 #include "GLOBALS.h"
@@ -467,8 +468,8 @@ static void handle_set_time(const uint8_t* payload, uint16_t len) {
   rtc.setYear(year);
   rtc.setDate(day, month, year);
 
-  Serial.printf("Reloj actualizado via NTP (WiFi) a %02d/%02d/%02d %02d:%02d:%02d\n",
-                day, month, year, hours, minutes, seconds);
+  log_1("Reloj actualizado via NTP (WiFi) a %02d/%02d/%02d %02d:%02d:%02d",
+        day, month, year, hours, minutes, seconds);
 
   send_status_only(CMD_SET_TIME, ST_OK);
 }
@@ -682,6 +683,46 @@ static void handle_dbg_keys(const uint8_t* payload, uint16_t len) {
   wifi_send_frame(CMD_DBG_KEYS, tx_payload, 1);
 }
 
+// CMD_MOUSE: movimientos y botones del raton BLE, acumulados por el ESP32 (ver WIFI_PROTOCOL.h). Aqui solo se integran en la posicion (MOUSE.cpp)
+static void handle_mouse(const uint8_t* payload, uint16_t len) {
+  if (len < 6) return;                        // trama corta: que reintente
+  int16_t dx, dy;
+  memcpy(&dx, &payload[1], 2);
+  memcpy(&dy, &payload[3], 2);
+  mouse_apply(dx, dy, (int8_t)payload[5], payload[0]);
+  const MouseState m = mouse_get();
+  tx_payload[0] = ST_OK;
+  memcpy(&tx_payload[1], &m.x, 2);
+  memcpy(&tx_payload[3], &m.y, 2);
+  tx_payload[5] = m.buttons;
+  wifi_send_frame(CMD_MOUSE, tx_payload, 6);
+}
+
+// CMD_MOUSE_TEST: prueba sintetica de latencia del raton BLE (ver WIFI_PROTOCOL.h). Solo contesta con sus propios tiempos;
+// el ESP32 mide la ida y vuelta. gap_us = lo que tardo loop() en volver a wifi_handler_poll() (cota de lo que espero la trama).
+static void handle_mouse_test(const uint8_t* payload, uint16_t len, uint32_t gap_us, uint32_t sof_us) {
+  if (len < 8) return;
+  tx_payload[0] = ST_OK;
+  tx_payload[1] = payload[0];
+  tx_payload[2] = payload[1];
+  uint32_t proc_us = micros() - sof_us;
+  memcpy(&tx_payload[3], &gap_us, 4);
+  memcpy(&tx_payload[7], &proc_us, 4);
+  wifi_send_frame(CMD_MOUSE_TEST, tx_payload, 11);
+}
+
+// CMD_BLE: el ESP32 cuenta el estado del raton BLE y recoge la orden pendiente del Z80 (ver WIFI_PROTOCOL.h)
+static void handle_ble(const uint8_t* payload, uint16_t len) {
+  if (len < 2) return;                        // trama corta: que reintente
+  mouse_ble_set_state(payload[0], payload[1]);
+  uint8_t order, arg;
+  mouse_ble_take_order(&order, &arg);
+  tx_payload[0] = ST_OK;
+  tx_payload[1] = order;
+  tx_payload[2] = arg;
+  wifi_send_frame(CMD_BLE, tx_payload, 3);
+}
+
 void wifi_handler_poll() {
 #if NET_BRIDGE_TEST
   net_bridge_test_tick();
@@ -693,6 +734,12 @@ void wifi_handler_poll() {
     set_status_LED(clYELLOW);
     esp32_update_in_progress = false;
   }
+
+  // Tiempo desde la vuelta anterior (para CMD_MOUSE_TEST): tambien cuenta las vueltas que salen aqui sin datos
+  static uint32_t prev_poll_us = 0;
+  const uint32_t poll_us = micros();
+  const uint32_t gap_us = poll_us - prev_poll_us;
+  prev_poll_us = poll_us;
 
   if (!WIFI_SERIAL.available()) return;
   if (WIFI_SERIAL.read() != WIFI_PROTO_SOF) return;   // resincroniza byte a byte si hay ruido
@@ -720,6 +767,9 @@ void wifi_handler_poll() {
     case CMD_DBG_VIEW:     handle_dbg_view(rx_payload, len); break;
     case CMD_DBG_CAP:      handle_dbg_cap(rx_payload, len); break;
     case CMD_DBG_KEYS:     handle_dbg_keys(rx_payload, len); break;
+    case CMD_MOUSE_TEST:   handle_mouse_test(rx_payload, len, gap_us, poll_us); break;
+    case CMD_MOUSE:        handle_mouse(rx_payload, len); break;
+    case CMD_BLE:          handle_ble(rx_payload, len); break;
     default: break;   // comando desconocido: se ignora
   }
 }

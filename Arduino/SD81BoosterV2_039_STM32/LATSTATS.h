@@ -18,7 +18,7 @@
 
 #include <Arduino.h>
 
-#define LAT_STATS 1
+#define LAT_STATS 0
 
 #if LAT_STATS
 enum { LAT_S_READ, LAT_S_CMD, LAT_S_SER, LAT_S_WIFI, LAT_S_PLAY, LAT_S_IDLE, LAT_S_N };

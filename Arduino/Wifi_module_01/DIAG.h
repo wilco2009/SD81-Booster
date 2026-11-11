@@ -12,14 +12,17 @@
 // diagnostico no esta compilado (ESP_DIAG sigue a 0) o el ESP32 no llego a 10 s. Despues vuelca cada DIAG_DUMP_S segundos (o si el
 // buzon se llena, o antes de reiniciar) a /SYS/ESP32LOG.TXT, por el fichero que ya tiene abierto el log. En ese momento hay una parada (unas decenas de ms) y se apunta ("VOLCADO ... ms"); hasta entonces la medida no se perturba.
 //
-// Para medir: cambiar el 0 por 1 aqui abajo, compilar y grabar el ESP32 y jugar; despues leer ESP32LOG.TXT de la SD.
+// Para medir: poner ESP_DIAG a 1 aqui abajo (el firmware lleva el codigo), compilar y grabar el ESP32, y activarlo al ARRANCAR con DIAG=1 en
+// /SYS/LOG.CFG (ver LOGCFG.h; por defecto esta parado), o en caliente con la orden "esp diag on" de la consola web (/debug). Despues leer ESP32LOG.TXT
+// de la SD, la orden "esp diag" de la consola web o http://<IP>/diag. El volcado a la SD (DIAG_DUMP_S, tambien en LOG.CFG; 0 = nunca) para el STM32 un
+// rato en cada vuelta: no dejarlo activo si se mide otra cosa o si suena musica.
 // Con ESP_DIAG = 0 (por defecto) todas las macros son vacias: ni una instruccion mas.
 #ifndef DIAG_H
 #define DIAG_H
 
 #include <Arduino.h>
 
-#define ESP_DIAG          1
+#define ESP_DIAG          0
 #define DIAG_SLOW_MS      40     // a partir de aqui un tramo o una peticion se apuntan como lentos
 #define DIAG_SUMMARY_S    10     // resumen periodico
 #define DIAG_DUMP_S       30     // volcado a la SD (el primero, a los 10 s del arranque, para comprobar que funciona)
@@ -33,6 +36,7 @@ void diag_req(uint8_t cmd, uint8_t attempts, uint32_t ms, bool ok, uint8_t frame
 void diag_section(uint8_t id, uint32_t ms);
 void diag_loop();                    // al final de cada vuelta de loop(): vueltas lentas, resumen y volcado
 void diag_flush();                   // vuelca ya lo pendiente (lo llama sdlog_close() antes de reiniciar)
+void diag_dump_now();               // vuelca ya a la SD lo pendiente (orden "esp diag dump"), aunque DIAG_DUMP_S sea 0
 size_t diag_read(char* out, size_t max);   // el historial (texto) para la pagina /diag
 
 extern uint8_t diag_fail_why;        // motivo del ultimo fallo al leer una trama del STM32 (ver DIAG_FAIL en WIFI_CLIENT.cpp)

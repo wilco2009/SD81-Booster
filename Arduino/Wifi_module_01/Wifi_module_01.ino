@@ -16,6 +16,9 @@
 // USB) - no debe afectar a las cabeceras de las librerias de arriba.
 #include "SD_LOG.h"
 #include "DIAG.h"
+#include "MOUSE_TEST.h"
+#include "LOGCFG.h"
+#include "MOUSE_BLE.h"
 
 // Fixed path on the SD card for a pending ESP32 firmware image. If present at
 // boot, it gets flashed via the Update library and deleted on success - same
@@ -404,9 +407,16 @@ void handleDebugPoll() {
   uint32_t seq = server.hasArg("seq") ? strtoul(server.arg("seq").c_str(), nullptr, 10) : 0;
   String c = server.hasArg("c") ? server.arg("c") : "";
   c.trim();
+  // Orden "esp ...": la contesta el propio ESP32 (diagnostico y logs, ver LOGCFG.h) y no se manda al STM32; su respuesta va delante del texto normal
+  String local;
+  {
+    String cl = c; cl.toLowerCase();
+    if (cl == "esp" || cl.startsWith("esp ")) { local = esp_console_cmd(c.substring(3)); c = ""; }
+  }
   uint8_t cmd_id = 0;
   if (c.length()) { if (++id == 0) id = 1; cmd_id = id; }
   String text;
+  json_append(text, (const uint8_t*)local.c_str(), (uint16_t)local.length());
   uint8_t state = 0;
   uint16_t vver = 0;
   uint32_t lost = 0;
@@ -422,6 +432,10 @@ void handleDebugPoll() {
     seq = from + n;
     cmd_id = 0;                               // la orden, solo en la primera
     if (n < WIFI_PROTO_DBG_OUT) break;
+  }
+  if (!ok && local.length()) {                 // el STM32 no contesta, pero la respuesta de "esp" se da igual
+    server.send(200, "application/json", "{\"ok\":1,\"state\":0,\"seq\":" + String(seq) + ",\"lost\":0,\"vver\":0,\"text\":\"" + text + "\"}");
+    return;
   }
   if (!ok) { server.send(200, "application/json", "{\"ok\":0}"); return; }
   String j = "{\"ok\":1,\"state\":" + String(state) + ",\"seq\":" + String(seq) + ",\"lost\":" + String(lost) +
@@ -1170,6 +1184,7 @@ void setup() {
   } else {
     Serial.println("STM32 did not respond within the timeout - continuing anyway.");
   }
+  logcfg_load();     // /SYS/LOG.CFG: SDLOG, DIAG y DIAG_DUMP_S (antes del primer volcado, para que SDLOG=0 se respete desde el principio)
   sdlog_try_flush(); // primer intento de volcado, para no perder los mensajes de arranque
 
   check_and_apply_firmware_update();
@@ -1245,6 +1260,7 @@ void setup() {
   server.on("/update/finish", HTTP_POST, handleUpdateFinish);
   server.begin();
   Serial.println("Server ready.");
+  MOUSE_BLE_BEGIN();   // raton Bluetooth (MOUSE_BLE.h): lee la NVS y crea las tareas; no hace nada hasta "esp ble on"
   net_bridge_init();
 }
 
@@ -1329,6 +1345,7 @@ void loop() {
     DIAG_SEC(DG_NTPWIFI);
   }
   net_bridge_loop();
+  MOUSE_TEST_TICK();
   DIAG_TIMED(DG_SDLOG, sdlog_try_flush());
   DIAG_LOOP();
 }

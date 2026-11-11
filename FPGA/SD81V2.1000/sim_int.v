@@ -104,6 +104,8 @@
 //         guarden solo las que usa el programa
 //       7/8 el puntero de la traza (bajo / los 2 bits altos)
 //       15 firma 52h
+//       20 el RATON (mouse_regs.v): OUT $24 lo elige, copia los 8 bytes (una foto) y pone el puntero a 0;
+//         cada IN devuelve el byte siguiente (como el 6): x, y, botones, rueda, rawx, rawy, seq, estado
 //
 //  TRAZA (orden 12 del MCU): con ella puesta, cada M1 que empieza una
 //  instruccion del programa (prog_m1: no las que sirve la FPGA ni las del
@@ -117,6 +119,9 @@
 //  system_clk, con tr_go sincronizado. El puntero (la entrada siguiente)
 //  se lee con los indices 7/8: el MCU lee el anillo al parar
 //
+// Revision 0.21 - Indice 20 = el raton Bluetooth (mouse_regs.v; el MCU lo escribe por las ordenes 14 y 15). OUT $24 lo
+//                 elige y toma una foto de sus 8 bytes; cada IN devuelve el siguiente. Sin espera: el Z80 lo lee en
+//                 microsegundos, sin pasar por el MCU. Nuevo puerto de entrada mouse_regs
 // Revision 0.20 - Motor de movimiento horizontal del scroll (scroll_motor.v). Registro 9 = orden (1 izquierda,
 //                 2 derecha; 3 y 4 reservados para el vertical): la FPGA la ejecuta en el borrado, desde la linea
 //                 254, antes del blit del doble buffer. IN 16 = estado: bit 7 ocupado (orden pendiente o en
@@ -244,7 +249,8 @@ module sim_int(
 	output reg [2:0] scr_cmd = 3'd0,		// orden del motor de scroll (registro 9); estable cuando scr_cmd_tog cambia
 	output reg scr_cmd_tog = 1'b0,			// cambia con cada orden aceptada
 	input wire scr_tstart,					// de system_clk: el motor ha aceptado la orden (copia de scr_cmd_tog)
-	input wire scr_tdone					// de system_clk: el motor ha acabado (copia de scr_cmd_tog)
+	input wire scr_tdone,					// de system_clk: el motor ha acabado (copia de scr_cmd_tog)
+	input wire [63:0] mouse_regs			// el raton (mouse_regs.v, dominio de CFG_CLK): 8 bytes, el indice 20 los lee de uno en uno
     );
 
 	// ---------------------------------------------------------------
@@ -319,6 +325,11 @@ module sim_int(
 	reg [5:0] dclr_cnt = 6'd0;
 	reg [5:0] dptr = 6'd0;		// la pagina que devuelve el indice 6
 	reg dirty_rd_prev = 1'b0;
+	// Raton: IN del indice 20 de $3FEF. Elegirlo (OUT $24) copia los 8 bytes del raton (una foto coherente:
+	// x e y no cambian a mitad de la lectura) y pone el puntero a 0; cada IN devuelve el byte siguiente
+	reg [63:0] mshadow = 64'd0;
+	reg [2:0] mptr = 3'd0;
+	reg mouse_rd_prev = 1'b0;
 	reg [2:0] tgl_s = 3'b000;
 	reg [7:0] bptr_lo = 8'd0;
 	reg bram_rd_prev = 1'b0;
@@ -404,6 +415,7 @@ module sim_int(
 	// bram_ptr (lo hace SD81.v; el blit del doble buffer espera)
 	assign bram_rd = ~nIORQ & ~nRD & nM1 & (addr == 16'h3FEF) & (ridx == 5'd2);
 	wire dirty_rd = ~nIORQ & ~nRD & nM1 & (addr == 16'h3FEF) & (ridx == 5'd6);
+	wire mouse_rd = ~nIORQ & ~nRD & nM1 & (addr == 16'h3FEF) & (ridx == 5'd20);
 	wire dirty_bit = dmem[dptr];
 	always @(negedge iclock)
 		if (dclr_run | sram_wr)
@@ -508,6 +520,7 @@ module sim_int(
 			5'd17: port_out = {5'd0, scr_fine_y};
 			5'd18: port_out = {3'd0, scr_reg_top};
 			5'd19: port_out = {3'd0, scr_reg_bot};
+			5'd20: port_out = mshadow[{mptr, 3'b000} +: 8];	// el raton: x, y, botones, rueda, rawx, rawy, seq, estado
 			default: port_out = 8'h00;
 		endcase
 	end
@@ -564,6 +577,9 @@ module sim_int(
 			dclr_cnt <= 6'd0;
 			dptr <= 6'd0;
 			dirty_rd_prev <= 1'b0;
+			mshadow <= 64'd0;
+			mptr <= 3'd0;
+			mouse_rd_prev <= 1'b0;
 			tren_s <= 2'b00;
 			tr_go <= 1'b0;
 		end else begin
@@ -595,6 +611,9 @@ module sim_int(
 			else if (slow) nmi_age <= nmi_age + 1'b1;
 			if (dirty_rd_prev & ~dirty_rd)
 				dptr <= dptr + 1'b1;
+			mouse_rd_prev <= mouse_rd;
+			if (mouse_rd_prev & ~mouse_rd)		// el puntero del raton avanza al acabar cada IN del indice 20
+				mptr <= mptr + 1'b1;
 			if ((bram_rd_prev & ~bram_rd) | (bram_wr_prev & ~bram_wr))
 				bram_ptr <= bram_ptr + 1'b1;
 			if (~io_wr)
@@ -658,6 +677,10 @@ module sim_int(
 						if (data[3:0] == 4'd6) dptr <= 6'd0;	// las paginas, desde la 0
 					end else if (data[7:4] == 4'd2) begin		// $20+n: IN devuelve el indice 16+n
 						ridx <= {1'b1, data[3:0]};
+						if (data[3:0] == 4'd4) begin		// $24: el raton, desde el byte 0 y con una foto nueva
+							mptr <= 3'd0;
+							mshadow <= mouse_regs;
+						end
 					end else if (data[7:5] == 3'b010) begin		// $40+r: el OUT siguiente es el registro 8+r
 						wexp2 <= 1'b1;
 						wreg2 <= data[3:0];

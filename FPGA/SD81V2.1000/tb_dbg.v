@@ -96,6 +96,19 @@ module tb_dbg;
 		.rdata(m_rdata), .run(m_run), .addr(m_addr), .we(m_we), .wdata(m_wdata), .done(m_done));
 	trace_wr tw (.clk(sysclk), .tr_go(tr_go), .tr_pc(tr_pc), .ptr(tr_ptr), .we(tr_we), .waddr(tr_waddr), .wdata(tr_wdata));
 
+	// el raton: mouse_regs (ordenes 14 y 15 del canal de configuracion) -> indice 20 de $3FEF
+	reg mrst_n = 1;
+	reg [3:0] mcmd = 0;
+	reg [28:0] mdat = 0;
+	wire [63:0] mvec;
+	mouse_regs mr (.cfg_rst_n(mrst_n), .cmd(mcmd), .data(mdat), .regs(mvec));
+	task mouse_send(input [3:0] c, input [28:0] d);
+	begin
+		mcmd = c; mdat = d;
+		#10 mrst_n = 0; #10 mrst_n = 1; #10;
+	end
+	endtask
+
 	m1_tracker trk (
 		.iclock(iclock), .nreset(nreset), .nM1(nM1), .nMREQ(nMREQ), .nRFSH(nRFSH),
 		.data(bus), .boundary(boundary), .index_prefix(index_prefix));
@@ -111,7 +124,8 @@ module tb_dbg;
 		.bram_rd(bram_rd), .bram_wr(bram_wr), .bram_ptr(bram_ptr), .bram_data(bram_data), .chroma_reg(8'h3C), .ay_sel_a(8'h0D), .ay_sel_b(8'h07), .sram_wr(1'b0), .sram_page(6'd0), .dirty_clr(1'b0),
 		.trace_en(trace), .tr_skip(skipv), .tr_ptr(tr_ptr), .vid_status(vid_st), .vid_front(vid_fr), .blk0_w(blk0_w), .cfg_flags(8'h5A), .cfg_raw(8'hA5), .tr_go(tr_go), .tr_pc(tr_pc),
 		.scr_fine_y(scr_fine_y), .scr_reg_top(scr_reg_top), .scr_reg_bot(scr_reg_bot),
-			.scr_cmd(scr_cmd), .scr_cmd_tog(scr_cmd_tog), .scr_tstart(m_tstart), .scr_tdone(m_tdone));
+			.scr_cmd(scr_cmd), .scr_cmd_tog(scr_cmd_tog), .scr_tstart(m_tstart), .scr_tdone(m_tdone),
+			.mouse_regs(mvec));
 
 	reg [7:0] got;			// el byte que ha leido la CPU en la ultima lectura
 	reg got_fpga;			// si lo servia la FPGA
@@ -695,6 +709,38 @@ module tb_dbg;
 			end
 			end
 			expect_val(ok, 1, "motor: arriba y abajo = como estaba");
+		end
+
+		// ---- raton: indice 20 de $3FEF (OUT $24, y despues un IN por byte) ----
+		begin
+			mouse_send(4'd14, 29'd200 | (29'd100 << 8) | (29'd5 << 16) | (29'd250 << 19));	// x, y, botones, rueda
+			mouse_send(4'd15, 29'd9 | (29'd253 << 8) | (29'd42 << 16) | (29'd1 << 24));		// rawx, rawy, seq, conectado
+			io_out(16'h3FEF, 8'h24);
+			io_in(16'h3FEF); expect_val(got, 200, "raton: x");
+			io_in(16'h3FEF); expect_val(got, 100, "raton: y");
+			io_in(16'h3FEF); expect_val(got, 5,   "raton: botones");
+			io_in(16'h3FEF); expect_val(got, 250, "raton: rueda");
+			io_in(16'h3FEF); expect_val(got, 9,   "raton: rawx");
+			io_in(16'h3FEF); expect_val(got, 253, "raton: rawy");
+			io_in(16'h3FEF); expect_val(got, 42,  "raton: seq");
+			io_in(16'h3FEF); expect_val(got, 1,   "raton: estado conectado");
+			// una foto: lo que llega a mitad de la lectura no la cambia
+			io_out(16'h3FEF, 8'h24);
+			io_in(16'h3FEF); expect_val(got, 200, "foto: x");
+			mouse_send(4'd14, 29'd17 | (29'd33 << 8) | (29'd2 << 16) | (29'd1 << 19));
+			io_in(16'h3FEF); expect_val(got, 100, "foto: y no cambia a mitad");
+			io_out(16'h3FEF, 8'h24);
+			io_in(16'h3FEF); expect_val(got, 17,  "foto nueva: x");
+			io_in(16'h3FEF); expect_val(got, 33,  "foto nueva: y");
+			io_in(16'h3FEF); expect_val(got, 2,   "foto nueva: botones");
+			io_in(16'h3FEF); expect_val(got, 1,   "foto nueva: rueda");
+			io_in(16'h3FEF); expect_val(got, 9,   "la orden A no toca rawx");
+			// otro indice sigue como siempre
+			io_out(16'h3FEF, 8'h0F); io_in(16'h3FEF); expect_val(got, 8'h52, "firma 52h sigue en el indice 15");
+			// una orden que no es del raton no lo cambia
+			mouse_send(4'd13, 29'h1FFFFFFF);
+			io_out(16'h3FEF, 8'h24);
+			io_in(16'h3FEF); expect_val(got, 17, "orden 13: el raton no cambia");
 		end
 
 		if (errors == 0) $display("TODO OK");

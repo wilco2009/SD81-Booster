@@ -5,6 +5,7 @@
 #include "WAV.h"
 #include "PEG.h"
 #include "VGM.h"
+#include "MOUSE.h"
 
 ////#define  TRACE_CLOCK(s) Serial.print(s); Serial.println(clock);
 //#define  TRACE_CLOCK(s)
@@ -87,6 +88,30 @@ void vkeys_poll(void){
   if (any && millis() - vk_t > 1500) vkeys_clear();   // la web ya no esta: que no quede nada pulsado
 }
 
+// ---- raton Bluetooth: la FPGA lo guarda (mouse_regs.v) y el Z80 lo lee por el puerto $3FEF, indice 20, sin esperas ----
+// Dos paquetes del canal de configuracion (4 bits de orden + 27 / 25 de dato). Cada uno cuesta ~0,4 ms, asi que se manda solo lo que ha cambiado
+// y como mucho cada 8 ms (125 Hz, mas de lo que da un raton BLE)
+static void mouse_fpga_send(uint8_t cmd, uint32_t value, uint8_t nbits){
+  send_cmd_code(cmd);
+  for (uint8_t j = 0; j < nbits; j++) sendBit((value >> j) & 1);
+  rst_config();
+}
+
+void mouse_fpga_poll(void){
+  static uint32_t last_gen = 0xFFFFFFFFUL;   // distinto de cualquier gen: la primera vez siempre manda
+  static uint32_t last_t = 0;
+  static uint8_t  seq = 0;
+  const MouseFpga m = mouse_fpga_state();
+  if (m.gen == last_gen) return;
+  const uint32_t now = millis();
+  if (last_gen != 0xFFFFFFFFUL && now - last_t < 8) return;
+  last_t = now;
+  last_gen = m.gen;
+  seq++;
+  mouse_fpga_send(cfgcmd_MOUSE_A, (uint32_t)m.x | ((uint32_t)m.y << 8) | ((uint32_t)(m.buttons & 7) << 16) | ((uint32_t)m.wheel << 19), 27);
+  mouse_fpga_send(cfgcmd_MOUSE_B, (uint32_t)m.rawx | ((uint32_t)m.rawy << 8) | ((uint32_t)seq << 16) | ((uint32_t)(m.connected ? 1 : 0) << 24), 25);
+}
+
 uint8_t keyb_coords[64][2] = {
 	/* */{7,0},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},  //0..7
 	/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},/*-*/{8,8},  //8..15
@@ -148,6 +173,7 @@ uint8_t read_LATCH_B(void){
 
 void idle_tasks(){
   vkeys_poll();
+  mouse_fpga_poll();
   if (playing_wav){ 
     if (load_wav_buffer_pending >= 0) load_wav_buffer(load_wav_buffer_pending);
   }

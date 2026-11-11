@@ -2,12 +2,13 @@
 #include "SD_LOG.h"
 #include "WIFI_CLIENT.h"
 #include "DIAG.h"
+#include "LOGCFG.h"
 
 #define SD_LOG_PATH            "/SYS/ESP32LOG.TXT"
-// DEBE caber en un unico WRITE_CHUNK - wifi_client_write_chunk() tiene un
-// buffer interno de tamano fijo (3 + WIFI_PROTO_CHUNK_SIZE); pasarle mas de
-// WIFI_PROTO_CHUNK_SIZE bytes de una vez desborda ese buffer en la pila.
-#define SD_LOG_BUF_SIZE        WIFI_PROTO_CHUNK_SIZE
+// wifi_client_write_chunk() tiene un buffer interno de tamano fijo (3 + WIFI_PROTO_CHUNK_SIZE): pasarle mas de WIFI_PROTO_CHUNK_SIZE
+// bytes de una vez desborda ese buffer en la pila, asi que el buzon se vuelca SIEMPRE por trozos de ese tamano (ver write_buffer_chunks).
+// El buzon es mayor que un trozo: un resumen de 3 lineas (MOUSE_TEST) son ~500 bytes de golpe y con 256 se cortaba la ultima linea.
+#define SD_LOG_BUF_SIZE        1024
 #define SD_LOG_FLUSH_MS        3000   // frecuencia de sondeo normal desde loop()
 #define SD_LOG_BACKOFF_MS      30000  // frecuencia tras varios fallos seguidos (ver mas abajo)
 #define SD_LOG_BACKOFF_AFTER   3      // fallos consecutivos que activan el backoff
@@ -27,6 +28,7 @@ void SdLogger::begin(unsigned long baud) {
 
 size_t SdLogger::write(uint8_t c) {
   Serial.write(c);
+  if (!g_logcfg.sdlog) return 1;               // SDLOG=0 (LOG.CFG): solo por el USB, nada a la SD
   if (g_buf_len < SD_LOG_BUF_SIZE) g_buf[g_buf_len++] = c;
   // buffer lleno y sin poder volcar todavia: se descartan bytes nuevos en
   // vez de crecer sin limite - perdida aceptable en un log de diagnostico.
@@ -35,11 +37,31 @@ size_t SdLogger::write(uint8_t c) {
 
 size_t SdLogger::write(const uint8_t* buf, size_t size) {
   Serial.write(buf, size);
+  if (!g_logcfg.sdlog) return size;
   size_t room = SD_LOG_BUF_SIZE - g_buf_len;
   size_t take = (size < room) ? size : room;
   memcpy(g_buf + g_buf_len, buf, take);
   g_buf_len += take;
   return size;
+}
+
+// Manda el buzon al STM32 por trozos de WIFI_PROTO_CHUNK_SIZE. Devuelve true si salio todo; si falla un trozo, quita del buzon lo que SI salio
+// y deja el resto para reintentar despues.
+static bool write_buffer_chunks() {
+  size_t off = 0;
+  while (off < g_buf_len) {
+    size_t n = g_buf_len - off;
+    if (n > WIFI_PROTO_CHUNK_SIZE) n = WIFI_PROTO_CHUNK_SIZE;
+    if (!wifi_client_write_chunk(g_handle, g_buf + off, (uint16_t)n)) break;
+    off += n;
+  }
+  if (off < g_buf_len) {
+    memmove(g_buf, g_buf + off, g_buf_len - off);
+    g_buf_len -= off;
+    return false;
+  }
+  g_buf_len = 0;
+  return true;
 }
 
 // Se mantiene el handle abierto durante toda la sesion (el protocolo actual
@@ -59,6 +81,7 @@ size_t SdLogger::write(const uint8_t* buf, size_t size) {
 // Por eso, tras varios fallos seguidos, se espacian mucho mas los
 // reintentos (SD_LOG_BACKOFF_MS) en vez de insistir cada SD_LOG_FLUSH_MS.
 void sdlog_try_flush() {
+  if (!g_logcfg.sdlog) { g_buf_len = 0; return; }   // SDLOG=0: se tira lo que hubiera de antes de leer LOG.CFG
   if (g_buf_len == 0) return;
   uint32_t now = millis();
   uint32_t interval = (g_consecutive_failures >= SD_LOG_BACKOFF_AFTER) ? SD_LOG_BACKOFF_MS : SD_LOG_FLUSH_MS;
@@ -73,8 +96,7 @@ void sdlog_try_flush() {
     g_handle_open = true;
   }
 
-  if (wifi_client_write_chunk(g_handle, g_buf, g_buf_len)) {
-    g_buf_len = 0;
+  if (write_buffer_chunks()) {
     g_consecutive_failures = 0; // enlace ok, volver a la frecuencia normal
     wifi_client_write_sync(g_handle); // para que el tamano sea visible sin cerrar el handle
   } else {
@@ -100,11 +122,10 @@ bool sdlog_write_big(const uint8_t* data, size_t len) {
     g_handle_open = true;
   }
   if (g_buf_len > 0) {                       // lo pendiente del buzon pequeno va antes, para no desordenar el log
-    if (!wifi_client_write_chunk(g_handle, g_buf, g_buf_len)) return false;
-    g_buf_len = 0;
+    if (!write_buffer_chunks()) return false;
   }
   while (len > 0) {
-    uint16_t n = len > SD_LOG_BUF_SIZE ? SD_LOG_BUF_SIZE : (uint16_t)len;
+    uint16_t n = len > WIFI_PROTO_CHUNK_SIZE ? WIFI_PROTO_CHUNK_SIZE : (uint16_t)len;
     if (!wifi_client_write_chunk(g_handle, data, n)) return false;
     data += n; len -= n;
   }

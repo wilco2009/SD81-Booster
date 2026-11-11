@@ -221,6 +221,9 @@ void upStr(char* s){
   }
 }
 
+uint8_t log_level = 0;   // 0 nada (por defecto), 1 errores, 2 errores+info, 3, 4: ver GLOBALS.h y /SYS/LOG.CFG
+bool    log_lat   = false; // sacar por USB las lineas [LAT] de LATSTATS (clave STM32LAT de /SYS/LOG.CFG)
+
 #if defined(LOG0)||defined(LOG1)||defined(LOG2)||defined(LOG3)
 void log_debug(const char* fmt PROGMEM, ...)
 {

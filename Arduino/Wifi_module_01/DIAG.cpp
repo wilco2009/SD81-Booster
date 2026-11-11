@@ -6,6 +6,7 @@
 #include <stdarg.h>
 #include "SD_LOG.h"
 #include "NET_MQTT.h"
+#include "LOGCFG.h"
 
 // OJO: SD_LOG.h redefine "Serial"; este fichero no escribe en el Serial (para no mezclarse con el log normal).
 
@@ -26,14 +27,18 @@ static uint32_t st_sec[DG_N];
 static uint32_t last_loop = 0, last_summary = 0, last_dump = 0;
 static uint32_t last_dump_ms = 0, last_dump_len = 0; static bool last_dump_ok = true, have_dump = false;
 
+// Seccion critica: put() puede llamarse desde dos tareas (loop() y la del raton de MOUSE_TEST, via diag_req) y wr/dumped no son atomicos.
+static portMUX_TYPE put_mux = portMUX_INITIALIZER_UNLOCKED;
 static void put(const char* s, size_t n) {
+  portENTER_CRITICAL(&put_mux);
   for (size_t i = 0; i < n; i++) hist[(wr + i) % DIAG_RING] = s[i];
   wr += n;
   if (wr - dumped > DIAG_RING) { dropped += (wr - dumped) - DIAG_RING; dumped = wr - DIAG_RING; }
+  portEXIT_CRITICAL(&put_mux);
 }
 
 void diag_event(const char* fmt, ...) {
-  if (busy) return;
+  if (busy || !g_logcfg.diag) return;
   char line[300];
   uint32_t t = millis();
   int n = snprintf(line, sizeof line, "[D %lu.%03lu] ", (unsigned long)(t / 1000), (unsigned long)(t % 1000));
@@ -47,7 +52,7 @@ void diag_event(const char* fmt, ...) {
 }
 
 void diag_req(uint8_t cmd, uint8_t attempts, uint32_t ms, bool ok, uint8_t frame_err, uint8_t stale) {
-  if (busy) return;
+  if (busy || !g_logcfg.diag) return;
   st_req++;
   if (attempts > 1) st_retry += attempts - 1;
   st_ferr += frame_err; st_stale += stale;
@@ -59,7 +64,7 @@ void diag_req(uint8_t cmd, uint8_t attempts, uint32_t ms, bool ok, uint8_t frame
 }
 
 void diag_section(uint8_t id, uint32_t ms) {
-  if (busy || id >= DG_N) return;
+  if (busy || !g_logcfg.diag || id >= DG_N) return;
   if (ms > st_sec[id]) st_sec[id] = ms;
   if (ms >= DIAG_SLOW_MS) diag_event("LENTO tramo=%s %lu ms", SEC_NAME[id], (unsigned long)ms);
 }
@@ -86,6 +91,10 @@ static void dump_now() {
 }
 
 void diag_flush() {
+  if (g_logcfg.diag && g_logcfg.diag_dump_s) diag_dump_now();   // al reiniciar: solo si el volcado esta permitido
+}
+
+void diag_dump_now() {
   if (!busy) dump_now();
 }
 
@@ -98,7 +107,7 @@ size_t diag_read(char* out, size_t max) {
 }
 
 void diag_loop() {
-  if (busy) return;
+  if (busy || !g_logcfg.diag) return;
   uint32_t now = millis();
   if (last_loop) {
     uint32_t gap = now - last_loop;
@@ -109,9 +118,9 @@ void diag_loop() {
 
   if (last_summary == 0) {
     last_summary = now;
-    last_dump = now - (DIAG_DUMP_S * 1000UL - 10000UL);   // el primer volcado, a los 10 s
+    last_dump = now - (g_logcfg.diag_dump_s * 1000UL > 10000UL ? g_logcfg.diag_dump_s * 1000UL - 10000UL : 0);   // el primer volcado, a los 10 s
     diag_event("ACTIVO umbral=%d ms resumen=%d s volcado=%d s historial=%d bytes (tambien en http://<IP>/diag)",
-               DIAG_SLOW_MS, DIAG_SUMMARY_S, DIAG_DUMP_S, DIAG_RING);
+               DIAG_SLOW_MS, DIAG_SUMMARY_S, (int)g_logcfg.diag_dump_s, DIAG_RING);
   }
   if ((uint32_t)(now - last_summary) >= DIAG_SUMMARY_S * 1000UL) {
     last_summary = now;
@@ -131,7 +140,7 @@ void diag_loop() {
     for (int i = 0; i < DG_N; i++) st_sec[i] = 0;
   }
 
-  if (wr != dumped && ((uint32_t)(now - last_dump) >= DIAG_DUMP_S * 1000UL || wr - dumped > (DIAG_RING * 3) / 4)) dump_now();
+  if (g_logcfg.diag_dump_s && wr != dumped && ((uint32_t)(now - last_dump) >= g_logcfg.diag_dump_s * 1000UL || wr - dumped > (DIAG_RING * 3) / 4)) dump_now();
 }
 
 #endif

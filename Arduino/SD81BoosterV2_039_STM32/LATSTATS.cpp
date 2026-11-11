@@ -1,5 +1,6 @@
 // LATSTATS.cpp - ver LATSTATS.h. Solo compila algo con LAT_STATS = 1.
 #include "LATSTATS.h"
+#include "GLOBALS.h"      // log_lat (STM32LAT en /SYS/LOG.CFG)
 
 #if LAT_STATS
 
@@ -55,7 +56,7 @@ void lat_end(uint8_t section) {
   t_mark = now;
 }
 
-static void print_line(const char* s) { Serial.println(s); }
+static void print_line(const char* s) { if (log_lat) Serial.println(s); }   // las medidas se hacen siempre; solo se sacan si STM32LAT=1 (/SYS/LOG.CFG)
 
 void lat_loop_end() {
   uint32_t ms = millis();

@@ -23,6 +23,7 @@
 #include "JPG.h"
 #include "DEBUGGER.h"
 #include "LATSTATS.h"
+#include "MOUSE.h"
 
 #define GET_NEXT_CHAR 13
 
@@ -1988,14 +1989,16 @@ void cmd_rtc(){
   ToggleClock();
   //GET PARAMS
   uint8_t param_len = GetByteFromZ80_IT();
-  Serial.print("LEN="); Serial.println(param_len);
+  log_2("LEN=%d", param_len);
   if (param_len==0) { // returns date time
     rtc_get_time(date_time);
-    Serial.print("DATE/TIME: "); Serial.println(date_time);
+    log_2("DATE/TIME: %s", date_time);
     for (int i=0; i<strlen(date_time);i++){
       uint8_t v=(asc_to_asc81[date_time[i]]);
-      SendByteToZ80(v); 
-      delay(1);
+      // Antes: SendByteToZ80(v); delay(1); -> 22 ms con el loop() parado por cada lectura del reloj (22 caracteres). SendByteToZ80 ya espera
+      // el reconocimiento del Z80; la version _IT sigue atendiendo idle_tasks() (VGM, WAV...) mientras espera, y los 10 us finales son los de SendByteToZ80.
+      SendByteToZ80_IT(v);
+      delayMicroseconds(10);
 //      Serial.println(v);
     }
   } else {
@@ -2008,14 +2011,14 @@ void cmd_rtc(){
 
     params[param_len]=0;
     // "yyyy-mm-dd hh:mm:ss.cc"
-    Serial.print("PARAMS: "); Serial.println(params);
+    log_2("PARAMS: %s", params);
 
     bool done = false;
 
   //  if (param_len == 22) { // set date time
     int year,month,day,hours,minutes,seconds,hundredths;
     int n = sscanf(params,"%04d-%02d-%02d %02d:%02d:%02d.%02d",&year,&month,&day,&hours,&minutes,&seconds,&hundredths);
-    Serial.println(n);
+    log_2("RTC n=%d", n);
 
     year %=100; // only two digits
 
@@ -2030,7 +2033,7 @@ void cmd_rtc(){
       rtc.setYear(year);
       rtc.setDate(day, month, year); // Actualiza la fecha
 
-      Serial.print("✅ Reloj actualizado a "); Serial.println(params);
+      log_1("✅ Reloj actualizado a %s", params);
       done = true;
     } 
     if ((n==3)&&(isDate(year,month,day))){
@@ -2065,7 +2068,7 @@ void cmd_rtc(){
   if (!done) error = 3;
  }
 
-  Serial.println("fin");
+  log_2("fin");
   SendByteToZ80(error); // ... and Status
   // reset_commands() ANTES del ToggleClock() final: ver comentario en
   // cmd_opendir2 sobre la ventana de carrera -- este comando se llamara
@@ -2674,6 +2677,80 @@ void cmd_spare(){
   reset_commands();
 }
 
+// 77 (0x4D) MOUSE: el raton Bluetooth (lo alimenta el ESP32 con CMD_MOUSE; ver MOUSE.h y claude/planning/raton_bluetooth.md)
+//   Z80 -> MCU:  op
+//   op 0  LEER     MCU -> Z80:  x, y, botones, dx, dy, rueda, estado      (7 bytes)
+//        x (0..255) e y (0..191): posicion absoluta; botones: bit0 izq, bit1 der, bit2 centro;
+//        dx, dy y rueda: lo movido DESDE LA LECTURA ANTERIOR (con signo, saturado a -128..127; se ponen a cero al leer);
+//        estado: bit0 = ha llegado algo del raton desde que arranco el MCU, bit1 = hay datos nuevos desde la lectura anterior.
+//   op 1  CENTRAR  MCU -> Z80:  estado     (pone el cursor en el centro)
+//   op 2  CONFIG   Z80 -> MCU:  max_x, max_y, div     MCU -> Z80:  estado     (rango de la pantalla y cuentas del raton por pixel; 0 = no cambiar)
+//   op 3  BLE ORDEN  Z80 -> MCU:  orden, argumento     MCU -> Z80:  0 = aceptada, 0x80 = orden no valida
+//        orden: 1 pair (argumento = segundos de la ventana, 0 = 60), 2 connect, 3 forget, 4 on, 5 off. La recoge el ESP32 en ~0,5 s.
+//   op 4  BLE ESTADO  MCU -> Z80:  estado, segundos     estado: bit0 conectado, bit1 emparejando, bit2 activado, bit3 hay raton guardado, bit7 el ESP32 ya contesto
+//   op 5  BLE TEXTO   MCU -> Z80:  16 caracteres ZX81 (CONECTADO, EMPAREJANDO 45S, BUSCANDO, PARADO, SIN RATON, SIN MODULO WIFI) y un estado = 0
+//   Cualquier otro op: estado = 0x80.
+// Handshake como NET_READ/NET_WRITE: un ToggleClock por byte recibido (o el SendByteToZ80 que lo confirma) y el toggle final.
+static int8_t sat8(int16_t v) { return v < -128 ? -128 : (v > 127 ? 127 : (int8_t)v); }
+
+void cmd_mouse(){
+  ToggleClock();                            // ACK del comando
+  uint8_t op = GetByteFromZ80_IT();
+
+  if (op == 0) {
+    const MouseState m = mouse_get();
+    int16_t dx, dy;
+    mouse_take_motion(&dx, &dy);
+    const int16_t wheel = mouse_wheel_take();
+    const uint8_t status = (m.frames ? 1 : 0) | (mouse_take_new() ? 2 : 0);
+    SendByteToZ80((uint8_t)m.x);            // confirma 'op' + primer byte
+    SendByteToZ80((uint8_t)m.y);
+    SendByteToZ80(m.buttons);
+    SendByteToZ80((uint8_t)sat8(dx));
+    SendByteToZ80((uint8_t)sat8(dy));
+    SendByteToZ80((uint8_t)sat8(wheel));
+    SendByteToZ80(status);
+  } else if (op == 1) {
+    mouse_center();
+    SendByteToZ80(mouse_get().frames ? 1 : 0);
+  } else if (op == 2) {
+    ToggleClock();                          // confirma 'op'
+    uint8_t max_x = GetByteFromZ80_IT();
+    ToggleClock();
+    uint8_t max_y = GetByteFromZ80_IT();
+    ToggleClock();
+    uint8_t div = GetByteFromZ80_IT();
+    mouse_config(max_x, max_y, div);
+    SendByteToZ80(mouse_get().frames ? 1 : 0);   // confirma el ultimo byte + estado
+  } else if (op == 3) {                     // BLE: dejar una orden para el ESP32 (se entrega en su siguiente CMD_BLE, ~0,5 s)
+    ToggleClock();                          // confirma 'op'
+    uint8_t order = GetByteFromZ80_IT();
+    ToggleClock();
+    uint8_t arg = GetByteFromZ80_IT();
+    SendByteToZ80(mouse_ble_order(order, arg) ? 0 : 0x80);   // confirma el ultimo byte + resultado
+  } else if (op == 4) {                     // BLE: estado que cuenta el ESP32
+    SendByteToZ80(mouse_ble_state());       // confirma 'op' + estado (BLE_ST_*; bit7 = el ESP32 ya contesto alguna vez)
+    SendByteToZ80(mouse_ble_pair_left());   // segundos que quedan de la ventana de emparejado
+  } else if (op == 5) {                     // BLE: el estado como TEXTO de 16 caracteres ZX81 (LOAD *MOUSE TO A$), mas un byte de estado = 0
+    const uint8_t st = mouse_ble_state();
+    char txt[17];
+    if (!(st & BLE_ST_KNOWN))            snprintf(txt, sizeof txt, "SIN MODULO WIFI");
+    else if (st & BLE_ST_CONNECTED)      snprintf(txt, sizeof txt, "CONECTADO");
+    else if (st & BLE_ST_PAIRING)        snprintf(txt, sizeof txt, "EMPAREJANDO %uS", (unsigned)mouse_ble_pair_left());
+    else if ((st & BLE_ST_ENABLED) && (st & BLE_ST_SAVED)) snprintf(txt, sizeof txt, "BUSCANDO");
+    else if (st & BLE_ST_SAVED)          snprintf(txt, sizeof txt, "PARADO");
+    else                                 snprintf(txt, sizeof txt, "SIN RATON");
+    for (uint8_t i = strlen(txt); i < 16; i++) txt[i] = ' ';
+    for (uint8_t i = 0; i < 16; i++) SendByteToZ80(asc_to_asc81[(uint8_t)txt[i]]);   // el primero confirma 'op'
+    SendByteToZ80(0);                       // estado
+  } else {
+    SendByteToZ80(0x80);
+  }
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en cmd_opendir2 sobre la ventana de carrera.
+  reset_commands();
+  ToggleClock();                            // toggle final
+}
+
 command_handler commands[] = {
   cmd_nop,              //0
   cmd_ver,              //1
@@ -2760,5 +2837,6 @@ command_handler commands[] = {
   cmd_dbg_poll,         //74 (0x4A) depurador: resultado y siguiente peticion
   cmd_loadZ81dbg,       //75 (0x4B) LOAD *Z81 con el monitor del depurador
   cmd_f_open_img,       //76 (0x4C) fopen de un BMP convertido a .I16 (BMP.cpp)
+  cmd_mouse,            //77 (0x4D) el raton Bluetooth: leer, centrar, configurar (ver cmd_mouse)
   cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

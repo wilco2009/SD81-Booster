@@ -1,5 +1,14 @@
 #include "WIFI_CLIENT.h"
 #include "DIAG.h"
+#include "MOUSE_TEST.h"
+#include "MOUSE_BLE.h"
+// Hay mas de una tarea de FreeRTOS que habla con el STM32 (loop(), y las del raton: ESP_MOUSE_BLE y ESP_MOUSE_TEST) => hace falta el mutex.
+// OJO: antes solo estaba con ESP_MOUSE_TEST; con ESP_MOUSE_TEST = 0 y el raton BLE activo, dos tareas pisaban a la vez la UART y los buferes
+// (copia por la web truncada, ficheros de longitud 0, paradones). NO volver a atarlo solo a ESP_MOUSE_TEST.
+#define WIFI_UART_MUTEX (ESP_MOUSE_TEST || ESP_MOUSE_BLE)
+#if WIFI_UART_MUTEX
+#include <freertos/semphr.h>
+#endif
 
 #define STM32_SERIAL           Serial1
 #define STM32_RX_PIN           4
@@ -17,8 +26,18 @@
 #define WIFI_CLIENT_POLL_BYTE_TIMEOUT_MS  WIFI_CLIENT_BYTE_TIMEOUT_MS
 #define WIFI_CLIENT_POLL_SOF_TIMEOUT_MS   WIFI_CLIENT_SOF_SEARCH_TIMEOUT_MS
 
+#if WIFI_UART_MUTEX
+// El raton (BLE real o la prueba) manda desde OTRA tarea de FreeRTOS (para no esperar a las paradas de loop(): web, volcado a la SD...).
+// Las dos tareas comparten la UART y los buferes estaticos de wifi_client_request(): un mutex recursivo (con herencia de prioridad) hace
+// que cada peticion sea indivisible, y el raton solo espera a la que este en curso. Sin raton compilado (los dos a 0) esto no existe.
+static SemaphoreHandle_t s_uart_mutex = nullptr;
+#endif
+
 void wifi_client_init() {
   STM32_SERIAL.begin(STM32_BAUD, SERIAL_8N1, STM32_RX_PIN, STM32_TX_PIN);
+#if WIFI_UART_MUTEX
+  s_uart_mutex = xSemaphoreCreateRecursiveMutex();
+#endif
 }
 
 static int wifi_read_byte(uint32_t timeout_ms) {
@@ -69,7 +88,7 @@ static bool wifi_client_read_frame_raw(WifiProtoResp* out, uint32_t byte_ms, uin
   return true;
 }
 
-WifiProtoResp wifi_client_request(uint8_t cmd, const uint8_t* payload, uint16_t len) {
+static WifiProtoResp wifi_client_request_impl(uint8_t cmd, const uint8_t* payload, uint16_t len) {
   WifiProtoResp resp;
   resp.ok = false;
   resp.len = 0;
@@ -125,6 +144,17 @@ WifiProtoResp wifi_client_request(uint8_t cmd, const uint8_t* payload, uint16_t 
   diag_req(cmd, diag_tries, millis() - diag_t0, false, diag_ferr, diag_ajenas);
 #endif
   return resp;   // ok=false, se agotaron los reintentos
+}
+
+WifiProtoResp wifi_client_request(uint8_t cmd, const uint8_t* payload, uint16_t len) {
+#if WIFI_UART_MUTEX
+  if (s_uart_mutex) xSemaphoreTakeRecursive(s_uart_mutex, portMAX_DELAY);
+  WifiProtoResp r = wifi_client_request_impl(cmd, payload, len);
+  if (s_uart_mutex) xSemaphoreGiveRecursive(s_uart_mutex);
+  return r;
+#else
+  return wifi_client_request_impl(cmd, payload, len);
+#endif
 }
 
 static WifiProtoResp wifi_client_request_path(uint8_t cmd, const char* path, const uint8_t* extra, uint16_t extra_len) {

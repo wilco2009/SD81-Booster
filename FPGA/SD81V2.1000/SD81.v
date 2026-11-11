@@ -998,11 +998,14 @@ Port $7FEF (01111111 11101111) - IN:
 
 	// Recorte: nada se dibuja fuera de (0,0)-(255,191). Se hace una sola vez
 	// aqui, no dentro de cada slot de linea (1 puerta en vez de 8).
-	wire spr_in_display = (spr_screen_x < 9'd256) && (spr_screen_y < 9'd192);
+	// En 70/80 columnas (sf80_en sin los modos de 160) el ancho y la X los da spr_geom80 (cada pixel de sprite = 2 de texto)
+	wire [8:0] spr80_pos_x;
+	wire spr80_in;		// la instancia spr_g80 esta junto a SCR_END_X_80 (se declara mas abajo)
+	wire spr_in_display = (sf80_en ? spr80_in : (spr_screen_x < 9'd256)) && (spr_screen_y < 9'd192);
 
 	// Coordenadas de sprite = pixel de pantalla + 32 (ver cabecera del mapa
 	// de POKEs y sprite_slot.v)
-	wire [8:0] spr_pos_x = m160_spr ? m160_spr_x : spr_screen_x + 9'd32;
+	wire [8:0] spr_pos_x = m160_spr ? m160_spr_x : sf80_en ? spr80_pos_x : spr_screen_x + 9'd32;
 	wire [8:0] spr_pos_y = m160_spr ? m160_spr_y : spr_screen_y + 9'd32;
 
 	// Sprite activo (POKE 2101): lo guarda aqui la FPGA, no la sombra (que tras
@@ -1161,6 +1164,8 @@ Port $7FEF (01111111 11101111) - IN:
 	// el modo de 70 columnas vale tal cual (un ciclo de diferencia).
 	wire [9:0] SCR_END_X_80 = char7_en ? SCR_START_X_80+(81-sf80_width_trim)*7-1
 													 : SCR_START_X_80+(71-sf80_width_trim)*8-1;
+	spr_geom80 spr_g80 (.pixel_cnt(pixel_cnt), .start80(SCR_START_X_80), .end80(SCR_END_X_80), .char7(char7_en),
+	                    .pos_x(spr80_pos_x), .in_disp(spr80_in));
 	reg [6:0] scr_col_80;
 
 	reg [4:0] scr_row;
@@ -2025,6 +2030,7 @@ assign DEBUG_RDY = 1'b0;
 	// siguiente empieza una instruccion, que es donde sim_int puede inyectar
 	// su RST 38h. Puerto del depurador $3FEF (ver sim_int.v).
 	wire [7:0] m1t_data;
+	wire [63:0] mouse_vec;		// el raton (mouse_regs.v) para el indice 20 de $3FEF
 	wire m1t_boundary;
 	wire m1t_index;
 	wire m1t_rd = ~nIORD & (Addr == 16'h3FEF);
@@ -2094,7 +2100,8 @@ assign DEBUG_RDY = 1'b0;
 		.scr_cmd(scr_cmd),
 		.scr_cmd_tog(scr_cmd_tog),
 		.scr_tstart(mot_tstart),
-		.scr_tdone(mot_tdone)
+		.scr_tdone(mot_tdone),
+		.mouse_regs(mouse_vec)
 	);
 
 	// Traza: escribe en la sombra lo que decide sim_int
@@ -2607,6 +2614,14 @@ assign DEBUG_RDY = 1'b0;
 			.data(cfg_reg[CMD_BITS+7:CMD_BITS]),
 			.a_hi(A),
 			.pressed(vk_pressed)
+		);
+
+		// raton Bluetooth: lo que el MCU ha empujado (ordenes 14 y 15); el Z80 lo lee por el indice 20 de $3FEF (sim_int.v)
+		mouse_regs mouse_regs_inst (
+			.cfg_rst_n(CFG_RESET),
+			.cmd(comm_cmd),
+			.data(cfg_reg[CMD_BITS+28:CMD_BITS]),
+			.regs(mouse_vec)
 		);
 
 		integer i;

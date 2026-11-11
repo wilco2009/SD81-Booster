@@ -219,6 +219,7 @@ void setup() {
   showTemp();
   
   if (!SD_Init()) LED_error(clBLUE);
+  log_cfg_load();                           // /SYS/LOG.CFG: nivel de log del STM32 (clave STM32LOG)
 
   digitalWrite(FPGAPROG, LOW);
   flash_begin();

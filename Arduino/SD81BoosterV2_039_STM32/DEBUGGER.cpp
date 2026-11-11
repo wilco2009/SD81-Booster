@@ -3625,7 +3625,6 @@ static void cap_plan(){
     dov = (v & 32) && mode >= 1 && mode <= 3;
     aov = (v & 64) && mode >= 1 && mode <= 5;
   }
-  bool wide = mode == 2 || mode == 3;
   bool text = mode <= 3;
   uint16_t sysdf = cap.df[0] | (cap.df[1] << 8);
   uint16_t dfile = dov ? (uint16_t)(pkv(2096, 0) | (pkv(2097, 0) << 8)) : sysdf;
@@ -3639,7 +3638,7 @@ static void cap_plan(){
   if (s256) { fbase = (uint16_t)(I & 0xF8) << 8; flen = 2048; }
   else if (s128) { fbase = (uint16_t)(I & 0xFC) << 8; flen = 1024; }
   else { fbase = (uint16_t)(I & 0xFE) << 8; flen = 512; }
-  bool spr = cap.sprites && mode != 6 && !wide;
+  bool spr = cap.sprites && mode != 6;   // tambien en 70 y 80 columnas (cada pixel de sprite = 2 del texto)
   uint16_t stride = mode == 2 ? 71 : mode == 3 ? 81 : 33;
 
   cap.nrg = 0;

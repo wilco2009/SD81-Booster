@@ -33,6 +33,7 @@ static std::vector<Out> outs;
 static uint8_t last_poke[65536];
 static bool bad_write = false; static uint16_t bad_addr = 0;
 static uint16_t code_lo = 20480, code_hi = 20480;
+static uint16_t bar_lo = 0, bar_hi = 0;      // el texto de la barra (puntos, tiempo, D1/D3) se reescribe en el propio programa
 
 extern "C" {
 int  z80_contend_wrapper(int, int, int) { return 0; }
@@ -43,7 +44,7 @@ BYTE z80_opcode_fetch_wrapper(int a) { z80_fetch_is_m1 = 0; return mem[a & 0xFFF
 void z80_writebyte_wrapper(int a, int d) {
   a &= 0xFFFF;
   if (a < 0x2000) { last_poke[a] = (uint8_t)d; return; }                       // POKEs de configuracion: la ROM no se escribe
-  bool ok = (a >= 0x8000 && a < 0x9000) || (a >= 0x9000 && a < 0x9800) || (a >= 0xA000 && a < 0xB800) || (a >= 0xC000 && a < 0xD800) || a >= 0xFF00;
+  bool ok = (a >= 0x8000 && a < 0x9000) || (a >= 0x9000 && a < 0x9800) || (a >= 0xA000 && a < 0xB800) || (a >= 0xC000 && a < 0xD800) || (a >= bar_lo && a < bar_hi) || a >= 0xFF00;
   if (!ok && !bad_write) { bad_write = true; bad_addr = (uint16_t)a; }
   mem[a] = (uint8_t)d;
 }
@@ -96,6 +97,7 @@ int main(int argc, char** argv) {
   size_t sz = fread(mem + 20480, 1, 0x3000 + 1, f); fclose(f);
   code_hi = (uint16_t)(20480 + sz);
   load_syms(sym);
+  bar_lo = syms.at("bar_data"); bar_hi = bar_lo + 64;
   f = fopen(rom, "rb");
   if (!f) { printf("no encuentro %s\n", rom); return 2; }
   fread(mem, 1, 0x2000, f); fclose(f);
@@ -371,6 +373,43 @@ int main(int argc, char** argv) {
   call_at(S("drop"), 0, 0, 0, 0, 0, 0, 0);
   CHECK(mem[S("tab_n") + 0] == 1, "drop: clic sin arrastrar -> la carta vuelve a su sitio sin deslizarse");
   CHECK(!bad_write, "escenario C: sin escrituras fuera de sitio");
+  if (bad_write) printf("        primera escritura fuera de sitio: $%04X\n", bad_addr);
+
+  printf("-- fase 4: a la fundacion (clic derecho / doble clic), puntos, tiempo y barra\n");
+  bad_write = false;
+  clear_model();
+  mem[S("tab_n") + 0] = 1; mem[S("tab") + 0] = 0x80;                                  // columna 0: A de picas
+  mem[S("tab_n") + 1] = 2; mem[S("tab") + 20] = 0x34; mem[S("tab") + 21] = 0x90;      // columna 1: 5 de treboles (tapada), A de corazones
+  mem[S("score")] = 0; mem[S("score") + 1] = 0; mem[S("bar_dirty")] = 0;
+  call_at(S("draw_board"), 0, 0, 0, 0, 0, 0, 0);
+  mem[S("ms_base") + 0] = 53; mem[S("ms_base") + 1] = 50;
+  call_at(S("hit_test"), 0, 0, 0, 0, 0, 0, 0);
+  call_at(S("quick_found"), 0, 0, 0, 0, 0, 0, 0);
+  CHECK(mem[S("found_n") + 0] == 1 && mem[S("found_s") + 0] == 1, "quick_found: el As de corazones va a la primera fundacion libre");
+  CHECK(mem[S("tab_n") + 1] == 1 && (mem[S("tab") + 20] & 0x80), "quick_found: sale de la columna y la tapada de debajo se destapa sola");
+  CHECK(mem[S("score")] == 15 && mem[S("bar_dirty")] == 1, "puntos: +10 por la fundacion y +5 por destapar = 15");
+  mem[S("ms_base") + 0] = 21; mem[S("ms_base") + 1] = 50;
+  call_at(S("hit_test"), 0, 0, 0, 0, 0, 0, 0);
+  call_at(S("quick_found"), 0, 0, 0, 0, 0, 0, 0);
+  CHECK(mem[S("found_n") + 1] == 1 && mem[S("found_s") + 1] == 0 && mem[S("tab_n") + 0] == 0, "quick_found: el As de picas va a la segunda fundacion");
+  CHECK(mem[S("score")] == 25, "puntos: 25");
+  mem[S("ms_base") + 0] = 53; mem[S("ms_base") + 1] = 50;
+  call_at(S("hit_test"), 0, 0, 0, 0, 0, 0, 0);
+  call_at(S("quick_found"), 0, 0, 0, 0, 0, 0, 0);
+  CHECK(mem[S("tab_n") + 1] == 1 && mem[S("score")] == 25, "quick_found: el 5 de treboles no cabe en ninguna fundacion: no se mueve");
+  mem[S("score")] = 0xD2; mem[S("score") + 1] = 0x04;                                 // 1234
+  mem[S("tm_sec")] = 125; mem[S("tm_sec") + 1] = 0;
+  call_at(S("bar_update"), 0, 0, 0, 0, 0, 0, 0);
+  std::string bt((const char*)mem + S("bar_txt"), 17);
+  CHECK(bt == "SCORE 1234  02:05", "bar_update: puntos y tiempo en el texto de la barra");
+  mem[S("tm_run")] = 1; mem[S("tm_fr")] = 0; mem[S("tm_sec")] = 0; mem[S("tm_s10")] = 0;
+  mem[S("score")] = 20; mem[S("score") + 1] = 0;
+  mem[0x4034] = 0; mem[0x4035] = 0; call_at(S("tick_clock"), 0, 0, 0, 0, 0, 0, 0);   // fija tm_last
+  for (int i = 1; i <= 10; i++) { mem[0x4034] = (uint8_t)(i * 50); mem[0x4035] = (uint8_t)((i * 50) >> 8); call_at(S("tick_clock"), 0, 0, 0, 0, 0, 0, 0); }
+  CHECK(mem[S("tm_sec")] == 10 && mem[S("score")] == 18, "tick_clock: 10 s (500 imagenes) y -2 puntos");
+  for (int i = 11; i <= 12; i++) { int f = 500 - (i - 10) * 50; mem[0x4034] = (uint8_t)f; mem[0x4035] = (uint8_t)(f >> 8); call_at(S("tick_clock"), 0, 0, 0, 0, 0, 0, 0); }
+  CHECK(mem[S("tm_sec")] == 12, "tick_clock: tambien cuenta si FRAMES baja");
+  CHECK(!bad_write, "fase 4: sin escrituras fuera de sitio");
   if (bad_write) printf("        primera escritura fuera de sitio: $%04X\n", bad_addr);
 
   printf(errors ? "%d ERRORES\n" : "ejecucion OK (falta cmp_solitario.py)\n", errors);

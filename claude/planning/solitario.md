@@ -118,6 +118,22 @@ vía PowerShell, no `cmd.exe /c` desde bash), pero no flashear nada. Sin commits
 
 ## Estado
 
+- 2026-11-13: **fase 4 hecha (sin probar con ratón real/placa; sin commit de esta fase)**. `solitario.asm` 5417 B de 12288;
+  `SOLITARIO.BIN`/`.B81` ya copiados a `...\SD81\SD81\GAMES\SOLITARIO`. Añade: **clic derecho o doble clic** (`ML_DBL`) sobre
+  la carta de arriba de una columna o del descarte -> `quick_found` la manda a la fundación si cabe (As a la primera libre;
+  el resto, sobre su palo y rango anterior), reutilizando `commit`; **puntos** estilo Windows (descarte->tablero +5,
+  ->fundación +10, destapar +5, fundación->tablero -15, reciclar -100 con robo de 1 / -20 con robo de 3, -2 cada 10 s;
+  tope 9999, nunca bajo 0; `add_score`/`sub_score`/`score_move`); **tiempo** mm:ss con FRAMES (`tick_clock`: acumula
+  imágenes suba o baje, 50 = 1 s, arranca con el primer movimiento o clic en el mazo, también corre durante el arrastre);
+  **barra** repintada con puntos y tiempo (`bar_update`, `bar_txt`, solo cuando cambian) y **botones** NEW (x 152-175),
+  D3/D1 (184-199, cambia el robo y reparte) y QUIT (208-239) por `bar_click`; `new_deal` junta reparto + puntos/tiempo a cero
+  + mesa + barra (lo usan el arranque, N, D y los botones). Verificado en el PC (`build_solitario.sh`): `quick_found`
+  (As de corazones a la primera fundación libre con +10 y +5 por destapar, As de picas a la segunda, un 5 que no cabe no se
+  mueve), `bar_update` ("SCORE 1234  02:05") y `tick_clock` (10 s = -2 puntos, también con FRAMES bajando), y las pruebas
+  de las fases 1-3 siguen igual (sin regresiones). El arnés ahora permite escribir en el texto de la barra
+  (autoescritura en el programa). **No verificado**: clic derecho/doble clic y botones con el ratón real (`main`),
+  y que FRAMES avance en FAST en el emulador/placa. Siguiente: fase 5 (autocompletar y victoria).
+
 - 2026-11-13: el usuario confirma en el emulador que, con el arreglo de `col_addr`/`commit`, las tapadas ya se
   destapan solas al quedar expuestas. **Fase 3 dada por buena** (sin probar en placa real; sin commit).
 - 2026-11-13: **fallo real encontrado y corregido**: el usuario probó en el emulador (foto: As de corazones movido de

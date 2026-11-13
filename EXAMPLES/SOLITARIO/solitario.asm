@@ -8,7 +8,8 @@
 ;  (hit_test) y clic en el mazo (robo de 1 o de 3, reciclar el descarte).  Todavia no se pueden mover cartas (fase 3).
 ;  FASE 3 (arrastre): se agarran cartas con el boton izquierdo y se mueven con sprites; reglas de Klondike; al soltar, si cabe se
 ;  mueve y si no vuelve deslizandose; la carta que queda arriba de una columna se destapa sola.
-;  Teclas provisionales: N = partida nueva, D = robo de 1 / de 3 (y partida nueva), Q = salir al BASIC.
+;  FASE 4: clic derecho o doble clic a la fundacion, puntos (estilo Windows) y tiempo, botones NEW / D3 / QUIT de la barra.
+;  Teclas: N = partida nueva, D = robo de 1 / de 3 (y partida nueva), Q = salir al BASIC.
 ;  Plan y decisiones: claude/planning/solitario.md
 ;
 ;  Video:   POKE 2043,0 / 2044,$A0 (HFILE = $A000: bitmap lineal, 32 bytes por linea, 6 KB), atributos de modo 0 en $C000
@@ -140,6 +141,16 @@ sl_c        equ DRV+29
 sm_r        equ DRV+30
 sm_c        equ DRV+31
 sm_y        equ DRV+32
+; fase 4: puntos y tiempo
+P4          equ 8500h
+score       equ P4+0                ; w
+tm_sec      equ P4+2                ; w  segundos de partida
+tm_last     equ P4+4                ; w  ultimo FRAMES visto
+tm_run      equ P4+6                ; 1 = el reloj corre (desde el primer movimiento)
+tm_fr       equ P4+7                ; imagenes acumuladas (50 por segundo)
+tm_s10      equ P4+8                ; segundos desde la ultima penalizacion de 2 puntos
+bar_dirty   equ P4+9                ; 1 = hay que repintar la barra
+tm_tmp      equ P4+10
 pm_p        equ DRV+34              ; w
 sl_p        equ DRV+36              ; w
 dr_cards    equ DRV+48              ; hasta 13 cartas arrastradas (boca arriba)
@@ -174,9 +185,7 @@ start:      xor  a                  ; espera a que se suelte la tecla con la que
             ld   (pk_n),a
             ld   (pk_d),a
             call clear_screen       ; la pantalla se prepara con el modo normal puesto: no se ve el parpadeo
-            call new_game
-            call draw_board
-            call draw_bar
+            call new_deal           ; reparto, puntos y tiempo a cero, y la barra
             ld   a,171
             ld   (2045),a           ; Superfast HiRes nativo
 
@@ -187,11 +196,28 @@ start:      xor  a                  ; espera a que se suelte la tecla con la que
 main:       call waitvs
             call ml_poll
             call ml_cur_show
-
-            ld   a,(ML_PRESS)       ; clic izquierdo: que hay debajo
-            bit  0,a
+            call tick_clock
+            ld   a,(bar_dirty)
+            or   a
+            call nz,bar_update
+            ld   a,(ML_PRESS)
+            and  3                  ; clic izquierdo o derecho
             jr   z,m_keys
-            call hit_test
+            ld   a,(MP_Y)
+            cp   BAR_Y
+            jr   c,m_game
+            ld   a,(ML_PRESS)       ; en la barra: botones NEW / D3 / QUIT (solo el izquierdo)
+            rra
+            jr   nc,m_keys
+            call bar_click
+            jr   m_keys
+m_game:     call hit_test
+            ld   a,(ML_PRESS)
+            and  2
+            jr   nz,m_quick         ; clic derecho: a la fundacion
+            ld   a,(ML_DBL)
+            and  1
+            jr   nz,m_quick         ; doble clic: a la fundacion
             ld   a,(ht_area)
             cp   AREA_STOCK
             jr   nz,m_pick
@@ -199,6 +225,8 @@ main:       call waitvs
             jr   m_keys
 m_pick:     call pickup             ; carta destapada del tablero, descarte o fundacion: arrastre
             call c,drag_loop
+            jr   m_keys
+m_quick:    call quick_found
 m_keys:     ld   a,7Fh              ; N: partida nueva (una vez por pulsacion)
             in   a,(0FEh)
             cpl
@@ -213,8 +241,7 @@ m_keys:     ld   a,7Fh              ; N: partida nueva (una vez por pulsacion)
             ld   a,b
             or   a
             jr   nz,m_d
-            call new_game
-            call draw_board
+            call new_deal
 m_d:        ld   a,0FDh             ; D: robo de 1 / de 3
             in   a,(0FEh)
             cpl
@@ -233,7 +260,7 @@ m_d:        ld   a,0FDh             ; D: robo de 1 / de 3
 m_q:        ld   a,0FBh             ; Q: salir
             in   a,(0FEh)
             bit  0,a
-            jr   nz,main
+            jp   nz,main
 
 quit:       call ml_cur_hide
             ld   bc,191*256+255     ; devuelve al MCU el rango por defecto
@@ -1200,6 +1227,7 @@ htt_f:      call ht_colx
 ;  (sin limite de vueltas: el descarte se da la vuelta y su primera carta vuelve a quedar arriba).
 ; ---------------------------------------------------------------------
 stock_click:
+            call start_clock
             ld   a,(stock_n)
             or   a
             jr   z,sc_rec
@@ -1253,6 +1281,12 @@ sc_rl:      ld   a,(hl)
             xor  a
             ld   (waste_n),a
             ld   (waste_vis),a
+            ld   hl,100             ; reciclar el descarte: -100 (robo de 1) / -20 (robo de 3)
+            ld   a,(draw_mode)
+            cp   3
+            jr   nz,sc_pen
+            ld   hl,20
+sc_pen:     call sub_score
             call draw_stock
             jp   draw_waste
 
@@ -1266,9 +1300,7 @@ toggle_mode:
 tm1:        ld   (draw_mode),a
             add  a,'0'
             ld   (bar_dn),a
-            call draw_bar
-            call new_game
-            jp   draw_board
+            jp   new_deal
 
 ; ---------------------------------------------------------------------
 ;  FASE 3: arrastre con sprites.
@@ -1845,6 +1877,7 @@ df_nm:      jp   spr_move
 drag_loop:  call waitvs
             call ml_poll
             call ml_cur_show
+            call tick_clock
             ld   a,(ML_BTN)
             bit  0,a
             jr   z,dl_rel
@@ -2037,7 +2070,11 @@ commit:     ld   a,(dr_src)
             ld   e,a
             ld   d,0
             add  hl,de
-            set  7,(hl)
+            bit  7,(hl)
+            jr   nz,cm_tgt
+            set  7,(hl)             ; destapar una carta: +5
+            ld   hl,5
+            call add_score
 cm_tgt:     ld   a,(dr_tarea)
             cp   2
             jr   z,cm_found
@@ -2081,7 +2118,8 @@ cm_found:   ld   a,(dr_tk)
             ld   hl,found_n
             add  hl,de
             inc  (hl)
-cm_redraw:  call redraw_src
+cm_redraw:  call score_move
+            call redraw_src
             ld   a,(dr_tarea)
             cp   2
             jr   z,cm_rf
@@ -2158,6 +2196,299 @@ half_to:    ld   e,a
             add  hl,de
             ld   a,l
             ret
+
+
+; ---------------------------------------------------------------------
+;  FASE 4: doble clic / clic derecho a la fundacion, puntos y tiempo, botones de la barra
+; ---------------------------------------------------------------------
+; new_deal: partida nueva (reparto, puntos y tiempo a cero) y repinta mesa y barra
+new_deal:   call new_game
+            ld   hl,0
+            ld   (score),hl
+            ld   (tm_sec),hl
+            xor  a
+            ld   (tm_run),a
+            ld   (tm_fr),a
+            ld   (tm_s10),a
+            ld   hl,(ML_CLOCK)
+            ld   (tm_last),hl
+            call draw_board
+            jp   bar_update
+
+start_clock:
+            ld   a,1
+            ld   (tm_run),a
+            ret
+
+; add_score / sub_score: HL = puntos (sin pasar de 9999 ni bajar de 0)
+add_score:  ld   de,(score)
+            add  hl,de
+            ld   de,10000
+            or   a
+            sbc  hl,de
+            jr   c,as1
+            ld   hl,9999
+            jr   as2
+as1:        add  hl,de
+as2:        ld   (score),hl
+            ld   a,1
+            ld   (bar_dirty),a
+            ret
+sub_score:  ex   de,hl
+            ld   hl,(score)
+            or   a
+            sbc  hl,de
+            jr   nc,ss1
+            ld   hl,0
+ss1:        ld   (score),hl
+            ld   a,1
+            ld   (bar_dirty),a
+            ret
+
+; score_move: puntos de un movimiento ya hecho en el modelo (dr_src -> dr_tarea)
+score_move: call start_clock
+            ld   a,(dr_tarea)
+            cp   2
+            jr   z,sv_f
+            ld   a,(dr_src)
+            cp   2
+            jr   z,sv_p5
+            cp   3
+            ret  nz                 ; columna a columna: 0
+            ld   hl,15              ; fundacion a columna: -15
+            jp   sub_score
+sv_p5:      ld   hl,5               ; descarte a columna: +5
+            jp   add_score
+sv_f:       ld   a,(dr_src)
+            cp   3
+            ret  z                  ; fundacion a fundacion: 0
+            ld   hl,10              ; a la fundacion: +10
+            jp   add_score
+
+; tick_clock: una vez por vuelta; acumula las imagenes (FRAMES, suba o baje) mientras corre el reloj; 50 = 1 s;
+; cada 10 s, -2 puntos
+tick_clock: ld   hl,(ML_CLOCK)
+            ld   de,(tm_last)
+            ld   (tm_last),hl
+            ld   a,(tm_run)
+            or   a
+            ret  z
+            or   a
+            sbc  hl,de
+            jp   p,tc1
+            ld   a,l
+            cpl
+            ld   l,a
+            ld   a,h
+            cpl
+            ld   h,a
+            inc  hl
+tc1:        ld   a,h
+            or   a
+            ret  nz
+            ld   a,l
+            cp   51
+            jr   c,tc2
+            ld   a,50
+tc2:        ld   hl,tm_fr
+            add  a,(hl)
+tc3:        cp   50
+            jr   c,tc4
+            sub  50
+            push af
+            call tick_sec
+            pop  af
+            jr   tc3
+tc4:        ld   (tm_fr),a
+            ret
+tick_sec:   ld   hl,(tm_sec)
+            inc  hl
+            ld   (tm_sec),hl
+            ld   a,1
+            ld   (bar_dirty),a
+            ld   hl,tm_s10
+            inc  (hl)
+            ld   a,(hl)
+            cp   10
+            ret  c
+            ld   (hl),0
+            ld   hl,2
+            jp   sub_score
+
+; bar_update: pone la puntuacion y el tiempo (mm:ss) en el texto de la barra y la repinta
+bar_update: xor  a
+            ld   (bar_dirty),a
+            ld   hl,(score)
+            ld   de,bar_txt+6
+            call num4
+            ld   hl,(tm_sec)
+            ld   c,0
+bu_m:       ld   a,h
+            or   a
+            jr   nz,bu_sub
+            ld   a,l
+            cp   60
+            jr   c,bu_done
+bu_sub:     ld   de,60
+            or   a
+            sbc  hl,de
+            inc  c
+            jr   bu_m
+bu_done:    ld   a,l
+            ld   (tm_tmp),a
+            ld   hl,bar_txt+12
+            ld   a,c
+            cp   100
+            jr   c,bu_mm
+            ld   a,99
+bu_mm:      call two
+            inc  hl
+            ld   a,(tm_tmp)
+            call two
+            jp   draw_bar
+
+; num4: HL (0-9999) -> 4 cifras ASCII en (DE)
+num4:       ld   bc,-1000
+            call n4d
+            ld   bc,-100
+            call n4d
+            ld   bc,-10
+            call n4d
+            ld   a,l
+            add  a,'0'
+            ld   (de),a
+            ret
+n4d:        ld   a,'0'-1
+n4l:        inc  a
+            add  hl,bc
+            jr   c,n4l
+            sbc  hl,bc
+            ld   (de),a
+            inc  de
+            ret
+
+; two: A (0-99) -> 2 cifras ASCII en (HL), HL avanza
+two:        ld   b,'0'
+t2l:        cp   10
+            jr   c,t2d
+            sub  10
+            inc  b
+            jr   t2l
+t2d:        add  a,'0'
+            ld   (hl),b
+            inc  hl
+            ld   (hl),a
+            inc  hl
+            ret
+
+; bar_click: clic izquierdo en la barra segun MP_X: NEW (152-175), D3 (184-199), QUIT (208-239)
+bar_click:  ld   a,(MP_X)
+            cp   152
+            ret  c
+            cp   176
+            jp   c,new_deal
+            cp   184
+            ret  c
+            cp   200
+            jp   c,toggle_mode
+            cp   208
+            ret  c
+            cp   240
+            ret  nc
+            pop  hl                 ; QUIT: descarta el retorno y sale
+            jp   quit
+
+; quick_found: clic derecho o doble clic sobre la carta de arriba de una columna o del descarte: a la fundacion si cabe
+quick_found:
+            ld   a,(ht_area)
+            cp   AREA_TAB
+            jr   z,qf_tab
+            cp   AREA_WASTE
+            jr   z,qf_waste
+            ret
+qf_tab:     ld   a,(ht_card)
+            cp   0FFh
+            ret  z
+            ld   (dr_i),a
+            ld   a,(ht_idx)
+            ld   (dr_idx),a
+            ld   e,a
+            ld   d,0
+            ld   hl,tab_n
+            add  hl,de
+            ld   a,(hl)
+            dec  a
+            ld   hl,dr_i
+            cp   (hl)
+            ret  nz                 ; solo la de arriba
+            ld   a,(dr_idx)
+            call col_addr
+            ld   a,(dr_i)
+            ld   e,a
+            ld   d,0
+            add  hl,de
+            ld   a,(hl)
+            bit  7,a
+            ret  z
+            ld   (dr_cards),a
+            ld   a,1
+            ld   (dr_src),a
+            jr   qf_go
+qf_waste:   ld   a,(waste_n)
+            or   a
+            ret  z
+            ld   e,a
+            dec  e
+            ld   d,0
+            ld   hl,waste
+            add  hl,de
+            ld   a,(hl)
+            ld   (dr_cards),a
+            ld   a,2
+            ld   (dr_src),a
+            xor  a
+            ld   (dr_idx),a
+qf_go:      ld   a,(dr_cards)
+            ld   b,a
+            and  0Fh
+            ld   (dt_rank),a
+            ld   a,b
+            rrca
+            rrca
+            rrca
+            rrca
+            and  7
+            ld   (dt_suit),a
+            call found_slot
+            cp   0FFh
+            ret  z
+            ld   (dr_tk),a
+            ld   a,(dr_src)         ; se quita del modelo, como en pickup
+            cp   1
+            jr   nz,qf_w
+            ld   a,(dr_idx)
+            ld   e,a
+            ld   d,0
+            ld   hl,tab_n
+            add  hl,de
+            dec  (hl)
+            jr   qf_c
+qf_w:       ld   hl,waste_n
+            dec  (hl)
+            ld   a,(waste_vis)
+            dec  a
+            jr   nz,qf_w1
+            ld   a,(waste_n)
+            or   a
+            ld   a,0
+            jr   z,qf_w1
+            inc  a
+qf_w1:      ld   (waste_vis),a
+qf_c:       ld   a,2
+            ld   (dr_tarea),a
+            ld   a,1
+            ld   (dr_m),a
+            jp   commit
 
 ; ---------------------------------------------------------------------
 ;  Barra de estado (lineas 184-191): texto de 8x8 con la fuente de la ROM, atributo uniforme por celda.
@@ -2264,7 +2595,7 @@ zx_sp:      xor  a
             ret
 
 bar_data:   defb 0,0Fh
-            defm "SCORE 0000  00:00"
+bar_txt:    defm "SCORE 0000  00:00"
             defb 0
             defb 19,0F0h            ; botones: tinta negra sobre blanco brillante
             defm "NEW"

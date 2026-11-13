@@ -118,6 +118,12 @@ vía PowerShell, no `cmd.exe /c` desde bash), pero no flashear nada. Sin commits
 
 ## Estado
 
+- 2026-11-14: **fase 6 hecha**: `EXAMPLES/SOLITARIO/README.md` (ficheros, cómo se juega, barra, puntos/tiempo,
+  memoria, qué falta probar y cómo ensamblar, al estilo de `EXAMPLES/ESTELA/README.md`) y una entrada en
+  `claude/planning/manual_pendiente.md` (sección "Pendiente") para cuando se decida llevarlo al manual de usuario,
+  como se hizo con ESTELA. Las pruebas del PC ya estaban cubiertas fase a fase en
+  `claude/mqtttest/test_z80solitario.cpp` (fases 1-5); esta fase no añade escenarios nuevos, solo la documentación.
+
 - 2026-11-14: **fase 5 hecha (sin probar en emulador/placa; sin commit)**. `solitario.asm` ahora 6032 B de 12288.
   `auto_check` (cada vuelta, si no esta ya autocompletando ni en la animacion de victoria): si el mazo y el descarte
   estan vacios y las 7 columnas tienen la de arriba boca arriba (o estan vacias), activa `auto_on`. `auto_step`

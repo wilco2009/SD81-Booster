@@ -63,6 +63,14 @@ versión (todavía sin publicar)»: **quitarla al publicar la FPGA**. El `PONG` 
 
 - **SCUMM con ratón Bluetooth (10/11/2026, rama `claude/scumm-raton-232f38`, sin probar en la placa):** si el ratón está conectado (`LOAD *MOUSE` dice CONECTADO; necesita FPGA `sim_int 0.21` y ESP32 con `CMD_BLE`), Maniac Mansion y Zak McKracken lo usan: mueve el cursor, **botón izquierdo = clic** (verbos, frase, inventario, escena) y **botón derecho en la escena = cancela la frase y camina**. El teclado (Q/A/O/P, espacio, dígitos, 9 = ESC) sigue funcionando a la vez. Sin ratón no cambia nada. Sin resaltado al pasar el cursor.
 
+- **SOLITARIO (14/11/2026, `EXAMPLES/SOLITARIO`, fases 0-5 hechas, sin probar en el emulador/placa):** Klondike con
+  ratón en HiRes 8x1 color (`POKE 2045,171` + Chroma modo 0), robo de 1 o de 3, arrastre con sprites, doble clic/clic
+  derecho a la fundación, puntos y tiempo estilo Windows, autocompletar y animación de victoria (cartas que caen de
+  las fundaciones con rebote y estela). Dónde iría: sección **9.9x** o nueva, junto a los demás juegos de un jugador
+  (MINAS, ESTELA), con una tabla de teclas/ratón y el aviso de que necesita el módulo WiFi para el ratón Bluetooth
+  (como el resto de juegos con ratón). Detalle completo en `claude/planning/solitario.md` y `EXAMPLES/SOLITARIO/README.md`.
+  Falta decidir si pasa al manual ya o se espera a probarlo en la placa (como ESTELA, que esperó).
+
 ## Ratón Bluetooth: texto listo para el manual (redactado el 10/11/2026, sin pasar al `.docx`)
 
 El manual no dice nada del ratón (las únicas menciones de «ratón» son las del emulador). Dónde va cada trozo: **9.10** (usuario: nueva, tras 9.9 «Juegos en red»),

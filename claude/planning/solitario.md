@@ -118,6 +118,37 @@ vía PowerShell, no `cmd.exe /c` desde bash), pero no flashear nada. Sin commits
 
 ## Estado
 
+- 2026-11-14: **fase 5 hecha (sin probar en emulador/placa; sin commit)**. `solitario.asm` ahora 6032 B de 12288.
+  `auto_check` (cada vuelta, si no esta ya autocompletando ni en la animacion de victoria): si el mazo y el descarte
+  estan vacios y las 7 columnas tienen la de arriba boca arriba (o estan vacias), activa `auto_on`. `auto_step`
+  (una llamada por vuelta mientras `auto_on`): recorre las columnas 0-6, "pide" a `pickup` la de arriba de la
+  primera que tenga alguna (reusa el mismo pickup del arrastre, sin raton: rellena `ht_area/ht_idx/ht_card` a mano),
+  prueba `found_slot` y, si cabe, la desliza con sprites (`half_to`, 8 pasos) hasta su fundacion y hace alli lo que
+  `commit` haria (anota el palo, `found_n++`, puntos con `score_move`, redibuja); si no cabe la devuelve con
+  `cancel_now` y prueba la siguiente columna. Cuando una vuelta entera no encuentra ninguna que mover, el tablero
+  esta vacio: apaga `auto_on` y enciende `win_on`. `win_step` (una llamada por vuelta mientras `win_on`): saca la
+  carta de arriba de la siguiente fundacion no vacia (de la K al As, palo a palo) con la misma idea que `pickup` de
+  una fundacion, y la deja caer con gravedad simple (`wn_vy` +1 cada fotograma, rebote en `FLOOR_Y`=152 perdiendo
+  la mitad de la velocidad) y una deriva horizontal de 8 en 8 px (`wn_dir`); en cada fotograma, antes de mover el
+  sprite, pinta en el bitmap una marca de 8x1 del color de la estela (`win_mark`, tabla `win_trail_col`: blanco
+  para picas/treboles, rojo para corazones/diamantes, igual que el papel de la carta). Un clic o cualquier tecla
+  (`win_check_abort`, mismo truco de leer las 8 filas a la vez que usa `start`) corta la caida ya mismo. `main`
+  ahora, al principio de cada vuelta, mira `win_on`/`auto_on` y si alguno esta activo deja de leer el raton/teclado
+  normal y solo llama a `win_step`/`auto_step`; cuando `win_step` devuelve que ya no queda ninguna (sola o porque el
+  usuario ha pulsado algo), se llama a `new_deal` (que ahora tambien apaga `auto_on`/`win_on` al repartir). Simplificacion
+  consciente: la caida de cada carta usa un presupuesto fijo de 45 fotogramas (no se acorta si ya se ha asentado) y
+  las cartas caen de una en una, no varias a la vez como en el Solitario de Windows — con 52 cartas la animacion
+  dura unos 45-50 s; el plan no pedia que fuera concurrente. **Verificado en el PC** (`claude/mqtttest/build_solitario.sh`,
+  llamando a `auto_check`/`auto_step`/`win_step` directamente): `auto_check` distingue tapada-pendiente y mazo-no-vacio
+  de la condicion lista; un tablero de prueba con los 4 ases (uno por columna, el resto vacias) se autocompleta solo
+  en 5 llamadas a `auto_step` y pasa a `win_on`; `win_step` saca las 4 cartas de esas fundaciones una por una (45
+  fotogramas cada una, incluido el rebote) y termina; un clic puesto antes de llamar corta la caida en el acto sin
+  dejar la carta a medias en el modelo. Las pruebas de las fases 1-4 se repitieron y siguen pasando igual (sin
+  regresiones). Tuvo que arreglarse, por el camino, el mismo problema de siempre con pasmo: 3 saltos relativos de
+  `auto_step` quedaban fuera de rango por quedar lejos de su destino (cambiados al patron `jr <inversa>,salto /
+  jp <destino>`, cambio mecanico). **No verificado**: el aspecto real en pantalla (sprite deslizandose a la
+  fundacion, la caida con rebote y la estela), y el emulador/placa. Siguiente: fase 6 (pruebas y documentacion).
+
 - 2026-11-13: **fase 4 hecha (sin probar con ratón real/placa; sin commit de esta fase)**. `solitario.asm` 5417 B de 12288;
   `SOLITARIO.BIN`/`.B81` ya copiados a `...\SD81\SD81\GAMES\SOLITARIO`. Añade: **clic derecho o doble clic** (`ML_DBL`) sobre
   la carta de arriba de una columna o del descarte -> `quick_found` la manda a la fundación si cabe (As a la primera libre;

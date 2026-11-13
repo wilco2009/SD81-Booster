@@ -412,6 +412,70 @@ int main(int argc, char** argv) {
   CHECK(!bad_write, "fase 4: sin escrituras fuera de sitio");
   if (bad_write) printf("        primera escritura fuera de sitio: $%04X\n", bad_addr);
 
+  printf("-- fase 5, auto_check: detecta cuando se puede autocompletar (mazo/descarte vacios, todo boca arriba)\n");
+  bad_write = false;
+  clear_model();
+  for (int k = 0; k < 7; k++) setup_col(k, (uint8_t)(0x80 | (0 << 4) | k));
+  mem[S("auto_on")] = 0;
+  call_at(S("draw_board"), 0, 0, 0, 0, 0, 0, 0);
+  call_at(S("auto_check"), 0, 0, 0, 0, 0, 0, 0);
+  CHECK(mem[S("auto_on")] == 1, "auto_check: todo boca arriba y mazo/descarte vacios -> auto_on = 1");
+  mem[S("auto_on")] = 0;
+  mem[S("tab") + 20 * 3] = (uint8_t)(0 << 4) | 3;             // columna 3 boca abajo
+  call_at(S("auto_check"), 0, 0, 0, 0, 0, 0, 0);
+  CHECK(mem[S("auto_on")] == 0, "auto_check: una tapada en el tablero -> no");
+  mem[S("tab") + 20 * 3] = (uint8_t)(0x80 | (0 << 4) | 3);
+  mem[S("stock_n")] = 1;
+  call_at(S("auto_check"), 0, 0, 0, 0, 0, 0, 0);
+  CHECK(mem[S("auto_on")] == 0, "auto_check: queda carta en el mazo -> no");
+  mem[S("stock_n")] = 0;
+  CHECK(!bad_write, "auto_check: sin escrituras fuera de sitio");
+  if (bad_write) printf("        primera escritura fuera de sitio: $%04X\n", bad_addr);
+
+  printf("-- fase 5, auto_step: los 4 ases (uno por columna, el resto vacias) se autocompletan solos\n");
+  bad_write = false;
+  clear_model();
+  for (int s = 0; s < 4; s++) setup_col(s, (uint8_t)(0x80 | (s << 4) | 0));   // As de cada palo, columnas 0-3
+  call_at(S("draw_board"), 0, 0, 0, 0, 0, 0, 0);
+  int auto_calls = 0;
+  for (; auto_calls < 10; auto_calls++) {
+    call_at(S("auto_step"), 0, 0, 0, 0, 0, 0, 0);
+    if (mem[S("win_on")]) break;
+  }
+  CHECK(mem[S("win_on")] == 1 && mem[S("auto_on")] == 0, "auto_step: cuando no queda ninguna, pasa a la animacion de victoria");
+  CHECK(auto_calls == 4, "auto_step: 5 llamadas (4 mueven un as, la 5a ve el tablero vacio); auto_calls queda en 4 por el indice 0..4");
+  int foundsum = 0; for (int i = 0; i < 4; i++) foundsum += mem[S("found_n") + i];
+  CHECK(foundsum == 4, "auto_step: los 4 ases han llegado a las fundaciones");
+  for (int k = 0; k < 7; k++) CHECK(mem[S("tab_n") + k] == 0, "auto_step: todas las columnas quedan vacias");
+  CHECK(!bad_write, "auto_step: sin escrituras fuera de sitio");
+  if (bad_write) printf("        primera escritura fuera de sitio: $%04X\n", bad_addr);
+
+  printf("-- fase 5, win_step: las 4 fundaciones (una carta cada una) caen una por una y terminan la animacion\n");
+  // sigue del escenario anterior: found_n = [1,1,1,1], wn_suit ya a 0 (lo deja auto_step)
+  int win_calls = 0;
+  for (; win_calls < 10; win_calls++) {
+    call_at(S("win_step"), 0, 0, 0, 0, 0, 0, 0);
+    if (z80.af.b.h == 0) break;
+  }
+  CHECK(win_calls == 4, "win_step: 4 cartas caen (devuelve 1) y a la 5a vuelta ya no queda ninguna (devuelve 0)");
+  foundsum = 0; for (int i = 0; i < 4; i++) foundsum += mem[S("found_n") + i];
+  CHECK(foundsum == 0, "win_step: las 4 fundaciones quedan vacias");
+  CHECK(!bad_write, "win_step: sin escrituras fuera de sitio");
+  if (bad_write) printf("        primera escritura fuera de sitio: $%04X\n", bad_addr);
+
+  printf("-- fase 5, win_step: un clic corta la animacion de una carta a medio caer\n");
+  bad_write = false;
+  clear_model();
+  mem[S("found_n") + 0] = 1; mem[S("found_s") + 0] = 1;   // una carta en la fundacion 0 (corazones)
+  mem[S("wn_suit")] = 0;
+  mem[S("ml_press")] = 1;
+  call_at(S("win_step"), 0, 0, 0, 0, 0, 0, 0);
+  mem[S("ml_press")] = 0;
+  CHECK(z80.af.b.h == 0, "win_step: un clic corta la caida (devuelve 0)");
+  CHECK(mem[S("found_n") + 0] == 0, "win_step: la carta ya se habia quitado de la fundacion antes de cortar");
+  CHECK(!bad_write, "win_step con clic: sin escrituras fuera de sitio");
+  if (bad_write) printf("        primera escritura fuera de sitio: $%04X\n", bad_addr);
+
   printf(errors ? "%d ERRORES\n" : "ejecucion OK (falta cmp_solitario.py)\n", errors);
   return errors ? 1 : 0;
 }

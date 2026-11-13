@@ -155,6 +155,20 @@ pm_p        equ DRV+34              ; w
 sl_p        equ DRV+36              ; w
 dr_cards    equ DRV+48              ; hasta 13 cartas arrastradas (boca arriba)
 
+; fase 5: autocompletar y animacion de victoria
+P5          equ 8600h
+auto_on     equ P5+0                ; 1 = autocompletando a las fundaciones
+win_on      equ P5+1                ; 1 = animacion de victoria en marcha
+at_col      equ P5+2                ; columna que se esta probando (auto_check/auto_step)
+at_tx       equ P5+3                ; destino x del deslizamiento a la fundacion
+at_ty       equ P5+4
+wn_suit     equ P5+5                ; palo de la fundacion que se esta vaciando
+wn_vy       equ P5+6                ; velocidad vertical de la caida (con signo)
+wn_dir      equ P5+7                ; deriva horizontal por fotograma (con signo, multiplo de 8)
+wn_t        equ P5+8                ; fotogramas que le quedan a la carta actual
+wn_tr       equ P5+9                ; atributo de la estela de la carta actual
+FLOOR_Y     equ 152                 ; BAR_Y(184) - CD_H(32): donde rebota el canto de abajo de la carta
+
             org 20480
 
 ; ---------------------------------------------------------------------
@@ -193,13 +207,20 @@ start:      xor  a                  ; espera a que se suelte la tecla con la que
             call ml_init
             call ml_cur_init
 
-main:       call waitvs
+main:       ld   a,(win_on)
+            or   a
+            jr   nz,m_win
+            ld   a,(auto_on)
+            or   a
+            jr   nz,m_auto
+            call waitvs
             call ml_poll
             call ml_cur_show
             call tick_clock
             ld   a,(bar_dirty)
             or   a
             call nz,bar_update
+            call auto_check
             ld   a,(ML_PRESS)
             and  3                  ; clic izquierdo o derecho
             jr   z,m_keys
@@ -211,6 +232,13 @@ main:       call waitvs
             jr   nc,m_keys
             call bar_click
             jr   m_keys
+m_win:      call win_step           ; una carta por vuelta; 0 = termina (sola o porque el usuario pulsa algo)
+            or   a
+            jp   nz,main
+            call new_deal
+            jp   main
+m_auto:     call auto_step          ; mueve una carta a la fundacion; cuando no puede, pasa a la animacion de victoria
+            jp   main
 m_game:     call hit_test
             ld   a,(ML_PRESS)
             and  2
@@ -2210,6 +2238,8 @@ new_deal:   call new_game
             ld   (tm_run),a
             ld   (tm_fr),a
             ld   (tm_s10),a
+            ld   (auto_on),a
+            ld   (win_on),a
             ld   hl,(ML_CLOCK)
             ld   (tm_last),hl
             call draw_board
@@ -2489,6 +2519,313 @@ qf_c:       ld   a,2
             ld   a,1
             ld   (dr_m),a
             jp   commit
+
+; ---------------------------------------------------------------------
+;  FASE 5: autocompletar (mazo y descarte vacios, todo el tablero boca arriba) y animacion de victoria
+; ---------------------------------------------------------------------
+; auto_check: si mazo, descarte y las 7 columnas (de arriba) estan todos boca arriba o vacias, activa auto_on
+auto_check: ld   a,(stock_n)
+            or   a
+            ret  nz
+            ld   a,(waste_n)
+            or   a
+            ret  nz
+            xor  a
+            ld   (at_col),a
+ac_lp:      ld   a,(at_col)
+            ld   e,a
+            ld   d,0
+            ld   hl,tab_n
+            add  hl,de
+            ld   a,(hl)
+            or   a
+            jr   z,ac_next          ; columna vacia: cuenta como lista
+            dec  a
+            ld   (dt_n),a           ; en memoria: col_addr usa C como variable de trabajo
+            ld   a,(at_col)
+            call col_addr
+            ld   a,(dt_n)
+            ld   e,a
+            ld   d,0
+            add  hl,de
+            bit  7,(hl)
+            ret  z                  ; hay una tapada: aun no
+ac_next:    ld   a,(at_col)
+            inc  a
+            ld   (at_col),a
+            cp   7
+            jr   c,ac_lp
+            ld   a,1
+            ld   (auto_on),a
+            ret
+
+; auto_step: mueve a su fundacion la primera carta de arriba (columnas 0..6) que encuentre que le quepa, deslizandola
+; con sprites; si ninguna columna tiene ya una que mover, el tablero esta vacio: empieza la animacion de victoria.
+auto_step:  xor  a
+            ld   (at_col),a
+as_lp:      ld   a,(at_col)
+            ld   e,a
+            ld   d,0
+            ld   hl,tab_n
+            add  hl,de
+            ld   a,(hl)
+            or   a
+            jr   nz,as_body
+            jp   as_next
+as_body:    dec  a                  ; indice de la de arriba: se la "pide" a pickup como si fuera un clic
+            ld   (ht_card),a
+            ld   a,(at_col)
+            ld   (ht_idx),a
+            ld   a,AREA_TAB
+            ld   (ht_area),a
+            call pickup
+            jr   c,as_body2
+            jp   as_next
+as_body2:   ld   a,(dr_cards)
+            ld   b,a
+            and  0Fh
+            ld   (dt_rank),a
+            ld   a,b
+            rrca
+            rrca
+            rrca
+            rrca
+            and  7
+            ld   (dt_suit),a
+            call found_slot
+            cp   0FFh
+            jr   z,as_cancel
+            ld   (dr_tk),a
+            ld   a,(dr_tk)          ; destino: x0 = 112 + 32*fundacion, y = TOP_Y
+            add  a,a
+            add  a,a
+            add  a,a
+            add  a,a
+            add  a,a
+            add  a,112
+            ld   (at_tx),a
+            ld   a,TOP_Y
+            ld   (at_ty),a
+            ld   b,8
+as_sl:      push bc
+            call waitvs
+            ld   a,(dr_px)
+            ld   hl,at_tx
+            call half_to
+            ld   (dr_px),a
+            ld   a,(dr_py)
+            ld   hl,at_ty
+            call half_to
+            ld   (dr_py),a
+            call spr_move
+            pop  bc
+            djnz as_sl
+            ld   a,(at_tx)
+            ld   (dr_px),a
+            ld   a,(at_ty)
+            ld   (dr_py),a
+            call spr_move
+            ld   a,(dr_tk)
+            ld   e,a
+            ld   d,0
+            ld   hl,found_s
+            add  hl,de
+            ld   a,(dt_suit)
+            ld   (hl),a
+            ld   a,(dr_tk)
+            ld   e,a
+            ld   d,0
+            ld   hl,found_n
+            add  hl,de
+            inc  (hl)
+            ld   a,2
+            ld   (dr_tarea),a
+            call score_move
+            call draw_found
+            call spr_hide_all
+            ret
+as_cancel:  call cancel_now
+as_next:    ld   a,(at_col)
+            inc  a
+            ld   (at_col),a
+            cp   7
+            jr   nc,as_done
+            jp   as_lp
+as_done:    xor  a                  ; ninguna columna tenia una carta que mover: tablero vacio, a celebrar
+            ld   (auto_on),a
+            ld   a,1
+            ld   (win_on),a
+            xor  a
+            ld   (wn_suit),a
+            ret
+
+; win_step: saca la carta de arriba de la siguiente fundacion no vacia (de la K al As) y la deja caer con rebote,
+; dejando estela; A=1 si ha animado una carta (seguir llamando), A=0 si no quedaba ninguna o el usuario corto con
+; un clic o una tecla (entonces toca repartir de nuevo).
+win_step:   ld   a,(wn_suit)
+ws_loop:    cp   4
+            jr   nc,ws_none
+            ld   e,a
+            ld   d,0
+            ld   hl,found_n
+            add  hl,de
+            ld   a,(hl)
+            or   a
+            jr   nz,ws_pop
+            ld   a,(wn_suit)
+            inc  a
+            ld   (wn_suit),a
+            jr   ws_loop
+ws_none:    xor  a
+            ret
+ws_pop:     dec  a
+            ld   c,a                ; rango de la carta de arriba
+            ld   a,(wn_suit)
+            ld   e,a
+            ld   d,0
+            ld   hl,found_s
+            add  hl,de
+            ld   a,(hl)
+            rlca
+            rlca
+            rlca
+            rlca
+            or   c
+            or   80h
+            ld   (dr_cards),a
+            ld   a,1
+            ld   (dr_m),a
+            ld   a,UP_STEP
+            ld   (dr_step),a
+            ld   a,(wn_suit)
+            add  a,a
+            add  a,a
+            add  a,a
+            add  a,a
+            add  a,112
+            ld   (dr_px),a
+            ld   a,TOP_Y
+            ld   (dr_py),a
+            call spr_compose
+            call spr_load_all
+            call spr_move
+            ld   a,(wn_suit)
+            ld   e,a
+            ld   d,0
+            ld   hl,found_n
+            add  hl,de
+            dec  (hl)
+            call draw_found
+            ld   a,(dr_cards)      ; color de la estela segun el palo
+            rrca
+            rrca
+            rrca
+            rrca
+            and  7
+            ld   e,a
+            ld   d,0
+            ld   hl,win_trail_col
+            add  hl,de
+            ld   a,(hl)
+            ld   (wn_tr),a
+            xor  a
+            ld   (wn_vy),a
+            ld   a,0F8h             ; -8: deriva horizontal de la caida
+            ld   (wn_dir),a
+            ld   a,45
+            ld   (wn_t),a
+wn_fall:    ld   a,(wn_t)
+            or   a
+            jr   z,wn_settled
+            dec  a
+            ld   (wn_t),a
+            call waitvs
+            call win_check_abort
+            jr   c,wn_abort
+            call win_mark
+            ld   a,(wn_vy)
+            inc  a
+            ld   (wn_vy),a
+            ld   b,a
+            ld   a,(dr_py)
+            add  a,b
+            cp   FLOOR_Y+1
+            jr   nc,wn_bounce
+            ld   (dr_py),a
+            jr   wn_mvx
+wn_bounce:  ld   a,FLOOR_Y
+            ld   (dr_py),a
+            ld   a,(wn_vy)
+            neg
+            sra  a
+            ld   (wn_vy),a
+wn_mvx:     ld   a,(wn_t)
+            and  3
+            jr   nz,wn_sk
+            ld   a,(dr_px)
+            ld   b,a
+            ld   a,(wn_dir)
+            add  a,b
+            cp   8
+            jr   c,wn_sk
+            cp   225
+            jr   nc,wn_sk
+            ld   (dr_px),a
+wn_sk:      call spr_move
+            jr   wn_fall
+wn_settled: call spr_hide_all
+            ld   a,1
+            ret
+wn_abort:   call spr_hide_all
+            xor  a
+            ret
+
+; win_check_abort: CARRY si hay un clic o se ha pulsado cualquier tecla
+win_check_abort:
+            ld   a,(ML_PRESS)
+            and  3
+            jr   nz,wca_yes
+            xor  a
+            in   a,(0FEh)
+            cpl
+            and  1Fh
+            jr   z,wca_no
+wca_yes:    scf
+            ret
+wca_no:     or   a
+            ret
+
+; win_mark: pinta en el bitmap, en (dr_px, dr_py), una marca de 8x1 del color de wn_tr (la estela de la caida)
+win_mark:   ld   a,(dr_px)
+            rrca
+            rrca
+            rrca
+            and  1Fh
+            ld   d,a
+            ld   a,(dr_py)
+            ld   l,a
+            ld   h,0
+            add  hl,hl
+            add  hl,hl
+            add  hl,hl
+            add  hl,hl
+            add  hl,hl              ; y*32
+            ld   e,d
+            ld   d,0
+            add  hl,de              ; + columna
+            ld   de,BM
+            add  hl,de
+            xor  a
+            ld   (hl),a             ; bitmap a 0: se ve el color de papel del atributo (la estela)
+            ld   de,ATTOFS
+            add  hl,de
+            ld   a,(wn_tr)
+            ld   (hl),a
+            ret
+
+; win_trail_col: atributo de la estela por palo (picas, corazones, diamantes, treboles): color en el papel (bitmap a 0)
+win_trail_col:
+            defb 0F0h,0A0h,0A0h,0F0h
 
 ; ---------------------------------------------------------------------
 ;  Barra de estado (lineas 184-191): texto de 8x8 con la fuente de la ROM, atributo uniforme por celda.

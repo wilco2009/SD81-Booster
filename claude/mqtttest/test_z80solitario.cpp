@@ -476,6 +476,21 @@ int main(int argc, char** argv) {
   CHECK(!bad_write, "win_step con clic: sin escrituras fuera de sitio");
   if (bad_write) printf("        primera escritura fuera de sitio: $%04X\n", bad_addr);
 
+  printf("-- tecla de prueba W (test_win)\n");
+  if (syms.count("test_win")) call_at(S("test_win"), 0, 0, 0, 0, 0, 0, 0);       // solo existe con TEST_KEYS = 1
+  else {                                                                           // misma situacion armada a mano
+    for (int k = 0; k < 7; k++) mem[S("tab_n") + k] = 0;
+    mem[S("stock_n")] = 0; mem[S("waste_n")] = 0; mem[S("waste_vis")] = 0;
+    for (int i = 0; i < 4; i++) { mem[S("found_n") + i] = 13; mem[S("found_s") + i] = (uint8_t)i; }
+    call_at(S("draw_board"), 0, 0, 0, 0, 0, 0, 0);
+    mem[S("auto_on")] = 0; mem[S("wn_suit")] = 0; mem[S("win_on")] = 1;
+  }
+  CHECK(mem[S("found_n")] == 13 && mem[S("found_n") + 3] == 13 && mem[S("tab_n") + 2] == 0 && mem[S("stock_n")] == 0, "test_win: fundaciones completas y tablero vacio");
+  CHECK(mem[S("win_on")] == 1 && mem[S("auto_on")] == 0 && mem[S("wn_suit")] == 0, "test_win: arranca la animacion de victoria (win_on = 1)");
+  printf("-- animacion de victoria: 10 cartas (volcado win.bin, para mirar la estela)\n");
+  for (int i = 0; i < 10; i++) call_at(S("win_step"), 0, 0, 0, 0, 0, 0, 0);
+  CHECK(!bad_write, "la animacion de victoria no escribe fuera de sitio");
+  { FILE* fw = fopen("win.bin", "wb"); fwrite(mem + 0xA000, 1, 6144, fw); fwrite(mem + 0xC000, 1, 6144, fw); fclose(fw); }
   printf(errors ? "%d ERRORES\n" : "ejecucion OK (falta cmp_solitario.py)\n", errors);
   return errors ? 1 : 0;
 }

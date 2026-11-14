@@ -32,6 +32,7 @@ A0          equ 0C000h              ; atributos de modo 0, mismo orden
 ATTOFS      equ A0-BM
 FONT        equ 1E00h               ; juego de caracteres de la ROM del ZX81 (64 x 8 bytes)
 BAR_Y       equ 184                 ; barra de estado: lineas 184-191
+TEST_KEYS   equ 0                   ; 1 = tecla de prueba W (parte de una partida ganada para ver la animacion); 0 en la version final
 CD_HOLE     equ 0FFh                ; "codigo de carta" del hueco vacio
 TOP_Y       equ 2                   ; fila de arriba (mazo, descarte, fundaciones)
 BOARD_Y     equ 40                  ; primera linea del tablero
@@ -280,11 +281,18 @@ m_d:        ld   a,0FDh             ; D: robo de 1 / de 3
             ld   a,c
             ld   (pk_d),a
             or   a
-            jr   z,m_q
+            jr   z,m_w
             ld   a,b
             or   a
-            jr   nz,m_q
+            jr   nz,m_w
             call toggle_mode
+m_w:
+            if TEST_KEYS
+            ld   a,0FBh             ; W: (prueba) como si se hubiera ganado la partida
+            in   a,(0FEh)
+            bit  1,a
+            call z,test_win
+            endif
 m_q:        ld   a,0FBh             ; Q: salir
             in   a,(0FEh)
             bit  0,a
@@ -2730,9 +2738,14 @@ ws_pop:     dec  a
             ld   (wn_tr),a
             xor  a
             ld   (wn_vy),a
-            ld   a,0F8h             ; -8: deriva horizontal de la caida
-            ld   (wn_dir),a
-            ld   a,45
+            call rnd16              ; deriva horizontal de la caida: 8 px a la izquierda o a la derecha, al azar
+            ld   a,h
+            and  1
+            ld   a,8
+            jr   nz,wn_d1
+            ld   a,0F8h
+wn_d1:      ld   (wn_dir),a
+            ld   a,200              ; tope de seguridad: normalmente sale antes por un lado
             ld   (wn_t),a
 wn_fall:    ld   a,(wn_t)
             or   a
@@ -2760,16 +2773,14 @@ wn_bounce:  ld   a,FLOOR_Y
             sra  a
             ld   (wn_vy),a
 wn_mvx:     ld   a,(wn_t)
-            and  3
+            and  1                  ; 8 px cada dos imagenes
             jr   nz,wn_sk
             ld   a,(dr_px)
             ld   b,a
             ld   a,(wn_dir)
             add  a,b
-            cp   8
-            jr   c,wn_sk
-            cp   225
-            jr   nc,wn_sk
+            cp   233
+            jr   nc,wn_settled      ; salio por un lado (tambien si da la vuelta por debajo de 0): la siguiente
             ld   (dr_px),a
 wn_sk:      call spr_move
             jr   wn_fall
@@ -2795,33 +2806,21 @@ wca_yes:    scf
 wca_no:     or   a
             ret
 
-; win_mark: pinta en el bitmap, en (dr_px, dr_py), una marca de 8x1 del color de wn_tr (la estela de la caida)
+; win_mark: dibuja en el bitmap, en (dr_px, dr_py), la carta entera (dr_cards): al repetirlo en cada fotograma queda la estela en
+; cascada de Windows. x es multiplo de 8 (un byte); y <= FLOOR_Y para no pisar la barra.
 win_mark:   ld   a,(dr_px)
             rrca
             rrca
             rrca
             and  1Fh
+            cp   30
+            ret  nc                 ; no cabe una carta de 3 bytes
             ld   d,a
             ld   a,(dr_py)
-            ld   l,a
-            ld   h,0
-            add  hl,hl
-            add  hl,hl
-            add  hl,hl
-            add  hl,hl
-            add  hl,hl              ; y*32
-            ld   e,d
-            ld   d,0
-            add  hl,de              ; + columna
-            ld   de,BM
-            add  hl,de
-            xor  a
-            ld   (hl),a             ; bitmap a 0: se ve el color de papel del atributo (la estela)
-            ld   de,ATTOFS
-            add  hl,de
-            ld   a,(wn_tr)
-            ld   (hl),a
-            ret
+            ld   e,a
+            ld   b,32
+            ld   a,(dr_cards)
+            jp   place_card
 
 ; win_trail_col: atributo de la estela por palo (picas, corazones, diamantes, treboles): color en el papel (bitmap a 0)
 win_trail_col:
@@ -2945,6 +2944,43 @@ bar_dn:     defm "3"
             defm "QUIT"
             defb 0
             defb 0FFh
+
+
+            if TEST_KEYS
+; test_win: deja las 4 fundaciones completas y el tablero vacio, y arranca la animacion de victoria
+test_win:   xor  a
+            in   a,(0FEh)           ; espera a que se suelten las teclas (la animacion se corta con cualquiera)
+            cpl
+            and  1Fh
+            jr   nz,test_win
+            ld   hl,tab_n
+            ld   b,7
+tw1:        ld   (hl),0
+            inc  hl
+            djnz tw1
+            xor  a
+            ld   (stock_n),a
+            ld   (waste_n),a
+            ld   (waste_vis),a
+            ld   hl,found_n
+            ld   de,found_s
+            ld   b,4
+            ld   c,0
+tw2:        ld   (hl),13
+            ld   a,c
+            ld   (de),a
+            inc  hl
+            inc  de
+            inc  c
+            djnz tw2
+            call draw_board
+            xor  a
+            ld   (auto_on),a
+            ld   (wn_suit),a
+            inc  a
+            ld   (win_on),a
+            ret
+            endif
 
             include "cards.inc"
             include "mouselib.inc"

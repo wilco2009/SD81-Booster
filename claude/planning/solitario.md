@@ -118,6 +118,14 @@ vía PowerShell, no `cmd.exe /c` desde bash), pero no flashear nada. Sin commits
 
 ## Estado
 
+- 2026-11-14: **estela de la victoria rehecha** (el usuario vio en el emulador que las marcas de 8x1 no se parecían a la
+  cascada de Windows): `win_mark` ahora dibuja la carta entera con `place_card` en cada fotograma, la deriva horizontal es
+  de 8 px cada dos imágenes, a izquierda o derecha al azar, y cada carta cae y rebota hasta salir por un lado (tope de 200
+  imágenes). Comprobado en el PC (volcado de `win.bin` de 10 cartas: cascada de cartas completas); no visto aún en el
+  emulador. Se añadió la tecla de prueba **W** (`TEST_KEYS` al principio de `solitario.asm`: con 1 parte de una partida ganada para
+  ver la animación; **ahora está a 0**, versión final, 6023 B de 12288; el arnés del PC arma esa situación a mano y no la
+  necesita).
+
 - 2026-11-14: **fase 6 hecha**: `EXAMPLES/SOLITARIO/README.md` (ficheros, cómo se juega, barra, puntos/tiempo,
   memoria, qué falta probar y cómo ensamblar, al estilo de `EXAMPLES/ESTELA/README.md`) y una entrada en
   `claude/planning/manual_pendiente.md` (sección "Pendiente") para cuando se decida llevarlo al manual de usuario,

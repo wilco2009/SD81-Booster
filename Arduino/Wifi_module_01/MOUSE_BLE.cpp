@@ -341,6 +341,8 @@ static KbdLayout kbd_boot_layout() {
 
 // --- Mando ---
 struct PField { bool ok; uint16_t bit; uint8_t size; int32_t lmin, lmax; };
+struct AuxBit { uint8_t rid; PField f; uint8_t bit; };                      // boton suelto de otro informe -> bit de CMD_PAD
+struct AuxArr { uint8_t rid; PField f; uint8_t n; uint16_t umin; };        // array de codigos de consumo de otro informe
 struct PadLayout {
   bool    ok;
   bool    has_id;
@@ -358,6 +360,10 @@ struct PadLayout {
   uint8_t ca_n;
   uint16_t ca_umin;
   char    cons[40];        // usos de consumo encontrados (para el estado)
+  AuxBit  aux[8];          // los botones de consumo de los OTROS informes del mando (el Luna pone alguno fuera del principal)
+  uint8_t naux;
+  AuxArr  auxa[3];
+  uint8_t nauxa;
 };
 struct PadRaw { uint8_t id; PField ax[6], hat, acc, brk, dp[4], btn[16]; uint8_t nbtn; PField cb[6]; uint8_t cbt[6]; uint16_t cbu[6]; uint8_t ncb;
                 PField ca; uint8_t ca_n; uint16_t ca_umin; };
@@ -417,9 +423,26 @@ static bool parse_pad_map(const uint8_t* d, size_t n, PadLayout* out) {
     if (sc > best_score) { best_score = sc; best = i; }
   }
   if (best < 0) { free(R); return false; }
+  memset(out, 0, sizeof *out);
+  char ocons[24] = "";                     // usos de consumo de los otros informes (para el estado)
+  for (uint8_t i = 0; i < nr; i++) {
+    if ((int)i == best) continue;
+    const PadRaw& q = R[i];
+    for (uint8_t k = 0; k < q.ncb && out->naux < 8; k++) {
+      AuxBit& a = out->aux[out->naux++];
+      a.rid = q.id; a.f = q.cb[k]; a.bit = q.cbt[k];
+      size_t o = strlen(ocons);
+      if (o + 10 < sizeof ocons) snprintf(ocons + o, sizeof ocons - o, " %X(id%u)", (unsigned)q.cbu[k], (unsigned)q.id);
+    }
+    if (q.ca.ok && out->nauxa < 3) {
+      AuxArr& a = out->auxa[out->nauxa++];
+      a.rid = q.id; a.f = q.ca; a.n = q.ca_n; a.umin = q.ca_umin;
+      size_t o = strlen(ocons);
+      if (o + 12 < sizeof ocons) snprintf(ocons + o, sizeof ocons - o, " array(id%u)", (unsigned)q.id);
+    }
+  }
   const PadRaw r = R[best];                // copia (~350 B en la pila de ble_task) y se suelta el resto
   free(R);
-  memset(out, 0, sizeof *out);
   out->ok = true; out->id = r.id; out->has_id = r.id != 0;
   out->lx = r.ax[0]; out->ly = r.ax[1]; out->hat = r.hat;
   for (uint8_t k = 0; k < 4; k++) out->dp[k] = r.dp[k];
@@ -431,7 +454,8 @@ static bool parse_pad_map(const uint8_t* d, size_t n, PadLayout* out) {
     size_t o = 0;
     out->cons[0] = 0;
     for (uint8_t k = 0; k < r.ncb && o + 6 < sizeof out->cons; k++) o += snprintf(out->cons + o, sizeof out->cons - o, "%s%X", o ? "," : "", (unsigned)r.cbu[k]);
-    if (r.ca.ok && o + 12 < sizeof out->cons) snprintf(out->cons + o, sizeof out->cons - o, "%sarray x%u", o ? "," : "", (unsigned)r.ca_n);
+    if (r.ca.ok && o + 12 < sizeof out->cons) { snprintf(out->cons + o, sizeof out->cons - o, "%sarray x%u", o ? "," : "", (unsigned)r.ca_n); o = strlen(out->cons); }
+    if (ocons[0] && o + 2 < sizeof out->cons) snprintf(out->cons + o, sizeof out->cons - o, ";%s", ocons);
   }
   // Stick derecho y gatillos. Gatillos de la pagina 2 (Freno = LT, Acelerador = RT; asi el Xbox BLE) si los hay. Stick derecho: Z/Rz (Android
   // y Xbox BLE) si estan los dos; si no, Rx/Ry. Sin gatillos de la pagina 2, los ejes que sobren hacen de gatillos. Por confirmar con cada mando.
@@ -721,6 +745,23 @@ static uint8_t pad_hat(const uint8_t* d, size_t n, const PField& f) {
 
 static uint8_t s_pad_last[24];                    // el ultimo informe del mando, en bruto (para el estado)
 static uint8_t s_pad_last_n = 0;
+static uint16_t s_pad_main_btn = 0;               // botones del informe principal
+static uint8_t  s_pad_aux_rid[4];                 // y los de cada informe secundario (por Report ID)
+static uint16_t s_pad_aux_btn[4];
+static uint8_t  s_pad_aux_n = 0;
+struct PadRep { uint8_t rid; uint8_t n; uint16_t count; uint8_t d[16]; };   // ultimo contenido de cada informe (diagnostico, esp ble pad)
+static PadRep   s_pad_rep[6];
+static uint8_t  s_pad_rep_n = 0;
+static uint16_t pad_aux_or() { uint16_t b = 0; for (uint8_t i = 0; i < s_pad_aux_n; i++) b |= s_pad_aux_btn[i]; return b; }
+static void pad_rep_note(uint8_t rid, const uint8_t* d, size_t n) {   // (con s_mux)
+  PadRep* e = nullptr;
+  for (uint8_t i = 0; i < s_pad_rep_n; i++) if (s_pad_rep[i].rid == rid) { e = &s_pad_rep[i]; break; }
+  if (!e) { if (s_pad_rep_n >= 6) return; e = &s_pad_rep[s_pad_rep_n++]; e->rid = rid; e->count = 0; }
+  e->n = (uint8_t)(n < sizeof e->d ? n : sizeof e->d);
+  memcpy(e->d, d, e->n);
+  if (e->count < 65535) e->count++;
+}
+static void pad_reset_aux() { portENTER_CRITICAL(&s_mux); s_pad_main_btn = 0; s_pad_aux_n = 0; s_pad_rep_n = 0; portEXIT_CRITICAL(&s_mux); }
 static volatile uint16_t s_pad_raw = 0;            // botones HID sin traducir (bit k = boton k+1): para hacer la tabla de cada mando
 
 static void pad_on_input(const uint8_t* d, size_t n, const PadLayout& L) {
@@ -750,14 +791,48 @@ static void pad_on_input(const uint8_t* d, size_t n, const PadLayout& L) {
   if (lt > 100) btn |= 1u << 6;                             // gatillos analogicos tambien como botones digitales
   if (rt > 100) btn |= 1u << 7;
   uint8_t p[9];
-  p[0] = (uint8_t)btn; p[1] = (uint8_t)(btn >> 8); p[2] = dp;
+  p[2] = dp;
   p[3] = (uint8_t)pad_axis(d, n, L.lx); p[4] = (uint8_t)pad_axis(d, n, L.ly);
   p[5] = (uint8_t)pad_axis(d, n, L.rx); p[6] = (uint8_t)pad_axis(d, n, L.ry);
   p[7] = lt; p[8] = rt;
   bool changed;
   portENTER_CRITICAL(&s_mux);
+  s_pad_main_btn = btn;
+  btn |= pad_aux_or();                                      // mas los botones de los informes secundarios
+  p[0] = (uint8_t)btn; p[1] = (uint8_t)(btn >> 8);
+  pad_rep_note(L.id, d, n);
   changed = memcmp(p, s_pad_now, sizeof p) != 0;
   if (changed) { memcpy(s_pad_now, p, sizeof p); s_pad_dirty = true; }
+  SL[DEV_PAD].notif++;
+  portEXIT_CRITICAL(&s_mux);
+  if (changed && s_hid_task) xTaskNotifyGive(s_hid_task);
+}
+
+// Un informe secundario del mando (otro Report ID): sus botones de consumo se suman a los del principal
+static void pad_on_aux(uint8_t rid, const uint8_t* d, size_t n, const PadLayout& L) {
+  uint16_t b = 0;
+  for (uint8_t k = 0; k < L.naux; k++)
+    if (L.aux[k].rid == rid && get_bits(d, n, L.aux[k].f.bit, 1, false)) b |= (uint16_t)(1u << L.aux[k].bit);
+  for (uint8_t k = 0; k < L.nauxa; k++) {
+    const AuxArr& a = L.auxa[k];
+    if (a.rid != rid) continue;
+    for (uint8_t j = 0; j < a.n; j++) {
+      const int32_t v = get_bits(d, n, (uint16_t)(a.f.bit + (uint16_t)a.f.size * j), a.f.size, false);
+      if (v == 0 || v < a.f.lmin) continue;
+      const int8_t t = consumer_bit((uint16_t)(a.umin + (v - a.f.lmin)));
+      if (t >= 0) b |= (uint16_t)(1u << t);
+    }
+  }
+  bool changed;
+  portENTER_CRITICAL(&s_mux);
+  pad_rep_note(rid, d, n);
+  uint8_t i = 0;
+  while (i < s_pad_aux_n && s_pad_aux_rid[i] != rid) i++;
+  if (i == s_pad_aux_n && i < 4) { s_pad_aux_rid[i] = rid; s_pad_aux_btn[i] = 0; s_pad_aux_n++; }
+  if (i < 4) s_pad_aux_btn[i] = b;
+  const uint16_t btn = (uint16_t)(s_pad_main_btn | pad_aux_or() | ((L.lt.ok && s_pad_now[7] > 100) ? 0x40 : 0) | ((L.rt.ok && s_pad_now[8] > 100) ? 0x80 : 0));
+  changed = (uint8_t)btn != s_pad_now[0] || (uint8_t)(btn >> 8) != s_pad_now[1];
+  if (changed) { s_pad_now[0] = (uint8_t)btn; s_pad_now[1] = (uint8_t)(btn >> 8); s_pad_dirty = true; }
   SL[DEV_PAD].notif++;
   portEXIT_CRITICAL(&s_mux);
   if (changed && s_hid_task) xTaskNotifyGive(s_hid_task);
@@ -833,7 +908,7 @@ static volatile int      s_sec_disc_reason = -1;
 static volatile int      s_last_disc_reason = -1;   // motivo de la ultima desconexion (0x213 la corto el otro, 0x208 se perdio la senal, 0x216 la cortamos)
 
 // Informes del teclado y del mando suscritos a mano (subscribe_raw): conexion y handle del valor -> dispositivo. Los reparte gap_listener.
-struct NotiSub { uint16_t conn; uint16_t handle; uint8_t dev; };
+struct NotiSub { uint16_t conn; uint16_t handle; uint8_t dev; uint8_t rid; };
 #define NSUB_MAX 8
 static NotiSub s_nsub[NSUB_MAX];
 static uint8_t s_nsub_n = 0;
@@ -841,9 +916,9 @@ static portMUX_TYPE s_nsub_mux = portMUX_INITIALIZER_UNLOCKED;
 static Layout    s_mouse_lay;                    // formato de los informes del raton conectado
 static KbdLayout s_kbd_lay;                      // formato de los informes del teclado conectado
 static PadLayout s_pad_lay;                      // y del mando
-static void nsub_add(uint16_t conn, uint16_t handle, uint8_t dev) {
+static void nsub_add(uint16_t conn, uint16_t handle, uint8_t dev, uint8_t rid) {
   portENTER_CRITICAL(&s_nsub_mux);
-  if (s_nsub_n < NSUB_MAX) { s_nsub[s_nsub_n].conn = conn; s_nsub[s_nsub_n].handle = handle; s_nsub[s_nsub_n].dev = dev; s_nsub_n++; }
+  if (s_nsub_n < NSUB_MAX) { s_nsub[s_nsub_n].conn = conn; s_nsub[s_nsub_n].handle = handle; s_nsub[s_nsub_n].dev = dev; s_nsub[s_nsub_n].rid = rid; s_nsub_n++; }
   portEXIT_CRITICAL(&s_nsub_mux);
 }
 static void nsub_clear(uint8_t dev) {
@@ -858,9 +933,10 @@ static int gap_listener(struct ble_gap_event* ev, void*) {
   if (ev->type == BLE_GAP_EVENT_NOTIFY_RX) {
     if (!ev->notify_rx.om) return 0;
     int dev = -1;
+    uint8_t rid = 0;
     portENTER_CRITICAL(&s_nsub_mux);
     for (uint8_t i = 0; i < s_nsub_n; i++)
-      if (s_nsub[i].conn == ev->notify_rx.conn_handle && s_nsub[i].handle == ev->notify_rx.attr_handle) { dev = s_nsub[i].dev; break; }
+      if (s_nsub[i].conn == ev->notify_rx.conn_handle && s_nsub[i].handle == ev->notify_rx.attr_handle) { dev = s_nsub[i].dev; rid = s_nsub[i].rid; break; }
     portEXIT_CRITICAL(&s_nsub_mux);
     if (dev < 0) return 0;                       // no es de ningun informe suscrito
     uint8_t buf[64];
@@ -869,7 +945,10 @@ static int gap_listener(struct ble_gap_event* ev, void*) {
     os_mbuf_copydata(ev->notify_rx.om, 0, n, buf);
     if (dev == DEV_MOUSE) on_input(buf, n, s_mouse_lay);
     else if (dev == DEV_KBD) kbd_on_input(buf, n, s_kbd_lay);
-    else if (dev == DEV_PAD) pad_on_input(buf, n, s_pad_lay);
+    else if (dev == DEV_PAD) {
+      if (!s_pad_lay.has_id || rid == s_pad_lay.id) pad_on_input(buf, n, s_pad_lay);
+      else pad_on_aux(rid, buf, n, s_pad_lay);
+    }
     return 0;
   }
   if (ev->type == BLE_GAP_EVENT_ENC_CHANGE && ev->enc_change.conn_handle == s_sec_conn) s_sec_enc_status = ev->enc_change.status;
@@ -1529,7 +1608,7 @@ static void gatt_set_boot_protocol(uint16_t conn) {
 
 // Se suscribe a las caracteristicas uuid16 (0x2A4D Report, 0x2A22/0x2A33 informes boot) con notificacion; con Report, solo a las de entrada y,
 // si el descriptor usa Report ID, a la de want_id. Las apunta para gap_listener. Devuelve cuantas.
-static int subscribe_raw(Slot& L, uint8_t dev, uint16_t uuid16, bool has_id, uint8_t want_id) {
+static int subscribe_raw(Slot& L, uint8_t dev, uint16_t uuid16, bool has_id, uint8_t want_id, bool all_ids = false) {
   const uint16_t conn = L.client->getConnId();
   int nsub = 0;
   for (uint8_t i = 0; i < s_gtab.n; i++) {                  // van en orden de handle
@@ -1547,8 +1626,8 @@ static int subscribe_raw(Slot& L, uint8_t dev, uint16_t uuid16, bool has_id, uin
     }
     ph_memf("%s: informe id %u tipo %u (cccd %u)", L.tag, (unsigned)rid, (unsigned)rtype, (unsigned)cccd);
     if (rtype != 1 || !cccd) continue;
-    if (has_id && rid != want_id) continue;
-    nsub_add(conn, c.val_h, dev);                           // antes de activarla, para no perder el primer informe
+    if (has_id && !all_ids && rid != want_id) continue;
+    nsub_add(conn, c.val_h, dev, rid);                           // antes de activarla, para no perder el primer informe
     if (gatt_write_cccd(conn, cccd, 0x0001)) nsub++;
   }
   return nsub;
@@ -1626,7 +1705,8 @@ static int subscribe_pad(Slot& L, const String& m) {
   }
   pad_pick_table(L.devname, &lay);
   s_pad_lay = lay;                            // lo usa gap_listener con cada informe
-  const int nsub = subscribe_raw(L, DEV_PAD, 0x2A4D, lay.has_id, lay.id);
+  pad_reset_aux();
+  const int nsub = subscribe_raw(L, DEV_PAD, 0x2A4D, lay.has_id, lay.id, true);   // todos sus informes de entrada (botones fuera del principal)
   if (nsub) {
     snprintf(L.mode, sizeof L.mode, "informes");
     snprintf(L.layout_txt, sizeof L.layout_txt, "mapa %u B: %s; tabla %s; consumo %s", (unsigned)m.length(), lay.axes, lay.table, lay.cons[0] ? lay.cons : "-");
@@ -1682,7 +1762,8 @@ static bool connect_slot(uint8_t s) {
     return false;
   }
 
-  strncpy(L.devname, L.cand_name, sizeof L.devname - 1); L.devname[sizeof L.devname - 1] = 0;
+  const bool no_name = !L.cand_name[0] || strcmp(L.cand_name, "(sin nombre)") == 0;
+  strncpy(L.devname, (no_name && L.saved_name[0]) ? L.saved_name : L.cand_name, sizeof L.devname - 1); L.devname[sizeof L.devname - 1] = 0;
   a.toCharArray(L.devaddr, sizeof L.devaddr);
   L.rssi = L.cand_rssi;
 
@@ -2032,6 +2113,13 @@ static String slot_status(uint8_t s, bool detail = false) {
     String hx;
     for (uint8_t k = 0; k < ln; k++) { char b3[4]; snprintf(b3, sizeof b3, " %02X", lr[k]); hx += b3; }
     r += String("  ultimo informe en bruto (") + ln + " B):" + hx + "\n";
+    PadRep reps[6]; uint8_t nrep;
+    portENTER_CRITICAL(&s_mux); nrep = s_pad_rep_n; memcpy(reps, s_pad_rep, sizeof reps); portEXIT_CRITICAL(&s_mux);
+    for (uint8_t i = 0; i < nrep; i++) {
+      String h2;
+      for (uint8_t k = 0; k < reps[i].n; k++) { char b3[4]; snprintf(b3, sizeof b3, " %02X", reps[i].d[k]); h2 += b3; }
+      r += String("  informe id ") + reps[i].rid + " (" + reps[i].count + " veces):" + h2 + "\n";
+    }
   }
   if (L.saved_addr[0]) r += String("  guardado: ") + L.saved_addr + (L.saved_name[0] ? String(" (") + L.saved_name + ")" : String("")) + "\n";
   else r += "  guardado: ninguno\n";

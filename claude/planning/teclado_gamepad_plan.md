@@ -447,3 +447,9 @@ separado. Hoy las direcciones del mando siguen siempre a `LOAD *JOY`, y solo se 
   bit 0 «conectado» no es error) y el toggle final. `""` manda n = 0.
 - ROM 12 716 → 12 829 B; los 8192 primeros bytes siguen idénticos a los de antes de la fase 5.
 - **Sin probar**: la placa ni el op 7 del STM32 (lo hace S3 en paralelo con este mismo contrato), ni el emulador.
+- Botón Luna (27/11/2026): no llega por el informe principal (id 1): «informes» no cambia al pulsarlo. El mapa declara otros informes de entrada
+  (id 2, 245, 240, 241) y solo se suscribía el 1. Cambio (sin compilar): el mando se suscribe a todos sus informes de entrada; los botones de consumo
+  de los secundarios (`aux`/`auxa` en `PadLayout`) se suman a los del principal (`pad_on_aux`); `esp ble pad` enseña el último contenido de cada informe
+  por su id. Al reconectar sin nombre en el anuncio se usa el nombre guardado (salía «(sin nombre)»). La conexión del mando cuesta ya solo ~0,6 KB.
+- **Botón Luna funcionando** como HOME (posición 17 de `LOAD *PAD "cadena"`) tras suscribir todos los informes del mando (27/11/2026, probado en la
+  placa). El botón del círculo, a la izquierda del Luna, es SELECT; el Luna no tiene «View». El del micrófono sigue sin tecla.

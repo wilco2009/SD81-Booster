@@ -85,8 +85,8 @@ ARRIBA, ABAJO, IZQUIERDA, DERECHA, A, B, X, Y, LB, RB, LT, RT, SELECT, START, L3
 - `LOAD *PAD ""` vuelve a lo de por defecto. Más de 17 caracteres o uno no válido: error B.
 - Ejemplo: `LOAD *PAD "QAOPMM--<"` → arriba Q, abajo A, izquierda O, derecha P, A y B = M, X e Y nada, LB = NEW LINE.
 
-Botones del **mando Amazon Luna** (comprobado en la placa): A, B, X, Y, LB, RB, LT y RT (gatillos analógicos), Menu (≡) = START, clic de los sticks =
-L3/R3. View, el botón Luna y el del micrófono deberían ir como SELECT, HOME y micrófono (**sin confirmar** en la placa). **Xbox Wireless:** la misma
+Botones del **mando Amazon Luna** (comprobado en la placa): A, B, X, Y, LB, RB, LT y RT (gatillos analógicos), el del círculo (a la izquierda del
+botón Luna) = SELECT, Menu (≡) = START, clic de los sticks = L3/R3, **botón Luna = HOME**. El del micrófono no da ninguna tecla. **Xbox Wireless:** la misma
 numeración según su documentación (View = SELECT, Menu = START), sin probar.
 (Pendiente: una figura del mando con los nombres.)
 

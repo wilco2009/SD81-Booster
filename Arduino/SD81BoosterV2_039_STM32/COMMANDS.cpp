@@ -2770,8 +2770,10 @@ void cmd_mouse(){
 //        en el orden ARRIBA, ABAJO, IZQUIERDA, DERECHA, A, B, X, Y, LB, RB, LT, RT, SELECT, START, L3, R3, HOME; los que pasan de n no cambian;
 //        n = 0 vuelve a los de por defecto (direcciones y botones). Codigos del op 1; 255 en una direccion = esa direccion de LOAD *JOY.
 //        Por defecto las direcciones son 255, asi que sin configurar el mando va como LOAD *JOY.
+//   op 8  TECLADO DISTRIBUCION   Z80 -> MCU:  0 espanola / 1 US     MCU -> Z80:  estado     (deja la orden 8/9 del teclado para el ESP32,
+//        que la guarda en su NVS)
 //   Cualquier otro op: 0x80.
-//   "estado" de los ops 1, 2, 6 y 7: bit0 = el mando (1, 2, 7) o el teclado (6) esta conectado; bit7 = algun parametro no valido.
+//   "estado" de los ops 1, 2, 6, 7 y 8: bit0 = el mando (1, 2, 7) o el teclado (6, 8) esta conectado; bit7 = algun parametro no valido.
 void cmd_btdev(){
   ToggleClock();                            // ACK del comando
   uint8_t op = GetByteFromZ80_IT();
@@ -2832,6 +2834,11 @@ void cmd_btdev(){
     ToggleClock();                          // confirma 'op'
     uint8_t mode = GetByteFromZ80_IT();
     bool ok = mode <= 1 && ble_order(BLE_DEV_KEYB, mode ? BLE_ORD_KB_GAME : BLE_ORD_KB_TEXT, 0);
+    SendByteToZ80((keyb_connected() ? 1 : 0) | (ok ? 0 : 0x80));
+  } else if (op == 8) {                     // distribucion del teclado: la orden 8/9 para el ESP32
+    ToggleClock();                          // confirma 'op'
+    uint8_t lay = GetByteFromZ80_IT();
+    bool ok = lay <= 1 && ble_order(BLE_DEV_KEYB, lay ? BLE_ORD_KB_US : BLE_ORD_KB_ES, 0);
     SendByteToZ80((keyb_connected() ? 1 : 0) | (ok ? 0 : 0x80));
   } else if (op == 7) {                     // teclas del mando, direcciones incluidas
     ToggleClock();                          // confirma 'op'

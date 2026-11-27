@@ -29,6 +29,7 @@ Requisitos y límites:
 | `LOAD *KEYB THEN STOP` / `LOAD *KEYB STOP` | Para el teclado (no vuelve a conectar hasta `THEN RUN`) |
 | `LOAD *KEYB` / `LOAD *KEYB TO A$` | Estado en texto de 16 caracteres (ver abajo) |
 | `LOAD *KEYB TEXT` / `LOAD *KEYB GAME` | Modo del teclado: texto (para escribir) o juego (varias teclas a la vez) |
+| `LOAD *KEYB ES` / `LOAD *KEYB US` | Distribución de los signos del teclado: española (por defecto) o inglesa (US). Se guarda en el módulo WiFi |
 | `LOAD *PAD THEN NEW` / `RUN` / `CLEAR` / `STOP`, `LOAD *PAD STOP` | Lo mismo para el mando |
 | `LOAD *PAD` / `LOAD *PAD TO A$` | Estado del mando |
 | `LOAD *PAD "cadena"` | Las teclas del mando (sección 5) |
@@ -56,7 +57,8 @@ suelta), porque la ROM del ZX81 no admite dos teclas a la vez: así no se pierde
 **Modo juego:** el teclado tal cual, varias teclas a la vez (para juegos); cada pulsación dura al menos 40 ms.
 Se cambia con **Ctrl+Alt+Espacio**, con `LOAD *KEYB TEXT` / `GAME` o con `esp ble kbd text` / `game`.
 
-Traducción (distribución **española** por defecto; la inglesa US con `esp ble kbd layout us`):
+Traducción (distribución **española** por defecto; la inglesa US con `LOAD *KEYB US` o `esp ble kbd layout us`, y vuelta con `LOAD *KEYB ES`; se
+guarda y se mantiene al apagar):
 - **Por posición**, como un teclado de ZX81: letras, cifras, Espacio y Enter (NEW LINE). **Mayús = SHIFT** también con ellas: Mayús+P = `"`, Mayús+1 = EDIT,
   Mayús+2 = AND, Mayús+Enter = FUNCTION, Mayús+Espacio = `£`. En modo K la P da PRINT, como en la máquina.
 - **Por carácter**, el resto de signos del PC: `:` `;` `?` `/` `,` `(` `)` `$` `"` `<` `>` `-` `+` `=` `*` `.` van a su combinación del ZX81, y `^` a `**`
@@ -113,3 +115,8 @@ numeración según su documentación (View = SELECT, Menu = START), sin probar.
 - **Teclado o mando guardados que no vuelven:** pulsa una tecla o mueve el mando para despertarlo; si sigue en `BUSCANDO`, `THEN CLEAR` y emparejarlo otra vez.
 - **Letras perdidas o repetidas al escribir deprisa:** modo texto (`LOAD *KEYB TEXT`).
 - **Un juego no responde a dos teclas a la vez:** modo juego (Ctrl+Alt+Espacio).
+
+## 8. Ayuda en la SD
+
+`LOAD THEN PRINT "*KEYB"`, `"*PAD"` y `"*MOUSE"` enseñan la ayuda de cada comando (`SD Content/MAN/KEYB.txt`, `PAD.txt` y `MOUSE.txt`); la del teclado
+incluye las combinaciones de teclas. `LOAD THEN PRINT "*HELP"` los lista con los demás.

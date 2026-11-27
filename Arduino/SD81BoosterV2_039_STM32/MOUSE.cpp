@@ -102,7 +102,7 @@ uint32_t ble_passkey() { return s_ble_key; }
 
 bool ble_order(uint8_t dev, uint8_t order, uint8_t arg) {
   if (dev >= BLE_NDEV || order < BLE_ORD_PAIR) return false;
-  if (order > (dev == BLE_DEV_KEYB ? BLE_ORD_KB_GAME : BLE_ORD_OFF)) return false;
+  if (order > (dev == BLE_DEV_KEYB ? BLE_ORD_KB_US : BLE_ORD_OFF)) return false;
   s_ble_order[dev] = order;
   s_ble_arg[dev] = arg;
   return true;

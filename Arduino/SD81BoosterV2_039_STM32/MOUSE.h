@@ -55,7 +55,8 @@ MouseFpga mouse_fpga_state();
 #define BLE_ST_SAVED      0x08
 #define BLE_ST_KNOWN      0x80      // el ESP32 ya ha contado su estado alguna vez (si no, 0 = "no se sabe")
 enum { BLE_ORD_NONE = 0, BLE_ORD_PAIR = 1, BLE_ORD_CONNECT = 2, BLE_ORD_FORGET = 3, BLE_ORD_ON = 4, BLE_ORD_OFF = 5,
-       BLE_ORD_KB_TEXT = 6, BLE_ORD_KB_GAME = 7 };                     // 6 y 7: modo del teclado (solo dispositivo 1)
+       BLE_ORD_KB_TEXT = 6, BLE_ORD_KB_GAME = 7,                       // 6 y 7: modo del teclado (solo dispositivo 1)
+       BLE_ORD_KB_ES = 8, BLE_ORD_KB_US = 9 };                         // 8 y 9: distribucion del teclado, espanola / US (solo dispositivo 1)
 
 // Los tres dispositivos BLE (CMD_BLE ampliado, comando 78): estado y segundos de cada uno, la clave de emparejado del teclado y UNA orden pendiente
 // por dispositivo. El raton es el dispositivo 0: las funciones mouse_ble_* de abajo son las de siempre (comando 77) sobre el dispositivo 0.

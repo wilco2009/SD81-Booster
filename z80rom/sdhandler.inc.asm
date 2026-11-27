@@ -2301,6 +2301,7 @@ SprParseArgs:	call	CLASS_6		; Read sprite number
 ; LOAD *KEYB [TO A$]      el estado como texto de 16 caracteres (op 5): CONECTADO, EMPAREJANDO 45S, CLAVE 123456, BUSCANDO, PARADO,
 ;                         SIN TECLADO / SIN MANDO, SIN MODULO WIFI
 ; LOAD *KEYB TEXT / GAME  modo del teclado (op 6): texto (cola, una tecla cada vez) o juego (la matriz tal cual). Solo *KEYB.
+; LOAD *KEYB ES / US      distribucion de los signos del teclado (op 8): espanola o inglesa (US). La guarda el ESP32. Solo *KEYB.
 ; LOAD *PAD ...           lo mismo para el mando (dispositivo 2), sin TEXT/GAME.
 ; Op 3 del 78: dispositivo, orden (1 emparejar, 2 conectar, 3 olvidar, 5 parar), argumento (0 = por defecto). Como en *MOUSE, no espera al
 ; resultado: el ESP32 recoge la orden en ~0,5 s. Respuesta de los ops 3 y 6: bit 7 = orden no valida (REPORT-B; no deberia pasar).
@@ -2311,19 +2312,29 @@ CmdKEYB:	ld	e,1		; dispositivo 1: teclado
 CmdPAD:		ld	e,2		; dispositivo 2: mando
 BtDev:		ld	b,5		; parar
 		cp	.STOP
-		jr	z,BtDevDo
+		jp	z,BtDevDo
 		cp	.THEN
 		jr	z,BtDevThen
-		bit	0,e		; TEXT/GAME solo con el teclado (1)
+		bit	0,e		; TEXT/GAME/ES/US solo con el teclado (1)
 		jp	z,PadArgs	; mando: TO, fin de linea o "cadena" (jp: demasiado lejos para jr)
+		ld	d,6		; op 6: modo del teclado
 		ld	b,0		; modo texto
 		ld	hl,BtTxtTEXT
 		cp	.T
-		jr	z,BtKbdWord
+		jp	z,BtKbdWord
 		inc	b		; modo juego
 		ld	hl,BtTxtGAME
 		cp	.G
-		jr	z,BtKbdWord
+		jp	z,BtKbdWord
+		ld	d,8		; op 8: distribucion del teclado
+		ld	b,0		; espanola
+		ld	hl,BtTxtES
+		cp	.E
+		jp	z,BtKbdWord
+		inc	b		; inglesa (US)
+		ld	hl,BtTxtUS
+		cp	.U
+		jp	z,BtKbdWord
 		; LOAD *KEYB|*PAD [TO <string-var>]: el texto de estado (op 5), como *MOUSE
 BtDevStatus:	set	6,(iy+iyFLAGX)	; marca "imprimir, no guardar"
 		cp	.TO
@@ -2388,7 +2399,7 @@ BtDevEnd:	in	a,(DataPort)	; resultado (bit 7 = no valida)
 		ret	z
 		jp	REPORT_B
 
-		; TEXT o GAME, letra a letra (no son tokens); B = modo, HL = la palabra
+		; TEXT, GAME, ES o US, letra a letra (no son tokens); D = op (6 modo, 8 distribucion), B = su valor, HL = la palabra
 BtKbdWord:	cp	(hl)
 		jp	nz,ReportC4
 		inc	hl
@@ -2403,14 +2414,16 @@ BtKbdWord:	cp	(hl)
 		ld	c,a
 		ld	a,CMD_btdev
 		call	OutWaitDiff	; comando 78
-		ld	a,6
-		call	OutWaitEq	; op 6: modo del teclado
+		ld	a,d
+		call	OutWaitEq	; op 6 (modo del teclado) u 8 (distribucion)
 		ld	a,b
-		call	OutWaitDiff	; 0 texto / 1 juego
+		call	OutWaitDiff	; 0 texto / 1 juego; 0 espanola / 1 US
 		jr	BtDevEnd	; estado: bit 0 conectado, bit 7 no valido
 
 BtTxtTEXT:	db	.T,.E,.X,.T,$FF
 BtTxtGAME:	db	.G,.A,.M,.E,$FF
+BtTxtES:	db	.E,.S,$FF
+BtTxtUS:	db	.U,.S,$FF
 
 ; LOAD *PAD "cadena": la tecla de cada posicion del mando (op 7 del 78), un caracter por posicion y en este orden:
 ; ARRIBA, ABAJO, IZQUIERDA, DERECHA, A, B, X, Y, LB, RB, LT, RT, SELECT, START, L3, R3, HOME (hasta 17; las que faltan no cambian).

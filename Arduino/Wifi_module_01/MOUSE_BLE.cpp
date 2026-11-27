@@ -2352,6 +2352,8 @@ static bool ble_stm_sync_once() {
     case 5: cmd = "off"; break;
     case 6: if (dev == DEV_KBD) cmd = "text"; break;
     case 7: if (dev == DEV_KBD) cmd = "game"; break;
+    case 8: if (dev == DEV_KBD) cmd = "layout es"; break;     // distribucion del teclado (LOAD *KEYB ES / US, op 8 del 78)
+    case 9: if (dev == DEV_KBD) cmd = "layout us"; break;
     default: break;
   }
   if (!cmd.length()) return false;

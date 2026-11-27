@@ -69,7 +69,7 @@
 //        (el estado de cada dispositivo usa los mismos bits; un STM32 viejo solo lee los 2 primeros bytes)
 //   resp nueva (4 B): status, orden, argumento, dispositivo(1B: 0 raton, 1 teclado, 2 gamepad)
 //        (un ESP32 viejo ignora el 4o byte; un STM32 viejo contesta 3 bytes y el ESP32 nuevo lo toma como dispositivo 0)
-//        ordenes nuevas (teclado): 6 modo texto, 7 modo juego
+//        ordenes nuevas (teclado): 6 modo texto, 7 modo juego, 8 distribucion espanola, 9 distribucion US
 //   El STM32 guarda UNA orden pendiente por dispositivo y entrega una por trama.
 
 // Teclado BLE (CMD_KEYB): la matriz del ZX81 ya traducida por el ESP32 (KEYMAP_ZX81), en cuanto cambia y cada 100 ms como latido.

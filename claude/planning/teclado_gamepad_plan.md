@@ -453,3 +453,14 @@ separado. Hoy las direcciones del mando siguen siempre a `LOAD *JOY`, y solo se 
   por su id. Al reconectar sin nombre en el anuncio se usa el nombre guardado (salía «(sin nombre)»). La conexión del mando cuesta ya solo ~0,6 KB.
 - **Botón Luna funcionando** como HOME (posición 17 de `LOAD *PAD "cadena"`) tras suscribir todos los informes del mando (27/11/2026, probado en la
   placa). El botón del círculo, a la izquierda del Luna, es SELECT; el Luna no tiene «View». El del micrófono sigue sin tecla.
+
+## Ampliación: distribución del teclado desde BASIC, `LOAD *KEYB ES` / `LOAD *KEYB US` (27/11/2026, hecho y **probado en la placa**, con la ayuda de la SD)
+
+- **Comando 78, op 8 `TECLADO DISTRIBUCION`** (STM32, `cmd_btdev`): Z80 → MCU 0 española / 1 US; MCU → Z80 estado (bit0 teclado conectado, bit7 no
+  válido). Deja para el ESP32 la orden **8** (española) o **9** (US) del dispositivo 1 (`BLE_ORD_KB_ES/US` en `MOUSE.h`; `ble_order` las admite).
+- **`CMD_BLE`**: órdenes nuevas 8 y 9 para el teclado (comentario de las dos copias de `WIFI_PROTOCOL.h`). El ESP32 las convierte en `esp ble kbd layout
+  es|us` (`ble_stm_sync_once`): la guarda en su NVS (`lay`) y se la pasa a `keymap_set_layout`. Un ESP32 viejo las ignora.
+- **ROM**: `LOAD *KEYB ES` / `LOAD *KEYB US`, letra a letra como `TEXT`/`GAME` (`BtKbdWord` recibe ahora el op en D: 6 modo, 8 distribución).
+  Ensamblado con pasmo: sin errores, bloque 0 idéntico al del commit 063167d, ROM 12 829 → 12 860 B (el `jr z,BtDevDo` del principio pasa a `jp`).
+- Ayuda de la SD (`SD Content/MAN`, fuera de git): `KEYB.txt` (comandos y combinaciones de teclas), `PAD.txt`, `MOUSE.txt` (no existía) y sus líneas
+  en `HELP.txt`. Mayúsculas, inglés y 32 caracteres por línea, como las demás.

@@ -59,6 +59,12 @@ versión (todavía sin publicar)»: **quitarla al publicar la FPGA**. El `PONG` 
   (modo texto, por defecto: cola de teclas, una cada vez, para escribir BASIC) y `LOAD *KEYB GAME` (modo juego: varias teclas a la vez); también se alterna
   con Ctrl+Alt+Espacio. Teclado y mando vienen **parados** de fábrica: hay que emparejarlos una vez. Necesita el módulo WiFi. Falta además: la fila 78 en 15.5,
   la tabla de teclas del PC → ZX81 (`KEYMAP_ZX81.cpp`) y el mando con `LOAD *JOY` (botones por defecto), cuando se haya probado en la placa.
+- **Distribución del teclado: `LOAD *KEYB ES` / `LOAD *KEYB US`** (op 8 del comando 78; 27/11/2026, probado en la placa): los signos que no son
+  letras ni cifras siguen la distribución española (por defecto) o la inglesa (US). La guarda el módulo WiFi y se mantiene al apagar. También desde la
+  consola web: `esp ble kbd layout es|us`. Va en la tabla de `LOAD *KEYB` (texto ya en `manual_teclado_gamepad.md`, §2 y §4).
+- **Ayuda en la SD de los comandos Bluetooth** (27/11/2026): `LOAD THEN PRINT "*KEYB"` (con las combinaciones de teclas: flechas = SHIFT+5/6/7/8,
+  F1 EDIT, F2 FUNCTION, F3 GRAPHICS, Retroceso RUBOUT, Esc BREAK, Ctrl+Alt+Espacio cambia de modo), `"*PAD"` y `"*MOUSE"` (este no existía), y las
+  tres en `"*HELP"`. Ficheros `SD Content/MAN/KEYB.txt`, `PAD.txt` y `MOUSE.txt`. Mencionarlo en la sección de la ayuda integrada.
 - **Teclas del mando: `LOAD *PAD "cadena"`** (op 7 del comando 78; ROM 27/11/2026, sin probar en la placa): configura el mando **por separado** del joystick DB9.
   Un carácter por posición, en este orden: ARRIBA, ABAJO, IZQUIERDA, DERECHA, A, B, X, Y, LB, RB, LT, RT, SELECT, START, L3, R3, HOME (hasta 17; si la cadena
   es más corta, el resto no cambia). Cada carácter como en `LOAD *JOY` (letra, cifra, `.`, `<` = NEW LINE, `*` = SHIFT); además **espacio** = la tecla ESPACIO,

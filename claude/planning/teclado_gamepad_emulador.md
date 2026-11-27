@@ -30,12 +30,13 @@ El handshake es idéntico al del comando 77 (`cmd_mouse`), que el emulador ya ti
 | 4 BLE ESTADO | dispositivo | estado, segundos | bits del estado BLE (abajo) y segundos que quedan de la ventana de emparejado |
 | 5 BLE TEXTO | dispositivo | 16 caracteres ZX81 + estado (0; 0x80 si el dispositivo no vale) | estado en texto (abajo), relleno con espacios, en el juego de caracteres del ZX81 |
 | 6 TECLADO MODO | 0 texto / 1 juego | estado (bit0 = teclado conectado) | modo del teclado BLE. En el emulador: aceptar y no hacer nada |
+| 8 TECLADO DISTRIBUCION | 0 española / 1 US | estado (bit0 = teclado conectado) | distribución del teclado BLE (`LOAD *KEYB ES` / `US`). En el emulador: aceptar y no hacer nada |
 | 7 PAD TECLAS (con direcciones) | n (0-17), n códigos | estado | teclas del mando en el orden ARRIBA, ABAJO, IZQUIERDA, DERECHA, A, B, X, Y, LB, RB, LT, RT, SELECT, START, L3, R3, HOME; las que pasan de n no cambian; n = 0 → por defecto |
 | otro | — | 0x80 | |
 
 - **Dispositivo:** 0 ratón, 1 teclado, 2 mando. **Órdenes del op 3:** 1 pair (argumento = segundos, 0 = 60), 2 connect, 3 forget, 4 on, 5 off; solo el
-  teclado, 6 modo texto y 7 modo juego.
-- **Estado de los ops 1, 2, 6 y 7:** bit0 = el mando (ops 1, 2 y 7) o el teclado (op 6) está conectado; bit7 = algún parámetro no válido (`LOAD *PAD` da
+  teclado, 6 modo texto, 7 modo juego, 8 distribución española y 9 US.
+- **Estado de los ops 1, 2, 6, 7 y 8:** bit0 = el mando (ops 1, 2 y 7) o el teclado (ops 6 y 8) está conectado; bit7 = algún parámetro no válido (`LOAD *PAD` da
   el error B). En los ops 1 y 7 **se leen todos los bytes aunque sobren**, para no perder el paso del handshake.
 - **Estado BLE (op 4):** bit0 conectado, bit1 emparejando (ventana abierta), bit2 activado, bit3 hay uno guardado, bit7 el ESP32 ya ha contado su estado
   (si es 0, no hay módulo WiFi).

@@ -74,12 +74,15 @@ static String help_text() {
     "esp diag [n]         las ultimas n lineas del diagnostico (20 por defecto)\n"
     "esp diag on|off      activar o parar el diagnostico (hasta el proximo arranque; fijo: DIAG en /SYS/LOG.CFG)\n"
     "esp diag dump        volcar ya el diagnostico a la SD\n"
-    "esp ble              estado del raton Bluetooth (conexion, latencias)\n"
-    "esp ble pair [s]     emparejar un raton nuevo (ventana de 60 s, de 10 a 300): sustituye al guardado\n"
-    "esp ble connect      conectar ya con el raton guardado (y activarlo)\n"
-    "esp ble forget       olvidar el raton guardado y sus claves\n"
-    "esp ble on|off       activar o parar el raton Bluetooth (se guarda; con on se conecta solo al guardado)\n"
+    "esp ble              estado del raton, el teclado y el mando Bluetooth (conexion, latencias, clave de emparejado)\n"
+    "esp ble [d] pair [s] emparejar uno nuevo (ventana de 60 s, de 10 a 300): sustituye al guardado. d = mouse, kbd o pad (sin d: raton)\n"
+    "esp ble [d] connect  conectar ya con el guardado (y activarlo)\n"
+    "esp ble [d] forget   olvidar el guardado y su vinculo (solo el suyo)\n"
+    "esp ble [d] on|off   activar o parar ese dispositivo (se guarda; con on se conecta solo al guardado)\n"
+    "esp ble kbd text|game  modo del teclado para el ZX81 (texto: en cola; juego: la matriz tal cual)\n"
+    "esp ble kbd layout es|us  distribucion de los signos del teclado (se guarda)\n"
     "esp ble reset        poner a cero las estadisticas\n"
+    "esp ble crash [clear] el ultimo fallo del programa guardado en la flash (tarea, PC, pila); clear lo borra\n"
     "esp mouse [on|off]   el ultimo resumen de la prueba sintetica del raton; on/off la arranca o la para (hasta el proximo arranque; fijo: MOUSE en /SYS/LOG.CFG)\n";
   return s + status_text();
 }
@@ -147,7 +150,7 @@ String esp_console_cmd(const String& args) {
 #if ESP_MOUSE_BLE
     return mouse_ble_console(rest);
 #else
-    return "esp ble: este firmware no lleva el raton Bluetooth (ESP_MOUSE_BLE = 0)\n";
+    return "esp ble: este firmware no lleva el Bluetooth (ESP_MOUSE_BLE = 0)\n";
 #endif
   }
 

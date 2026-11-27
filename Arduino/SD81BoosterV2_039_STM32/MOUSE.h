@@ -54,11 +54,28 @@ MouseFpga mouse_fpga_state();
 #define BLE_ST_ENABLED    0x04
 #define BLE_ST_SAVED      0x08
 #define BLE_ST_KNOWN      0x80      // el ESP32 ya ha contado su estado alguna vez (si no, 0 = "no se sabe")
-enum { BLE_ORD_NONE = 0, BLE_ORD_PAIR = 1, BLE_ORD_CONNECT = 2, BLE_ORD_FORGET = 3, BLE_ORD_ON = 4, BLE_ORD_OFF = 5 };
-void    mouse_ble_set_state(uint8_t state, uint8_t pair_left_s);     // lo llama el handler de CMD_BLE
+enum { BLE_ORD_NONE = 0, BLE_ORD_PAIR = 1, BLE_ORD_CONNECT = 2, BLE_ORD_FORGET = 3, BLE_ORD_ON = 4, BLE_ORD_OFF = 5,
+       BLE_ORD_KB_TEXT = 6, BLE_ORD_KB_GAME = 7 };                     // 6 y 7: modo del teclado (solo dispositivo 1)
+
+// Los tres dispositivos BLE (CMD_BLE ampliado, comando 78): estado y segundos de cada uno, la clave de emparejado del teclado y UNA orden pendiente
+// por dispositivo. El raton es el dispositivo 0: las funciones mouse_ble_* de abajo son las de siempre (comando 77) sobre el dispositivo 0.
+enum { BLE_DEV_MOUSE = 0, BLE_DEV_KEYB = 1, BLE_DEV_PAD = 2, BLE_NDEV = 3 };
+void     ble_set_state(uint8_t dev, uint8_t state, uint8_t pair_left_s);   // lo llama el handler de CMD_BLE
+uint8_t  ble_state(uint8_t dev);                                        // BLE_ST_* (con BLE_ST_KNOWN si el ESP32 lo ha contado); 0 si dev no valido
+uint8_t  ble_pair_left(uint8_t dev);
+void     ble_set_passkey(uint32_t key);                                 // clave de 6 cifras que hay que teclear en el teclado (0 = ninguna)
+uint32_t ble_passkey();
+bool     ble_order(uint8_t dev, uint8_t order, uint8_t arg);            // deja la orden pendiente de ese dispositivo; false si no es valida
+// Entrega UNA orden pendiente (por turno entre los dispositivos) y la borra; *order = 0 si no hay. max_dev: el ultimo dispositivo que entiende
+// el ESP32 (0 con un ESP32 viejo, que solo conoce el raton: las ordenes del teclado y del gamepad se quedan esperando).
+void     ble_take_order(uint8_t max_dev, uint8_t* order, uint8_t* arg, uint8_t* dev);
+// El estado como texto (16 caracteres + 0, ASCII; sin rellenar): CONECTADO, EMPAREJANDO 45S, CLAVE 123456, BUSCANDO, PARADO, SIN RATON/TECLADO/MANDO,
+// SIN MODULO WIFI. Es el op 5 de los comandos 77 y 78.
+void     ble_text(uint8_t dev, char* txt17);
+
+void    mouse_ble_set_state(uint8_t state, uint8_t pair_left_s);     // = ble_set_state(BLE_DEV_MOUSE, ...)
 uint8_t mouse_ble_state();                                            // BLE_ST_* (con BLE_ST_KNOWN si el ESP32 ha contestado)
 uint8_t mouse_ble_pair_left();
-bool    mouse_ble_order(uint8_t order, uint8_t arg);                  // deja una orden pendiente; false si orden no valida
-void    mouse_ble_take_order(uint8_t* order, uint8_t* arg);           // la entrega y la borra
+bool    mouse_ble_order(uint8_t order, uint8_t arg);                  // deja una orden pendiente para el raton; false si orden no valida (1..5)
 
 #endif

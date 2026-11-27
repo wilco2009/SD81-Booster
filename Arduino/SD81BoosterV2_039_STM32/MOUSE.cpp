@@ -13,8 +13,10 @@ static uint8_t s_rawx = 0, s_rawy = 0, s_wheel8 = 0;   // contadores que dan la 
 static uint32_t s_gen = 0;               // cambia con cualquier cambio visible
 static int16_t s_rx = 0, s_ry = 0;       // el resto de las cuentas que no llegan a un pixel: no se pierde, se suma al siguiente movimiento
 
-static uint8_t s_ble_state = 0, s_ble_left = 0;              // lo que cuenta el ESP32 (CMD_BLE)
-static uint8_t s_ble_order = 0, s_ble_arg = 0;                // orden pendiente para el ESP32
+static uint8_t  s_ble_state[BLE_NDEV], s_ble_left[BLE_NDEV];  // lo que cuenta el ESP32 (CMD_BLE), por dispositivo
+static uint8_t  s_ble_order[BLE_NDEV], s_ble_arg[BLE_NDEV];   // orden pendiente para el ESP32, por dispositivo
+static uint32_t s_ble_key = 0;                                // clave de emparejado del teclado (0 = ninguna)
+static uint8_t  s_ble_rr = 0;                                 // por que dispositivo empieza la siguiente entrega
 
 static int16_t clamp16(int32_t v, int16_t lo, int16_t hi) { return v < lo ? lo : (v > hi ? hi : (int16_t)v); }
 
@@ -78,29 +80,63 @@ MouseFpga mouse_fpga_state() {
   MouseFpga f;
   f.x = (uint8_t)s_st.x; f.y = (uint8_t)s_st.y; f.buttons = s_st.buttons;
   f.wheel = s_wheel8; f.rawx = s_rawx; f.rawy = s_rawy;
-  f.connected = (s_ble_state & BLE_ST_KNOWN) ? (s_ble_state & BLE_ST_CONNECTED) != 0 : s_st.frames != 0;   // el real si el ESP32 lo cuenta; si no, "ha llegado algo"
+  const uint8_t bs = s_ble_state[BLE_DEV_MOUSE];
+  f.connected = (bs & BLE_ST_KNOWN) ? (bs & BLE_ST_CONNECTED) != 0 : s_st.frames != 0;   // el real si el ESP32 lo cuenta; si no, "ha llegado algo"
   f.gen = s_gen;
   return f;
 }
 
-void mouse_ble_set_state(uint8_t state, uint8_t pair_left_s) {
+void ble_set_state(uint8_t dev, uint8_t state, uint8_t pair_left_s) {
+  if (dev >= BLE_NDEV) return;
   state |= BLE_ST_KNOWN;
-  if ((state & BLE_ST_CONNECTED) != (s_ble_state & BLE_ST_CONNECTED) || !(s_ble_state & BLE_ST_KNOWN)) s_gen++;   // la FPGA debe ver el cambio de "conectado"
-  s_ble_state = state;
-  s_ble_left = pair_left_s;
+  if (dev == BLE_DEV_MOUSE &&
+      ((state & BLE_ST_CONNECTED) != (s_ble_state[dev] & BLE_ST_CONNECTED) || !(s_ble_state[dev] & BLE_ST_KNOWN))) s_gen++;   // la FPGA debe ver el cambio de "conectado"
+  s_ble_state[dev] = state;
+  s_ble_left[dev] = pair_left_s;
 }
 
-uint8_t mouse_ble_state() { return s_ble_state; }
-uint8_t mouse_ble_pair_left() { return s_ble_left; }
+uint8_t  ble_state(uint8_t dev)     { return dev < BLE_NDEV ? s_ble_state[dev] : 0; }
+uint8_t  ble_pair_left(uint8_t dev) { return dev < BLE_NDEV ? s_ble_left[dev] : 0; }
+void     ble_set_passkey(uint32_t key) { s_ble_key = key; }
+uint32_t ble_passkey() { return s_ble_key; }
 
-bool mouse_ble_order(uint8_t order, uint8_t arg) {
-  if (order < BLE_ORD_PAIR || order > BLE_ORD_OFF) return false;
-  s_ble_order = order;
-  s_ble_arg = arg;
+bool ble_order(uint8_t dev, uint8_t order, uint8_t arg) {
+  if (dev >= BLE_NDEV || order < BLE_ORD_PAIR) return false;
+  if (order > (dev == BLE_DEV_KEYB ? BLE_ORD_KB_GAME : BLE_ORD_OFF)) return false;
+  s_ble_order[dev] = order;
+  s_ble_arg[dev] = arg;
   return true;
 }
 
-void mouse_ble_take_order(uint8_t* order, uint8_t* arg) {
-  *order = s_ble_order; *arg = s_ble_arg;
-  s_ble_order = 0; s_ble_arg = 0;
+void ble_take_order(uint8_t max_dev, uint8_t* order, uint8_t* arg, uint8_t* dev) {
+  *order = 0; *arg = 0; *dev = 0;
+  for (uint8_t i = 0; i < BLE_NDEV; i++) {
+    const uint8_t d = (uint8_t)((s_ble_rr + i) % BLE_NDEV);
+    if (d > max_dev || !s_ble_order[d]) continue;
+    *order = s_ble_order[d]; *arg = s_ble_arg[d]; *dev = d;
+    s_ble_order[d] = 0; s_ble_arg[d] = 0;
+    s_ble_rr = (uint8_t)((d + 1) % BLE_NDEV);
+    return;
+  }
+}
+
+void ble_text(uint8_t dev, char* txt) {
+  static const char* const none[BLE_NDEV] = { "SIN RATON", "SIN TECLADO", "SIN MANDO" };
+  const uint8_t st = ble_state(dev);
+  if (dev >= BLE_NDEV || !(st & BLE_ST_KNOWN)) snprintf(txt, 17, "SIN MODULO WIFI");
+  else if (dev == BLE_DEV_KEYB && s_ble_key)  snprintf(txt, 17, "CLAVE %06lu", (unsigned long)(s_ble_key % 1000000UL));
+  else if (st & BLE_ST_CONNECTED)             snprintf(txt, 17, "CONECTADO");
+  else if (st & BLE_ST_PAIRING)               snprintf(txt, 17, "EMPAREJANDO %uS", (unsigned)ble_pair_left(dev));
+  else if ((st & BLE_ST_ENABLED) && (st & BLE_ST_SAVED)) snprintf(txt, 17, "BUSCANDO");
+  else if (st & BLE_ST_SAVED)                 snprintf(txt, 17, "PARADO");
+  else                                        snprintf(txt, 17, "%s", none[dev]);
+}
+
+void mouse_ble_set_state(uint8_t state, uint8_t pair_left_s) { ble_set_state(BLE_DEV_MOUSE, state, pair_left_s); }
+uint8_t mouse_ble_state() { return s_ble_state[BLE_DEV_MOUSE]; }
+uint8_t mouse_ble_pair_left() { return s_ble_left[BLE_DEV_MOUSE]; }
+
+bool mouse_ble_order(uint8_t order, uint8_t arg) {
+  if (order > BLE_ORD_OFF) return false;      // el 77 solo conoce las ordenes 1..5
+  return ble_order(BLE_DEV_MOUSE, order, arg);
 }

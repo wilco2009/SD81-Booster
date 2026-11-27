@@ -24,6 +24,7 @@
 #include "DEBUGGER.h"
 #include "LATSTATS.h"
 #include "MOUSE.h"
+#include "PAD.h"
 
 #define GET_NEXT_CHAR 13
 
@@ -2732,17 +2733,118 @@ void cmd_mouse(){
     SendByteToZ80(mouse_ble_state());       // confirma 'op' + estado (BLE_ST_*; bit7 = el ESP32 ya contesto alguna vez)
     SendByteToZ80(mouse_ble_pair_left());   // segundos que quedan de la ventana de emparejado
   } else if (op == 5) {                     // BLE: el estado como TEXTO de 16 caracteres ZX81 (LOAD *MOUSE TO A$), mas un byte de estado = 0
-    const uint8_t st = mouse_ble_state();
     char txt[17];
-    if (!(st & BLE_ST_KNOWN))            snprintf(txt, sizeof txt, "SIN MODULO WIFI");
-    else if (st & BLE_ST_CONNECTED)      snprintf(txt, sizeof txt, "CONECTADO");
-    else if (st & BLE_ST_PAIRING)        snprintf(txt, sizeof txt, "EMPAREJANDO %uS", (unsigned)mouse_ble_pair_left());
-    else if ((st & BLE_ST_ENABLED) && (st & BLE_ST_SAVED)) snprintf(txt, sizeof txt, "BUSCANDO");
-    else if (st & BLE_ST_SAVED)          snprintf(txt, sizeof txt, "PARADO");
-    else                                 snprintf(txt, sizeof txt, "SIN RATON");
+    ble_text(BLE_DEV_MOUSE, txt);           // MOUSE.cpp: el mismo texto de siempre (es el comun con el op 5 del comando 78)
     for (uint8_t i = strlen(txt); i < 16; i++) txt[i] = ' ';
     for (uint8_t i = 0; i < 16; i++) SendByteToZ80(asc_to_asc81[(uint8_t)txt[i]]);   // el primero confirma 'op'
     SendByteToZ80(0);                       // estado
+  } else {
+    SendByteToZ80(0x80);
+  }
+  // reset_commands() ANTES del ToggleClock() final: ver comentario en cmd_opendir2 sobre la ventana de carrera.
+  reset_commands();
+  ToggleClock();                            // toggle final
+}
+
+// 78 (0x4E) BTDEV: el teclado y el gamepad Bluetooth (los alimenta el ESP32 con CMD_KEYB, CMD_PAD y CMD_BLE; ver PAD.h, MOUSE.h y
+// claude/planning/teclado_gamepad_plan.md). Mismo handshake que el 77 (cmd_mouse).
+//   Z80 -> MCU:  op
+//   op 0  PAD LEER   MCU -> Z80:  botones lo, botones hi, cruceta, lx, ly, rx, ry, lt, rt, estado     (10 bytes)
+//        botones: bit0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 8 SELECT, 9 START, 10 L3, 11 R3, 12 HOME; cruceta: bit0 arriba, 1 abajo, 2 izq, 3 der;
+//        ejes con signo (-127..127, hacia abajo positivo), gatillos 0..255; todo a cero si no hay mando.
+//        estado: bit0 conectado (trama hace < 300 ms), bit1 ha cambiado algo desde la lectura anterior.
+//   op 1  PAD TECLAS   Z80 -> MCU:  n, n codigos     MCU -> Z80:  estado
+//        la tecla de cada boton, del bit 0 al n-1 (los demas no cambian); n = 0 vuelve a los de por defecto. Codigos en PAD.h: los caracteres
+//        ZX81 de LOAD *JOY, 0 = ninguna, 128 = ESPACIO, 19 ("<") o 118 = NEW LINE, 23 ("*") = SHIFT, 255 = el fuego de LOAD *JOY.
+//        Por defecto A y B = 255, START = 19.
+//   op 2  PAD COMO TECLAS   Z80 -> MCU:  0/1     MCU -> Z80:  estado     (activado por defecto)
+//   op 3  BLE ORDEN   Z80 -> MCU:  dispositivo, orden, argumento     MCU -> Z80:  0 aceptada / 0x80 no valida
+//        dispositivo: 0 raton, 1 teclado, 2 gamepad; orden: 1 pair (argumento = segundos, 0 = los de por defecto), 2 connect, 3 forget, 4 on, 5 off,
+//        y para el teclado 6 modo texto, 7 modo juego. La recoge el ESP32 en su siguiente CMD_BLE (una pendiente por dispositivo).
+//   op 4  BLE ESTADO   Z80 -> MCU:  dispositivo     MCU -> Z80:  estado, segundos     (los bits del op 4 del 77; 0, 0 si el dispositivo no vale)
+//   op 5  BLE TEXTO    Z80 -> MCU:  dispositivo     MCU -> Z80:  16 caracteres ZX81 y un estado (0; 0x80 si el dispositivo no vale)
+//        CONECTADO, EMPAREJANDO 45S, CLAVE 123456 (el teclado espera que se teclee esa clave), BUSCANDO, PARADO, SIN RATON / SIN TECLADO /
+//        SIN MANDO, SIN MODULO WIFI
+//   op 6  TECLADO MODO   Z80 -> MCU:  0 texto / 1 juego     MCU -> Z80:  estado     (deja la orden 6/7 del teclado para el ESP32)
+//   op 7  PAD TECLAS con direcciones (LOAD *PAD "cadena")   Z80 -> MCU:  n (0-17), n codigos     MCU -> Z80:  estado
+//        en el orden ARRIBA, ABAJO, IZQUIERDA, DERECHA, A, B, X, Y, LB, RB, LT, RT, SELECT, START, L3, R3, HOME; los que pasan de n no cambian;
+//        n = 0 vuelve a los de por defecto (direcciones y botones). Codigos del op 1; 255 en una direccion = esa direccion de LOAD *JOY.
+//        Por defecto las direcciones son 255, asi que sin configurar el mando va como LOAD *JOY.
+//   Cualquier otro op: 0x80.
+//   "estado" de los ops 1, 2, 6 y 7: bit0 = el mando (1, 2, 7) o el teclado (6) esta conectado; bit7 = algun parametro no valido.
+void cmd_btdev(){
+  ToggleClock();                            // ACK del comando
+  uint8_t op = GetByteFromZ80_IT();
+
+  if (op == 0) {
+    const PadState p = pad_get();
+    const uint8_t status = (pad_connected() ? 1 : 0) | (pad_take_new() ? 2 : 0);
+    SendByteToZ80((uint8_t)(p.buttons & 0xFF));   // confirma 'op' + primer byte
+    SendByteToZ80((uint8_t)(p.buttons >> 8));
+    SendByteToZ80(p.dpad);
+    SendByteToZ80((uint8_t)p.lx);
+    SendByteToZ80((uint8_t)p.ly);
+    SendByteToZ80((uint8_t)p.rx);
+    SendByteToZ80((uint8_t)p.ry);
+    SendByteToZ80(p.lt);
+    SendByteToZ80(p.rt);
+    SendByteToZ80(status);
+  } else if (op == 1) {
+    ToggleClock();                          // confirma 'op'
+    uint8_t n = GetByteFromZ80_IT();
+    uint8_t codes[PAD_NBUTTONS];
+    for (uint8_t i = 0; i < n; i++) {       // se leen todos aunque sobren, para no perder el paso del handshake
+      ToggleClock();
+      uint8_t c = GetByteFromZ80_IT();
+      if (i < PAD_NBUTTONS) codes[i] = c;
+    }
+    bool ok = n <= PAD_NBUTTONS;
+    if (n == 0) pad_keys_defaults();
+    else if (!pad_set_keys(n > PAD_NBUTTONS ? PAD_NBUTTONS : n, codes)) ok = false;
+    SendByteToZ80((pad_connected() ? 1 : 0) | (ok ? 0 : 0x80));   // confirma el ultimo byte + estado
+  } else if (op == 2) {
+    ToggleClock();                          // confirma 'op'
+    uint8_t on = GetByteFromZ80_IT();
+    if (on <= 1) pad_keys_enable(on == 1);
+    SendByteToZ80((pad_connected() ? 1 : 0) | (on <= 1 ? 0 : 0x80));
+  } else if (op == 3) {                     // BLE: dejar una orden para el ESP32
+    ToggleClock();                          // confirma 'op'
+    uint8_t dev = GetByteFromZ80_IT();
+    ToggleClock();
+    uint8_t order = GetByteFromZ80_IT();
+    ToggleClock();
+    uint8_t arg = GetByteFromZ80_IT();
+    SendByteToZ80(ble_order(dev, order, arg) ? 0 : 0x80);   // confirma el ultimo byte + resultado
+  } else if (op == 4) {                     // BLE: estado que cuenta el ESP32
+    ToggleClock();                          // confirma 'op'
+    uint8_t dev = GetByteFromZ80_IT();
+    SendByteToZ80(ble_state(dev));          // confirma 'dev' + estado (0 si no vale)
+    SendByteToZ80(ble_pair_left(dev));
+  } else if (op == 5) {                     // BLE: el estado como texto de 16 caracteres ZX81, mas un byte de estado
+    ToggleClock();                          // confirma 'op'
+    uint8_t dev = GetByteFromZ80_IT();
+    char txt[17];
+    ble_text(dev, txt);
+    for (uint8_t i = strlen(txt); i < 16; i++) txt[i] = ' ';
+    for (uint8_t i = 0; i < 16; i++) SendByteToZ80(asc_to_asc81[(uint8_t)txt[i]]);   // el primero confirma 'dev'
+    SendByteToZ80(dev < BLE_NDEV ? 0 : 0x80);
+  } else if (op == 6) {                     // modo del teclado: la orden 6/7 para el ESP32
+    ToggleClock();                          // confirma 'op'
+    uint8_t mode = GetByteFromZ80_IT();
+    bool ok = mode <= 1 && ble_order(BLE_DEV_KEYB, mode ? BLE_ORD_KB_GAME : BLE_ORD_KB_TEXT, 0);
+    SendByteToZ80((keyb_connected() ? 1 : 0) | (ok ? 0 : 0x80));
+  } else if (op == 7) {                     // teclas del mando, direcciones incluidas
+    ToggleClock();                          // confirma 'op'
+    uint8_t n = GetByteFromZ80_IT();
+    uint8_t codes[PAD_NDIRS + PAD_ALL_BUTTONS];
+    for (uint8_t i = 0; i < n; i++) {       // se leen todos aunque sobren, para no perder el paso del handshake
+      ToggleClock();
+      uint8_t c = GetByteFromZ80_IT();
+      if (i < sizeof codes) codes[i] = c;
+    }
+    bool ok = n <= sizeof codes;
+    if (!pad_set_all(n > sizeof codes ? sizeof codes : n, codes)) ok = false;
+    SendByteToZ80((pad_connected() ? 1 : 0) | (ok ? 0 : 0x80));   // confirma el ultimo byte + estado
   } else {
     SendByteToZ80(0x80);
   }
@@ -2838,5 +2940,6 @@ command_handler commands[] = {
   cmd_loadZ81dbg,       //75 (0x4B) LOAD *Z81 con el monitor del depurador
   cmd_f_open_img,       //76 (0x4C) fopen de un BMP convertido a .I16 (BMP.cpp)
   cmd_mouse,            //77 (0x4D) el raton Bluetooth: leer, centrar, configurar (ver cmd_mouse)
+  cmd_btdev,            //78 (0x4E) el teclado y el gamepad Bluetooth (ver cmd_btdev)
   cmd_spare             // usado como terminador, dejar siempre aqui un spare
 };

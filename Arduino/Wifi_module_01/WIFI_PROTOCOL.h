@@ -62,6 +62,28 @@
 //   resp: status(1B), orden(1B), argumento(1B)
 //         orden: 0 ninguna, 1 pair (argumento = segundos, 0 = los de por defecto), 2 connect, 3 forget, 4 on, 5 off
 // La orden se entrega UNA vez (el STM32 la borra al contestar). Pair, connect, forget, on y off son repetibles sin dano.
+//
+// Ampliacion para teclado y gamepad BLE (claude/planning/teclado_gamepad_plan.md). Compatible en los dos sentidos:
+//   req nuevo (9 B): estado y segundos del raton (como arriba), estado y segundos del teclado, estado y segundos del gamepad,
+//        clave(3B LE): la clave de 6 cifras que hay que teclear en el teclado para emparejarlo (0 = ninguna)
+//        (el estado de cada dispositivo usa los mismos bits; un STM32 viejo solo lee los 2 primeros bytes)
+//   resp nueva (4 B): status, orden, argumento, dispositivo(1B: 0 raton, 1 teclado, 2 gamepad)
+//        (un ESP32 viejo ignora el 4o byte; un STM32 viejo contesta 3 bytes y el ESP32 nuevo lo toma como dispositivo 0)
+//        ordenes nuevas (teclado): 6 modo texto, 7 modo juego
+//   El STM32 guarda UNA orden pendiente por dispositivo y entrega una por trama.
+
+// Teclado BLE (CMD_KEYB): la matriz del ZX81 ya traducida por el ESP32 (KEYMAP_ZX81), en cuanto cambia y cada 100 ms como latido.
+//   req:  filas[8] (5 bits cada una, bit 0 = D0, 1 = pulsada; como CMD_DBG_KEYS), flags(1B: bit0 conectado, bit1 modo juego)   = 9 B
+//   resp: status(1B)
+//   El STM32 la suma (OR) a las demas fuentes del teclado virtual y la suelta si pasan 300 ms sin trama.
+
+// Gamepad BLE (CMD_PAD): el estado crudo normalizado, en cuanto cambia y cada 100 ms como latido.
+//   req:  botones(2B LE), cruceta(1B), lx, ly, rx, ry (4 x 1B con signo, -127..127, y hacia abajo positivo), lt, rt (2 x 1B, 0..255), flags(1B: bit0 conectado) = 10 B
+//         botones: bit0 A (sur), 1 B (este), 2 X (oeste), 3 Y (norte), 4 LB, 5 RB, 6 LT digital, 7 RT digital, 8 SELECT/Back/View,
+//                  9 START/Menu, 10 L3, 11 R3, 12 HOME/Guia, 13-15 libres
+//         cruceta: bit0 arriba, bit1 abajo, bit2 izquierda, bit3 derecha (el ESP32 convierte el hat 0-7 a estos bits)
+//   resp: status(1B)
+//   El STM32 lo guarda (comando 78) y, si esta activado, lo convierte a teclas con la configuracion de LOAD *JOY; lo suelta si pasan 300 ms sin trama.
 
 // Tamano maximo de PAYLOAD de una trama (CMD+LEN no cuentan) - dimensiona los buffers
 // fijos en ambos lados, deben usar la MISMA constante para no desbordar el lado contrario.
@@ -92,6 +114,8 @@ enum WifiProtoCmd : uint8_t {
   CMD_MOUSE       = 0x15,  // raton BLE: el ESP32 manda los movimientos y botones, el STM32 acumula la posicion - ver mas abajo
   CMD_MOUSE_TEST  = 0x14,  // prueba sintetica de latencia del raton BLE (planning/raton_bluetooth.md) - ver mas abajo
   CMD_BLE         = 0x16,  // raton BLE: el ESP32 cuenta su estado y recoge la orden pendiente del BASIC/Z80 (emparejar, conectar, olvidar...)
+  CMD_KEYB        = 0x17,  // teclado BLE: la matriz del ZX81 ya traducida - ver mas arriba
+  CMD_PAD         = 0x18,  // gamepad BLE: botones, cruceta y ejes - ver mas arriba
   // 0x0B (antiguo CMD_GET_WIFI_CFG) retirado - ver nota mas abajo sobre WIFI.CFG
 };
 

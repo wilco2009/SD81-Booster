@@ -136,3 +136,5 @@ Qué no es del emulador de esto: los sprites en el 8 bpp y los modos mixtos de `
 5. La red (§5): los comandos del módem, que necesita cualquier programa de red.
 6. Punto 5 (el teclado virtual), cuando se haya probado en el hardware.
 7. Puntos 10-12 (el modo 160x100, la paleta de 16 y el comando 76): ✅ hechos. El 13 (el modo 160x200 a 4 bpp): ✅ hecho el 1/11/2026, a falta de probarlo.
+
+> **27 de noviembre de 2026:** teclado y mando Bluetooth (comando 78 del MCU, `LOAD *KEYB` / `LOAD *PAD` y `LOAD *PAD "cadena"`): qué tiene que hacer el emulador en `teclado_gamepad_emulador.md` (sugerencia: un mando del PC como mando BLE y el mando como teclas).

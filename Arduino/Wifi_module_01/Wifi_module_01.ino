@@ -383,7 +383,9 @@ static const char* net_state_text(uint8_t st) {
 
 
 void handleDebugPage() {
-  server.send(200, "text/html", DEBUG_PAGE);
+  // send_P y no send: send(const char*) copia la pagina entera (~27 KB) en un String, y con el raton, el teclado y el mando BLE conectados ya no
+  // queda un bloque libre tan grande (la pagina salia en blanco o a medias). send_P la manda directamente desde la flash, sin copiarla.
+  server.send_P(200, "text/html", DEBUG_PAGE, sizeof(DEBUG_PAGE) - 1);
 }
 
 static void json_append(String& o, const uint8_t* d, uint16_t n) {

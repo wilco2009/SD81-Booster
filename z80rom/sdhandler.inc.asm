@@ -123,6 +123,7 @@ CMD_romlock_on	equ	0x44	; LOAD *ROMLOCK
 CMD_romlock_off	equ	0x45	; LOAD *ROMLOCK STOP
 CMD_loadZ81dbg	equ	0x4B	; LOAD *Z81 con el monitor del depurador
 CMD_mouse	equ	0x4D	; LOAD *MOUSE: raton Bluetooth (op 3 = orden de emparejado/conexion)
+CMD_btdev	equ	0x4E	; LOAD *KEYB / *PAD: teclado y mando Bluetooth (op 3 orden, op 5 texto, op 6 modo del teclado)
 
 ; ROM restart routines
 ERROR_1		equ	08H
@@ -2289,6 +2290,201 @@ SprParseArgs:	call	CLASS_6		; Read sprite number
 		call	SCANNING	; read string expression
 		jp	MustBeString	; error if not a string, and return
 
+;-----------------------------------------------------------------------
+; LOAD *KEYB / LOAD *PAD: el teclado y el mando Bluetooth (comando 78 del MCU, BTDEV; ver claude/planning/teclado_gamepad_plan.md).
+; Van aqui (detras de SD81RUNCMD) por lo mismo que los sprites: no mueven nada a lo que salte el bloque 0.
+; LOAD *KEYB THEN NEW     emparejar un teclado nuevo (ventana de 60 s; sustituye al guardado; si pide clave, LOAD *KEYB la muestra)
+; LOAD *KEYB THEN RUN     conectar con el guardado (la orden 2 del ESP32 ya activa el hueco: no hace falta la 4 antes, y ademas el
+;                         STM32 guarda UNA orden por dispositivo, asi que mandar 4 y 2 seguidas perderia la primera)
+; LOAD *KEYB THEN CLEAR   olvidar el guardado y su vinculo
+; LOAD *KEYB THEN STOP    parar (y no volver a conectar hasta THEN RUN); LOAD *KEYB STOP, lo mismo
+; LOAD *KEYB [TO A$]      el estado como texto de 16 caracteres (op 5): CONECTADO, EMPAREJANDO 45S, CLAVE 123456, BUSCANDO, PARADO,
+;                         SIN TECLADO / SIN MANDO, SIN MODULO WIFI
+; LOAD *KEYB TEXT / GAME  modo del teclado (op 6): texto (cola, una tecla cada vez) o juego (la matriz tal cual). Solo *KEYB.
+; LOAD *PAD ...           lo mismo para el mando (dispositivo 2), sin TEXT/GAME.
+; Op 3 del 78: dispositivo, orden (1 emparejar, 2 conectar, 3 olvidar, 5 parar), argumento (0 = por defecto). Como en *MOUSE, no espera al
+; resultado: el ESP32 recoge la orden en ~0,5 s. Respuesta de los ops 3 y 6: bit 7 = orden no valida (REPORT-B; no deberia pasar).
+; El dispositivo va en E (sobrevive a MustBeEOL y a OutWait*; C es el reloj).
+;-----------------------------------------------------------------------
+CmdKEYB:	ld	e,1		; dispositivo 1: teclado
+		jr	BtDev
+CmdPAD:		ld	e,2		; dispositivo 2: mando
+BtDev:		ld	b,5		; parar
+		cp	.STOP
+		jr	z,BtDevDo
+		cp	.THEN
+		jr	z,BtDevThen
+		bit	0,e		; TEXT/GAME solo con el teclado (1)
+		jp	z,PadArgs	; mando: TO, fin de linea o "cadena" (jp: demasiado lejos para jr)
+		ld	b,0		; modo texto
+		ld	hl,BtTxtTEXT
+		cp	.T
+		jr	z,BtKbdWord
+		inc	b		; modo juego
+		ld	hl,BtTxtGAME
+		cp	.G
+		jr	z,BtKbdWord
+		; LOAD *KEYB|*PAD [TO <string-var>]: el texto de estado (op 5), como *MOUSE
+BtDevStatus:	set	6,(iy+iyFLAGX)	; marca "imprimir, no guardar"
+		cp	.TO
+		jr	nz,BtDevShow
+		push	de		; CLASS_1 no respeta E
+		rst	NEXT_CHAR	; saltar TO
+		call	CLASS_1		; detalles de la variable; borra FLAGX
+		call	MustBeString	; error si es numerica
+		pop	de
+		rst	GET_CHAR
+BtDevShow:	call	MustBeEOL	; fin de sintaxis
+		push	de		; E = dispositivo
+		ld	bc,16
+		rst	BC_SPACES	; sitio para 16 caracteres (DE = inicio)
+		pop	hl		; L = dispositivo
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_btdev
+		call	OutWaitDiff	; comando 78
+		ld	a,5
+		call	OutWaitEq	; op 5: estado como texto
+		ld	a,l
+		call	OutWaitDiff	; dispositivo (el MCU contesta ya con el primer caracter)
+		xor	c
+		ld	c,a		; C = reloj actual: desde aqui, igual que el op 5 del 77
+		ld	b,16
+		push	de
+		jp	MouseRead	; 16 caracteres + estado, y se imprimen o se guardan
+
+BtDevThen:	rst	NEXT_CHAR	; saltar THEN
+		ld	b,1		; emparejar
+		cp	.NEW
+		jr	z,BtDevDo
+		ld	b,3		; olvidar
+		cp	.CLEAR
+		jr	z,BtDevDo
+		ld	b,2		; conectar
+		cp	.RUN
+		jr	z,BtDevDo
+		ld	b,5		; parar
+		cp	.STOP
+		jp	nz,ReportC4
+BtDevDo:	rst	NEXT_CHAR	; saltar el token
+		call	MustBeEOL	; aqui acaba la sintaxis; la accion, solo al ejecutar
+
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_btdev
+		call	OutWaitDiff	; comando 78
+		ld	a,3
+		call	OutWaitEq	; op 3: orden del BLE
+		ld	a,e
+		call	OutWaitDiff	; dispositivo
+		ld	a,b
+		call	OutWaitEq	; la orden
+		xor	a
+		call	OutWaitDiff	; argumento (0 = el de por defecto)
+BtDevEnd:	in	a,(DataPort)	; resultado (bit 7 = no valida)
+		ld	l,a
+		call	WaitClkEq	; toggle final
+		bit	7,l
+		ret	z
+		jp	REPORT_B
+
+		; TEXT o GAME, letra a letra (no son tokens); B = modo, HL = la palabra
+BtKbdWord:	cp	(hl)
+		jp	nz,ReportC4
+		inc	hl
+		push	hl
+		rst	NEXT_CHAR
+		pop	hl
+		bit	7,(hl)		; fin de la palabra?
+		jr	z,BtKbdWord
+		call	MustBeEOL
+
+		in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_btdev
+		call	OutWaitDiff	; comando 78
+		ld	a,6
+		call	OutWaitEq	; op 6: modo del teclado
+		ld	a,b
+		call	OutWaitDiff	; 0 texto / 1 juego
+		jr	BtDevEnd	; estado: bit 0 conectado, bit 7 no valido
+
+BtTxtTEXT:	db	.T,.E,.X,.T,$FF
+BtTxtGAME:	db	.G,.A,.M,.E,$FF
+
+; LOAD *PAD "cadena": la tecla de cada posicion del mando (op 7 del 78), un caracter por posicion y en este orden:
+; ARRIBA, ABAJO, IZQUIERDA, DERECHA, A, B, X, Y, LB, RB, LT, RT, SELECT, START, L3, R3, HOME (hasta 17; las que faltan no cambian).
+; Caracter -> codigo (PadCode): letra, cifra, "." , "<" (NEW LINE), "*" (SHIFT) = su codigo ZX81, como LOAD *JOY; espacio = 128 (ESPACIO);
+; "-" = 0 (sin tecla); "=" = 255 (como LOAD *JOY). LOAD *PAD "" = los de por defecto (n = 0).
+; Mas de 17 caracteres o uno no valido: REPORT-B antes de mandar nada (la cadena no se toca: puede ser la de una variable).
+; Al MCU: 78, 7, n, n codigos -> estado (bit 7 = no valido -> REPORT-B) y el toggle final.
+PadArgs:	cp	.TO
+		jp	z,BtDevStatus
+		cp	.nl
+		jp	z,BtDevStatus
+		call	GetStrExpr	; "cadena" (cualquier expresion de cadena)
+		call	MustBeEOL
+		call	ExpectShortStr	; DE = cadena, B = longitud
+		ld	a,b
+		cp	18
+		jp	nc,REPORT_B	; mas de 17 posiciones
+		or	a
+		jr	z,PadSend	; "" = los de por defecto
+		push	de		; primera pasada: comprobar todos los caracteres
+		push	bc
+PadCheck:	ld	a,(de)
+		inc	de
+		call	PadCode
+		jp	c,REPORT_B	; caracter no valido (el error descarta la pila)
+		djnz	PadCheck
+		pop	bc
+		pop	de
+PadSend:	in	a,(ClkPort)
+		ld	c,a
+		ld	a,CMD_btdev
+		call	OutWaitDiff	; comando 78
+		ld	a,7
+		call	OutWaitEq	; op 7: teclas del mando
+		ld	a,b		; n
+		inc	b		; B = n + 1 bytes por mandar: n y los n codigos
+		jr	PadOut
+PadNext:	ld	a,(de)
+		inc	de
+		call	PadCode		; ya comprobado: no falla
+PadOut:		call	OutWaitDiff
+		xor	c
+		ld	c,a		; C = reloj actual (el MCU confirma cada byte con un toggle)
+		djnz	PadNext
+		ld	a,c		; el ultimo toggle ha traido el estado; BtDevEnd espera el
+		cpl			; final con WaitClkEq, asi que C = el contrario del reloj actual
+		ld	c,a
+		jp	BtDevEnd
+
+; A = caracter ZX81 -> A = codigo de tecla del op 7; CF = no valido. Respeta BC, DE y HL.
+PadCode:	or	a
+		jr	nz,PadCode1
+		ld	a,128		; espacio -> la tecla ESPACIO (0 es "ninguna")
+		ret			; (NC por el OR)
+PadCode1:	cp	.minus
+		jr	nz,PadCode2
+		xor	a		; "-" -> 0, sin tecla
+		ret
+PadCode2:	cp	.equal
+		jr	nz,PadCode3
+		ld	a,255		; "=" -> como LOAD *JOY
+		ret			; (NC: era igual)
+PadCode3:	cp	19		; "<" = NEW LINE
+		ret	z
+		cp	.star		; "*" = SHIFT
+		ret	z
+		cp	.dot
+		ret	z
+		cp	.0		; menos que "0": signo sin tecla
+		ret	c
+		cp	.Z+1		; cifras y letras: validas; de 64 en adelante (graficos/inverso), no
+		ccf
+		ret
+
 CmdList:
 		db	.M,.A,.P + $80
 		dw	CmdPAGE
@@ -2393,6 +2589,12 @@ CmdList:
 
 		db	.M,.O,.U,.S,.E + $80
 		dw	CmdMOUSE
+
+		db	.K,.E,.Y,.B + $80
+		dw	CmdKEYB
+
+		db	.P,.A,.D + $80
+		dw	CmdPAD
 
 		db	.W,.R,.X + $80
 		dw	CmdWRX

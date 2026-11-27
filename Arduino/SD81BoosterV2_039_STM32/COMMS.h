@@ -43,9 +43,11 @@ void send_debug_params(uint16_t pixel_cnt, uint16_t line_cnt);
 void send_config(void);
 bool send_joycfg(char* config);// UP DOWN LEFT RIGHT FIRE
 void send_bit_config(uint8_t command, uint8_t value);
-// Teclado virtual: la matriz de 8 filas x 5 columnas que se "pulsa" desde fuera (la web del depurador).
-// Solo se manda a la FPGA lo que cambia; si nadie lo refresca en 1,5 s, se suelta todo
-void vkeys_set(const uint8_t* rows);
+// Teclado virtual: la matriz de 8 filas x 5 columnas que se "pulsa" desde fuera. Hay una matriz por fuente y a la FPGA va la union (OR);
+// solo se manda lo que cambia. Cada fuente se suelta sola si no se refresca en su plazo: web 1,5 s, teclado BLE 300 ms, gamepad 300 ms.
+enum { VK_SRC_WEB = 0, VK_SRC_KEYB = 1, VK_SRC_PAD = 2, VK_NSRC = 3 };
+void vkeys_set_src(uint8_t src, const uint8_t* rows);   // rows = NULL: la fuente lo suelta todo
+void vkeys_set(const uint8_t* rows);                    // la web del depurador (CMD_DBG_KEYS) = vkeys_set_src(VK_SRC_WEB, rows)
 void vkeys_poll(void);
 void vkeys_clear(void);
 // Raton: si ha cambiado algo (MOUSE.cpp), lo manda a la FPGA (como mucho cada 8 ms). Se llama desde idle_tasks()

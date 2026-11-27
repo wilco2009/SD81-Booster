@@ -1,5 +1,6 @@
 #include "WIFI_HANDLER.h"
 #include "MOUSE.h"
+#include "PAD.h"
 #include "WIFI_PROTOCOL.h"
 #include "SD_handle.h"
 #include "GLOBALS.h"
@@ -711,16 +712,45 @@ static void handle_mouse_test(const uint8_t* payload, uint16_t len, uint32_t gap
   wifi_send_frame(CMD_MOUSE_TEST, tx_payload, 11);
 }
 
-// CMD_BLE: el ESP32 cuenta el estado del raton BLE y recoge la orden pendiente del Z80 (ver WIFI_PROTOCOL.h)
+// CMD_BLE: el ESP32 cuenta el estado de sus dispositivos BLE y recoge una orden pendiente del Z80 (ver WIFI_PROTOCOL.h).
+// req viejo (2 B): solo el raton; req nuevo (9 B): raton, teclado, gamepad y la clave. La respuesta lleva siempre el 4o byte (dispositivo):
+// un ESP32 viejo lo ignora, y a el solo se le entregan ordenes del raton (las del teclado y el gamepad se quedan esperando).
 static void handle_ble(const uint8_t* payload, uint16_t len) {
   if (len < 2) return;                        // trama corta: que reintente
-  mouse_ble_set_state(payload[0], payload[1]);
-  uint8_t order, arg;
-  mouse_ble_take_order(&order, &arg);
+  uint8_t max_dev = BLE_DEV_MOUSE;
+  if (len >= 9) {
+    ble_set_state(BLE_DEV_MOUSE, payload[0], payload[1]);
+    ble_set_state(BLE_DEV_KEYB,  payload[2], payload[3]);
+    ble_set_state(BLE_DEV_PAD,   payload[4], payload[5]);
+    ble_set_passkey((uint32_t)payload[6] | ((uint32_t)payload[7] << 8) | ((uint32_t)payload[8] << 16));
+    max_dev = BLE_DEV_PAD;
+  } else {
+    ble_set_state(BLE_DEV_MOUSE, payload[0], payload[1]);
+    ble_set_state(BLE_DEV_KEYB, 0, 0);        // un ESP32 viejo no sabe de teclados ni de mandos: "SIN TECLADO" / "SIN MANDO"
+    ble_set_state(BLE_DEV_PAD, 0, 0);
+    ble_set_passkey(0);
+  }
+  uint8_t order, arg, dev;
+  ble_take_order(max_dev, &order, &arg, &dev);
   tx_payload[0] = ST_OK;
   tx_payload[1] = order;
   tx_payload[2] = arg;
-  wifi_send_frame(CMD_BLE, tx_payload, 3);
+  tx_payload[3] = dev;
+  wifi_send_frame(CMD_BLE, tx_payload, 4);
+}
+
+// CMD_KEYB: la matriz del teclado BLE, ya traducida por el ESP32 (ver WIFI_PROTOCOL.h). Va al teclado virtual (PAD.cpp, COMMS.cpp)
+static void handle_keyb(const uint8_t* payload, uint16_t len) {
+  if (len < 9) return;                        // trama corta: que reintente
+  keyb_apply(payload);
+  send_status_only(CMD_KEYB, ST_OK);
+}
+
+// CMD_PAD: el estado del gamepad BLE (ver WIFI_PROTOCOL.h). Se guarda para el comando 78 y, si esta activado, se convierte a teclas (PAD.cpp)
+static void handle_pad(const uint8_t* payload, uint16_t len) {
+  if (len < 10) return;                       // trama corta: que reintente
+  pad_apply(payload);
+  send_status_only(CMD_PAD, ST_OK);
 }
 
 void wifi_handler_poll() {
@@ -770,6 +800,8 @@ void wifi_handler_poll() {
     case CMD_MOUSE_TEST:   handle_mouse_test(rx_payload, len, gap_us, poll_us); break;
     case CMD_MOUSE:        handle_mouse(rx_payload, len); break;
     case CMD_BLE:          handle_ble(rx_payload, len); break;
+    case CMD_KEYB:         handle_keyb(rx_payload, len); break;
+    case CMD_PAD:          handle_pad(rx_payload, len); break;
     default: break;   // comando desconocido: se ignora
   }
 }

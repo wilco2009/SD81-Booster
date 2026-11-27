@@ -60,8 +60,12 @@ void send_bit_config(uint8_t command, uint8_t value){
 }
 
 // ---- teclado virtual (FPGA: vkeys.v) ----
-static uint8_t vk_rows[8];                    // lo que la FPGA tiene ahora
-static uint32_t vk_t = 0;                     // cuando lo puso la web por ultima vez
+// Varias fuentes (la web del depurador, el teclado BLE, el gamepad como teclas), cada una con su matriz y su plazo: si una fuente no se refresca
+// en su plazo, se suelta. A la FPGA va la union (OR) y solo las filas que cambian (cada fila cuesta ~0,15 ms del canal de configuracion).
+static uint8_t  vk_rows[8];                   // lo que la FPGA tiene ahora
+static uint8_t  vk_src[VK_NSRC][8];           // lo que pide cada fuente
+static uint32_t vk_src_t[VK_NSRC];            // cuando lo puso cada fuente por ultima vez
+static const uint16_t vk_src_timeout[VK_NSRC] = { 1500, 300, 300 };   // web (como antes), teclado BLE, gamepad
 
 static void vkeys_send_row(uint8_t r){
   uint8_t v = ((vk_rows[r] & 31) << 3) | (r & 7);   // la fila en los 3 bits bajos, las columnas encima
@@ -70,22 +74,48 @@ static void vkeys_send_row(uint8_t r){
   rst_config();
 }
 
-void vkeys_set(const uint8_t* rows){
+// Manda a la FPGA las filas cuya union ha cambiado. Las filas se escriben de una en una (~0,15 ms cada una) y el ZX81 puede leer el teclado
+// entre dos escrituras: para que nunca vea la tecla sin su SHIFT (P en vez de "), al pulsar SHIFT (fila 0, bit 0) la fila 0 va la PRIMERA y al
+// soltarlo va la ULTIMA. Lo que puede verse entonces de paso es SHIFT solo, que la ROM ignora.
+static void vkeys_update(void){
+  uint8_t n[8];
   for (uint8_t r = 0; r < 8; r++) {
-    uint8_t n = rows[r] & 31;
-    if (n != vk_rows[r]) { vk_rows[r] = n; vkeys_send_row(r); }
+    n[r] = 0;
+    for (uint8_t s = 0; s < VK_NSRC; s++) n[r] |= vk_src[s][r];
   }
-  vk_t = millis();
+  const bool shift_up = (vk_rows[0] & 1) && !(n[0] & 1);    // se suelta SHIFT: fila 0 al final
+  for (uint8_t i = 0; i < 8; i++) {
+    const uint8_t r = shift_up ? (uint8_t)((i + 1) & 7) : i; // 1..7 y luego 0, o 0..7
+    if (n[r] != vk_rows[r]) { vk_rows[r] = n[r]; vkeys_send_row(r); }
+  }
 }
 
+void vkeys_set_src(uint8_t src, const uint8_t* rows){
+  if (src >= VK_NSRC) return;
+  for (uint8_t r = 0; r < 8; r++) vk_src[src][r] = rows ? (rows[r] & 31) : 0;
+  vk_src_t[src] = millis();
+  vkeys_update();
+}
+
+void vkeys_set(const uint8_t* rows){ vkeys_set_src(VK_SRC_WEB, rows); }
+
 void vkeys_clear(void){                       // al arrancar: la FPGA puede venir con algo pulsado
+  memset(vk_src, 0, sizeof vk_src);
   for (uint8_t r = 0; r < 8; r++) { vk_rows[r] = 0; vkeys_send_row(r); }
 }
 
 void vkeys_poll(void){
-  bool any = false;
-  for (uint8_t r = 0; r < 8; r++) if (vk_rows[r]) any = true;
-  if (any && millis() - vk_t > 1500) vkeys_clear();   // la web ya no esta: que no quede nada pulsado
+  const uint32_t now = millis();
+  bool changed = false;
+  for (uint8_t s = 0; s < VK_NSRC; s++) {
+    bool any = false;
+    for (uint8_t r = 0; r < 8; r++) if (vk_src[s][r]) any = true;
+    if (any && now - vk_src_t[s] > vk_src_timeout[s]) {   // la fuente ya no esta: que no le quede nada pulsado
+      memset(vk_src[s], 0, 8);
+      changed = true;
+    }
+  }
+  if (changed) vkeys_update();
 }
 
 // ---- raton Bluetooth: la FPGA lo guarda (mouse_regs.v) y el Z80 lo lee por el puerto $3FEF, indice 20, sin esperas ----

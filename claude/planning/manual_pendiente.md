@@ -51,6 +51,21 @@ versión (todavía sin publicar)»: **quitarla al publicar la FPGA**. El `PONG` 
 ## Pendiente
 
 - **Ratón Bluetooth** (`LOAD *MOUSE`, puerto índice 20, comando 77): texto ya redactado en la sección «Ratón Bluetooth: texto listo para el manual» (más abajo); falta pasarlo al `.docx` ES y EN (9.10, fila 77 en 15.5 y Apéndice N).
+- **Teclado y mando Bluetooth: borrador completo del manual en `claude/planning/manual_teclado_gamepad.md`** (27/11/2026): qué aparatos valen, comandos `LOAD *KEYB` / `LOAD *PAD`, emparejado con clave, modos texto/juego y traducción del teclado, teclas del mando y `LOAD *PAD "cadena"`, órdenes `esp ble` de la consola web y problemas frecuentes. Las dos entradas siguientes son el resumen de la ROM.
+- **Teclado y mando Bluetooth** (`LOAD *KEYB`, `LOAD *PAD`, comando 78; ROM 27/11/2026, sin probar en la placa): igual que `LOAD *MOUSE`, junto a él en 9.10 y en la tabla
+  de comandos. `THEN NEW` empareja (60 s; si el teclado pide clave, `LOAD *KEYB` la enseña como `CLAVE 123456` y se escribe en el propio teclado seguida de Intro),
+  `THEN RUN` conecta con el guardado (y lo activa), `THEN CLEAR` lo olvida, `THEN STOP` o `STOP` lo para. Sin nada, el estado en pantalla; `TO A$`, en la variable
+  (16 caracteres: CONECTADO, EMPAREJANDO 45S, CLAVE 123456, BUSCANDO, PARADO, SIN TECLADO / SIN MANDO, SIN MODULO WIFI). Solo el teclado: `LOAD *KEYB TEXT`
+  (modo texto, por defecto: cola de teclas, una cada vez, para escribir BASIC) y `LOAD *KEYB GAME` (modo juego: varias teclas a la vez); también se alterna
+  con Ctrl+Alt+Espacio. Teclado y mando vienen **parados** de fábrica: hay que emparejarlos una vez. Necesita el módulo WiFi. Falta además: la fila 78 en 15.5,
+  la tabla de teclas del PC → ZX81 (`KEYMAP_ZX81.cpp`) y el mando con `LOAD *JOY` (botones por defecto), cuando se haya probado en la placa.
+- **Teclas del mando: `LOAD *PAD "cadena"`** (op 7 del comando 78; ROM 27/11/2026, sin probar en la placa): configura el mando **por separado** del joystick DB9.
+  Un carácter por posición, en este orden: ARRIBA, ABAJO, IZQUIERDA, DERECHA, A, B, X, Y, LB, RB, LT, RT, SELECT, START, L3, R3, HOME (hasta 17; si la cadena
+  es más corta, el resto no cambia). Cada carácter como en `LOAD *JOY` (letra, cifra, `.`, `<` = NEW LINE, `*` = SHIFT); además **espacio** = la tecla ESPACIO,
+  **`-`** = ninguna tecla y **`=`** = la misma que `LOAD *JOY` (la dirección o el disparo). `LOAD *PAD ""` vuelve a los de por defecto: direcciones, A y B
+  como `LOAD *JOY`, START = NEW LINE, el resto nada (sin configurar, el mando se porta como hasta ahora). Las direcciones valen para la cruceta y el stick
+  izquierdo. Más de 17 caracteres o uno no válido: error B. Ejemplo: `LOAD *PAD "QAOPMM--<"` (arriba Q, abajo A, izquierda O, derecha P, A y B = M,
+  X e Y nada, LB = NEW LINE). Conviene una tabla con los nombres de los botones del mando (Amazon Luna) y una figura.
 - Sin probar en la placa (y el manual lo describe como si funcionara): el MQTT avanzado (TLS, usuario y contraseña, QoS 1, retenidos, testamento), el comando 76 y los BMP,
   la paleta de 16, el modo 160x200 y el scroll vertical. Revisar el texto si la prueba da otra cosa.
 - Capturas de pantalla de los modos de 160 píxeles (no hay ninguna) y, si se quiere, `DOC/img/scrabble_start.png` (la pantalla de inicio del Scrabble).
